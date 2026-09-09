@@ -198,11 +198,6 @@
 * **(5) 🖱️ Global Canvas Mouse Pan & Zoom Fixer**:
   * Prevents middle-click panning and wheel zooming from freezing over textareas, DOM widgets, or custom nodes.
 
-* **(6) 📦 Bonus QoL Utility Nodes**:
-  * `🌊 Bada Show Text` (`QoL_ShowText`): Live string/value inspector.
-  * `🌊 Bada Any Switch` (`QoL_AnySwitch`): Universal multi-type router (A/B).
-  * `🌊 Bada Note` (`QoL_NoteNode`): Non-intrusive markdown documentation note.
-
 ---
 
 ## ⚙️ BADA Settings & Bilingual i18n
@@ -214,6 +209,13 @@ Open the ComfyUI Settings dialog (**`⚙️ Settings`**) to customize your BADA 
 * **✨ [QoL] Auto-Dismiss Initial Missing Model Alerts**: Toggle automatic error suppression.
 * **🖱️ [QoL] Global Canvas Mouse Fixer**: Toggle middle-click pan & wheel zoom capture.
 * **⚡ [Auto Assigner] Scan on Workflow Load**: Toggle automatic missing model prompt on load.
+
+---
+
+> [!NOTE]
+> **💡 Recommended ComfyUI Canvas Mode**:  
+> Like `rgthree-comfy` and other advanced visual canvas suites, **Classic Canvas Rendering (Nodes 1.0)** is recommended for the best interactive experience.  
+> If you have experimental **Nodes 2.0** enabled in ComfyUI Settings (`⚙️ -> Use New Nodes 2.0`), please set it to **Disabled (OFF)** for full interactive grid dragging and on-canvas radio buttons.
 
 ---
 
@@ -242,7 +244,7 @@ git clone https://github.com/bada-ya/ComfyUI-Bada-Utils.git
 ---
 
 ## 🛡️ 100% Backward Compatibility
-All existing workflows built with `UniversalPresetHub`, `VisualGridPromptNode`, `VisualGridPrompt`, or `QoL_*` nodes load seamlessly with zero missing node errors thanks to built-in class alias resolution.
+All existing workflows built with `UniversalPresetHub`, `VisualGridPromptNode`, or `VisualGridPrompt` load seamlessly with zero missing node errors thanks to built-in class alias resolution.
 
 ---
 

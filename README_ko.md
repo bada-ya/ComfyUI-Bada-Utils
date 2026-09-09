@@ -198,11 +198,6 @@
 * **(5) 🖱️ 전역 마우스 화면 이동(Pan) & 휠 줌(Zoom) 보정**:
   * 텍스트 입력창이나 서드파티 노드 위에서도 마우스 휠 줌 및 중간 버튼 화면 이동이 멈추지 않고 매끄럽게 동작합니다.
 
-* **(6) 📦 보너스 QoL 유틸리티 노드**:
-  * `🌊 Bada Show Text` (`QoL_ShowText`): 문자열 인스펙터 노드.
-  * `🌊 Bada Any Switch` (`QoL_AnySwitch`): 만능 타입 스위처 (A/B).
-  * `🌊 Bada Note` (`QoL_NoteNode`): 마크다운 메모 노드.
-
 ---
 
 ## ⚙️ BADA 전역 설정 및 다국어 지원
@@ -214,6 +209,13 @@ ComfyUI 우측 상단 톱니바퀴(**`⚙️ Settings`**) 메뉴에서 BADA Suit
 * **✨ [QoL] Auto-Dismiss Initial Missing Model Alerts**: 초기 에러 억제 토글.
 * **🖱️ [QoL] Global Canvas Mouse Fixer**: 전역 마우스 휠 줌 & 중간 버튼 패닝 보정 토글.
 * **⚡ [Auto Assigner] Scan on Workflow Load**: 외부 워크플로우 로드 시 자동 알림창 On/Off.
+
+---
+
+> [!NOTE]
+> **💡 권장 ComfyUI 캔버스 모드**:  
+> `rgthree-comfy` 등 고급 비주얼 캔버스 도구들과 마찬가지로, **클래식 캔버스 렌더링(Nodes 1.0)** 모드 사용을 강력 권장합니다.  
+> ComfyUI 설정(`⚙️ -> Use New Nodes 2.0`)에서 실험적 **Nodes 2.0**이 켜져 있다면, 부드러운 격자 드래그와 온캔버스 라디오 버튼 사용을 위해 **OFF(비활성화)**로 설정해 주세요.
 
 ---
 
@@ -242,7 +244,7 @@ git clone https://github.com/bada-ya/ComfyUI-Bada-Utils.git
 ---
 
 ## 🛡️ 100% 하위 호환성 보장 (Backward Compatibility)
-기존에 개별 노드로 제작된 워크플로우(`UniversalPresetHub`, `VisualGridPromptNode`, `VisualGridPrompt`, `QoL_*`)는 **자동 클래스 별칭(Alias) 매핑**을 통해 빨간색 결손 노드 에러 없이 100% 완벽하게 로드되고 정상 작동합니다.
+기존에 개별 노드로 제작된 워크플로우(`UniversalPresetHub`, `VisualGridPromptNode`, `VisualGridPrompt`)는 **자동 클래스 별칭(Alias) 매핑**을 통해 빨간색 결손 노드 에러 없이 100% 완벽하게 로드되고 정상 작동합니다.
 
 ---
 
