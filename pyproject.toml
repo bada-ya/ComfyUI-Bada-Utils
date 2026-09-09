@@ -28,6 +28,9 @@ Includes = [
     "assets",
     "__init__.py",
     "presets_data.json",
+    "node_list.json",
+    "LICENSE",
     "README.md",
     "README_ko.md"
 ]
+
