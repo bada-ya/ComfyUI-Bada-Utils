@@ -1,0 +1,38 @@
+{
+  "settings": {
+    "category": "🌊 Bada Utils",
+    "language": "UI Language (언어 설정)",
+    "blank_canvas": "Clean Blank Canvas on Startup",
+    "blank_canvas_desc": "Starts ComfyUI with an empty clean canvas instead of the default missing-model workflow.",
+    "mouse_fix": "Smooth Mouse Pan & Wheel Zoom Fixer",
+    "mouse_fix_desc": "Allows middle-click panning and wheel zooming seamlessly even over nodes and text widgets.",
+    "auto_assign": "Auto Model & LoRA Assigner Alert",
+    "auto_assign_desc": "Automatically detects missing models/LoRAs when loading workflows and prompts smart local matching.",
+    "sidebar_organizer": "Sidebar Workflow Folder Management",
+    "sidebar_organizer_desc": "Enables drag-and-drop workflow folder moving and organization in the left sidebar."
+  },
+  "presets": {
+    "title": "Bada Preset Hub",
+    "save_preset": "Save Current Preset",
+    "load_preset": "Apply Preset",
+    "delete_preset": "Delete",
+    "preset_name_placeholder": "Enter preset name...",
+    "no_presets": "No presets saved yet.",
+    "save_success": "Preset saved successfully!",
+    "apply_success": "Preset applied to workflow!"
+  },
+  "model_assigner": {
+    "title": "Auto Model Assigner",
+    "missing_found": "Missing models or LoRAs detected in workflow!",
+    "match_all": "Auto Match & Replace All",
+    "no_matches": "No suitable local models found."
+  },
+  "regional_prompt": {
+    "title": "Visual Regional Prompt",
+    "aspect_ratio": "Aspect Ratio",
+    "add_area": "Add Area",
+    "clear_areas": "Clear Grid",
+    "white_bg": "Solid White Backdrop",
+    "char_profile": "Character Profile (Consistency Anchor)"
+  }
+}

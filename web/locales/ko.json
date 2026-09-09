@@ -1,0 +1,38 @@
+{
+  "settings": {
+    "category": "🌊 Bada Utils",
+    "language": "UI 언어 (Language)",
+    "blank_canvas": "시작 시 깨끗한 빈 캔버스로 열기",
+    "blank_canvas_desc": "ComfyUI 실행 시 모델 누락 에러가 나는 기본 워크플로우 대신 깨끗한 빈 캔버스로 시작합니다.",
+    "mouse_fix": "마우스 휠 줌 & 중간 버튼 패닝 보정기",
+    "mouse_fix_desc": "노드 위나 텍스트 박스 위에서도 휠 줌 및 휠 클릭 드래그 화면 이동이 막힘없이 부드럽게 작동합니다.",
+    "auto_assign": "자동 모델 & LoRA 스마트 매칭 알림",
+    "auto_assign_desc": "워크플로우를 불러올 때 없는 모델이나 LoRA가 있으면 로컬 모델과 자동으로 매칭하여 안내창을 띄웁니다.",
+    "sidebar_organizer": "사이드바 워크플로우 폴더 정리 및 이동",
+    "sidebar_organizer_desc": "왼쪽 워크플로우 사이드바에서 워크플로우를 다른 폴더로 드래그하여 이동하거나 새 폴더를 생성할 수 있습니다."
+  },
+  "presets": {
+    "title": "Bada 유니버셜 프리셋 허브",
+    "save_preset": "현재 워크플로우 설정 프리셋 저장",
+    "load_preset": "프리셋 적용하기",
+    "delete_preset": "삭제",
+    "preset_name_placeholder": "프리셋 이름을 입력하세요...",
+    "no_presets": "저장된 프리셋이 없습니다.",
+    "save_success": "프리셋이 성공적으로 저장되었습니다!",
+    "apply_success": "프리셋이 워크플로우에 적용되었습니다!"
+  },
+  "model_assigner": {
+    "title": "자동 모델 매칭 도우미",
+    "missing_found": "워크플로우에 설치되지 않은 모델/LoRA가 감지되었습니다!",
+    "match_all": "추천 로컬 모델로 일괄 매칭 및 장착",
+    "no_matches": "적합한 로컬 모델을 찾지 못했습니다."
+  },
+  "regional_prompt": {
+    "title": "비주얼 그리드 리저널 프롬프트",
+    "aspect_ratio": "종횡비 (비율)",
+    "add_area": "영역 추가",
+    "clear_areas": "격자 초기화",
+    "white_bg": "백색 배경 유지 (Solid White)",
+    "char_profile": "인물 공통 외모 묘사 (일관성 앵커)"
+  }
+}

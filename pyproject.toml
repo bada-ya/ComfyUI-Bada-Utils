@@ -1,0 +1,29 @@
+[project]
+name = "comfyui-bada-utils"
+version = "1.0.0"
+description = "🌊 All-in-One Quality of Life, Smart Presets Hub, Auto Model Assigner & Visual Regional Prompting Suite for ComfyUI"
+readme = "README.md"
+authors = [
+    { name = "bada-ya", email = "solokjd@gmail.com" }
+]
+license = { text = "MIT" }
+dependencies = [
+    "aiohttp>=3.8.0",
+    "Pillow>=9.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/bada-ya/ComfyUI-Bada-Utils"
+
+[tool.comfy]
+PublisherId = "bada-ya"
+DisplayName = "ComfyUI-Bada-Utils"
+Icon = "https://raw.githubusercontent.com/bada-ya/ComfyUI-Bada-Utils/main/assets/bada_icon.png"
+Includes = [
+    "nodes",
+    "server",
+    "web",
+    "__init__.py",
+    "README.md",
+    "README_ko.md"
+]

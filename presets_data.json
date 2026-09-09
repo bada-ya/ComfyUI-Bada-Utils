@@ -1,0 +1,37 @@
+{
+  "UNETLoader": {},
+  "KSampler": {
+    "Fast Test": {
+      "nodeType": "KSampler",
+      "timestamp": 639245590906837800,
+      "mode": 0,
+      "widgets": {
+        "cfg": 7,
+        "steps": 20
+      }
+    }
+  },
+  "BadaRegionalPrompt": {
+    "🌊 Bada Visual Regional Prompt #1": {
+      "nodeType": "BadaRegionalPrompt",
+      "timestamp": 1788938129718,
+      "mode": 0,
+      "isBypassed": false,
+      "isMuted": false,
+      "widgets": {
+        "prompt_text": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\n\nA high-definition 16:9 multi-panel composition strictly partitioned into 2 proportional sections.\n[Subject / Character Profile & Visual Consistency]: Korean man in his 30s, neat dandy cut black hair, navy business suit, identical character features and costume maintained across all panels.\n[Spatial Layout & Exact Proportional Placement]:\n- Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height): .\n- Top center panel (occupying exactly 33% width from 33% to 67%, 67% height from 0% to 67%): .\n[Multi-Panel Layout & Strict Proportional Scale]: Split-screen multi-panel collage layout strictly adhering to the exact percentage width and height boundaries specified above for each column and row without shifting, resizing, or distorting relative panel scales. Each panel is cleanly separated by crisp thin black divider lines, clean comic grid panels, pristine artwork without any text, labels, numbers, coordinates, or watermarks.\n\nclean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "format": "Natural Spatial (Krea/MiniMax/Gemini/GPT)",
+        "aspect_ratio": "16:9",
+        "grid_cols": 6,
+        "grid_rows": 3,
+        "ui_language": "한국어",
+        "grid_data": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"aspectRatio\":\"16:9\",\"white_bg\":false,\"whiteBg\":false,\"grid_borders\":true,\"gridBorders\":true,\"active_art_style\":\"photorealistic\",\"character_profile\":\"Korean man in his 30s, neat dandy cut black hair, navy business suit\",\"character_profile_ko\":\"30대 한국 남성, 깔끔한 댄디컷 흑발, 네이비 정장 수트\",\"characterProfile\":\"Korean man in his 30s, neat dandy cut black hair, navy business suit\",\"characterProfileKo\":\"30대 한국 남성, 깔끔한 댄디컷 흑발, 네이비 정장 수트\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height)\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":1,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Top center panel (occupying exactly 33% width from 33% to 67%, 67% height from 0% to 67%)\"}]}",
+        "prefix_prompt": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography",
+        "suffix_prompt": "clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "visual_grid_ui": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"white_bg\":false,\"grid_borders\":true,\"character_profile\":\"Korean man in his 30s, neat dandy cut black hair, navy business suit\",\"character_profile_ko\":\"30대 한국 남성, 깔끔한 댄디컷 흑발, 네이비 정장 수트\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height)\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":1,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Top center panel (occupying exactly 33% width from 33% to 67%, 67% height from 0% to 67%)\"}],\"prefix\":\"RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\",\"suffix\":\"clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range\",\"format\":\"Natural Spatial (Krea/MiniMax/Gemini/GPT)\",\"ui_language\":\"한국어\",\"stage_height\":320}"
+      },
+      "_isLoraStack": false,
+      "_isFastGroups": false
+    }
+  }
+}
