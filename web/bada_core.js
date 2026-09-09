@@ -96,7 +96,7 @@ function applyBilingualSettingsUI() {
             }
         });
 
-        // 3. Inject / Refresh the Expandable Global Presets Panel below Workflow & QoL
+        // 3. Inject / Attach the Expandable Global Presets Panel right after MouseFix setting row
         injectInlinePresetsPanel(dialog);
     });
 }
@@ -104,46 +104,43 @@ function applyBilingualSettingsUI() {
 function injectInlinePresetsPanel(dialog) {
     if (!dialog) return;
 
-    // Check if we are currently looking at the Bada Utils settings pane
-    const hasBadaSettings = Array.from(dialog.querySelectorAll("span, label, td, div")).some(el =>
+    // 1. Find the element containing "Smooth Mouse" or "마우스 휠 줌"
+    const allTextEls = Array.from(dialog.querySelectorAll("span, label, td, div, p"));
+    const mouseLabel = allTextEls.find(el =>
         el.children.length === 0 && el.textContent && (
-            el.textContent.includes("Smooth Mouse Pan") ||
-            el.textContent.includes("Sidebar Workflow") ||
-            el.textContent.includes("Bada Utils")
+            el.textContent.includes("Smooth Mouse") ||
+            el.textContent.includes("마우스 휠 줌")
         )
     );
 
-    if (!hasBadaSettings) return;
+    if (!mouseLabel) return;
 
-    // Find insertion anchor (the parent container holding the settings rows)
-    const mouseEl = Array.from(dialog.querySelectorAll("*")).find(el =>
-        el.children.length === 0 && el.textContent && el.textContent.includes("Smooth Mouse Pan")
-    );
-
-    let hostContainer = null;
-    if (mouseEl) {
-        let cur = mouseEl;
-        while (cur && cur !== dialog && !cur.classList.contains("p-dialog-content") && !cur.classList.contains("comfy-modal-content")) {
-            if (cur.parentElement && (cur.parentElement.children.length >= 3 || cur.parentElement.classList.contains("p-dialog-content"))) {
-                hostContainer = cur.parentElement;
-                break;
-            }
-            cur = cur.parentElement;
+    // 2. Walk up to find the outermost container row of this setting
+    let settingRow = mouseLabel;
+    while (settingRow.parentElement && settingRow.parentElement !== dialog && !settingRow.parentElement.classList.contains("p-dialog-content")) {
+        const p = settingRow.parentElement;
+        if (p.querySelector(".p-inputswitch, input[type='checkbox'], .p-togglebutton, .p-checkbox") || p.classList.contains("p-field") || p.classList.contains("form-group")) {
+            settingRow = p;
+            break;
         }
+        settingRow = p;
     }
 
-    if (!hostContainer) {
-        hostContainer = dialog.querySelector(".p-dialog-content") || dialog.querySelector(".comfy-settings-dialog") || dialog;
-    }
+    if (!settingRow || !settingRow.parentElement) return;
 
-    if (!hostContainer) return;
+    // 3. Check if panel is already attached as next sibling
+    let panel = document.getElementById("bada-inline-presets-panel");
+    const isAlreadyAttached = panel && panel.parentElement === settingRow.parentElement && settingRow.nextElementSibling === panel;
 
-    let panel = hostContainer.querySelector("#bada-inline-presets-panel");
     if (!panel) {
         panel = document.createElement("div");
         panel.id = "bada-inline-presets-panel";
-        panel.style.cssText = "margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(255, 255, 255, 0.12); display: flex; flex-direction: column; gap: 14px;";
-        hostContainer.appendChild(panel);
+    }
+
+    panel.style.cssText = "width: 100%; margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(255, 255, 255, 0.12); display: flex; flex-direction: column; gap: 14px; box-sizing: border-box;";
+
+    if (!isAlreadyAttached) {
+        settingRow.insertAdjacentElement("afterend", panel);
     }
 
     renderInlinePresetsContent(panel);
@@ -157,9 +154,9 @@ function renderInlinePresetsContent(panel) {
 
     panel.innerHTML = `
         <!-- Section Header Bar -->
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; cursor: pointer;" id="bada-inline-toggle-header">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; cursor: pointer; user-select: none;" id="bada-inline-toggle-header">
             <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 16px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 15px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 8px;">
                     <span style="color: #818cf8;">🌐</span>
                     <span>4. Global Presets (글로벌 프리셋 등록 현황 및 관리)</span>
                 </span>
@@ -369,7 +366,7 @@ app.registerExtension({
             if (hasSettingsModal) {
                 applyBilingualSettingsUI();
             }
-        }, 400);
+        }, 300);
 
         // 4. Cleanup floating tooltips
         const cleanupStuckTooltips = () => {
