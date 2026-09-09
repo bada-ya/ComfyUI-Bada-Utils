@@ -14,6 +14,7 @@ dependencies = [
 
 [project.urls]
 Repository = "https://github.com/bada-ya/ComfyUI-Bada-Utils"
+Homepage = "https://github.com/bada-ya/ComfyUI-Bada-Utils"
 
 [tool.comfy]
 PublisherId = "bada-ya"
@@ -23,7 +24,10 @@ Includes = [
     "nodes",
     "server",
     "web",
+    "workflows",
+    "assets",
     "__init__.py",
+    "presets_data.json",
     "README.md",
     "README_ko.md"
 ]
