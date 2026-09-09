@@ -1,6 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
-import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary } from "./presets_overview_modal.js";
+import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary, getGlobalPresetsStore } from "./presets_overview_modal.js";
+import { showToast } from "./presets_modal.js";
 
 /**
  * ComfyUI-Bada-Utils Core Settings Initializer
@@ -8,7 +9,7 @@ import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary } from "./prese
  * 1. General (일반) -> 🌐 UI Language (UI 언어 설정)
  * 2. Smart Features (스마트 기능) -> 📁 Sidebar Workflow Folder Management (사이드바 워크플로우 폴더 정리 및 이동)
  * 3. Workflow & QoL (워크플로우 & 편의성) -> 🖱️ Smooth Mouse Pan & Wheel Zoom Fixer (마우스 휠 줌 & 중간 버튼 패닝 보정기)
- * 4. Global Presets (글로벌 프리셋) -> 🌐 Global Presets Status (글로벌 프리셋 등록 현황 및 요약)
+ * + 4. Global Presets (글로벌 프리셋) -> Inline Expandable Information & Management Panel
  */
 
 const BADA_UNIFIED_SETTINGS = {
@@ -36,18 +37,14 @@ const BADA_UNIFIED_SETTINGS = {
         name: "🖱️ Smooth Mouse Pan & Wheel Zoom Fixer (마우스 휠 줌 & 중간 버튼 패닝 보정기)",
         type: "boolean",
         defaultValue: true
-    },
-    presetsOverview: {
-        id: "BadaUtils.GlobalPresetsOverview",
-        category: ["🌊 Bada Utils", "4. Global Presets (글로벌 프리셋)"],
-        name: "🌐 Global Presets Status (글로벌 프리셋 등록 현황 및 요약)",
-        type: "hidden"
     }
 };
 
+let isPresetsExpanded = true;
+
 /**
  * Live DOM updater for open Settings Dialogs (both PrimeVue modal & classic table)
- * Ensures 100% unified English (한국어) bilingual text and injects Global Presets Button & Badge.
+ * Ensures 100% unified English (한국어) bilingual text and injects Global Presets Expandable Panel.
  */
 function applyBilingualSettingsUI() {
     // 1. Update internal app.ui.settings.settings definitions
@@ -62,9 +59,6 @@ function applyBilingualSettingsUI() {
             }
             if (settingsMap[BADA_UNIFIED_SETTINGS.mouse.id]) {
                 settingsMap[BADA_UNIFIED_SETTINGS.mouse.id].name = BADA_UNIFIED_SETTINGS.mouse.name;
-            }
-            if (settingsMap[BADA_UNIFIED_SETTINGS.presetsOverview.id]) {
-                settingsMap[BADA_UNIFIED_SETTINGS.presetsOverview.id].name = BADA_UNIFIED_SETTINGS.presetsOverview.name;
             }
         }
     } catch (e) {}
@@ -89,102 +83,229 @@ function applyBilingualSettingsUI() {
                 else if (text.includes("Smooth Mouse") || text.includes("마우스 휠 줌")) {
                     el.textContent = BADA_UNIFIED_SETTINGS.mouse.name;
                 }
-                // Item 4: Global Presets Status
-                else if (text.includes("Global Presets Status") || text.includes("글로벌 프리셋 등록 현황")) {
-                    el.textContent = BADA_UNIFIED_SETTINGS.presetsOverview.name;
-                }
-                // Category Headers (strip numeric prefix for clean look if wanted)
+                // Category Headers
                 else if (text.match(/^(?:1\.\s*)?General(?:\s*\(일반\))?$/i) || text === "일반") {
-                    el.textContent = "General (일반)";
+                    el.textContent = "1. General (일반)";
                 }
                 else if (text.match(/^(?:2\.\s*)?Smart Features(?:\s*\(스마트 기능\))?$/i) || text === "스마트 기능") {
-                    el.textContent = "Smart Features (스마트 기능)";
+                    el.textContent = "2. Smart Features (스마트 기능)";
                 }
                 else if (text.match(/^(?:3\.\s*)?Workflow & QoL(?:\s*\(워크플로우 & 편의성\))?$/i) || text === "워크플로우 & 편의성") {
-                    el.textContent = "Workflow & QoL (워크플로우 & 편의성)";
-                }
-                else if (text.match(/^(?:4\.\s*)?Global Presets(?:\s*\(글로벌 프리셋\))?$/i) || text === "글로벌 프리셋") {
-                    el.textContent = "Global Presets (글로벌 프리셋)";
+                    el.textContent = "3. Workflow & QoL (워크플로우 & 편의성)";
                 }
             }
         });
 
-        // 3. Inject Button & Live Badge directly on the Global Presets Status row
-        injectPresetsButtonIntoRow(dialog);
+        // 3. Inject / Refresh the Expandable Global Presets Panel below Workflow & QoL
+        injectInlinePresetsPanel(dialog);
     });
 }
 
-function injectPresetsButtonIntoRow(dialog) {
+function injectInlinePresetsPanel(dialog) {
     if (!dialog) return;
 
-    // Find the text element for Global Presets Status
-    const statusLabels = Array.from(dialog.querySelectorAll("span, label, td, div, p")).filter(el =>
-        el.children.length === 0 && el.textContent && el.textContent.includes("Global Presets Status")
+    // Check if we are currently looking at the Bada Utils settings pane
+    const hasBadaSettings = Array.from(dialog.querySelectorAll("span, label, td, div")).some(el =>
+        el.children.length === 0 && el.textContent && (
+            el.textContent.includes("Smooth Mouse Pan") ||
+            el.textContent.includes("Sidebar Workflow") ||
+            el.textContent.includes("Bada Utils")
+        )
     );
 
-    statusLabels.forEach(labelEl => {
-        // Find row container (.p-field, tr, or flex container)
-        let row = labelEl.closest("tr") || labelEl.closest(".p-field") || labelEl.parentElement;
-        if (row && row.children.length === 1 && row.parentElement && row.parentElement.classList.contains("p-field")) {
-            row = row.parentElement;
-        }
+    if (!hasBadaSettings) return;
 
-        if (!row) return;
+    // Find insertion anchor (the parent container holding the settings rows)
+    const mouseEl = Array.from(dialog.querySelectorAll("*")).find(el =>
+        el.children.length === 0 && el.textContent && el.textContent.includes("Smooth Mouse Pan")
+    );
 
-        let btnContainer = row.querySelector(".bada-injected-btn-container");
-        const summary = getGlobalPresetsSummary();
-        const badgeText = summary.totalPresets > 0
-            ? `🎯 ${summary.totalPresets} Presets / ${summary.nodeCount} Nodes (총 ${summary.totalPresets}개)`
-            : `📭 0 Presets (0개 등록됨)`;
-
-        if (!btnContainer) {
-            btnContainer = document.createElement("div");
-            btnContainer.className = "bada-injected-btn-container";
-            btnContainer.style.cssText = "display: flex; align-items: center; gap: 12px; margin-left: auto; flex-shrink: 0;";
-
-            const summaryBadge = document.createElement("span");
-            summaryBadge.className = "bada-summary-badge-live";
-            summaryBadge.style.cssText = "font-size: 12px; color: #38bdf8; font-weight: 600; background: rgba(56, 189, 248, 0.12); padding: 5px 12px; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.3); font-family: sans-serif;";
-            summaryBadge.textContent = badgeText;
-
-            const btn = document.createElement("button");
-            btn.type = "button";
-            btn.className = "bada-btn-open-overview";
-            btn.style.cssText = "background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; border: 1px solid rgba(255,255,255,0.25); padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(99,102,241,0.35); transition: all 0.2s ease;";
-            btn.innerHTML = `<span>🌐</span> <span>View Presets (프리셋 전체 현황 및 관리)</span>`;
-
-            btn.addEventListener("mouseenter", () => {
-                btn.style.transform = "translateY(-1px)";
-                btn.style.boxShadow = "0 6px 18px rgba(99,102,241,0.5)";
-            });
-            btn.addEventListener("mouseleave", () => {
-                btn.style.transform = "none";
-                btn.style.boxShadow = "0 4px 14px rgba(99,102,241,0.35)";
-            });
-
-            btn.addEventListener("click", (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                showGlobalPresetsOverviewModal();
-            });
-
-            btnContainer.appendChild(summaryBadge);
-            btnContainer.appendChild(btn);
-
-            row.style.display = "flex";
-            row.style.alignItems = "center";
-            row.style.justifyContent = "space-between";
-            row.style.gap = "16px";
-            row.style.padding = "6px 0";
-            row.appendChild(btnContainer);
-        } else {
-            // Update live badge text on refresh
-            const badge = btnContainer.querySelector(".bada-summary-badge-live");
-            if (badge) {
-                badge.textContent = badgeText;
+    let hostContainer = null;
+    if (mouseEl) {
+        let cur = mouseEl;
+        while (cur && cur !== dialog && !cur.classList.contains("p-dialog-content") && !cur.classList.contains("comfy-modal-content")) {
+            if (cur.parentElement && (cur.parentElement.children.length >= 3 || cur.parentElement.classList.contains("p-dialog-content"))) {
+                hostContainer = cur.parentElement;
+                break;
             }
+            cur = cur.parentElement;
         }
+    }
+
+    if (!hostContainer) {
+        hostContainer = dialog.querySelector(".p-dialog-content") || dialog.querySelector(".comfy-settings-dialog") || dialog;
+    }
+
+    if (!hostContainer) return;
+
+    let panel = hostContainer.querySelector("#bada-inline-presets-panel");
+    if (!panel) {
+        panel = document.createElement("div");
+        panel.id = "bada-inline-presets-panel";
+        panel.style.cssText = "margin-top: 24px; padding-top: 18px; border-top: 1px solid rgba(255, 255, 255, 0.12); display: flex; flex-direction: column; gap: 14px;";
+        hostContainer.appendChild(panel);
+    }
+
+    renderInlinePresetsContent(panel);
+}
+
+function renderInlinePresetsContent(panel) {
+    const summary = getGlobalPresetsSummary();
+    const summaryHeader = summary.totalPresets > 0
+        ? `🎯 Total Presets: ${summary.totalPresets} across ${summary.nodeCount} Node Types (총 ${summary.totalPresets}개 / ${summary.nodeCount}개 노드 등록됨)`
+        : `📭 No Global Presets Saved Yet (저장된 글로벌 프리셋이 없습니다)`;
+
+    panel.innerHTML = `
+        <!-- Section Header Bar -->
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; cursor: pointer;" id="bada-inline-toggle-header">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 16px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #818cf8;">🌐</span>
+                    <span>4. Global Presets (글로벌 프리셋 등록 현황 및 관리)</span>
+                </span>
+                <span style="font-size: 12px; font-weight: 600; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 10px; border-radius: 10px;">
+                    ${summary.totalPresets} ${summary.totalPresets === 1 ? "Preset (1개)" : "Presets (" + summary.totalPresets + "개)"}
+                </span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 12px; color: #94a3b8;">※ Stored Globally (ComfyUI 전역 공유)</span>
+                <button type="button" id="bada-inline-toggle-btn" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                    <span>${isPresetsExpanded ? "▲ Collapse (접기)" : "▼ Expand (펼치기)"}</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Expandable Body Container -->
+        <div id="bada-inline-presets-body" style="display: ${isPresetsExpanded ? 'flex' : 'none'}; flex-direction: column; gap: 14px; background: rgba(20, 24, 38, 0.7); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 12px; padding: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.25);">
+            <div style="font-size: 13px; color: #93c5fd; font-weight: 600; display: flex; align-items: center; justify-content: space-between;">
+                <span>${summaryHeader}</span>
+                <span style="font-size: 11px; color: #64748b;">(동일 노드면 모든 워크플로우에서 즉시 적용)</span>
+            </div>
+
+            <!-- Cards Grid -->
+            <div style="display: flex; flex-direction: column; gap: 10px; max-height: 280px; overflow-y: auto; padding-right: 4px;">
+                ${summary.nodeSummaries.length === 0 ? `
+                    <div style="text-align: center; padding: 24px 16px; background: rgba(255, 255, 255, 0.02); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 8px;">
+                        <span style="font-size: 13px; color: #94a3b8;">
+                            💡 캔버스에서 원하는 노드를 <b>우클릭</b> 후 <b>[현재 세팅 글로벌 프리셋으로 저장...]</b>을 누르면 이곳에 노드별로 자동 등록됩니다.
+                        </span>
+                    </div>
+                ` : `
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;">
+                        ${summary.nodeSummaries.map(node => `
+                            <div style="background: rgba(30, 36, 56, 0.85); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding-bottom: 4px;">
+                                    <span style="font-size: 13px; font-weight: 700; color: #f1f5f9; font-family: monospace;">🧩 ${escapeHtml(node.nodeType)}</span>
+                                    <span style="font-size: 11px; font-weight: 600; color: #a5b4fc; background: rgba(99, 102, 241, 0.2); padding: 1px 6px; border-radius: 6px;">${node.count}개</span>
+                                </div>
+                                <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                                    ${node.presets.map(name => `
+                                        <span style="font-size: 11px; color: #cbd5e1; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); padding: 2px 6px; border-radius: 8px;">🏷️ ${escapeHtml(name)}</span>
+                                    `).join("")}
+                                </div>
+                            </div>
+                        `).join("")}
+                    </div>
+                `}
+            </div>
+
+            <!-- Action Bar -->
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px;">
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" id="bada-inline-export-btn" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                        📤 Backup All (전체 백업 JSON)
+                    </button>
+                    <button type="button" id="bada-inline-import-btn" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                        📥 Import (불러오기)
+                    </button>
+                </div>
+                <button type="button" id="bada-inline-popup-btn" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.25); padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(99,102,241,0.3);">
+                    🌐 Open Full Popup (전용 팝업으로 크게 보기)
+                </button>
+            </div>
+        </div>
+    `;
+
+    // Toggle expand/collapse
+    const toggleHeader = panel.querySelector("#bada-inline-toggle-header");
+    toggleHeader?.addEventListener("click", () => {
+        isPresetsExpanded = !isPresetsExpanded;
+        const body = panel.querySelector("#bada-inline-presets-body");
+        const btn = panel.querySelector("#bada-inline-toggle-btn span");
+        if (body) body.style.display = isPresetsExpanded ? "flex" : "none";
+        if (btn) btn.textContent = isPresetsExpanded ? "▲ Collapse (접기)" : "▼ Expand (펼치기)";
     });
+
+    // Popup button
+    panel.querySelector("#bada-inline-popup-btn")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showGlobalPresetsOverviewModal();
+    });
+
+    // Backup button
+    panel.querySelector("#bada-inline-export-btn")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const store = getGlobalPresetsStore();
+        const jsonStr = JSON.stringify(store, null, 2);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `comfyui_global_presets_backup_${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast("📤 Global presets backup JSON downloaded (백업 파일 다운로드 완료)", "success");
+    });
+
+    // Import button
+    panel.querySelector("#bada-inline-import-btn")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".json";
+        input.onchange = (evt) => {
+            const file = evt.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (re) => {
+                try {
+                    const imported = JSON.parse(re.target.result);
+                    if (imported && typeof imported === "object") {
+                        const current = getGlobalPresetsStore();
+                        const merged = { ...current };
+                        for (const [k, v] of Object.entries(imported)) {
+                            merged[k] = { ...(merged[k] || {}), ...v };
+                        }
+                        localStorage.setItem("ComfyUI_Universal_Smart_Presets_v1", JSON.stringify(merged));
+                        fetch("/api/bada/presets/save", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ presets: merged })
+                        }).catch(() => {});
+                        renderInlinePresetsContent(panel);
+                        showToast("📥 Global presets imported successfully (글로벌 프리셋 불러오기 완료)", "success");
+                    }
+                } catch (err) {
+                    showToast("⚠️ Failed to parse JSON file (JSON 파일 형식 오류): " + err.message, "warning");
+                }
+            };
+            reader.readAsText(file);
+        };
+        input.click();
+    });
+}
+
+function escapeHtml(str) {
+    if (!str) return "";
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 app.registerExtension({
@@ -195,7 +316,7 @@ app.registerExtension({
         BadaI18n.init(app);
         const initialLang = BadaI18n.lang;
 
-        // 2. Register Unified Bilingual Settings
+        // 2. Register Unified Bilingual Settings (Only clean 3 core toggles)
         app.ui.settings.addSetting({
             id: BADA_UNIFIED_SETTINGS.lang.id,
             category: BADA_UNIFIED_SETTINGS.lang.category,
@@ -231,17 +352,9 @@ app.registerExtension({
             defaultValue: BADA_UNIFIED_SETTINGS.mouse.defaultValue
         });
 
-        app.ui.settings.addSetting({
-            id: BADA_UNIFIED_SETTINGS.presetsOverview.id,
-            category: BADA_UNIFIED_SETTINGS.presetsOverview.category,
-            name: BADA_UNIFIED_SETTINGS.presetsOverview.name,
-            type: "hidden",
-            defaultValue: ""
-        });
-
         applyBilingualSettingsUI();
 
-        // 3. Monitor settings dialog opening to inject button and update bilingual labels
+        // 3. Monitor settings dialog opening to inject expandable panel and update bilingual labels
         const observer = new MutationObserver(() => {
             const hasSettingsModal = document.querySelector(".p-dialog, .comfy-modal, .comfy-settings-dialog");
             if (hasSettingsModal) {
@@ -250,13 +363,13 @@ app.registerExtension({
         });
         observer.observe(document.body, { childList: true, subtree: true });
 
-        // Polling hook when settings dialog is opened
+        // Fast periodic check while settings modal is open
         setInterval(() => {
             const hasSettingsModal = document.querySelector(".p-dialog, .comfy-modal, .comfy-settings-dialog");
             if (hasSettingsModal) {
                 applyBilingualSettingsUI();
             }
-        }, 500);
+        }, 400);
 
         // 4. Cleanup floating tooltips
         const cleanupStuckTooltips = () => {
@@ -272,6 +385,6 @@ app.registerExtension({
         }, true);
         setInterval(cleanupStuckTooltips, 1500);
 
-        console.log("%c[ComfyUI-Bada-Utils]%c BADA Settings unified in English (한국어) with Global Presets Overview 🌊", "color: #00f0ff; font-weight: bold;", "color: inherit;");
+        console.log("%c[ComfyUI-Bada-Utils]%c BADA Settings unified in English (한국어) with Expandable Global Presets Panel 🌊", "color: #00f0ff; font-weight: bold;", "color: inherit;");
     }
 });
