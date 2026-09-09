@@ -46,8 +46,17 @@ export function setupCanvasMouseFix() {
         return true;
     }
 
+    const isEnabled = () => {
+        try {
+            return app.ui?.settings?.getSettingValue?.("BadaUtils.MouseFix", true) ?? true;
+        } catch {
+            return true;
+        }
+    };
+
     // 1. Capture-phase Listener for Middle Mouse Button (Button 1: Pan Canvas)
     window.addEventListener("pointerdown", (e) => {
+        if (!isEnabled()) return;
         if (e.button === 1 && isGraphArea(e.target)) {
             // Prevent browser's native middle-click autoscroll icon
             e.preventDefault();
@@ -93,6 +102,7 @@ export function setupCanvasMouseFix() {
 
     // 2. Capture-phase Listener for Mouse Wheel (Zoom Canvas)
     window.addEventListener("wheel", (e) => {
+        if (!isEnabled()) return;
         if (!isGraphArea(e.target)) return;
 
         const isScrollable = isElementScrollable(e.target, e.deltaY);

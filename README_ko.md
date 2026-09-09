@@ -200,15 +200,23 @@
 
 ---
 
-## ⚙️ BADA 전역 설정 및 다국어 지원
+## ⚙️ BADA 전역 통합 설정 (`⚙️ Settings -> 🌊 Bada Utils`)
 
-ComfyUI 우측 상단 톱니바퀴(**`⚙️ Settings`**) 메뉴에서 BADA Suite의 모든 동작을 직접 제어할 수 있습니다:
+ComfyUI 우측 상단 톱니바퀴(**`⚙️ Settings`**) 메뉴에서 **`🌊 Bada Utils`** 탭을 선택하여 모든 설정을 한눈에 관리할 수 있습니다:
 
-* **🌐 UI Language**: `한국어` / `English` 실시간 전환 (ComfyUI 순정 언어 설정과 완전 독립적으로 BADA 모든 UI에 즉시 반영).
-* **✨ [QoL] Startup & New Tab Canvas**: `Clean Blank Canvas` / `Default ComfyUI Workflow`.
-* **✨ [QoL] Auto-Dismiss Initial Missing Model Alerts**: 초기 에러 억제 토글.
-* **🖱️ [QoL] Global Canvas Mouse Fixer**: 전역 마우스 휠 줌 & 중간 버튼 패닝 보정 토글.
-* **⚡ [Auto Assigner] Scan on Workflow Load**: 외부 워크플로우 로드 시 자동 알림창 On/Off.
+<p align="center">
+  <img src="docs/images/bada_settings.png" alt="BADA 전역 통합 설정창" width="850">
+</p>
+
+### 📋 5대 통합 설정 항목 상세
+
+| 섹션 | 설정 항목 | 설명 |
+| :--- | :--- | :--- |
+| **1. General (일반)** | **🌐 UI Language (UI 언어 설정)** | `English (영어)` 및 `한국어 (Korean)` 실시간 전환. ComfyUI 순정 언어 설정과 완전 독립적으로 작동하여 안정적인 언어 환경을 유지합니다. |
+| **2. Smart Features (스마트 기능)** | **📁 Sidebar Workflow Folder Management**<br>*(사이드바 워크플로우 폴더 정리 및 이동)* | 왼쪽 사이드바에서 드래그 앤 드롭 폴더 이동, 빈 폴더(0개) 보존, 실시간 작업 파일 포커싱을 지원하는 Workflows+ 기능을 제어합니다. |
+| **3. Workflow & QoL (워크플로우 & 편의성)** | **🖱️ Smooth Mouse Pan & Wheel Zoom Fixer**<br>*(마우스 휠 줌 & 중간 버튼 패닝 보정기)* | 텍스트 입력창이나 서드파티 노드 위에서도 마우스 휠 줌 및 중간 버튼 패닝이 멈추지 않고 매끄럽게 동작하도록 보정합니다. |
+| **4. Startup Behavior (시작 환경)** | **🧼 Clean Blank Canvas Startup**<br>*(시작 시 클린 빈 캔버스로 열기)* | ComfyUI 최초 실행 및 새 탭 오픈 시 기본 모델 누락 오류("2 errors found")를 방지하고 깨끗한 빈 캔버스로 기동하도록 설정합니다. |
+| **5. Global Presets**<br>*(글로벌 프리셋 등록 현황 및 관리)* | **🗃️ 인라인 통합 프리셋 관리 패널** | 워크플로우 간 전역 공유되는 노드별 프리셋을 한눈에 파악할 수 있는 전체 폭 패널입니다. **접기/펼치기**, **전체 백업(JSON)**, **불러오기**, **전용 팝업으로 크게 보기**를 지원합니다. |
 
 ---
 

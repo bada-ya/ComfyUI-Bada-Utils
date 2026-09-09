@@ -200,15 +200,23 @@
 
 ---
 
-## ⚙️ BADA Settings & Bilingual i18n
+## ⚙️ BADA Unified Settings (`⚙️ Settings -> 🌊 Bada Utils`)
 
-Open the ComfyUI Settings dialog (**`⚙️ Settings`**) to customize your BADA experience:
+Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 Bada Utils`** tab to access the centralized bilingual control center:
 
-* **🌐 UI Language**: Real-time switching between `English` and `한국어` (runs completely independently from ComfyUI's native language).
-* **✨ [QoL] Startup & New Tab Canvas**: `Clean Blank Canvas` / `Default ComfyUI Workflow`.
-* **✨ [QoL] Auto-Dismiss Initial Missing Model Alerts**: Toggle automatic error suppression.
-* **🖱️ [QoL] Global Canvas Mouse Fixer**: Toggle middle-click pan & wheel zoom capture.
-* **⚡ [Auto Assigner] Scan on Workflow Load**: Toggle automatic missing model prompt on load.
+<p align="center">
+  <img src="docs/images/bada_settings.png" alt="BADA Unified Settings Control Center" width="850">
+</p>
+
+### 📋 5 Control Sections Overview
+
+| Section | Setting Item | Description |
+| :--- | :--- | :--- |
+| **1. General (일반)** | **🌐 UI Language (UI 언어 설정)** | Switch display language between `English (영어)` and `한국어 (Korean)`. Operates independently from ComfyUI native locale to ensure complete UI consistency. |
+| **2. Smart Features (스마트 기능)** | **📁 Sidebar Workflow Folder Management**<br>*(사이드바 워크플로우 폴더 정리 및 이동)* | Enables drag-and-drop workflow folder organization, 0-item folder preservation, and Workflows+ tabs in the left sidebar. |
+| **3. Workflow & QoL (워크플로우 & 편의성)** | **🖱️ Smooth Mouse Pan & Wheel Zoom Fixer**<br>*(마우스 휠 줌 & 중간 버튼 패닝 보정기)* | Fixes middle-click panning and wheel zoom freezes even over textareas, DOM widgets, and custom nodes. |
+| **4. Startup Behavior (시작 환경)** | **🧼 Clean Blank Canvas Startup**<br>*(시작 시 클린 빈 캔버스로 열기)* | Starts ComfyUI and new tabs with a clean blank canvas, completely preventing annoying missing-model startup errors (`2 errors found`). |
+| **5. Global Presets**<br>*(글로벌 프리셋 등록 현황 및 관리)* | **🗃️ Inline Overview & Management Panel** | Full-width interactive preset summary across all node types. Features 1-click **Collapse/Expand**, **Backup All (JSON)**, **Import**, and **Open Full Popup**. |
 
 ---
 

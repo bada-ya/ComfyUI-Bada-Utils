@@ -3,6 +3,8 @@
  * Intercepts ONLY the built-in default blueprint template (10 nodes, ModelSamplingAuraFlow, last_node_id: 71)
  * so that initial startup, new tabs, and closed tabs open to a clean blank canvas with ZERO error popups,
  * without EVER interfering with real user workflows, saved files, or dropped images.
+ * 
+ * Controlled directly by BadaUtils.BlankStartup boolean toggle.
  */
 import { app } from "../../scripts/app.js";
 
@@ -33,7 +35,20 @@ function isBuiltinDefaultTemplate(data) {
     return false;
 }
 
+function shouldStartBlank() {
+    if (!app?.ui?.settings) return true;
+    try {
+        const badaVal = app.ui.settings.getSettingValue("BadaUtils.BlankStartup", true);
+        if (typeof badaVal === "boolean") return badaVal;
+        const qolVal = app.ui.settings.getSettingValue("QoL.StartupBehavior", "blank");
+        return qolVal === "blank";
+    } catch {
+        return true;
+    }
+}
+
 function overrideDefaultGraph() {
+    if (!shouldStartBlank()) return;
     try {
         if (window.comfyAPI && window.comfyAPI.defaultGraph) {
             const blank = window.comfyAPI.defaultGraph.blankGraph || BLANK_GRAPH_DATA;
@@ -58,8 +73,7 @@ function patchLGraph() {
         const origConfigure = LGraph.prototype.configure;
         LGraph.prototype.configure = function (data, clean) {
             if (data && isBuiltinDefaultTemplate(data)) {
-                const setting = app.ui?.settings?.getSettingValue?.("QoL.StartupBehavior", "blank");
-                if (setting !== "default") {
+                if (shouldStartBlank()) {
                     console.log("[QoL-Utils] Intercepted built-in default template -> Starting with clean blank graph.");
                     return origConfigure.call(this, BLANK_GRAPH_DATA, clean);
                 }
@@ -77,36 +91,7 @@ export function setupBlankStartup() {
     patchLGraph();
     overrideDefaultGraph();
 
-    // 1. Settings Menu Registration
-    if (app.ui && app.ui.settings) {
-        try {
-            app.ui.settings.addSetting({
-                id: "QoL.StartupBehavior",
-                name: "✨ [QoL] Startup & New Tab Canvas",
-                type: "combo",
-                options: [
-                    { value: "blank", text: "Clean Blank Canvas (No Error Popups)" },
-                    { value: "default", text: "Default ComfyUI Workflow" }
-                ],
-                defaultValue: "blank",
-                tooltip: "Choose whether ComfyUI opens with a clean blank canvas or the built-in default workflow containing model loaders."
-            });
-        } catch (e) {
-            console.warn("[QoL-Utils] Settings registration notice:", e);
-        }
-    }
-
-    const shouldStartBlank = () => {
-        if (!app.ui?.settings) return true;
-        try {
-            const val = app.ui.settings.getSettingValue("QoL.StartupBehavior", "blank");
-            return val === "blank";
-        } catch {
-            return true;
-        }
-    };
-
-    // 2. Hook app.clean
+    // Hook app.clean
     const origClean = app.clean;
     if (origClean) {
         app.clean = function () {
@@ -121,7 +106,7 @@ export function setupBlankStartup() {
         };
     }
 
-    // 3. Initial canvas cleanup if default template was restored on startup
+    // Initial canvas cleanup if default template was restored on startup
     const cleanupInitialCanvas = () => {
         if (!shouldStartBlank()) return;
 
@@ -131,7 +116,6 @@ export function setupBlankStartup() {
             const nodes = app.graph._nodes || [];
             const isDefaultNodes = nodes.length === 10 && nodes.some(n => n.type === "ModelSamplingAuraFlow");
             
-            // Also check serialize if needed
             let isDefaultSerialized = false;
             if (!isDefaultNodes && typeof app.graph.serialize === "function") {
                 isDefaultSerialized = isBuiltinDefaultTemplate(app.graph.serialize());
@@ -196,6 +180,3 @@ export function setupBlankStartup() {
 
     console.log("[QoL-Utils] Clean Blank Startup module active.");
 }
-
-
-
