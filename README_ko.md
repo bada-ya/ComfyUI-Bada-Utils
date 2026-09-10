@@ -21,20 +21,22 @@
 
 ---
 
-## 🌟 4대 핵심 통합 모듈 개요
+## 🌟 5대 핵심 통합 모듈 개요
 
-`ComfyUI-Bada-Utils`는 편의성(QoL), 프리셋 허브, 자동 모델 매칭, 공간 구도 프롬프트 도구를 완벽히 통합하여 워크플로우 개발 및 이미지 생성 속도를 비약적으로 단축시킵니다.
+`ComfyUI-Bada-Utils`는 편의성(QoL), 프리셋 허브, 자동 모델 매칭, 공간 구도 프롬프트 도구, 그리고 비동기 제미나이 AI 스튜디오를 완벽히 통합하여 워크플로우 개발 및 이미지/비디오 생성 속도를 비약적으로 단축시킵니다.
 
 ```
-🌊 ComfyUI-Bada-Utils
-├── 📐 Module 1: 비주얼 그리드 리저널 프롬프트 Pro (Visual Grid Regional Prompt)
+⚓ ComfyUI-Bada-Utils
+├── 📐 Module 1: 비주얼 그리드 리저널 프롬프트 Pro (BadaRegionalPrompt)
 │   └── 마우스 드래그 격자 분할, 10대 캐릭터 시트 샷 트리, 벡터 SVG 실루엣, 6종 AI 포맷 출력
-├── 🌟 Module 2: 유니버셜 스마트 프리셋 허브 (Universal Smart Presets & Master Hub)
+├── 🌟 Module 2: 유니버셜 스마트 프리셋 허브 (BadaPresetHub)
 │   └── 24px 초슬림 온캔버스 라디오 스위처, Ctrl+드래그 일괄 스냅샷, 2-Tier 지붕 뱃지, 글로벌 프리셋
 ├── ⚡ Module 3: 자동 모델 & LoRA 어사이너 (Auto Model & LoRA Assigner)
 │   └── 외부 워크플로우 미설치 모델 감지, 지능형 퍼지 매칭(%), 윈도우 탐색기형 대형 폴더 트리
-└── ✨ Module 4: 편의성(QoL) 마스터 (Quality of Life Master)
-    └── Workflows+ 사이드바 탐색기 (드래그 이동/빈 폴더 보존), 작업 중 자동 포커싱, 클린 빈 캔버스, 마우스 팬/줌 보정
+├── 🛠️ Module 4: 편의성(QoL) 마스터 (Quality of Life Master)
+│   └── Workflows+ 사이드바 탐색기, 작업 중 자동 포커싱, 클린 빈 캔버스, 마우스 팬/줌 보정
+└── ⚓ Module 5: Bada 비동기 제미나이 스튜디오 (BadaAsyncGeminiStudio)
+    └── 4대 전용 엔진(MiniMax H3, LTX-Video, KREA 2, 무검열 제미나이 챗), Zero VRAM, 비동기 백그라운드 생성
 ```
 
 ---

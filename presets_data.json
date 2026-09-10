@@ -125,7 +125,7 @@
     }
   },
   "BadaRegionalPrompt": {
-    "🌊 Bada Visual Regional Prompt #1": {
+    "⚓ Bada Visual Regional Prompt #1": {
       "nodeType": "BadaRegionalPrompt",
       "timestamp": 1788938129718,
       "mode": 0,
@@ -146,7 +146,7 @@
       "_isLoraStack": false,
       "_isFastGroups": false
     },
-    "🌊 Bada Visual Regional Prompt #2": {
+    "⚓ Bada Visual Regional Prompt #2": {
       "nodeType": "BadaRegionalPrompt",
       "timestamp": 1788951657692,
       "mode": 0,
@@ -167,7 +167,7 @@
       "_isLoraStack": false,
       "_isFastGroups": false
     },
-    "🌊 Bada Visual Regional Prompt #3": {
+    "⚓ Bada Visual Regional Prompt #3": {
       "nodeType": "BadaRegionalPrompt",
       "timestamp": 1788951696685,
       "mode": 0,

@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-bada-utils"
 version = "1.0.0"
-description = "🌊 All-in-One Quality of Life, Smart Presets Hub, Auto Model Assigner & Visual Regional Prompting Suite for ComfyUI"
+description = "⚓ All-in-One Quality of Life, Smart Presets Hub, Visual Regional Prompting & Async Gemini Studio for ComfyUI"
 readme = "README.md"
 authors = [
     { name = "bada-ya", email = "solokjd@gmail.com" }
@@ -29,6 +29,7 @@ Includes = [
     "__init__.py",
     "presets_data.json",
     "node_list.json",
+    "config.example.json",
     "LICENSE",
     "README.md",
     "README_ko.md"

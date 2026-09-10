@@ -1,6 +1,6 @@
 {
   "settings": {
-    "category": "🌊 Bada Utils",
+    "category": "⚓ Bada Utils",
     "language": "UI 언어 (Language)",
     "blank_canvas": "시작 시 깨끗한 빈 캔버스로 열기",
     "blank_canvas_desc": "ComfyUI 실행 시 모델 누락 에러가 나는 기본 워크플로우 대신 깨끗한 빈 캔버스로 시작합니다.",

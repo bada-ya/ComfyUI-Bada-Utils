@@ -20,7 +20,7 @@ import { showToast } from "./presets_modal.js";
 const BADA_UNIFIED_SETTINGS = {
     lang: {
         id: "BadaUtils.Language",
-        category: ["🌊 Bada Utils", "1. General (일반)"],
+        category: ["⚓ Bada Utils", "1. General (일반)"],
         name: "🌐 UI Language (UI 언어 설정)",
         tooltip: "Set display language for Bada nodes, context menus, modals, and Workflows+ sidebar. (Bada 노드, 우클릭 메뉴, 모달 창, Workflows+ 사이드바의 표시 언어를 설정합니다.)",
         type: "combo",
@@ -32,7 +32,7 @@ const BADA_UNIFIED_SETTINGS = {
     },
     sidebar: {
         id: "BadaUtils.SidebarOrganizer",
-        category: ["🌊 Bada Utils", "2. Smart Features (스마트 기능)"],
+        category: ["⚓ Bada Utils", "2. Smart Features (스마트 기능)"],
         name: "📁 Sidebar Workflow Folder Management (사이드바 워크플로우 폴더 정리 및 이동)",
         tooltip: "Organize and move workflow folders via drag-and-drop in the left sidebar. (왼쪽 사이드바에서 드래그 앤 드롭으로 워크플로우 폴더를 자유롭게 정리하고 이동합니다.)",
         type: "boolean",
@@ -40,7 +40,7 @@ const BADA_UNIFIED_SETTINGS = {
     },
     mouse: {
         id: "BadaUtils.MouseFix",
-        category: ["🌊 Bada Utils", "3. Workflow & QoL (워크플로우 & 편의성)"],
+        category: ["⚓ Bada Utils", "3. Workflow & QoL (워크플로우 & 편의성)"],
         name: "🖱️ Smooth Mouse Pan & Wheel Zoom Fixer (마우스 휠 줌 & 중간 버튼 패닝 보정기)",
         tooltip: "Smooth mouse wheel zooming and middle-click panning even over canvas nodes or text widgets. (캔버스 위 노드나 텍스트 위에서도 끊김 없이 휠 줌 및 중간 버튼 패닝이 가능하도록 보정합니다.)",
         type: "boolean",
@@ -48,7 +48,7 @@ const BADA_UNIFIED_SETTINGS = {
     },
     blankStartup: {
         id: "BadaUtils.BlankStartup",
-        category: ["🌊 Bada Utils", "4. Startup Behavior (시작 환경)"],
+        category: ["⚓ Bada Utils", "4. Startup Behavior (시작 환경)"],
         name: "🧼 Clean Blank Canvas Startup (시작 시 클린 빈 캔버스로 열기)",
         tooltip: "Start ComfyUI and new tabs with a clean blank canvas instead of default workflows with missing-model errors. (ComfyUI 최초 구동이나 새 탭 열기 시 모델 누락 에러가 발생하는 기본 템플릿 대신 깨끗한 빈 캔버스로 시작합니다.)",
         type: "boolean",
@@ -56,7 +56,7 @@ const BADA_UNIFIED_SETTINGS = {
     },
     presetsPanel: {
         id: "BadaUtils.GlobalPresetsPanel",
-        category: ["🌊 Bada Utils", "5. Global Presets (글로벌 프리셋 등록 현황 및 관리)"],
+        category: ["⚓ Bada Utils", "5. Global Presets (글로벌 프리셋 등록 현황 및 관리)"],
         name: "Global Presets",
         defaultValue: null
     }
@@ -77,11 +77,62 @@ function escapeHtml(str) {
 // ──────────────────────────────────────────────────────────────────────────────
 //  Compact Spacing & Full-Width CSS Injection
 // ──────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────
+//  Early Fetch & Node Registry Interceptor (⚓ Anchor Icon Guarantee)
+// ──────────────────────────────────────────────────────────────────────────────
+(function setupEarlyAnchorInterceptor() {
+    if (window._badaAnchorInterceptorInstalled) return;
+    window._badaAnchorInterceptorInstalled = true;
+
+    function patchObjectInfo(data) {
+        if (!data || typeof data !== 'object') return;
+        for (const [k, node] of Object.entries(data)) {
+            if (k.startsWith('Bada') || (node.category && (node.category.includes('Bada') || node.category.includes('🌊') || node.category.includes('🌟')))) {
+                if (node.category) node.category = node.category.replace(/🌊|🌟/g, '⚓');
+                if (node.display_name) node.display_name = node.display_name.replace(/🌊|🌟/g, '⚓');
+            }
+        }
+    }
+
+    const origFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const res = await origFetch.apply(this, args);
+        const url = typeof args[0] === 'string' ? args[0] : args[0]?.url;
+        if (url && (url.includes('/object_info') || url.endsWith('/object_info'))) {
+            try {
+                const clone = res.clone();
+                const data = await clone.json();
+                patchObjectInfo(data);
+                return new Response(JSON.stringify(data), {
+                    status: res.status,
+                    statusText: res.statusText,
+                    headers: res.headers
+                });
+            } catch (e) {
+                // Ignore fallback
+            }
+        }
+        return res;
+    };
+})();
+
 (function injectBadaStyles() {
     if (document.getElementById("bada-core-css")) return;
     const style = document.createElement("style");
     style.id = "bada-core-css";
     style.textContent = `
+        /* Clean Minimalist Sidebar: Pure Icons Only (Strictly hide labels & eliminate scrollbars) */
+        .side-bar-button-label {
+            display: none !important;
+        }
+        .side-bar-button {
+            height: 2.25rem !important;
+            padding: 0.5rem !important;
+        }
+        .side-tool-bar-container {
+            overflow-y: hidden !important;
+        }
+
         /* 1. Drastically reduce vertical gaps between Bada Utils setting groups */
         .setting-group:has([data-setting-id^="BadaUtils"]) {
             margin-bottom: 0 !important;
@@ -438,8 +489,29 @@ app.registerExtension({
             }
         }, true);
 
+        // 4. Ensure all Bada node titles and categories display the anchor ⚓ symbol
+        const updateNodeTitles = () => {
+            if (window.LiteGraph && LiteGraph.registered_node_types) {
+                for (const [type, ctor] of Object.entries(LiteGraph.registered_node_types)) {
+                    if (type.startsWith("Bada") || type === "UniversalPresetHub" || (ctor.category && (ctor.category.includes("Bada") || ctor.category.includes("🌊") || ctor.category.includes("🌟")))) {
+                        if (ctor.title) ctor.title = ctor.title.replace(/🌊|🌟/g, "⚓");
+                        if (ctor.prototype?.title) ctor.prototype.title = ctor.prototype.title.replace(/🌊|🌟/g, "⚓");
+                        if (ctor.category) ctor.category = ctor.category.replace(/🌊|🌟/g, "⚓");
+                        if (ctor.nodeData) {
+                            if (ctor.nodeData.category) ctor.nodeData.category = ctor.nodeData.category.replace(/🌊|🌟/g, "⚓");
+                            if (ctor.nodeData.display_name) ctor.nodeData.display_name = ctor.nodeData.display_name.replace(/🌊|🌟/g, "⚓");
+                        }
+                    }
+                }
+            }
+        };
+        updateNodeTitles();
+        setTimeout(updateNodeTitles, 500);
+        setTimeout(updateNodeTitles, 1500);
+        setTimeout(updateNodeTitles, 3000);
+
         console.log(
-            "%c[ComfyUI-Bada-Utils]%c BADA Bilingual Settings & Full-Width Global Presets Panel Ready 🌊",
+            "%c[ComfyUI-Bada-Utils]%c BADA Bilingual Settings & Full-Width Global Presets Panel Ready ⚓",
             "color: #00f0ff; font-weight: bold;", "color: inherit;"
         );
     }

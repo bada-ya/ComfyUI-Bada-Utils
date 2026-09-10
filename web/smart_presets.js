@@ -400,7 +400,7 @@ function drawRoofBadges(node, ctx) {
         ctx.font = "bold 10px sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(`🌟 ${b.count}`, b.x + b.w / 2, b.y + b.h / 2);
+        ctx.fillText(`⚓ ${b.count}`, b.x + b.w / 2, b.y + b.h / 2);
     }
 
     ctx.restore();

@@ -28,7 +28,6 @@ class WorkflowsPlusManager {
         this.treeData = null;
         this.expandedFolders = new Set();
         this.searchQuery = "";
-        this.activeTab = localStorage.getItem("qol_workflows_active_tab") || "plus";
         this.fontSizeIndex = parseInt(localStorage.getItem("qol_workflows_font_size_idx") ?? "1", 10);
         if (isNaN(this.fontSizeIndex) || this.fontSizeIndex < 0 || this.fontSizeIndex >= FONT_SIZE_PRESETS.length) {
             this.fontSizeIndex = 1;
@@ -41,7 +40,7 @@ class WorkflowsPlusManager {
 
         this.contextTarget = null;
         this.mountedSidebar = null;
-        this.isMounting = false;
+        this.plusPanel = null;
 
         // Favorites (즐겨찾기) State
         try {
@@ -67,11 +66,12 @@ class WorkflowsPlusManager {
     async init() {
         this.injectStyles();
         this.setupContextMenu();
-        this.setupSidebarLifecycle();
+        this.registerSidebarTab();
+        this.cleanNativeTooltipsAndKeybindings();
         this.setupAutoSyncOnSave();
         await this.loadFavorites();
         await this.loadTree();
-        console.log("[QoL-Utils] Workflows+ Manager initialized cleanly.");
+        console.log("[BadaUtils] Workflows+ Manager initialized cleanly.");
     }
 
     injectStyles() {
@@ -82,81 +82,37 @@ class WorkflowsPlusManager {
             document.head.appendChild(style);
         }
         style.textContent = `
-            /* Ensure Sidebar Panel is strictly a single vertical column */
-            .side-bar-panel, .workflows-panel, [aria-label='Workflows'], .side-bar-container {
-                flex-direction: column !important;
-            }
-            .side-bar-panel > *, .workflows-panel > *, [aria-label='Workflows'] > * {
+            /* Bada Anchor Icon for Sidebar Tab */
+            .bada-tab-icon-wave,
+            .bada-tab-icon-anchor {
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                font-style: normal !important;
+                font-size: 19px !important;
+                line-height: 1 !important;
                 width: 100% !important;
-                box-sizing: border-box !important;
+                height: 100% !important;
+            }
+            .bada-tab-icon-wave::before,
+            .bada-tab-icon-anchor::before {
+                content: '⚓' !important;
+                font-style: normal !important;
             }
 
-            /* Plus Mode: unconditionally HIDE all sibling elements in sidebar except tabContainer, plusPanel, and contextMenu */
-            .side-bar-panel.qol-mode-plus > *:not(.qol-tab-container):not(.qol-plus-panel):not(.qol-context-menu),
-            .workflows-panel.qol-mode-plus > *:not(.qol-tab-container):not(.qol-plus-panel):not(.qol-context-menu),
-            [aria-label='Workflows'].qol-mode-plus > *:not(.qol-tab-container):not(.qol-plus-panel):not(.qol-context-menu) {
+            /* Clean Native Icon-Only Sidebar (Strictly hide all text labels & remove scrollbars) */
+            .side-bar-button-label {
                 display: none !important;
             }
-
-            /* Plus Mode: ensure plusPanel is flex display */
-            .side-bar-panel.qol-mode-plus .qol-plus-panel,
-            .workflows-panel.qol-mode-plus .qol-plus-panel,
-            [aria-label='Workflows'].qol-mode-plus .qol-plus-panel {
-                display: flex !important;
+            .side-bar-button {
+                height: 2.25rem !important;
+                padding: 0.5rem !important;
             }
-
-            /* Native Mode: hide plusPanel */
-            .side-bar-panel.qol-mode-native .qol-plus-panel,
-            .workflows-panel.qol-mode-native .qol-plus-panel,
-            [aria-label='Workflows'].qol-mode-native .qol-plus-panel {
+            .side-tool-bar-container {
+                overflow-y: hidden !important;
+            }
+            [data-testid="bada-workflows-plus-tab-button"] .side-bar-button-label {
                 display: none !important;
-            }
-
-            /* Tab Container on Top of Sidebar (32px height) */
-            .qol-tab-container {
-                display: flex !important;
-                align-items: center;
-                gap: 3px;
-                background: #141416;
-                padding: 3px;
-                border-radius: 6px;
-                border: 1px solid #27272a;
-                margin: 6px 8px 8px 8px;
-                box-sizing: border-box;
-                height: 32px;
-                width: calc(100% - 16px) !important;
-                flex-shrink: 0;
-            }
-            .qol-tab-btn {
-                flex: 1;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 5px;
-                padding: 4px 8px;
-                border-radius: 4px;
-                border: none;
-                background: transparent;
-                color: #a1a1aa;
-                font-size: 12.5px;
-                font-weight: 500;
-                cursor: pointer;
-                transition: all 0.12s ease;
-                user-select: none;
-                height: 26px;
-            }
-            .qol-tab-btn:hover {
-                color: #f4f4f5;
-                background: rgba(255, 255, 255, 0.06);
-            }
-            .qol-tab-btn.active {
-                background: #27272a;
-                color: #ffffff;
-                font-weight: 600;
-            }
-            .qol-tab-btn.active.plus-tab {
-                background: #4f46e5;
-                color: #ffffff;
             }
 
             /* Workflows+ Main Container with Dynamic Typography Variables */
@@ -174,12 +130,14 @@ class WorkflowsPlusManager {
                 flex-direction: column;
                 flex: 1;
                 width: 100% !important;
+                height: 100% !important;
                 min-height: 0;
                 overflow: hidden;
                 color: #e4e4e7;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
                 font-size: var(--qol-font-size);
                 box-sizing: border-box;
+                padding-top: 8px;
             }
 
             /* Compact 1-Line Toolbar */
@@ -1031,264 +989,251 @@ class WorkflowsPlusManager {
         } catch (e) {}
     }
 
-    setupSidebarLifecycle() {
-        const applyIsolation = (sidebar) => {
-            if (!sidebar) return;
-            const isPlus = this.activeTab === "plus";
-            const expectedClass = isPlus ? "qol-mode-plus" : "qol-mode-native";
-            const removeClass = isPlus ? "qol-mode-native" : "qol-mode-plus";
-            sidebar.classList.remove(removeClass);
-            sidebar.classList.add(expectedClass);
+    registerSidebarTab() {
+        if (!app.extensionManager || !app.extensionManager.registerSidebarTab) {
+            console.warn("[BadaUtils] app.extensionManager.registerSidebarTab not available.");
+            return;
+        }
 
-            // Directly hide/show sibling elements to guarantee zero bleed-through
-            Array.from(sidebar.children).forEach(child => {
-                if (child.classList.contains("qol-tab-container") || child.classList.contains("qol-context-menu")) {
-                    child.style.display = "flex";
-                } else if (child.classList.contains("qol-plus-panel")) {
-                    child.style.display = isPlus ? "flex" : "none";
-                } else {
-                    child.style.display = isPlus ? "none" : "";
-                }
-            });
-        };
-
-        const checkSidebar = () => {
-            if (this.isMounting) return;
-
-            const sidebar = document.querySelector(".side-bar-panel") ||
-                            document.querySelector(".workflows-panel") ||
-                            document.querySelector("[aria-label='Workflows']");
-
-            if (sidebar) {
-                const hasTab = sidebar.querySelector(".qol-tab-container");
-                const hasPanel = sidebar.querySelector(".qol-plus-panel");
-                if (sidebar !== this.mountedSidebar || !hasTab || !hasPanel) {
-                    this.mountTabsAndContainer(sidebar);
-                } else {
-                    applyIsolation(sidebar);
-                }
+        app.extensionManager.registerSidebarTab({
+            id: "bada-workflows-plus",
+            icon: "bada-tab-icon-wave",
+            title: "",
+            tooltip: "Workflows+",
+            type: "custom",
+            render: (el) => {
+                this.mountToContainer(el);
             }
-        };
+        });
+        console.log("[BadaUtils] Workflows+ sidebar tab registered via extensionManager.");
 
-        document.addEventListener("click", (e) => {
-            const dockBtn = e.target.closest(".side-bar-button, [aria-label*='Workflow'], button, .p-tabmenu-item");
-            if (dockBtn) {
-                setTimeout(checkSidebar, 20);
-                setTimeout(checkSidebar, 80);
-                setTimeout(checkSidebar, 200);
-                setTimeout(checkSidebar, 500);
+        // Ensure sidebar size setting is cleanly kept as 'small' (icon-only, no labels)
+        try {
+            if (window.app?.ui?.settings?.setSettingValue) {
+                window.app.ui.settings.setSettingValue("Comfy.Sidebar.Size", "small");
             }
-        }, true);
+        } catch (e) {}
 
-        setInterval(checkSidebar, 400);
-        checkSidebar();
+        this.reorderSidebarTab();
+        setTimeout(() => this.reorderSidebarTab(), 300);
+        setTimeout(() => this.reorderSidebarTab(), 1000);
+        setTimeout(() => this.reorderSidebarTab(), 2500);
     }
 
-    mountTabsAndContainer(sidebar) {
-        if (!sidebar || this.isMounting) return;
-        this.isMounting = true;
-        this.mountedSidebar = sidebar;
-
+    reorderSidebarTab() {
         try {
-            document.querySelectorAll(".qol-tab-container, .qol-plus-panel").forEach(el => el.remove());
-
-            // 1. Create Tab Switcher
-            const tabContainer = document.createElement("div");
-            tabContainer.className = "qol-tab-container";
-            tabContainer.innerHTML = `
-                <button class="qol-tab-btn native-tab ${this.activeTab === 'native' ? 'active' : ''}" id="qol-tab-native">
-                    <span>${BadaI18n.t("wf_tab_native")}</span>
-                </button>
-                <button class="qol-tab-btn plus-tab ${this.activeTab === 'plus' ? 'active' : ''}" id="qol-tab-plus">
-                    <span>${BadaI18n.t("wf_tab_plus")}</span>
-                </button>
-            `;
-
-            sidebar.prepend(tabContainer);
-
-            tabContainer.querySelector("#qol-tab-native").addEventListener("click", () => {
-                this.switchTab("native", sidebar);
-            });
-            tabContainer.querySelector("#qol-tab-plus").addEventListener("click", () => {
-                this.switchTab("plus", sidebar);
-            });
-
-            // 2. Create Workflows+ Panel
-            const plusPanel = document.createElement("div");
-            plusPanel.className = "qol-plus-panel";
-            plusPanel.innerHTML = `
-                <div class="qol-toolbar">
-                    <div class="qol-search-wrapper">
-                        <span class="qol-search-icon">🔍</span>
-                        <input type="text" class="qol-search-input" placeholder="${BadaI18n.t("wf_search_placeholder")}" />
-                        <span class="qol-search-clear">&times;</span>
-                    </div>
-                    <button class="qol-icon-btn ${this.activeWorkflowName ? 'has-active' : ''}" id="qol-btn-focus-toolbar" title="${BadaI18n.t("wf_btn_focus")}">🎯</button>
-                    <button class="qol-icon-btn" id="qol-btn-font-size" title="${BadaI18n.t("wf_btn_font_size")}">Aa</button>
-                    <button class="qol-icon-btn" id="qol-btn-new-folder" title="${BadaI18n.t("wf_btn_new_folder")}">➕</button>
-                    <button class="qol-icon-btn" id="qol-btn-toggle-all" title="${BadaI18n.t("wf_btn_toggle_all")}">📂</button>
-                    <button class="qol-icon-btn" id="qol-btn-refresh" title="${BadaI18n.t("wf_btn_refresh")}">🔄</button>
-                </div>
-
-                <div class="qol-root-dropzone" id="qol-root-dropzone">
-                    <span>${BadaI18n.t("wf_root_dropzone")}</span>
-                </div>
-
-                <div class="qol-tree-scroll" id="qol-tree-scroll"></div>
-            `;
-            sidebar.appendChild(plusPanel);
-
-            // Apply saved font size settings
-            this.applyFontSize(this.fontSizeIndex, false);
-
-            // Toolbar Events
-            const searchInput = plusPanel.querySelector(".qol-search-input");
-            const clearBtn = plusPanel.querySelector(".qol-search-clear");
-            searchInput.addEventListener("input", (e) => {
-                this.searchQuery = e.target.value.trim().toLowerCase();
-                clearBtn.style.display = this.searchQuery ? "block" : "none";
-                this.renderPlusTree();
-            });
-            clearBtn.addEventListener("click", () => {
-                searchInput.value = "";
-                this.searchQuery = "";
-                clearBtn.style.display = "none";
-                this.renderPlusTree();
-            });
-
-            plusPanel.querySelector("#qol-btn-focus-toolbar")?.addEventListener("click", () => {
-                this.scrollToActiveWorkflow();
-            });
-
-            const fontBtn = plusPanel.querySelector("#qol-btn-font-size");
-            fontBtn?.addEventListener("click", (e) => {
-                e.stopPropagation();
-                this.cycleFontSize();
-            });
-            fontBtn?.addEventListener("contextmenu", (e) => {
-                this.showFontSizeMenu(e);
-            });
-
-            plusPanel.querySelector("#qol-btn-new-folder").addEventListener("click", () => {
-                this.openNewFolderModal("/");
-            });
-
-            let allExpanded = false;
-            plusPanel.querySelector("#qol-btn-toggle-all").addEventListener("click", () => {
-                allExpanded = !allExpanded;
-                if (allExpanded && this.treeData) {
-                    const addAll = (node) => {
-                        if (node.path && node.path !== "/") this.expandedFolders.add(node.path);
-                        if (node.folders) node.folders.forEach(addAll);
-                    };
-                    addAll(this.treeData);
-                } else {
-                    this.expandedFolders.clear();
+            const tabs = app.extensionManager?.sidebarTab?.sidebarTabs;
+            if (!tabs || !Array.isArray(tabs)) return;
+            const plusIdx = tabs.findIndex(t => t.id === "bada-workflows-plus");
+            const wfIdx = tabs.findIndex(t => t.id === "workflows");
+            if (plusIdx !== -1 && wfIdx !== -1) {
+                if (plusIdx !== wfIdx - 1) {
+                    const [plusTab] = tabs.splice(plusIdx, 1);
+                    const targetIdx = tabs.findIndex(t => t.id === "workflows");
+                    if (targetIdx !== -1) {
+                        tabs.splice(targetIdx, 0, plusTab);
+                    }
                 }
-                this.renderPlusTree();
-            });
+            }
+        } catch (e) {
+            console.warn("[BadaUtils] Reorder sidebar tab error:", e);
+        }
+    }
 
-            plusPanel.querySelector("#qol-btn-refresh").addEventListener("click", async () => {
-                await this.loadTree();
-                this.showToast("새로고침 완료");
-            });
-
-            // Root Dropzone Events
-            const rootDrop = plusPanel.querySelector("#qol-root-dropzone");
-            rootDrop.addEventListener("dragenter", (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                rootDrop.classList.add("dragover");
-            });
-            rootDrop.addEventListener("dragover", (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                e.dataTransfer.dropEffect = "move";
-                rootDrop.classList.add("dragover");
-            });
-            rootDrop.addEventListener("dragleave", (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                rootDrop.classList.remove("dragover");
-            });
-            rootDrop.addEventListener("drop", async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                rootDrop.classList.remove("dragover");
-                rootDrop.classList.remove("visible");
-
-                const sourcePath = e.dataTransfer.getData("text/plain") || window.__qolDraggedWorkflow || this.draggedItem?.path;
-                if (sourcePath) {
-                    await this.moveWorkflowFile(sourcePath, "/");
-                    this.draggedItem = null;
-                    window.__qolDraggedWorkflow = null;
+    cleanNativeTooltipsAndKeybindings() {
+        const removeBindings = () => {
+            try {
+                const root = document.querySelector("#vue-app") || document.querySelector("#app") || document.querySelector("body > div");
+                const vnode = root?.__vue_app__;
+                if (!vnode?._context?.provides) return false;
+                let pinia = null;
+                for (const s of Object.getOwnPropertySymbols(vnode._context.provides)) {
+                    if (vnode._context.provides[s]?._s) {
+                        pinia = vnode._context.provides[s];
+                        break;
+                    }
                 }
-            });
+                const kbStore = pinia?._s?.get("keybinding");
+                if (kbStore) {
+                    ["assets", "node-library", "model-library", "workflows"].forEach(id => {
+                        kbStore.removeAllKeybindingsForCommand("Workspace.ToggleSidebarTab." + id);
+                    });
+                    return true;
+                }
+            } catch (e) {}
+            return false;
+        };
 
-            // Attach MutationObserver to sidebar so dynamic child additions by Vue don't break isolation
-            if (!sidebar._qolObserver) {
-                const observer = new MutationObserver(() => {
-                    const hasTab = sidebar.querySelector(".qol-tab-container");
-                    const hasPanel = sidebar.querySelector(".qol-plus-panel");
-                    if (!hasTab || !hasPanel) {
-                        this.mountTabsAndContainer(sidebar);
-                    } else {
-                        const expectedClass = this.activeTab === "plus" ? "qol-mode-plus" : "qol-mode-native";
-                        const removeClass = this.activeTab === "plus" ? "qol-mode-native" : "qol-mode-plus";
-                        if (!sidebar.classList.contains(expectedClass)) {
-                            sidebar.classList.remove(removeClass);
-                            sidebar.classList.add(expectedClass);
+        if (!removeBindings()) {
+            const timer = setInterval(() => {
+                if (removeBindings()) clearInterval(timer);
+            }, 300);
+            setTimeout(() => clearInterval(timer), 10000);
+        }
+
+        if (!window.__BADA_TOOLTIP_OBSERVER_ATTACHED__) {
+            window.__BADA_TOOLTIP_OBSERVER_ATTACHED__ = true;
+            const tipObserver = new MutationObserver((mutations) => {
+                for (const m of mutations) {
+                    for (const node of m.addedNodes) {
+                        if (node.nodeType === 1) {
+                            const tip = node.classList?.contains("p-tooltip-text") ? node : node.querySelector?.(".p-tooltip-text");
+                            if (tip && tip.textContent) {
+                                const cleaned = tip.textContent.replace(/\s*\([anmw]\)$/i, "");
+                                if (cleaned !== tip.textContent) {
+                                    tip.textContent = cleaned;
+                                }
+                            }
                         }
                     }
-                });
-                observer.observe(sidebar, { childList: true, subtree: false });
-                sidebar._qolObserver = observer;
-            }
-
-            // Apply active tab immediately
-            this.switchTab(this.activeTab, sidebar);
-        } finally {
-            this.isMounting = false;
+                }
+            });
+            tipObserver.observe(document.body, { childList: true, subtree: true });
         }
     }
 
-    switchTab(tabName, sidebar) {
-        this.activeTab = tabName;
-        localStorage.setItem("qol_workflows_active_tab", tabName);
+    mountToContainer(container) {
+        if (!container) return;
+        this.mountedSidebar = container;
 
-        if (!sidebar) {
-            sidebar = document.querySelector(".side-bar-panel") ||
-                      document.querySelector(".workflows-panel") ||
-                      document.querySelector("[aria-label='Workflows']");
+        container.style.display = "flex";
+        container.style.flexDirection = "column";
+        container.style.height = "100%";
+        container.style.width = "100%";
+        container.style.overflow = "hidden";
+        container.style.boxSizing = "border-box";
+
+        if (!this.plusPanel) {
+            this.createPlusPanel();
         }
-        if (!sidebar) return;
 
-        const tabContainer = sidebar.querySelector(".qol-tab-container");
-        const nativeBtn = tabContainer?.querySelector("#qol-tab-native");
-        const plusBtn = tabContainer?.querySelector("#qol-tab-plus");
-        const plusPanel = sidebar.querySelector(".qol-plus-panel");
+        if (this.plusPanel.parentElement !== container) {
+            container.innerHTML = "";
+            container.appendChild(this.plusPanel);
+        }
 
-        if (tabName === "native") {
-            sidebar.classList.remove("qol-mode-plus");
-            sidebar.classList.add("qol-mode-native");
-            nativeBtn?.classList.add("active");
-            plusBtn?.classList.remove("active");
-            if (plusPanel) plusPanel.style.display = "none";
+        this.renderPlusTree();
+        this.loadFavorites().then(() => this.loadTree()).then(() => {
+            setTimeout(() => this.scrollToActiveWorkflow(), 150);
+        });
+    }
 
-            // Trigger native ComfyUI sync & reload
-            this.syncNativeBookmarks();
-        } else {
-            sidebar.classList.remove("qol-mode-native");
-            sidebar.classList.add("qol-mode-plus");
-            plusBtn?.classList.add("active");
-            nativeBtn?.classList.remove("active");
-            if (plusPanel) {
-                plusPanel.style.display = "flex";
-                this.loadFavorites().then(() => this.loadTree()).then(() => {
-                    setTimeout(() => this.scrollToActiveWorkflow(), 150);
-                });
+    createPlusPanel() {
+        if (this.plusPanel) return this.plusPanel;
+
+        const plusPanel = document.createElement("div");
+        plusPanel.className = "qol-plus-panel";
+        plusPanel.innerHTML = `
+            <div class="qol-toolbar">
+                <div class="qol-search-wrapper">
+                    <span class="qol-search-icon">🔍</span>
+                    <input type="text" class="qol-search-input" placeholder="${BadaI18n.t("wf_search_placeholder")}" />
+                    <span class="qol-search-clear">&times;</span>
+                </div>
+                <button class="qol-icon-btn ${this.activeWorkflowName ? 'has-active' : ''}" id="qol-btn-focus-toolbar" title="${BadaI18n.t("wf_btn_focus")}">🎯</button>
+                <button class="qol-icon-btn" id="qol-btn-font-size" title="${BadaI18n.t("wf_btn_font_size")}">Aa</button>
+                <button class="qol-icon-btn" id="qol-btn-new-folder" title="${BadaI18n.t("wf_btn_new_folder")}">➕</button>
+                <button class="qol-icon-btn" id="qol-btn-toggle-all" title="${BadaI18n.t("wf_btn_toggle_all")}">📂</button>
+                <button class="qol-icon-btn" id="qol-btn-refresh" title="${BadaI18n.t("wf_btn_refresh")}">🔄</button>
+            </div>
+
+            <div class="qol-root-dropzone" id="qol-root-dropzone">
+                <span>${BadaI18n.t("wf_root_dropzone")}</span>
+            </div>
+
+            <div class="qol-tree-scroll" id="qol-tree-scroll"></div>
+        `;
+
+        this.plusPanel = plusPanel;
+
+        // Apply saved font size settings
+        this.applyFontSize(this.fontSizeIndex, false);
+
+        // Toolbar Events
+        const searchInput = plusPanel.querySelector(".qol-search-input");
+        const clearBtn = plusPanel.querySelector(".qol-search-clear");
+        searchInput.addEventListener("input", (e) => {
+            this.searchQuery = e.target.value.trim().toLowerCase();
+            clearBtn.style.display = this.searchQuery ? "block" : "none";
+            this.renderPlusTree();
+        });
+        clearBtn.addEventListener("click", () => {
+            searchInput.value = "";
+            this.searchQuery = "";
+            clearBtn.style.display = "none";
+            this.renderPlusTree();
+        });
+
+        plusPanel.querySelector("#qol-btn-focus-toolbar")?.addEventListener("click", () => {
+            this.scrollToActiveWorkflow();
+        });
+
+        const fontBtn = plusPanel.querySelector("#qol-btn-font-size");
+        fontBtn?.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.cycleFontSize();
+        });
+        fontBtn?.addEventListener("contextmenu", (e) => {
+            this.showFontSizeMenu(e);
+        });
+
+        plusPanel.querySelector("#qol-btn-new-folder").addEventListener("click", () => {
+            this.openNewFolderModal("/");
+        });
+
+        let allExpanded = false;
+        plusPanel.querySelector("#qol-btn-toggle-all").addEventListener("click", () => {
+            allExpanded = !allExpanded;
+            if (allExpanded && this.treeData) {
+                const addAll = (node) => {
+                    if (node.path && node.path !== "/") this.expandedFolders.add(node.path);
+                    if (node.folders) node.folders.forEach(addAll);
+                };
+                addAll(this.treeData);
+            } else {
+                this.expandedFolders.clear();
             }
-        }
+            this.renderPlusTree();
+        });
+
+        plusPanel.querySelector("#qol-btn-refresh").addEventListener("click", async () => {
+            await this.loadTree();
+            this.showToast("새로고침 완료");
+        });
+
+        // Root Dropzone Events
+        const rootDrop = plusPanel.querySelector("#qol-root-dropzone");
+        rootDrop.addEventListener("dragenter", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            rootDrop.classList.add("dragover");
+        });
+        rootDrop.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "move";
+            rootDrop.classList.add("dragover");
+        });
+        rootDrop.addEventListener("dragleave", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            rootDrop.classList.remove("dragover");
+        });
+        rootDrop.addEventListener("drop", async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            rootDrop.classList.remove("dragover");
+            rootDrop.classList.remove("visible");
+
+            const sourcePath = e.dataTransfer.getData("text/plain") || window.__qolDraggedWorkflow || this.draggedItem?.path;
+            if (sourcePath) {
+                await this.moveWorkflowFile(sourcePath, "/");
+                this.draggedItem = null;
+                window.__qolDraggedWorkflow = null;
+            }
+        });
+
+        return plusPanel;
     }
 
     async loadTree() {
@@ -1500,7 +1445,7 @@ class WorkflowsPlusManager {
         localStorage.setItem("qol_workflows_font_size_idx", index.toString());
         const preset = FONT_SIZE_PRESETS[this.fontSizeIndex];
 
-        const plusPanel = document.querySelector(".qol-plus-panel");
+        const plusPanel = this.plusPanel || document.querySelector(".qol-plus-panel");
         if (plusPanel) {
             plusPanel.style.setProperty("--qol-font-size", preset.fontSize);
             plusPanel.style.setProperty("--qol-folder-height", preset.folderHeight);
@@ -1512,7 +1457,7 @@ class WorkflowsPlusManager {
             plusPanel.style.setProperty("--qol-chevron-size", preset.chevron);
         }
 
-        const fontBtn = document.querySelector("#qol-btn-font-size");
+        const fontBtn = this.plusPanel?.querySelector("#qol-btn-font-size") || document.querySelector("#qol-btn-font-size");
         if (fontBtn) {
             fontBtn.title = `글자 크기: ${preset.label}\n(좌클릭: 크기 순환 변경 / 우클릭: 목록 선택)`;
             fontBtn.innerHTML = `<span style="font-weight:700; font-size:12px; font-family:sans-serif; letter-spacing:-0.5px;">${preset.icon || 'Aa'}</span>`;
@@ -1982,7 +1927,7 @@ class WorkflowsPlusManager {
     }
 
     renderPlusTree() {
-        const treeScroll = document.querySelector("#qol-tree-scroll");
+        const treeScroll = this.plusPanel?.querySelector("#qol-tree-scroll") || document.querySelector("#qol-tree-scroll");
         if (!treeScroll || !this.treeData) return;
 
         treeScroll.innerHTML = "";

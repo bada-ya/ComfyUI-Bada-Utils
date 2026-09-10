@@ -21,20 +21,22 @@
 
 ---
 
-## 🌟 4 Flagship Integrated Modules
+## 🌟 5 Flagship Integrated Modules
 
-`ComfyUI-Bada-Utils` integrates Quality of Life enhancements, master preset switching, intelligent model auto-detection, and interactive visual regional prompting to accelerate your workflow creation and generation speed.
+`ComfyUI-Bada-Utils` integrates Quality of Life enhancements, master preset switching, intelligent model auto-detection, interactive visual regional prompting, and non-blocking multimodal Gemini AI studio to accelerate your workflow creation and generation speed.
 
 ```
-🌊 ComfyUI-Bada-Utils
-├── 📐 Module 1: Visual Grid Regional Prompt Pro (Visual Grid Regional Prompt)
+⚓ ComfyUI-Bada-Utils
+├── 📐 Module 1: Visual Grid Regional Prompt Pro (BadaRegionalPrompt)
 │   └── Diagonal drag partitioning, 10-category shot explorer, SVG silhouette preview, 6 AI format outputs
-├── 🌟 Module 2: Universal Smart Presets & Master Hub (Universal Smart Presets)
+├── 🌟 Module 2: Universal Smart Presets & Master Hub (BadaPresetHub)
 │   └── 24px slim on-canvas radio switcher, Ctrl+drag batch snapshot, 2-tier roof badges, global presets
 ├── ⚡ Module 3: Auto Model & LoRA Assigner (Auto Model Assigner)
 │   └── Missing model detection on workflow load, intelligent fuzzy matching (%), folder tree explorer
-└── ✨ Module 4: Quality of Life (QoL) Master (Quality of Life Utils)
-    └── Workflows+ sidebar explorer (drag-and-drop / 0-item folder preservation), active tracking, blank startup, mouse pan/zoom fixer
+├── 🛠️ Module 4: Quality of Life (QoL) Master (Quality of Life Utils)
+│   └── Workflows+ sidebar explorer, active tracking, blank startup, canvas mouse pan/zoom fixer
+└── ⚓ Module 5: Bada Async Gemini Studio (BadaAsyncGeminiStudio)
+    └── 4 dedicated engine tabs (MiniMax H3, LTX-Video, KREA 2, Uncensored Gemini Chat), Zero VRAM, non-blocking generation
 ```
 
 ---

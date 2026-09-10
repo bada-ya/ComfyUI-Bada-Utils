@@ -434,7 +434,7 @@ def get_spatial_description(c1: int, c2: int, r1: int, r2: int, total_cols: int,
 
 class BadaRegionalPrompt:
     """
-    🌊 Bada Visual Regional Prompt (시각적 그리드 리저널 프롬프트 Pro)
+    ⚓ Bada Visual Regional Prompt (시각적 그리드 리저널 프롬프트 Pro)
     Visual interactive grid-based multi-region prompt generator.
     """
     def __init__(self):
@@ -470,7 +470,7 @@ class BadaRegionalPrompt:
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("prompt",)
     FUNCTION = "generate"
-    CATEGORY = "🌊 Bada Utils/Prompting"
+    CATEGORY = "⚓ Bada Utils/Prompting"
 
     def generate(self, prompt_text, format, aspect_ratio, grid_cols, grid_rows, ui_language="English", grid_data="{}", prefix_prompt="", suffix_prompt=""):
         # Parsing Grid Data (New JSON structure)
@@ -613,6 +613,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "BadaRegionalPrompt": "🌊 Bada Visual Regional Prompt (리저널 프롬프트)",
+    "BadaRegionalPrompt": "⚓ Bada Visual Regional Prompt (리저널 프롬프트)",
     "VisualGridPromptNode": "📐 Visual Grid Regional Prompt (Legacy)"
 }

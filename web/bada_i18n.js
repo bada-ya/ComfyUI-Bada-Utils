@@ -20,7 +20,7 @@ export const BadaI18n = {
     dict: {
         en: {
             // --- Settings Tab ---
-            "category": "🌊 Bada Utils",
+            "category": "⚓ Bada Utils",
             "settings_lang": "UI Language (언어 설정)",
             "settings_lang_desc": "Controls language for all Bada nodes, context menus, modals, and Workflows+",
             "blank_canvas": "Clean Blank Canvas on Startup",
@@ -33,7 +33,7 @@ export const BadaI18n = {
             "sidebar_organizer_desc": "Enables drag-and-drop workflow folder moving and organization in the left sidebar.",
 
             // --- Bada Preset Hub (Canvas Node) ---
-            "hub_node_title": "🌟 Universal Preset Hub",
+            "hub_node_title": "⚓ Universal Preset Hub",
             "hub_select_nodes": "💡 Select node(s) on canvas (Ctrl+Click / Drag)",
             "hub_detected_nodes": "🎯 Detected: {count} Nodes (Ready to Save)",
             "hub_settings_btn": "⚙️ Settings",
@@ -52,7 +52,7 @@ export const BadaI18n = {
             "badge_global_title": "🌐 Global Presets ({count})",
             "badge_global_desc": "Stored in ComfyUI globally across all workflows for <b>{name}</b>.",
             "badge_global_action": "👉 Click to open Global Presets Manager",
-            "badge_hub_title": "🌟 Universal Preset Hub Link ({count})",
+            "badge_hub_title": "⚓ Universal Preset Hub Link ({count})",
             "badge_hub_desc": "<b>{name}</b> is linked to {count} universal preset(s) in the Hub.",
             "badge_hub_action": "👉 Click to open Universal Preset Hub Manager",
 
@@ -96,8 +96,8 @@ export const BadaI18n = {
             "toast_global_import_success": "📥 Global presets successfully imported!",
 
             // --- Workflows+ Sidebar ---
-            "wf_tab_native": "📋 Workflows",
-            "wf_tab_plus": "✨ Workflows+",
+            "wf_tab_native": "Workflows",
+            "wf_tab_plus": "Workflows+",
             "wf_search_placeholder": "Search workflows...",
             "wf_btn_focus": "Locate currently active workflow",
             "wf_btn_font_size": "Font Size (Click: Cycle / Right-click: Menu)",
@@ -154,7 +154,7 @@ export const BadaI18n = {
 
         ko: {
             // --- Settings Tab ---
-            "category": "🌊 Bada Utils",
+            "category": "⚓ Bada Utils",
             "settings_lang": "UI 언어 (Language)",
             "settings_lang_desc": "Bada 모든 노드, 우클릭 메뉴, 모달 창, Workflows+의 표시 언어를 제어합니다.",
             "blank_canvas": "시작 시 깨끗한 빈 캔버스로 열기",
@@ -167,7 +167,7 @@ export const BadaI18n = {
             "sidebar_organizer_desc": "왼쪽 워크플로우 사이드바에서 워크플로우를 다른 폴더로 드래그하여 이동하거나 새 폴더를 생성할 수 있습니다.",
 
             // --- Bada Preset Hub (Canvas Node) ---
-            "hub_node_title": "🌟 Universal Preset Hub (유니버셜 프리셋 허브)",
+            "hub_node_title": "⚓ Universal Preset Hub (유니버셜 프리셋 허브)",
             "hub_select_nodes": "💡 캔버스에서 노드를 선택하세요 (Ctrl+클릭 / 드래그)",
             "hub_detected_nodes": "🎯 캔버스 선택 감지: {count}개 노드 (저장 가능)",
             "hub_settings_btn": "⚙️ 설정",
@@ -186,7 +186,7 @@ export const BadaI18n = {
             "badge_global_title": "🌐 글로벌 프리셋 ({count}개)",
             "badge_global_desc": "<b>{name}</b> 노드에 저장된 전역 프리셋입니다.",
             "badge_global_action": "👉 클릭하여 글로벌 프리셋 관리자 열기",
-            "badge_hub_title": "🌟 유니버셜 프리셋 허브 연동 ({count}개)",
+            "badge_hub_title": "⚓ 유니버셜 프리셋 허브 연동 ({count}개)",
             "badge_hub_desc": "<b>{name}</b> 노드가 포함된 {count}개의 유니버셜 프리셋이 허브에 등록되어 있습니다.",
             "badge_hub_action": "👉 클릭하여 유니버셜 프리셋 허브 관리자 열기",
 
@@ -230,8 +230,8 @@ export const BadaI18n = {
             "toast_global_import_success": "📥 글로벌 프리셋을 성공적으로 불러왔습니다!",
 
             // --- Workflows+ Sidebar ---
-            "wf_tab_native": "📋 Workflows",
-            "wf_tab_plus": "✨ Workflows+",
+            "wf_tab_native": "Workflows",
+            "wf_tab_plus": "Workflows+",
             "wf_search_placeholder": "워크플로우 검색...",
             "wf_btn_focus": "현재 작업 중인 워크플로우 위치로 이동",
             "wf_btn_font_size": "글자 크기 조절 (좌클릭: 순환 변경 / 우클릭: 메뉴)",

@@ -1,6 +1,6 @@
 {
   "settings": {
-    "category": "🌊 Bada Utils",
+    "category": "⚓ Bada Utils",
     "language": "UI Language (언어 설정)",
     "blank_canvas": "Clean Blank Canvas on Startup",
     "blank_canvas_desc": "Starts ComfyUI with an empty clean canvas instead of the default missing-model workflow.",

@@ -759,14 +759,14 @@ function setupHubNodeWidgets(node) {
 
                     ctx.font = isActive ? "bold 12px sans-serif" : "12px sans-serif";
                     let displayName = name;
-                    let titleText = `🌟 ${displayName}`;
+                    let titleText = `⚓ ${displayName}`;
 
                     if (ctx.measureText(titleText).width > maxTitleWidth) {
                         let truncated = displayName;
-                        while (truncated.length > 1 && ctx.measureText(`🌟 ${truncated}...`).width > maxTitleWidth) {
+                        while (truncated.length > 1 && ctx.measureText(`⚓ ${truncated}...`).width > maxTitleWidth) {
                             truncated = truncated.slice(0, -1);
                         }
-                        titleText = `🌟 ${truncated}...`;
+                        titleText = `⚓ ${truncated}...`;
                     }
 
                     // Draw Preset Name (Font size 12px fully preserved)

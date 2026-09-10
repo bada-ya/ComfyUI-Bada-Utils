@@ -36,14 +36,39 @@ export function setupCanvasMouseFix() {
     }
 
     /**
-     * Checks if target is part of the ComfyUI graph area
+     * Checks if target is strictly within the ComfyUI graph canvas area
+     * and NOT in top/left/bottom UI panels, sidebar dock, action bars, or modals.
      */
     function isGraphArea(target) {
         if (!target) return false;
+
+        // 1. Definitively outside: Top bar, Left sidebar, Bottom bar, Right sidebar, Action bar, Tabs, Modals, Dialogs
+        if (target.closest(
+            "#comfyui-body-top, #comfyui-body-left, #comfyui-body-bottom, #comfyui-body-right, " +
+            ".comfyui-body-top, .comfyui-body-left, .comfyui-body-bottom, .comfyui-body-right, " +
+            "nav, header, .side-tool-bar-container, .side-bar-panel, .top-bar-container, " +
+            ".actionbar-container, .actionbar, .workflow-tabs-container, .comfy-menu-bg, " +
+            ".p-dialog, .p-dialog-mask, .comfy-modal, .qol-modal-overlay, .qol-context-menu, " +
+            ".litegraph-context-menu, .p-tooltip, .graph-canvas-container > .pointer-events-none"
+        )) {
+            return false;
+        }
+
+        // 2. Direct canvas tag
         if (target.tagName === "CANVAS") return true;
-        if (target.closest(".graph-canvas, #graph-canvas, .litegraph, .comfy-node-dom, .dom-widget")) return true;
-        if (target.closest(".side-bar-panel, .comfy-menu, .p-dialog, .qol-modal-overlay, .qol-context-menu")) return false;
-        return true;
+
+        // 3. Node DOM widgets on canvas (e.g. text widgets, preset hub widgets)
+        if (target.closest(".comfy-node-dom, .dom-widget, .litegraph-node-content, .bada-preset-hub-widget, .graph-node")) {
+            return true;
+        }
+
+        // 4. Canvas element directly
+        if (target.id === "graph-canvas" || target.classList?.contains("lgraphcanvas")) {
+            return true;
+        }
+
+        // 5. Default: Anything else is UI / overlay, NOT graph canvas
+        return false;
     }
 
     const isEnabled = () => {
