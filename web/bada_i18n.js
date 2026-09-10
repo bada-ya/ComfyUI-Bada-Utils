@@ -31,6 +31,8 @@ export const BadaI18n = {
             "auto_assign_desc": "Automatically detects missing models/LoRAs when loading workflows and prompts smart local matching.",
             "sidebar_organizer": "Sidebar Workflow Folder Management",
             "sidebar_organizer_desc": "Enables drag-and-drop workflow folder moving and organization in the left sidebar.",
+            "load_image_fix": "Clipboard & LoadImage Auto-Error Fixer",
+            "load_image_fix_desc": "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes.",
 
             // --- Bada Preset Hub (Canvas Node) ---
             "hub_node_title": "⚓ Bada Preset Hub",
@@ -165,6 +167,8 @@ export const BadaI18n = {
             "auto_assign_desc": "워크플로우를 불러올 때 없는 모델이나 LoRA가 있으면 로컬 모델과 자동으로 매칭하여 안내창을 띄웁니다.",
             "sidebar_organizer": "사이드바 워크플로우 폴더 정리 및 이동",
             "sidebar_organizer_desc": "왼쪽 워크플로우 사이드바에서 워크플로우를 다른 폴더로 드래그하여 이동하거나 새 폴더를 생성할 수 있습니다.",
+            "load_image_fix": "클립보드 & 로드 이미지 인풋 에러 자동 해결기",
+            "load_image_fix_desc": "로드 이미지 노드에 Ctrl+V로 클립보드 이미지를 붙여넣거나 하위 경로를 불러올 때 발생하는 빨간 테두리 및 인풋 에러를 무결점으로 자동 해결합니다.",
 
             // --- Bada Preset Hub (Canvas Node) ---
             "hub_node_title": "⚓ Bada Preset Hub",

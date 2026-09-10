@@ -5,4 +5,5 @@ __pycache__/
 *.tmp
 *.log
 WORK_LOG.md
+수정노력.txt
 .agents/

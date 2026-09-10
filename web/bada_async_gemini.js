@@ -1010,6 +1010,9 @@ app.registerExtension({
                     promptStudioContainer.style.display = "none";
                     chatStudioContainer.style.display = "flex";
                     renderChatStudio();
+                    // onDrawForeground가 매 프레임 syncContainerSize를 호출하므로 별도 sync 불필요
+                    // 단, 즉시 한 번만 호출하여 초기 레이아웃 설정
+                    setTimeout(syncContainerSize, 0);
                 } else {
                     chatStudioContainer.style.display = "none";
                     promptStudioContainer.style.display = "flex";
@@ -1495,11 +1498,34 @@ app.registerExtension({
                 }
                 if (imageFound) e.preventDefault();
             };
+            // ─────────────────────────────────────────────────────────────
+            // LAYOUT ENGINE  (Regional Prompt 패턴: 매 프레임 onDrawForeground에서 직접 동기화)
+            // ─────────────────────────────────────────────────────────────
+            function syncContainerSize() {
+                if (!root || !node || !node.size) return;
+
+                const w = Math.max(400, node.size[0] - 20);
+                const h = Math.max(380, node.size[1] - 46);
+
+                // JS가 할 일: root 높이만 설정. 내부 레이아웃은 CSS flex가 담당.
+                root.style.width = w + "px";
+                root.style.maxWidth = w + "px";
+                root.style.height = h + "px";
+                root.style.maxHeight = h + "px";
+                root.style.overflow = "hidden";
+                // chatStudioContainer 높이는 CSS flex:1 이 자동으로 채움 — JS 픽셀 계산 불필요
+            }
+
             window.addEventListener("paste", onGlobalPaste);
+            const onVisChange = () => { syncContainerSize(); };
+            window.addEventListener("visibilitychange", onVisChange);
+            window.addEventListener("focus", onVisChange);
 
             const onRemoved = node.onRemoved;
             node.onRemoved = function () {
                 window.removeEventListener("paste", onGlobalPaste);
+                window.removeEventListener("visibilitychange", onVisChange);
+                window.removeEventListener("focus", onVisChange);
                 if (timerInterval) clearInterval(timerInterval);
                 onRemoved?.apply(this, arguments);
             };
@@ -1507,16 +1533,54 @@ app.registerExtension({
             // Initialize views
             renderEngineView();
 
-            // Mount DOM Widget into Node
-            node.addDOMWidget("bada_gemini_ui", "custom", root, {
+            // Mount DOM Widget — Regional Prompt 방식: 심플하게 두 옵션만
+            const domWidget = node.addDOMWidget("bada_gemini_ui", "custom", root, {
                 serialize: false,
-                hideOnZoom: false
+                hideOnZoom: false,
             });
 
-            setTimeout(() => {
+            // Minimum size boundary (Regional Prompt 방식과 동일)
+            node.computeSize = function (out) {
+                out = out || [0, 0];
+                out[0] = 420;
+                out[1] = 420;
+                return out;
+            };
+
+            const origResize = node.onResize;
+            node.onResize = function (size) {
+                if (size[0] < 420) size[0] = 420;
+                if (size[1] < 420) size[1] = 420;
+                origResize?.apply(this, arguments);
+                syncContainerSize();
+            };
+
+            const origConfigure = node.onConfigure;
+            node.onConfigure = function (data) {
+                const r = origConfigure ? origConfigure.apply(this, arguments) : undefined;
+                if (this.size && this.size[0] < 420) this.size[0] = 520;
+                if (this.size && this.size[1] < 420) this.size[1] = 780;
+                setTimeout(() => {
+                    syncContainerSize();
+                    if (appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
+                }, 50);
+                return r;
+            };
+
+            // onDrawForeground: Regional Prompt 방식 그대로 — 매 프레임 직접 호출, throttle 없음
+            const origDrawFg = node.onDrawForeground;
+            node.onDrawForeground = function (ctx) {
+                syncContainerSize();
+                origDrawFg?.apply(this, arguments);
+            };
+
+            // 초기 크기 설정
+            if (!node.size || node.size[0] < 420 || node.size[1] < 520) {
                 node.setSize([520, 820]);
-                appInstance.canvas.setDirty(true);
-            }, 50);
+            }
+            syncContainerSize();
+            if (appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
         };
     }
 });
+

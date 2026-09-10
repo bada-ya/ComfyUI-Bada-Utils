@@ -59,6 +59,14 @@ const BADA_UNIFIED_SETTINGS = {
         category: ["⚓ Bada Utils", "5. Global Presets (글로벌 프리셋 등록 현황 및 관리)"],
         name: "Global Presets",
         defaultValue: null
+    },
+    loadImageFix: {
+        id: "BadaUtils.LoadImageClipboardFix",
+        category: ["⚓ Bada Utils", "6. Image & Clipboard QoL (이미지 & 클립보드 편의성)"],
+        name: "📋 Clipboard & LoadImage Auto-Error Fixer (클립보드 & 로드 이미지 인풋 에러 자동 해결기)",
+        tooltip: "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes. (로드 이미지 노드에 Ctrl+V로 클립보드 이미지를 붙여넣거나 하위 경로를 불러올 때 발생하는 빨간 테두리 및 인풋 에러를 무결점으로 자동 해결합니다.)",
+        type: "boolean",
+        defaultValue: true
     }
 };
 
@@ -470,6 +478,22 @@ app.registerExtension({
                 return buildInlinePresetsPanel();
             },
             defaultValue: null
+        });
+
+        // ⑥ Clipboard & LoadImage Auto-Error Fixer
+        app.ui.settings.addSetting({
+            id: BADA_UNIFIED_SETTINGS.loadImageFix.id,
+            category: BADA_UNIFIED_SETTINGS.loadImageFix.category,
+            name: BADA_UNIFIED_SETTINGS.loadImageFix.name,
+            tooltip: BADA_UNIFIED_SETTINGS.loadImageFix.tooltip,
+            type: BADA_UNIFIED_SETTINGS.loadImageFix.type,
+            defaultValue: BADA_UNIFIED_SETTINGS.loadImageFix.defaultValue,
+            onChange: (newVal) => {
+                const isEnabled = (typeof newVal === "object" && newVal?.value !== undefined) ? newVal.value : newVal;
+                if (isEnabled && window.BadaLoadImageFixer?.healAllImageNodes) {
+                    window.BadaLoadImageFixer.healAllImageNodes();
+                }
+            }
         });
 
         // 3. 🛡️ PrimeVue Tooltip Deduplication & Stray Element Fixer

@@ -9,7 +9,9 @@
     "auto_assign": "Auto Model & LoRA Assigner Alert",
     "auto_assign_desc": "Automatically detects missing models/LoRAs when loading workflows and prompts smart local matching.",
     "sidebar_organizer": "Sidebar Workflow Folder Management",
-    "sidebar_organizer_desc": "Enables drag-and-drop workflow folder moving and organization in the left sidebar."
+    "sidebar_organizer_desc": "Enables drag-and-drop workflow folder moving and organization in the left sidebar.",
+    "load_image_fix": "Clipboard & LoadImage Auto-Error Fixer",
+    "load_image_fix_desc": "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes."
   },
   "presets": {
     "title": "Bada Preset Hub",

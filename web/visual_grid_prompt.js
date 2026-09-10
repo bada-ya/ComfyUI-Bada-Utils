@@ -807,6 +807,7 @@ app.registerExtension({
             container.className = "visual-grid-container";
             container.style.cssText = `
                 width: 100%;
+                height: 100%;
                 background: #111116;
                 color: #e4e4e7;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
@@ -817,6 +818,8 @@ app.registerExtension({
                 flex-direction: column;
                 gap: 8px;
                 user-select: none;
+                overflow-y: auto;
+                overflow-x: hidden;
             `;
 
             // Forward Mouse Wheel (Canvas Zoom) & Middle-Click (Canvas Pan) to LiteGraph Canvas
@@ -2461,7 +2464,7 @@ app.registerExtension({
                 const isTreeOpen = treeDrawer && !treeDrawer.classList.contains("collapsed");
                 const isCharManagerOpen = charManagerDrawer && charManagerDrawer.style.display !== "none";
                 const isCustomManagerOpen = customManagerDrawer && customManagerDrawer.style.display !== "none";
-                let targetH = 880;
+                let targetH = 1050;
                 if (isTreeOpen) targetH += 220;
                 if (isCharManagerOpen) targetH += 240;
                 if (isCustomManagerOpen) targetH += 240;
@@ -2469,18 +2472,22 @@ app.registerExtension({
                     node.size[1] = targetH;
                     if (app && app.canvas) app.canvas.setDirty(true, true);
                 }
+                syncContainerSize();
             }
 
-            function syncContainerWidth() {
+            function syncContainerSize() {
                 if (container && node && node.size) {
                     const targetW = Math.max(420, node.size[0] - 20);
+                    const targetH = Math.max(500, node.size[1] - 46);
                     container.style.width = `${targetW}px`;
                     container.style.maxWidth = `${targetW}px`;
+                    container.style.height = `${targetH}px`;
+                    container.style.maxHeight = `${targetH}px`;
                 }
             }
 
             function updateCanvasDimensions() {
-                syncContainerWidth();
+                syncContainerSize();
                 const ratioParts = currentRatio.split(":");
                 const w = parseFloat(ratioParts[0]) || 16;
                 const h = parseFloat(ratioParts[1]) || 9;
@@ -2854,6 +2861,14 @@ app.registerExtension({
             const onConfigure = node.onConfigure;
             node.onConfigure = function (info) {
                 if (onConfigure) onConfigure.apply(this, arguments);
+                if (this.size && this.size[1] < 1000) {
+                    this.size[1] = 1060;
+                }
+                setTimeout(() => {
+                    syncContainerSize();
+                    updateCanvasDimensions();
+                    if (app && app.canvas) app.canvas.setDirty(true, true);
+                }, 50);
                 const gridDataW = this.widgets?.find(w => w.name === "grid_data");
                 if (gridDataW && gridDataW.value && gridDataW.value !== "{}") {
                     try {
@@ -2905,7 +2920,7 @@ app.registerExtension({
             node.onDrawForeground = function (ctx) {
                 hideAllBackendWidgets(this);
                 enforceSingleOutput(this);
-                syncContainerWidth();
+                syncContainerSize();
                 if (onDrawForeground) onDrawForeground.apply(this, arguments);
             };
 
@@ -2953,16 +2968,19 @@ app.registerExtension({
 
             // Initial Sizing & Setup
             currentLang = (BadaI18n && BadaI18n.lang === "en") ? "English" : "한국어";
-            syncContainerWidth();
+            syncContainerSize();
             updateCanvasDimensions();
             renderGrid();
             updateAllUILanguage();
             syncToWidgets();
-            node.setSize([510, 880]);
+            if (!node.size || node.size[0] < 420 || node.size[1] < 1000) {
+                node.setSize([510, 1060]);
+            }
+            syncContainerSize();
 
             // LiteGraph Minimum Size Boundary Hook (Prevents shrinking past minimum bounds)
             node.computeSize = function (out) {
-                const minW = 400;
+                const minW = 420;
                 let minH = 650;
                 const isTreeOpen = treeDrawer && !treeDrawer.classList.contains("collapsed");
                 const isCharOpen = charManagerDrawer && charManagerDrawer.style.display !== "none";
@@ -2986,7 +3004,7 @@ app.registerExtension({
                 const minSize = node.computeSize();
                 if (size[0] < minSize[0]) size[0] = minSize[0];
                 if (size[1] < minSize[1]) size[1] = minSize[1];
-                syncContainerWidth();
+                syncContainerSize();
                 updateCanvasDimensions();
             };
 

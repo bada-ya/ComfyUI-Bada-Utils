@@ -34,8 +34,11 @@
 
 /* Base Card Container inside ComfyUI Node */
 .bada-gemini-card {
-  width: 100%;
-  box-sizing: border-box;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  /* height is controlled by JS syncContainerSize — do NOT set height here */
+  box-sizing: border-box !important;
   background: var(--bada-bg-surface);
   border: 1px solid var(--bada-border);
   border-radius: var(--bada-radius-lg);
@@ -46,8 +49,22 @@
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
   color: var(--bada-text-main);
   user-select: text;
-  max-height: 100%;
-  overflow-y: auto;
+  overflow: hidden !important;
+}
+
+/* Force ComfyUI Vue subgrid & wrapper containers to span full width and sync height */
+.lg-node-widget:has(.bada-gemini-card),
+div[data-testid="node-widget"]:has(.bada-gemini-card) {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding-right: 0 !important;
+  box-sizing: border-box !important;
+  flex: 1 1 100% !important;
 }
 
 /* Header */
@@ -125,35 +142,48 @@
 }
 
 @keyframes badaFadeIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* 4 Main Engine Navigation Tabs */
 .bada-engine-nav {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 5px;
   background: #0b0f19;
   padding: 4px;
   border-radius: var(--bada-radius-md);
   border: 1px solid var(--bada-border);
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .bada-engine-btn {
   background: transparent;
   border: none;
   color: var(--bada-text-muted);
-  padding: 7px 6px;
+  padding: 7px 4px;
   border-radius: var(--bada-radius-sm);
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -195,6 +225,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
 }
 
 .bada-submode-header {
@@ -226,16 +257,23 @@
 .bada-submode-grid {
   display: grid;
   gap: 5px;
+  min-width: 0;
+  width: 100%;
 }
 
-.bada-submode-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
-.bada-submode-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.bada-submode-grid.cols-5 {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.bada-submode-grid.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 
 .bada-sub-card {
   background: var(--bada-bg-input);
   border: 1px solid var(--bada-border);
   border-radius: var(--bada-radius-sm);
-  padding: 7px 4px;
+  padding: 6px 2px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -243,6 +281,8 @@
   justify-content: center;
   text-align: center;
   gap: 3px;
+  min-width: 0;
+  overflow: hidden;
   transition: all 0.15s;
 }
 
@@ -269,9 +309,30 @@
   box-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
 }
 
-.bada-sub-icon { font-size: 13px; line-height: 1; }
-.bada-sub-name { font-size: 11px; font-weight: 800; color: #fff; line-height: 1.2; }
-.bada-sub-tag { font-size: 9px; color: var(--bada-text-dim); }
+.bada-sub-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.bada-sub-name {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.bada-sub-tag {
+  font-size: 8.5px;
+  color: var(--bada-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
 
 /* Info Callout */
 .bada-callout {
@@ -394,8 +455,10 @@
 /* Options 2-Column Grid (NSFW & Translate Toggles) */
 .bada-options-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+  min-width: 0;
+  width: 100%;
 }
 
 .bada-toggle-card {
@@ -407,6 +470,7 @@
   align-items: center;
   justify-content: space-between;
   cursor: pointer;
+  min-width: 0;
   transition: all 0.15s;
 }
 
@@ -418,17 +482,25 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .bada-toggle-title {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 800;
   color: var(--bada-text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bada-toggle-desc {
-  font-size: 9.5px;
+  font-size: 9px;
   color: var(--bada-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bada-toggle-badge {
@@ -479,6 +551,8 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  width: 100%;
 }
 
 .bada-input-group {
@@ -486,6 +560,7 @@
   flex: 1;
   display: flex;
   align-items: center;
+  min-width: 0;
 }
 
 .bada-input {
@@ -498,6 +573,8 @@
   font-size: 11px;
   font-family: 'Fira Code', monospace;
   outline: none;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .bada-input:focus {
@@ -524,6 +601,8 @@
   outline: none;
   cursor: pointer;
   flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .bada-select:focus {
@@ -595,14 +674,27 @@
   transition: all 0.2s;
 }
 
-.bada-dropzone:hover, .bada-dropzone.dragover {
+.bada-dropzone:hover,
+.bada-dropzone.dragover {
   border-color: #10b981;
   background: rgba(16, 185, 129, 0.06);
 }
 
-.bada-drop-icon { font-size: 16px; margin-bottom: 2px; }
-.bada-drop-text { font-size: 11px; font-weight: 700; color: var(--bada-text-main); }
-.bada-drop-subtext { font-size: 9.5px; color: var(--bada-text-dim); }
+.bada-drop-icon {
+  font-size: 16px;
+  margin-bottom: 2px;
+}
+
+.bada-drop-text {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--bada-text-main);
+}
+
+.bada-drop-subtext {
+  font-size: 9.5px;
+  color: var(--bada-text-dim);
+}
 
 .bada-thumbnails-container {
   display: flex;
@@ -677,7 +769,9 @@
   font-weight: 700;
 }
 
-.bada-btn-text:hover { text-decoration: underline; }
+.bada-btn-text:hover {
+  text-decoration: underline;
+}
 
 /* Main Action Buttons */
 .bada-btn-generate {
@@ -732,7 +826,9 @@
 }
 
 @keyframes badaSpin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Output Area & Tabs */
@@ -769,22 +865,28 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  width: 100%;
 }
 
 .bada-btn-secondary {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   background: var(--bada-bg-surface-elevated);
   border: 1px solid var(--bada-border);
   color: var(--bada-text-main);
-  padding: 7px 10px;
+  padding: 7px 6px;
   border-radius: var(--bada-radius-sm);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: all 0.15s;
 }
 
@@ -910,7 +1012,10 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  height: 620px;
+  flex: 1 1 auto;    /* root의 남은 높이를 CSS가 자동으로 채움 */
+  min-height: 0;     /* flex 자식이 overflow되지 않도록 필수 */
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .bada-chat-topbar {
@@ -959,8 +1064,10 @@
 }
 
 .bada-chat-thread {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--bada-bg-input);
   border: 1px solid var(--bada-border);
   border-radius: var(--bada-radius-md);
@@ -968,6 +1075,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  box-sizing: border-box;
 }
 
 .bada-msg-row {
@@ -976,8 +1084,13 @@
   width: 100%;
 }
 
-.bada-msg-row.user { justify-content: flex-end; }
-.bada-msg-row.model { justify-content: flex-start; }
+.bada-msg-row.user {
+  justify-content: flex-end;
+}
+
+.bada-msg-row.model {
+  justify-content: flex-start;
+}
 
 .bada-msg-bubble {
   padding: 8px 12px;
@@ -1069,7 +1182,9 @@
   border-radius: 4px;
 }
 
-.bada-source-link:hover { text-decoration: underline; }
+.bada-source-link:hover {
+  text-decoration: underline;
+}
 
 /* Chat Input Bar */
 .bada-chat-input-bar {
