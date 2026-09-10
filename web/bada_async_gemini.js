@@ -99,7 +99,7 @@ app.registerExtension({
     name: "bada.AsyncGeminiStudio",
 
     async beforeRegisterNodeDef(nodeType, nodeData, appInstance) {
-        if (nodeData.name !== "BadaAsyncGeminiStudio") {
+        if (nodeData.name !== "BadaAsyncGeminiStudio" && nodeData.name !== "bada_async_gemini") {
             return;
         }
 
@@ -108,6 +108,7 @@ app.registerExtension({
             onNodeCreated?.apply(this, arguments);
 
             const node = this;
+            node.title = "⚓ Bada Async Gemini Studio";
             node.setSize([520, 820]);
 
             // Hide raw multiline widgets

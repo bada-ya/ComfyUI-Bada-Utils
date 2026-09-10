@@ -77,7 +77,7 @@ export function showGuideModal() {
                 <div class="usp-guide-title-box">
                     <div class="usp-guide-icon">💡</div>
                     <div>
-                        <h3 class="usp-guide-title">${isKo ? "유니버셜 프리셋 허브 백업 & 타 워크플로우 적용 가이드" : "Universal Preset Hub Backup & Cross-Workflow Guide"}</h3>
+                        <h3 class="usp-guide-title">${isKo ? "Bada 프리셋 허브 백업 & 타 워크플로우 적용 가이드" : "Bada Preset Hub Backup & Cross-Workflow Guide"}</h3>
                         <p class="usp-guide-subtitle">${isKo ? "다른 컴퓨터나 새로운 워크플로우로 프리셋을 안전하게 공유하는 방법" : "How to securely share and migrate presets across workflows and systems"}</p>
                     </div>
                 </div>

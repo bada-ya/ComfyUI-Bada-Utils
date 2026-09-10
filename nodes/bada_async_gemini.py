@@ -69,11 +69,9 @@ class BadaAsyncGeminiStudio:
 
 NODE_CLASS_MAPPINGS = {
     "BadaAsyncGeminiStudio": BadaAsyncGeminiStudio,
-    "bada_async_gemini": BadaAsyncGeminiStudio,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "BadaAsyncGeminiStudio": "⚓ Bada Async Gemini Studio",
-    "bada_async_gemini": "⚓ Bada Async Gemini Studio",
 }
 

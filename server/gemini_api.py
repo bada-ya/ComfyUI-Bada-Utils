@@ -1,5 +1,5 @@
 """
-ComfyUI-bada-AsyncGemini: Advanced Multi-Pass Async Gemini Prompt Engine
+ComfyUI-Bada-Utils: Advanced Multi-Pass Async Gemini Prompt Engine
 Ported from https://bada-ya.github.io/AI-Prompt-Studio-and-Text-Transformer/:
 - 4 Dedicated Engine Tabs: MiniMax H3, LTX-Video, KREA 2, ✨ 무검열 제미나이 (Excludes 텍스트 가공 도구)
 - Exact 7 Gemini Models with daily quota annotations
@@ -16,7 +16,7 @@ import aiohttp
 from aiohttp import web
 from server import PromptServer
 
-logger = logging.getLogger("ComfyUI-bada-AsyncGemini")
+logger = logging.getLogger("ComfyUI-Bada-Utils")
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
@@ -678,6 +678,6 @@ def register_gemini_api_routes():
                 logger.error(f"[bada-AsyncGemini] Chat exception: {e}", exc_info=True)
                 return web.json_response({"success": False, "error": f"서버 오류: {str(e)}"}, status=500)
 
-        logger.info("[ComfyUI-bada-AsyncGemini] 4-Engine Multi-Pass REST API ready ⚡")
+        logger.info("[ComfyUI-Bada-Utils: Gemini] 4-Engine Multi-Pass REST API ready ⚡")
     except Exception as e:
-        logger.error(f"[ComfyUI-bada-AsyncGemini] Route registration failure: {e}", exc_info=True)
+        logger.error(f"[ComfyUI-Bada-Utils: Gemini] Route registration failure: {e}", exc_info=True)

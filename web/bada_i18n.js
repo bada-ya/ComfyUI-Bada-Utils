@@ -33,11 +33,11 @@ export const BadaI18n = {
             "sidebar_organizer_desc": "Enables drag-and-drop workflow folder moving and organization in the left sidebar.",
 
             // --- Bada Preset Hub (Canvas Node) ---
-            "hub_node_title": "⚓ Universal Preset Hub",
+            "hub_node_title": "⚓ Bada Preset Hub",
             "hub_select_nodes": "💡 Select node(s) on canvas (Ctrl+Click / Drag)",
             "hub_detected_nodes": "🎯 Detected: {count} Nodes (Ready to Save)",
             "hub_settings_btn": "⚙️ Settings",
-            "hub_presets_header": "📜 Universal Presets ({count})",
+            "hub_presets_header": "📜 Bada Presets ({count})",
             "hub_click_apply": "⚡ Click to Apply Instantly",
             "hub_empty_hint": "💡 Select node(s) and click top button to save a preset",
             "hub_switch_on": "ON",
@@ -52,9 +52,9 @@ export const BadaI18n = {
             "badge_global_title": "🌐 Global Presets ({count})",
             "badge_global_desc": "Stored in ComfyUI globally across all workflows for <b>{name}</b>.",
             "badge_global_action": "👉 Click to open Global Presets Manager",
-            "badge_hub_title": "⚓ Universal Preset Hub Link ({count})",
-            "badge_hub_desc": "<b>{name}</b> is linked to {count} universal preset(s) in the Hub.",
-            "badge_hub_action": "👉 Click to open Universal Preset Hub Manager",
+            "badge_hub_title": "⚓ Bada Preset Hub Link ({count})",
+            "badge_hub_desc": "<b>{name}</b> is linked to {count} preset(s) in the Hub.",
+            "badge_hub_action": "👉 Click to open Bada Preset Hub Manager",
 
             // --- Global Presets Modal ---
             "modal_global_title": "🌐 {name} Global Presets Manager",
@@ -71,9 +71,9 @@ export const BadaI18n = {
             "modal_guide_btn": "💡 Backup & Cross-Workflow Guide",
             "modal_close_btn": "Close",
 
-            // --- Universal Preset Hub Modal ---
-            "modal_hub_title": "Universal Preset Hub Manager",
-            "modal_hub_subtitle": "Universal presets are <strong>saved only within the current workflow</strong> and embedded in PNG metadata",
+            // --- Bada Preset Hub Modal ---
+            "modal_hub_title": "Bada Preset Hub Manager",
+            "modal_hub_subtitle": "Bada presets are <strong>saved only within the current workflow</strong> and embedded in PNG metadata",
             "modal_hub_input_placeholder": "Enter universal preset name (e.g. FLUX Detailer Setup)...",
             "modal_hub_save_btn": "💾 Save from Current Selection",
             "modal_hub_empty": "No saved universal presets.<br>Select nodes on canvas and click <b>[Save from Current Selection]</b>!",
@@ -167,11 +167,11 @@ export const BadaI18n = {
             "sidebar_organizer_desc": "왼쪽 워크플로우 사이드바에서 워크플로우를 다른 폴더로 드래그하여 이동하거나 새 폴더를 생성할 수 있습니다.",
 
             // --- Bada Preset Hub (Canvas Node) ---
-            "hub_node_title": "⚓ Universal Preset Hub (유니버셜 프리셋 허브)",
+            "hub_node_title": "⚓ Bada Preset Hub",
             "hub_select_nodes": "💡 캔버스에서 노드를 선택하세요 (Ctrl+클릭 / 드래그)",
             "hub_detected_nodes": "🎯 캔버스 선택 감지: {count}개 노드 (저장 가능)",
             "hub_settings_btn": "⚙️ 설정",
-            "hub_presets_header": "📜 유니버셜 프리셋 ({count}개)",
+            "hub_presets_header": "📜 Bada 프리셋 ({count}개)",
             "hub_click_apply": "⚡ 클릭하여 즉시 적용",
             "hub_empty_hint": "💡 노드 선택 후 상단 버튼을 눌러 저장해 보세요",
             "hub_switch_on": "ON",
@@ -186,9 +186,9 @@ export const BadaI18n = {
             "badge_global_title": "🌐 글로벌 프리셋 ({count}개)",
             "badge_global_desc": "<b>{name}</b> 노드에 저장된 전역 프리셋입니다.",
             "badge_global_action": "👉 클릭하여 글로벌 프리셋 관리자 열기",
-            "badge_hub_title": "⚓ 유니버셜 프리셋 허브 연동 ({count}개)",
-            "badge_hub_desc": "<b>{name}</b> 노드가 포함된 {count}개의 유니버셜 프리셋이 허브에 등록되어 있습니다.",
-            "badge_hub_action": "👉 클릭하여 유니버셜 프리셋 허브 관리자 열기",
+            "badge_hub_title": "⚓ Bada 프리셋 허브 연동 ({count}개)",
+            "badge_hub_desc": "<b>{name}</b> 노드가 포함된 {count}개의 Bada 프리셋이 허브에 등록되어 있습니다.",
+            "badge_hub_action": "👉 클릭하여 Bada 프리셋 허브 관리자 열기",
 
             // --- Global Presets Modal ---
             "modal_global_title": "🌐 {name} 프리셋 관리자",
@@ -205,9 +205,9 @@ export const BadaI18n = {
             "modal_guide_btn": "💡 백업 및 타 워크플로우 적용 가이드",
             "modal_close_btn": "닫기",
 
-            // --- Universal Preset Hub Modal ---
-            "modal_hub_title": "유니버셜 프리셋 허브 관리자",
-            "modal_hub_subtitle": "유니버셜 프리셋은 <strong>현재 워크플로우에만 저장</strong>되며 워크플로우 저장(Ctrl+S) 및 이미지 생성 시 메타데이터에 자동 동봉됩니다",
+            // --- Bada Preset Hub Modal ---
+            "modal_hub_title": "Bada 프리셋 허브 관리자",
+            "modal_hub_subtitle": "Bada 프리셋은 <strong>현재 워크플로우에만 저장</strong>되며 워크플로우 저장(Ctrl+S) 및 이미지 생성 시 메타데이터에 자동 동봉됩니다",
             "modal_hub_input_placeholder": "새 유니버셜 프리셋 이름 입력 (예: FLUX 디테일러 세팅)...",
             "modal_hub_save_btn": "💾 현재 선택 노드로 저장",
             "modal_hub_empty": "저장된 유니버셜 프리셋이 없습니다.<br>캔버스에서 노드를 선택하고 <b>[현재 선택 노드로 저장]</b>을 눌러보세요!",

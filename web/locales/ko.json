@@ -12,7 +12,7 @@
     "sidebar_organizer_desc": "왼쪽 워크플로우 사이드바에서 워크플로우를 다른 폴더로 드래그하여 이동하거나 새 폴더를 생성할 수 있습니다."
   },
   "presets": {
-    "title": "Bada 유니버셜 프리셋 허브",
+    "title": "Bada 프리셋 허브",
     "save_preset": "현재 워크플로우 설정 프리셋 저장",
     "load_preset": "프리셋 적용하기",
     "delete_preset": "삭제",

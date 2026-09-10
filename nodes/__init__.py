@@ -13,7 +13,6 @@ NODE_CLASS_MAPPINGS = {
     "BadaRegionalPrompt": BadaRegionalPrompt,
     "VisualGridPromptNode": BadaRegionalPrompt,
     "BadaAsyncGeminiStudio": BadaAsyncGeminiStudio,
-    "bada_async_gemini": BadaAsyncGeminiStudio,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -21,7 +20,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "BadaRegionalPrompt": "⚓ Bada Visual Regional Prompt",
     "VisualGridPromptNode": "📐 Visual Grid Regional Prompt (Legacy)",
     "BadaAsyncGeminiStudio": "⚓ Bada Async Gemini Studio",
-    "bada_async_gemini": "⚓ Bada Async Gemini Studio",
 }
 
 __all__ = [
