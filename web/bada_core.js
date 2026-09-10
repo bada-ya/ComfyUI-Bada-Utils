@@ -472,22 +472,98 @@ app.registerExtension({
             defaultValue: null
         });
 
-        // 3. Cleanup floating stuck tooltips only when settings dialog is actually closed
-        const cleanupStuckTooltips = () => {
-            setTimeout(() => {
-                if (!document.querySelector('[role="dialog"]')) {
-                    document.querySelectorAll(".p-tooltip, .comfy-tooltip").forEach(el => el.remove());
+        // 3. 🛡️ PrimeVue Tooltip Deduplication & Stray Element Fixer
+        if (!window.__BADA_TOOLTIP_FIX_INSTALLED__) {
+            window.__BADA_TOOLTIP_FIX_INSTALLED__ = true;
+
+            const origAppendChild = document.body.appendChild.bind(document.body);
+            document.body.appendChild = function (node) {
+                if (node && node.nodeType === 1 && node.classList?.contains("p-tooltip")) {
+                    if (node.id && document.getElementById(node.id)) {
+                        return node;
+                    }
                 }
-            }, 100);
-        };
-        document.addEventListener("keydown", (e) => {
-            if (e.key === "Escape") cleanupStuckTooltips();
-        }, true);
-        document.addEventListener("click", (e) => {
-            if (e.target.closest?.('button[aria-label*="Close"], .p-dialog-header-close')) {
-                cleanupStuckTooltips();
-            }
-        }, true);
+                return origAppendChild(node);
+            };
+
+            const origAddEventListener = EventTarget.prototype.addEventListener;
+            EventTarget.prototype.addEventListener = function (type, listener, options) {
+                if (type === "mouseenter" && (this.dataset?.pdTooltip === "true" || this.$_ptooltipIdAttr || this.classList?.contains("pi-info-circle") || (this.hasAttribute && this.hasAttribute("v-tooltip")))) {
+                    if (this.__badaTooltipMouseenter) {
+                        try {
+                            this.removeEventListener("mouseenter", this.__badaTooltipMouseenter);
+                        } catch (e) {}
+                    }
+                    this.__badaTooltipMouseenter = listener;
+                }
+                return origAddEventListener.call(this, type, listener, options);
+            };
+
+            const pruneStrayTooltips = () => {
+                document.querySelectorAll(".p-tooltip").forEach(el => {
+                    const r = el.getBoundingClientRect();
+                    if (r.left === 0 && r.top === 0) {
+                        el.remove();
+                    }
+                });
+            };
+
+            window.addEventListener("pointermove", pruneStrayTooltips, { passive: true });
+            window.addEventListener("mousemove", pruneStrayTooltips, { passive: true });
+        }
+
+        // 4. ⌨️ Global ESC Key Dismissal for All Custom Bada Modals & Dialogs
+        if (!window.__BADA_GLOBAL_ESC_INSTALLED__) {
+            window.__BADA_GLOBAL_ESC_INSTALLED__ = true;
+            window.addEventListener("keydown", (e) => {
+                if (e.key === "Escape") {
+                    // 1. Guide Modal (Top-most sub-modal)
+                    const guideModal = document.getElementById("usp-guide-modal");
+                    if (guideModal && guideModal.classList.contains("active")) {
+                        guideModal.classList.remove("active");
+                        e.stopPropagation();
+                        e.preventDefault();
+                        return;
+                    }
+
+                    // 2. Auto-assign Overlay
+                    const autoAssignOverlay = document.querySelector(".auto-assign-overlay");
+                    if (autoAssignOverlay) {
+                        autoAssignOverlay.remove();
+                        e.stopPropagation();
+                        e.preventDefault();
+                        return;
+                    }
+
+                    // 3. Global Presets Overview Modal
+                    const overviewModal = document.getElementById("bada-global-presets-overview-modal");
+                    if (overviewModal && overviewModal.classList.contains("active")) {
+                        overviewModal.classList.remove("active");
+                        e.stopPropagation();
+                        e.preventDefault();
+                        return;
+                    }
+
+                    // 4. Universal Preset Hub Modal
+                    const hubModal = document.getElementById("usp-hub-modal");
+                    if (hubModal && hubModal.classList.contains("active")) {
+                        hubModal.classList.remove("active");
+                        e.stopPropagation();
+                        e.preventDefault();
+                        return;
+                    }
+
+                    // 5. Global Presets Manager Modal
+                    const presetsModal = document.getElementById("usp-presets-modal");
+                    if (presetsModal && presetsModal.classList.contains("active")) {
+                        presetsModal.classList.remove("active");
+                        e.stopPropagation();
+                        e.preventDefault();
+                        return;
+                    }
+                }
+            }, true); // Capture phase
+        }
 
         // 4. Ensure all Bada node titles and categories display the anchor ⚓ symbol
         const updateNodeTitles = () => {

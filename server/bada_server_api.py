@@ -235,6 +235,7 @@ def register_bada_api_routes():
                 return web.json_response({
                     "status": "success",
                     "models": models_data,
+                    "data": models_data,
                     "count": sum(len(v) for v in models_data.values())
                 })
             except Exception as e:

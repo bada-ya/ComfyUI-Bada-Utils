@@ -388,10 +388,27 @@ export function showHubManageModal(hubNode = null, options = {}) {
     renderSelectedNodesPreview(hubNode);
     renderHubPresetList();
     hubModalElement.classList.add("active");
+
+    const onKeyDown = (e) => {
+        if (e.key === "Escape") {
+            closeHubModal();
+            e.stopPropagation();
+            e.preventDefault();
+        }
+    };
+    if (hubModalElement._onKeyDown) {
+        document.removeEventListener("keydown", hubModalElement._onKeyDown, true);
+    }
+    hubModalElement._onKeyDown = onKeyDown;
+    document.addEventListener("keydown", onKeyDown, true);
 }
 
 export function closeHubModal() {
     if (hubModalElement) {
+        if (hubModalElement._onKeyDown) {
+            document.removeEventListener("keydown", hubModalElement._onKeyDown, true);
+            delete hubModalElement._onKeyDown;
+        }
         hubModalElement.classList.remove("active");
     }
     currentHubNode = null;

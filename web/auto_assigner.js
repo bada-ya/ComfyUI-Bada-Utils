@@ -25,8 +25,9 @@ class AutoModelAssigner {
             const resp = await api.fetchApi("/api/auto-assign/models");
             if (resp.ok) {
                 const data = await resp.json();
-                if (data.status === "success" && data.data) {
-                    this.modelsCache = data.data;
+                const models = data.models || data.data;
+                if (data.status === "success" && models) {
+                    this.modelsCache = models;
                     return this.modelsCache;
                 }
             }
@@ -88,13 +89,14 @@ class AutoModelAssigner {
             return true;
         }
 
-        // 2. 값 패턴 검사 (.safetensors, .ckpt 등)
+        // 2. 값 패턴 검사 (.safetensors, .ckpt, .gguf 등)
         if (
             val.endsWith(".safetensors") ||
             val.endsWith(".ckpt") ||
             val.endsWith(".pt") ||
             val.endsWith(".bin") ||
-            val.endsWith(".pth")
+            val.endsWith(".pth") ||
+            val.endsWith(".gguf")
         ) {
             return true;
         }
@@ -106,14 +108,32 @@ class AutoModelAssigner {
                     v.endsWith(".safetensors") || 
                     v.endsWith(".ckpt") || 
                     v.endsWith(".pt") || 
-                    v.endsWith(".bin") ||
-                    v.endsWith(".pth")
+                    v.endsWith(".bin") || 
+                    v.endsWith(".pth") || 
+                    v.endsWith(".gguf")
                 )
             );
             if (hasModelFiles) return true;
         }
 
         return false;
+    }
+
+    /**
+     * 카테고리별 사용 가능한 로컬 모델 파일 목록 획득 (별칭 및 폴백 지원)
+     */
+    static getAvailableModelsForCategory(category, localModels) {
+        if (!localModels) return [];
+        let list = localModels[category];
+        if (!list || list.length === 0) {
+            if (category === "diffusion_models") list = localModels["unet"];
+            else if (category === "unet") list = localModels["diffusion_models"];
+            else if (category === "clip") list = localModels["text_encoders"];
+            else if (category === "text_encoders") list = localModels["clip"];
+            else if (category === "loras") list = localModels["lora"];
+            else if (category === "checkpoints") list = localModels["checkpoint"];
+        }
+        return Array.isArray(list) ? list : [];
     }
 
     /**
@@ -124,7 +144,7 @@ class AutoModelAssigner {
         const nType = (node?.type || "").toLowerCase();
 
         if (wName.includes("ckpt") || nType.includes("checkpoint")) return "checkpoints";
-        if (wName.includes("unet") || nType.includes("unet") || nType.includes("diffusion")) return "diffusion_models";
+        if (wName.includes("unet") || nType.includes("unet") || nType.includes("diffusion") || nType.includes("transformer")) return "diffusion_models";
         if (wName.includes("lora") || nType.includes("lora") || nType.includes("dasiwa") || nType.includes("deno") || nType.includes("rgthree")) return "loras";
         if (wName.includes("vae") || nType.includes("vae")) return "vae";
         if (wName.includes("clip") || nType.includes("clip") || nType.includes("text_encoder")) return "clip";
@@ -145,20 +165,23 @@ class AutoModelAssigner {
         // ----------------------------------------------------
         // 1. rgthree Power Lora Loader 특화 처리
         // ----------------------------------------------------
-        if (nodeType.includes("power lora") || (node.widgets && node.widgets.some(w => w.value && typeof w.value === "object" && "lora" in w.value))) {
+        const isRgthreeNode = nodeType.includes("power lora") || nodeType.includes("rgthree");
+        if (isRgthreeNode || (node.widgets && node.widgets.some(w => (w.value && typeof w.value === "object" && "lora" in w.value) || (typeof w.setLora === "function" && w.name?.startsWith("lora_"))))) {
             if (node.widgets) {
                 let slotIdx = 1;
                 node.widgets.forEach(w => {
-                    if (w.value && typeof w.value === "object" && typeof w.value.lora === "string") {
-                        const loraPath = w.value.lora;
+                    const isRgthreeWidget = (w.value && typeof w.value === "object" && "lora" in w.value) || (typeof w.setLora === "function" && w.name?.startsWith("lora_"));
+                    if (isRgthreeWidget) {
+                        const loraPath = (typeof w.value === "object" ? w.value?.lora : w.value) || "";
                         // None 또는 빈값 제외
                         if (!loraPath || loraPath === "None" || loraPath === "__none__" || loraPath.trim() === "") return;
 
                         const category = "loras";
-                        const availableList = (localModels && localModels[category]) || [];
+                        const availableList = this.getAvailableModelsForCategory(category, localModels);
 
                         slots.push({
                             node,
+                            widget: w,
                             slotType: "rgthree",
                             slotKey: `rgthree_${slotIdx}`,
                             slotLabel: `LoRA Slot #${slotIdx}`,
@@ -166,8 +189,18 @@ class AutoModelAssigner {
                             currentValue: loraPath,
                             availableList,
                             applyValue: (newVal) => {
-                                w.value.lora = newVal;
+                                if (typeof w.setLora === "function") {
+                                    w.setLora(newVal);
+                                }
+                                if (w.value && typeof w.value === "object") {
+                                    w.value.lora = newVal;
+                                } else {
+                                    w.value = newVal;
+                                }
                                 if (w.callback) w.callback(w.value, app.canvas, node, app.canvas.graph_mouse, {});
+                                if (node.onWidgetChanged) {
+                                    node.onWidgetChanged(w.name, w.value, null, w);
+                                }
                                 node.setDirtyCanvas?.(true, true);
                             }
                         });
@@ -193,7 +226,7 @@ class AutoModelAssigner {
                                 // 설정된 LoRA가 있거나 슬롯이 활성화된 경우
                                 if (loraPath && loraPath !== "None" && loraPath !== "__none__" && loraPath.trim() !== "") {
                                     const category = "loras";
-                                    const availableList = (localModels && localModels[category]) || [];
+                                    const availableList = this.getAvailableModelsForCategory(category, localModels);
 
                                     slots.push({
                                         node,
@@ -236,7 +269,7 @@ class AutoModelAssigner {
         if (node.widgets) {
             node.widgets.forEach((widget, idx) => {
                 // 이미 rgthree나 dasiwa로 처리된 위젯은 중복 방지
-                if (widget.name === "stack_data" || (widget.value && typeof widget.value === "object" && "lora" in widget.value)) {
+                if (widget.name === "stack_data" || (widget.value && typeof widget.value === "object" && "lora" in widget.value) || typeof widget.setLora === "function") {
                     return;
                 }
 
@@ -249,11 +282,11 @@ class AutoModelAssigner {
                 }
 
                 const category = this.detectCategory(widget, node);
-                let availableList = (localModels && localModels[category]) || 
-                                    (widget.options && Array.isArray(widget.options.values) ? widget.options.values : []);
+                let availableList = this.getAvailableModelsForCategory(category, localModels);
+                if (availableList.length === 0 && widget.options && Array.isArray(widget.options.values)) {
+                    availableList = widget.options.values;
+                }
                 availableList = availableList.filter(f => typeof f === "string" && f.trim() !== "" && f !== "__none__" && f !== "None");
-
-                if (availableList.length === 0) return;
 
                 const slotName = widget.name || `slot_${idx + 1}`;
 
@@ -280,7 +313,6 @@ class AutoModelAssigner {
                 });
             });
         }
-
         return slots;
     }
 
@@ -466,10 +498,22 @@ class AutoModelAssigner {
             totalChecked += slots.length;
 
             for (const slot of slots) {
-                const availableList = slot.availableList;
-                if (!availableList || availableList.length === 0) continue;
-
+                const availableList = slot.availableList || [];
                 const currentValue = slot.currentValue;
+
+                if (availableList.length === 0) {
+                    missingCount++;
+                    itemsToResolve.push({
+                        ...slot,
+                        isAlreadyValid: false,
+                        recommendations: [],
+                        selectedMatch: SKIP_VALUE,
+                        topScore: 0,
+                        isPerfectMatch: false
+                    });
+                    continue;
+                }
+
                 const isAlreadyValid = availableList.includes(currentValue);
 
                 if (isAlreadyValid) {
@@ -683,6 +727,24 @@ class AutoModelAssigner {
         const overlay = document.createElement("div");
         overlay.className = "auto-assign-overlay";
 
+        const closeOverlay = () => {
+            document.removeEventListener("keydown", handleKeyDown, true);
+            overlay.remove();
+        };
+
+        const handleKeyDown = (e) => {
+            if (e.key === "Escape") {
+                closeOverlay();
+                e.stopPropagation();
+                e.preventDefault();
+            }
+        };
+        document.addEventListener("keydown", handleKeyDown, true);
+
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) closeOverlay();
+        });
+
         const modal = document.createElement("div");
         modal.className = "auto-assign-modal";
 
@@ -696,7 +758,7 @@ class AutoModelAssigner {
             </div>
             <button class="auto-assign-close-btn" title="닫기">✕</button>
         `;
-        header.querySelector(".auto-assign-close-btn").onclick = () => overlay.remove();
+        header.querySelector(".auto-assign-close-btn").onclick = () => closeOverlay();
 
         // 2. 요약 바
         const summary = document.createElement("div");
@@ -980,7 +1042,7 @@ class AutoModelAssigner {
             </div>
         `;
 
-        footer.querySelector("#btn-cancel").onclick = () => overlay.remove();
+        footer.querySelector("#btn-cancel").onclick = () => closeOverlay();
         footer.querySelector("#btn-apply").onclick = () => {
             let appliedCount = 0;
             let skippedCount = 0;
@@ -1014,7 +1076,7 @@ class AutoModelAssigner {
                 this.clearNodeErrorsAndRefresh(modifiedNodes);
             }
 
-            overlay.remove();
+            closeOverlay();
 
             if (appliedCount > 0 && skippedCount > 0) {
                 this.showToast(`🎉 ${appliedCount}개 모델/LoRA 슬롯 장착 완료 (⏭️ ${skippedCount}개 건너뜀)`, "success");
@@ -1182,3 +1244,7 @@ app.registerExtension({
         }
     }
 });
+
+window.AutoModelAssigner = AutoModelAssigner;
+export { AutoModelAssigner };
+export default AutoModelAssigner;

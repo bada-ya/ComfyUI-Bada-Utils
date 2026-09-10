@@ -166,7 +166,20 @@ export function showGuideModal() {
         </div>
     `;
 
-    const closeGuide = () => guideElement.classList.remove("active");
+    const closeGuide = () => {
+        guideElement.classList.remove("active");
+        document.removeEventListener("keydown", handleGuideKeyDown, true);
+    };
+
+    const handleGuideKeyDown = (e) => {
+        if (e.key === "Escape") {
+            closeGuide();
+            e.stopPropagation();
+            e.preventDefault();
+        }
+    };
+    document.addEventListener("keydown", handleGuideKeyDown, true);
+
     guideElement.querySelector("#usp-guide-btn-close").addEventListener("click", closeGuide);
     guideElement.querySelector("#usp-guide-btn-confirm").addEventListener("click", closeGuide);
     guideElement.addEventListener("click", (e) => {
@@ -330,10 +343,27 @@ export function showPresetModal(node, options = {}) {
 
     renderPresetList();
     modalElement.classList.add("active");
+
+    const onKeyDown = (e) => {
+        if (e.key === "Escape") {
+            closeModal();
+            e.stopPropagation();
+            e.preventDefault();
+        }
+    };
+    if (modalElement._onKeyDown) {
+        document.removeEventListener("keydown", modalElement._onKeyDown, true);
+    }
+    modalElement._onKeyDown = onKeyDown;
+    document.addEventListener("keydown", onKeyDown, true);
 }
 
 export function closeModal() {
     if (modalElement) {
+        if (modalElement._onKeyDown) {
+            document.removeEventListener("keydown", modalElement._onKeyDown, true);
+            delete modalElement._onKeyDown;
+        }
         modalElement.classList.remove("active");
     }
     currentTargetNode = null;

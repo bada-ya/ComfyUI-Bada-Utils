@@ -61,10 +61,27 @@ export function showGlobalPresetsOverviewModal() {
     requestAnimationFrame(() => {
         overviewModalEl.classList.add("active");
     });
+
+    const onKeyDown = (e) => {
+        if (e.key === "Escape") {
+            closeGlobalPresetsOverviewModal();
+            e.stopPropagation();
+            e.preventDefault();
+        }
+    };
+    if (overviewModalEl._onKeyDown) {
+        document.removeEventListener("keydown", overviewModalEl._onKeyDown, true);
+    }
+    overviewModalEl._onKeyDown = onKeyDown;
+    document.addEventListener("keydown", onKeyDown, true);
 }
 
 export function closeGlobalPresetsOverviewModal() {
     if (overviewModalEl) {
+        if (overviewModalEl._onKeyDown) {
+            document.removeEventListener("keydown", overviewModalEl._onKeyDown, true);
+            delete overviewModalEl._onKeyDown;
+        }
         overviewModalEl.classList.remove("active");
     }
 }
