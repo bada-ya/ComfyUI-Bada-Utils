@@ -729,7 +729,7 @@ app.registerExtension({
             let cols = 6;
             let rows = 3;
             let currentRatio = "16:9";
-            let currentLang = (BadaI18n && BadaI18n.lang === "en") ? "English" : "한국어";
+            let currentLang = (BadaI18n && BadaI18n.lang === "ko") ? "한국어" : "English";
             let currentFormat = "Natural Spatial (Krea/MiniMax/Gemini/GPT)";
             let activeArtStyle = "photorealistic";
             let whiteBg = false;
@@ -2528,7 +2528,7 @@ app.registerExtension({
             }
 
             function updateAllUILanguage() {
-                currentLang = (BadaI18n && BadaI18n.lang === "en") ? "English" : "한국어";
+                currentLang = (BadaI18n && BadaI18n.lang === "ko") ? "한국어" : "English";
                 const isEn = currentLang === "English";
                 if (artBarLabel) artBarLabel.textContent = isEn ? "🎨 Style:" : "🎨 화풍:";
                 if (artBtnGroup) {
@@ -2904,8 +2904,8 @@ app.registerExtension({
                 const formatW = this.widgets?.find(w => w.name === "format");
                 if (formatW && formatW.value) { currentFormat = formatW.value; formatSelect.value = currentFormat; }
 
-                // Always adhere to the global BADA language setting
-                currentLang = (BadaI18n && BadaI18n.lang === "en") ? "English" : "한국어";
+                // Always adhere to the global BADA language setting (default to English)
+                currentLang = (BadaI18n && BadaI18n.lang === "ko") ? "한국어" : "English";
 
                 updateAllUILanguage();
                 updateCanvasDimensions();
@@ -2957,7 +2957,7 @@ app.registerExtension({
                             gridBorderCheck.checked = gridBorders;
                             if (charKoInput) charKoInput.value = characterProfileKo || characterProfile;
                             if (charEnInput) charEnInput.value = characterProfile;
-                            currentLang = (BadaI18n && BadaI18n.lang === "en") ? "English" : "한국어";
+                            currentLang = (BadaI18n && BadaI18n.lang === "ko") ? "한국어" : "English";
                             updateAllUILanguage();
                             updateCanvasDimensions();
                             renderGrid();
@@ -2967,7 +2967,7 @@ app.registerExtension({
             });
 
             // Initial Sizing & Setup
-            currentLang = (BadaI18n && BadaI18n.lang === "en") ? "English" : "한국어";
+            currentLang = (BadaI18n && BadaI18n.lang === "ko") ? "한국어" : "English";
             syncContainerSize();
             updateCanvasDimensions();
             renderGrid();
@@ -3010,7 +3010,7 @@ app.registerExtension({
 
             // BadaI18n Master Switch Listener & Cleanup
             const langListener = (newLang) => {
-                currentLang = newLang === "en" ? "English" : "한국어";
+                currentLang = newLang === "ko" ? "한국어" : "English";
                 updateAllUILanguage();
                 renderGrid();
                 syncToWidgets();

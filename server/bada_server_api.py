@@ -525,11 +525,18 @@ def register_bada_api_routes():
                 if not source_rel:
                     return web.json_response({"success": False, "error": "Source path is required"}, status=400)
 
+                # Reject path traversal patterns
+                if ".." in source_rel or ".." in target_folder_rel or ".." in new_name:
+                    return web.json_response({"success": False, "error": "Path traversal characters ('..') are forbidden"}, status=400)
+
                 root_dir = get_workflows_root_dir()
                 src_full = find_file_in_workflows(root_dir, source_rel)
 
                 if not src_full or not os.path.isfile(src_full):
                     return web.json_response({"success": False, "error": f"Source file not found: {source_rel}"}, status=404)
+
+                if not is_safe_path(root_dir, src_full):
+                    return web.json_response({"success": False, "error": "Source path escapes workflows directory"}, status=403)
 
                 clean_target_dir = target_folder_rel.replace("\\", "/").lstrip("/\\")
                 dest_dir = os.path.abspath(os.path.join(root_dir, clean_target_dir))
@@ -537,12 +544,22 @@ def register_bada_api_routes():
                 if not is_safe_path(root_dir, dest_dir):
                     return web.json_response({"success": False, "error": "Invalid target directory"}, status=403)
 
-                os.makedirs(dest_dir, exist_ok=True)
-                file_name = new_name if new_name else os.path.basename(src_full)
+                # Sanitize file_name: enforce pure basename to prevent traversal
+                raw_name = new_name if new_name else os.path.basename(src_full)
+                file_name = os.path.basename(raw_name.replace("\\", "/"))
+                if not file_name:
+                    return web.json_response({"success": False, "error": "Invalid file name"}, status=400)
+
                 if not file_name.endswith(".json") and not file_name.endswith(".png"):
                     file_name += ".json"
 
-                dest_full = os.path.join(dest_dir, file_name)
+                dest_full = os.path.realpath(os.path.abspath(os.path.join(dest_dir, file_name)))
+
+                # Strict containment check on final destination file path
+                if not is_safe_path(root_dir, dest_full) or not is_safe_path(dest_dir, dest_full):
+                    return web.json_response({"success": False, "error": "Destination file path escapes workflows directory"}, status=403)
+
+                os.makedirs(dest_dir, exist_ok=True)
 
                 # Move file
                 shutil.move(src_full, dest_full)
@@ -565,16 +582,23 @@ def register_bada_api_routes():
                 if not folder_name:
                     return web.json_response({"success": False, "error": "Folder name is required"}, status=400)
 
+                if ".." in folder_name or ".." in parent_rel:
+                    return web.json_response({"success": False, "error": "Path traversal characters ('..') are forbidden"}, status=400)
+
+                clean_folder = os.path.basename(folder_name.replace("\\", "/"))
+                if not clean_folder:
+                    return web.json_response({"success": False, "error": "Invalid folder name"}, status=400)
+
                 root_dir = get_workflows_root_dir()
                 clean_parent = parent_rel.replace("\\", "/").lstrip("/\\")
-                target_dir = os.path.abspath(os.path.join(root_dir, clean_parent, folder_name))
+                target_dir = os.path.realpath(os.path.abspath(os.path.join(root_dir, clean_parent, clean_folder)))
 
                 if not is_safe_path(root_dir, target_dir):
                     return web.json_response({"success": False, "error": "Invalid folder path"}, status=403)
 
                 os.makedirs(target_dir, exist_ok=True)
                 rel_path = "/" + os.path.relpath(target_dir, root_dir).replace("\\", "/")
-                return web.json_response({"success": True, "message": f"Folder '{folder_name}' created", "path": rel_path})
+                return web.json_response({"success": True, "message": f"Folder '{clean_folder}' created", "path": rel_path})
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
@@ -586,9 +610,12 @@ def register_bada_api_routes():
                 if not target_rel:
                     return web.json_response({"success": False, "error": "Target path is required"}, status=400)
 
+                if ".." in target_rel:
+                    return web.json_response({"success": False, "error": "Path traversal characters ('..') are forbidden"}, status=400)
+
                 root_dir = get_workflows_root_dir()
                 clean_rel = target_rel.replace("\\", "/").lstrip("/\\")
-                target_full = os.path.abspath(os.path.join(root_dir, clean_rel))
+                target_full = os.path.realpath(os.path.abspath(os.path.join(root_dir, clean_rel)))
 
                 if not is_safe_path(root_dir, target_full):
                     return web.json_response({"success": False, "error": "Invalid path"}, status=403)
@@ -602,7 +629,7 @@ def register_bada_api_routes():
                 else:
                     # Try find_file_in_workflows
                     found = find_file_in_workflows(root_dir, clean_rel)
-                    if found and os.path.isfile(found):
+                    if found and os.path.isfile(found) and is_safe_path(root_dir, found):
                         os.remove(found)
                         return web.json_response({"success": True, "message": f"File deleted"})
                     return web.json_response({"success": False, "error": "File or folder not found"}, status=404)

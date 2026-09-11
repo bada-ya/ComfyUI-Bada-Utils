@@ -21,7 +21,7 @@ export const BadaI18n = {
         en: {
             // --- Settings Tab ---
             "category": "⚓ Bada Utils",
-            "settings_lang": "UI Language (언어 설정)",
+            "settings_lang": "UI Language",
             "settings_lang_desc": "Controls language for all Bada nodes, context menus, modals, and Workflows+",
             "blank_canvas": "Clean Blank Canvas on Startup",
             "blank_canvas_desc": "Starts ComfyUI with an empty clean canvas instead of the default missing-model workflow.",
@@ -318,8 +318,8 @@ export const BadaI18n = {
             }
         } catch (e) {}
 
-        // Default to "ko" (한국어)
-        return "ko";
+        // Default to "en" (English First for ComfyUI Manager / Registry Compliance)
+        return "en";
     },
 
     init(app) {

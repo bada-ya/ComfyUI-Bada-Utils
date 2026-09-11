@@ -20,51 +20,51 @@ import { showToast } from "./presets_modal.js";
 const BADA_UNIFIED_SETTINGS = {
     lang: {
         id: "BadaUtils.Language",
-        category: ["⚓ Bada Utils", "1. General (일반)"],
-        name: "🌐 UI Language (UI 언어 설정)",
-        tooltip: "Set display language for Bada nodes, context menus, modals, and Workflows+ sidebar. (Bada 노드, 우클릭 메뉴, 모달 창, Workflows+ 사이드바의 표시 언어를 설정합니다.)",
+        category: ["⚓ Bada Utils", "1. General"],
+        name: "🌐 UI Language",
+        tooltip: "Set display language for Bada nodes, context menus, modals, and Workflows+ sidebar.",
         type: "combo",
         options: [
-            { value: "en", text: "English (영어)" },
+            { value: "en", text: "English" },
             { value: "ko", text: "한국어 (Korean)" },
         ],
         defaultValue: "en"
     },
     sidebar: {
         id: "BadaUtils.SidebarOrganizer",
-        category: ["⚓ Bada Utils", "2. Smart Features (스마트 기능)"],
-        name: "📁 Sidebar Workflow Folder Management (사이드바 워크플로우 폴더 정리 및 이동)",
-        tooltip: "Organize and move workflow folders via drag-and-drop in the left sidebar. (왼쪽 사이드바에서 드래그 앤 드롭으로 워크플로우 폴더를 자유롭게 정리하고 이동합니다.)",
+        category: ["⚓ Bada Utils", "2. Smart Features"],
+        name: "📁 Sidebar Workflow Folder Management",
+        tooltip: "Organize and move workflow folders via drag-and-drop in the left sidebar.",
         type: "boolean",
         defaultValue: true
     },
     mouse: {
         id: "BadaUtils.MouseFix",
-        category: ["⚓ Bada Utils", "3. Workflow & QoL (워크플로우 & 편의성)"],
-        name: "🖱️ Smooth Mouse Pan & Wheel Zoom Fixer (마우스 휠 줌 & 중간 버튼 패닝 보정기)",
-        tooltip: "Smooth mouse wheel zooming and middle-click panning even over canvas nodes or text widgets. (캔버스 위 노드나 텍스트 위에서도 끊김 없이 휠 줌 및 중간 버튼 패닝이 가능하도록 보정합니다.)",
+        category: ["⚓ Bada Utils", "3. Workflow & QoL"],
+        name: "🖱️ Smooth Mouse Pan & Wheel Zoom Fixer",
+        tooltip: "Smooth mouse wheel zooming and middle-click panning even over canvas nodes or text widgets.",
         type: "boolean",
         defaultValue: true
     },
     blankStartup: {
         id: "BadaUtils.BlankStartup",
-        category: ["⚓ Bada Utils", "4. Startup Behavior (시작 환경)"],
-        name: "🧼 Clean Blank Canvas Startup (시작 시 클린 빈 캔버스로 열기)",
-        tooltip: "Start ComfyUI and new tabs with a clean blank canvas instead of default workflows with missing-model errors. (ComfyUI 최초 구동이나 새 탭 열기 시 모델 누락 에러가 발생하는 기본 템플릿 대신 깨끗한 빈 캔버스로 시작합니다.)",
+        category: ["⚓ Bada Utils", "4. Startup Behavior"],
+        name: "🧼 Clean Blank Canvas Startup",
+        tooltip: "Start ComfyUI and new tabs with a clean blank canvas instead of default workflows with missing-model errors.",
         type: "boolean",
         defaultValue: true
     },
     presetsPanel: {
         id: "BadaUtils.GlobalPresetsPanel",
-        category: ["⚓ Bada Utils", "5. Global Presets (글로벌 프리셋 등록 현황 및 관리)"],
+        category: ["⚓ Bada Utils", "5. Global Presets"],
         name: "Global Presets",
         defaultValue: null
     },
     loadImageFix: {
         id: "BadaUtils.LoadImageClipboardFix",
-        category: ["⚓ Bada Utils", "6. Image & Clipboard QoL (이미지 & 클립보드 편의성)"],
-        name: "📋 Clipboard & LoadImage Auto-Error Fixer (클립보드 & 로드 이미지 인풋 에러 자동 해결기)",
-        tooltip: "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes. (로드 이미지 노드에 Ctrl+V로 클립보드 이미지를 붙여넣거나 하위 경로를 불러올 때 발생하는 빨간 테두리 및 인풋 에러를 무결점으로 자동 해결합니다.)",
+        category: ["⚓ Bada Utils", "6. Image & Clipboard QoL"],
+        name: "📋 Clipboard & LoadImage Auto-Error Fixer",
+        tooltip: "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes.",
         type: "boolean",
         defaultValue: true
     }

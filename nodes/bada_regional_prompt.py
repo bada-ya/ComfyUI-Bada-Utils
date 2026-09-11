@@ -613,6 +613,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "BadaRegionalPrompt": "⚓ Bada Visual Regional Prompt (리저널 프롬프트)",
+    "BadaRegionalPrompt": "⚓ Bada Visual Regional Prompt",
     "VisualGridPromptNode": "📐 Visual Grid Regional Prompt (Legacy)"
 }
