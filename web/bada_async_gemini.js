@@ -16,12 +16,14 @@ import { app } from "../../scripts/app.js";
 
 // Dynamically inject CSS stylesheet
 (function loadStylesheet() {
-    const cssUrl = new URL("./bada_async_gemini.css", import.meta.url).href;
-    if (!document.querySelector(`link[href="${cssUrl}"]`)) {
+    const cssHref = new URL("./bada_async_gemini.css", import.meta.url).href;
+    const existing = document.querySelector(`link[data-bada="async-gemini"]`);
+    if (!existing) {
         const link = document.createElement("link");
         link.rel = "stylesheet";
         link.type = "text/css";
-        link.href = cssUrl;
+        link.setAttribute("data-bada", "async-gemini");
+        link.href = `${cssHref}?v=${Date.now()}`;
         document.head.appendChild(link);
     }
 })();
@@ -219,7 +221,12 @@ app.registerExtension({
             // Container for Standard Prompt Generator (MiniMax, LTX, KREA)
             const promptStudioContainer = document.createElement("div");
             promptStudioContainer.className = "bada-prompt-studio-container";
-            promptStudioContainer.style.display = "flex";
+            if (activeEngine === "uncensored") {
+                promptStudioContainer.style.setProperty("display", "none", "important");
+                promptStudioContainer.classList.add("bada-hidden");
+            } else {
+                promptStudioContainer.style.setProperty("display", "flex", "important");
+            }
             promptStudioContainer.style.flexDirection = "column";
             promptStudioContainer.style.gap = "10px";
             root.appendChild(promptStudioContainer);
@@ -227,7 +234,12 @@ app.registerExtension({
             // Container for Uncensored Gemini Chat
             const chatStudioContainer = document.createElement("div");
             chatStudioContainer.className = "bada-gemini-chat-wrap";
-            chatStudioContainer.style.display = "none";
+            if (activeEngine === "uncensored") {
+                chatStudioContainer.style.setProperty("display", "flex", "important");
+            } else {
+                chatStudioContainer.style.setProperty("display", "none", "important");
+                chatStudioContainer.classList.add("bada-hidden");
+            }
             root.appendChild(chatStudioContainer);
 
             // -------------------------------------------------------------
@@ -1008,17 +1020,20 @@ app.registerExtension({
 
             function renderEngineView() {
                 if (activeEngine === "uncensored") {
-                    promptStudioContainer.style.display = "none";
-                    chatStudioContainer.style.display = "flex";
+                    promptStudioContainer.style.setProperty("display", "none", "important");
+                    promptStudioContainer.classList.add("bada-hidden");
+                    chatStudioContainer.style.setProperty("display", "flex", "important");
+                    chatStudioContainer.classList.remove("bada-hidden");
                     renderChatStudio();
-                    // onDrawForeground가 매 프레임 syncContainerSize를 호출하므로 별도 sync 불필요
-                    // 단, 즉시 한 번만 호출하여 초기 레이아웃 설정
                     setTimeout(syncContainerSize, 0);
                 } else {
-                    chatStudioContainer.style.display = "none";
-                    promptStudioContainer.style.display = "flex";
+                    chatStudioContainer.style.setProperty("display", "none", "important");
+                    chatStudioContainer.classList.add("bada-hidden");
+                    promptStudioContainer.style.setProperty("display", "flex", "important");
+                    promptStudioContainer.classList.remove("bada-hidden");
                     renderSubmodePanel();
                     updateInputPlaceholders();
+                    setTimeout(syncContainerSize, 0);
                 }
             }
 

@@ -89,11 +89,16 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
 .bada-prompt-studio-container {
   flex: 1 1 0px !important;
   min-height: 0 !important;
-  display: flex !important;
+  display: flex;
   flex-direction: column !important;
   gap: 10px;
   overflow-y: auto !important;
   overflow-x: hidden !important;
+}
+
+.bada-prompt-studio-container.bada-hidden,
+.bada-prompt-studio-container[style*="display: none"] {
+  display: none !important;
 }
 
 .bada-title {
@@ -1029,7 +1034,7 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
    ✨ UNCENSORED GEMINI CHAT STUDIO STYLES (방안 A: Pure Flex Chain 완성)
    ========================================================================== */
 .bada-gemini-chat-wrap {
-  display: flex !important;
+  display: flex;
   flex-direction: column !important;
   gap: 8px !important;
   flex: 1 1 0px !important;    /* root의 남은 높이를 CSS가 100% 자동 채움 (flex-basis: 0) */
@@ -1037,6 +1042,11 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   height: 100% !important;
   box-sizing: border-box !important;
   overflow: hidden !important;
+}
+
+.bada-gemini-chat-wrap.bada-hidden,
+.bada-gemini-chat-wrap[style*="display: none"] {
+  display: none !important;
 }
 
 .bada-chat-topbar {
