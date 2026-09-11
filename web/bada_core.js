@@ -469,50 +469,80 @@ function buildInlinePresetsPanel() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-//  Dynamic Settings Dialog Live Updater
+//  Dynamic Settings Dialog Live Updater (Freeze-Safe & Re-entrant Guarded)
 // ──────────────────────────────────────────────────────────────────────────────
+let isApplyingBilingualUI = false;
 function applyBilingualSettingsUI(targetLang) {
-    const lang = targetLang || BadaI18n.lang || "en";
-    const isKo = lang === "ko";
-    const texts = BADA_SETTINGS_TEXTS[isKo ? "ko" : "en"];
+    if (isApplyingBilingualUI) return;
+    isApplyingBilingualUI = true;
+    try {
+        const lang = targetLang || BadaI18n.lang || "en";
+        const isKo = lang === "ko";
+        const texts = BADA_SETTINGS_TEXTS[isKo ? "ko" : "en"];
 
-    // 1. Setting rows label updates
-    const settingRows = document.querySelectorAll('[data-setting-id^="BadaUtils"], [data-setting-id^="⚓ Bada"]');
-    settingRows.forEach(row => {
-        const id = row.getAttribute("data-setting-id");
-        const labelEl = row.querySelector(".form-label, label, .setting-item-name");
-
-        if (id === BADA_UNIFIED_SETTINGS.lang.id) {
-            if (labelEl) labelEl.textContent = texts.langName;
-        } else if (id === BADA_UNIFIED_SETTINGS.sidebar.id) {
-            if (labelEl) labelEl.textContent = texts.sidebarName;
-        } else if (id === BADA_UNIFIED_SETTINGS.mouse.id) {
-            if (labelEl) labelEl.textContent = texts.mouseName;
-        } else if (id === BADA_UNIFIED_SETTINGS.blankStartup.id) {
-            if (labelEl) labelEl.textContent = texts.blankName;
-        } else if (id === BADA_UNIFIED_SETTINGS.loadImageFix.id) {
-            if (labelEl) labelEl.textContent = texts.loadImageName;
+        // 1. Synchronize reactive settings store definitions in ComfyUI frontend
+        const lookup = app.ui?.settings?.settingsLookup || app.ui?.settings?.settingsById;
+        if (lookup) {
+            const updateDef = (id, name, tooltip, catKey) => {
+                if (lookup[id]) {
+                    if (name) lookup[id].name = name;
+                    if (tooltip) lookup[id].tooltip = tooltip;
+                    if (catKey) lookup[id].category = [texts.category, texts[catKey]];
+                }
+            };
+            updateDef(BADA_UNIFIED_SETTINGS.lang.id, texts.langName, texts.langTooltip, "catGeneral");
+            updateDef(BADA_UNIFIED_SETTINGS.sidebar.id, texts.sidebarName, texts.sidebarTooltip, "catSmart");
+            updateDef(BADA_UNIFIED_SETTINGS.mouse.id, texts.mouseName, texts.mouseTooltip, "catWorkflow");
+            updateDef(BADA_UNIFIED_SETTINGS.blankStartup.id, texts.blankName, texts.blankTooltip, "catStartup");
+            updateDef(BADA_UNIFIED_SETTINGS.presetsPanel.id, texts.presetsName, null, "catPresets");
+            updateDef(BADA_UNIFIED_SETTINGS.loadImageFix.id, texts.loadImageName, texts.loadImageTooltip, "catImage");
         }
-    });
 
-    // 2. Category group header text updates
-    const headers = document.querySelectorAll(".setting-group h3, .setting-group-header, .p-tabview-title");
-    headers.forEach(h => {
-        const text = h.textContent.trim();
-        if (text.includes("General") || text.includes("일반")) {
-            h.textContent = texts.catGeneral;
-        } else if (text.includes("Smart Features") || text.includes("스마트 기능")) {
-            h.textContent = texts.catSmart;
-        } else if (text.includes("Workflow & QoL") || text.includes("워크플로우 & 편의성") || text.includes("워크플로우")) {
-            h.textContent = texts.catWorkflow;
-        } else if (text.includes("Startup Behavior") || text.includes("시작 환경")) {
-            h.textContent = texts.catStartup;
-        } else if (text.includes("Global Presets") || text.includes("글로벌 프리셋")) {
-            h.textContent = texts.catPresets;
-        } else if (text.includes("Image & Clipboard") || text.includes("이미지 & 클립보드")) {
-            h.textContent = texts.catImage;
-        }
-    });
+        // 2. Setting rows label updates (if dialog is currently rendered in DOM)
+        const settingRows = document.querySelectorAll('[data-setting-id^="BadaUtils"], [data-setting-id^="⚓ Bada"]');
+        settingRows.forEach(row => {
+            const id = row.getAttribute("data-setting-id");
+            const labelEl = row.querySelector(".form-label, label, .setting-item-name, [id$='-label']");
+            if (!labelEl) return;
+
+            let targetText = null;
+            if (id === BADA_UNIFIED_SETTINGS.lang.id) targetText = texts.langName;
+            else if (id === BADA_UNIFIED_SETTINGS.sidebar.id) targetText = texts.sidebarName;
+            else if (id === BADA_UNIFIED_SETTINGS.mouse.id) targetText = texts.mouseName;
+            else if (id === BADA_UNIFIED_SETTINGS.blankStartup.id) targetText = texts.blankName;
+            else if (id === BADA_UNIFIED_SETTINGS.loadImageFix.id) targetText = texts.loadImageName;
+
+            if (targetText && labelEl.textContent.trim() !== targetText.trim()) {
+                labelEl.textContent = targetText;
+            }
+        });
+
+        // 3. Category group header text updates (preserve parent hierarchy spans if any)
+        const headers = document.querySelectorAll(".setting-group h3, .setting-group-header, .p-tabview-title");
+        headers.forEach(h => {
+            const lastChild = h.lastChild;
+            const text = (lastChild ? lastChild.textContent : h.textContent).trim();
+            let newText = null;
+            if (text.includes("General") || text.includes("일반")) newText = " " + texts.catGeneral;
+            else if (text.includes("Smart Features") || text.includes("스마트 기능")) newText = " " + texts.catSmart;
+            else if (text.includes("Workflow & QoL") || text.includes("워크플로우 & 편의성") || text.includes("워크플로우")) newText = " " + texts.catWorkflow;
+            else if (text.includes("Startup Behavior") || text.includes("시작 환경")) newText = " " + texts.catStartup;
+            else if (text.includes("Global Presets") || text.includes("글로벌 프리셋")) newText = " " + texts.catPresets;
+            else if (text.includes("Image & Clipboard") || text.includes("이미지 & 클립보드")) newText = " " + texts.catImage;
+
+            if (newText) {
+                if (lastChild && lastChild.nodeType === Node.TEXT_NODE) {
+                    if (lastChild.textContent !== newText) lastChild.textContent = newText;
+                } else if (h.textContent !== newText) {
+                    h.textContent = newText;
+                }
+            }
+        });
+    } catch (e) {
+        console.warn("[ComfyUI-Bada-Utils] Safe bilingual UI updater handled exception:", e);
+    } finally {
+        isApplyingBilingualUI = false;
+    }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -634,15 +664,6 @@ app.registerExtension({
                 }
             }
         });
-
-        // Monitor settings dialog opening to keep bilingual labels strictly synchronized
-        const observer = new MutationObserver(() => {
-            const hasSettingsModal = document.querySelector(".p-dialog, .comfy-modal, .comfy-settings-dialog");
-            if (hasSettingsModal) {
-                applyBilingualSettingsUI();
-            }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
 
         // 3. 🛡️ PrimeVue Tooltip Deduplication & Stray Element Fixer
         if (!window.__BADA_TOOLTIP_FIX_INSTALLED__) {
