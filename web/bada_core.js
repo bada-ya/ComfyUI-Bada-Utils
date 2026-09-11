@@ -585,8 +585,8 @@ app.registerExtension({
             defaultValue: currentLang,
             onChange: (newVal) => {
                 const target = (typeof newVal === "object" && newVal?.value) ? newVal.value : newVal;
-                if ((target === "ko" || target === "en") && BadaI18n.lang !== target) {
-                    BadaI18n.setLanguage(target, true);
+                if (target === "ko" || target === "en") {
+                    BadaI18n.setLanguage(target, false);
                     applyBilingualSettingsUI(target);
                     app.graph?.setDirtyCanvas?.(true, true);
                 }

@@ -7,3 +7,5 @@ __pycache__/
 WORK_LOG.md
 수정노력.txt
 .agents/
+config.json
+

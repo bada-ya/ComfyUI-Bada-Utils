@@ -51,6 +51,7 @@
   color: var(--bada-text-main);
   user-select: text;
   overflow: hidden !important;
+  container-type: inline-size;
 }
 
 /* Force ComfyUI Vue subgrid & wrapper containers to span full width (do not override height) */
@@ -134,6 +135,216 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   border-color: rgba(236, 72, 153, 0.35);
 }
 
+/* Notification Bell & Error Log Modal */
+.bada-bell-btn {
+  position: relative;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--bada-radius-sm);
+  padding: 2px 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--bada-text-muted);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  line-height: 1;
+}
+
+.bada-bell-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.bada-bell-btn.has-unread {
+  border-color: rgba(239, 68, 68, 0.6);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.35);
+  animation: badaBellRing 2s ease infinite;
+}
+
+@keyframes badaBellRing {
+  0%, 100% { transform: rotate(0); }
+  10%, 30% { transform: rotate(-10deg); }
+  20%, 40% { transform: rotate(10deg); }
+  50% { transform: rotate(0); }
+}
+
+.bada-bell-badge {
+  position: absolute;
+  top: -4px;
+  right: -5px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 8.5px;
+  font-weight: 800;
+  font-family: 'Fira Code', monospace;
+  padding: 1px 4px;
+  border-radius: 10px;
+  min-width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.7);
+  border: 1px solid #131926;
+  line-height: 1;
+}
+
+/* Error Log Modal Overlay */
+.bada-error-modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  animation: badaFadeIn 0.15s ease-out;
+}
+
+.bada-error-modal-overlay.bada-hidden {
+  display: none !important;
+}
+
+.bada-error-modal {
+  background: #131926;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: var(--bada-radius-md);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(239, 68, 68, 0.25);
+  width: 100%;
+  max-width: 440px;
+  max-height: 85%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: badaSlideUp 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes badaSlideUp {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.bada-error-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(239, 68, 68, 0.12);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.bada-error-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #fca5a5;
+}
+
+.bada-error-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bada-error-modal-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: var(--bada-text-main);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.bada-error-modal-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.bada-error-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--bada-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.bada-error-modal-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.bada-error-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 280px;
+}
+
+.bada-error-item {
+  background: rgba(0, 0, 0, 0.35);
+  border-left: 3px solid #ef4444;
+  border-radius: 4px;
+  padding: 6px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+}
+
+.bada-error-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: 'Fira Code', monospace;
+  font-size: 9.5px;
+  color: var(--bada-text-dim);
+}
+
+.bada-error-source {
+  color: #f87171;
+  font-weight: 700;
+}
+
+.bada-error-text {
+  color: #fca5a5;
+  line-height: 1.35;
+  word-break: break-word;
+  user-select: text;
+}
+
+.bada-error-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--bada-text-muted);
+  font-size: 11.5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
 /* Toast Banner */
 .bada-toast {
   display: none;
@@ -182,9 +393,9 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
 .bada-engine-nav {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 5px;
+  gap: 3px;
   background: #0b0f19;
-  padding: 4px;
+  padding: 3px;
   border-radius: var(--bada-radius-md);
   border: 1px solid var(--bada-border);
   min-width: 0;
@@ -196,15 +407,16 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   background: transparent;
   border: none;
   color: var(--bada-text-muted);
-  padding: 7px 4px;
+  padding: 6px 2px;
   border-radius: var(--bada-radius-sm);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 700;
+  letter-spacing: -0.3px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 2px;
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   min-width: 0;
   overflow: hidden;
@@ -567,9 +779,168 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   color: var(--bada-text-muted);
 }
 
+.bada-config-label {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 6px !important;
+  min-width: 0 !important;
+}
+
+.bada-config-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.bada-config-title-text {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--bada-text-muted);
+  white-space: nowrap;
+}
+
+.bada-key-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.bada-key-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  color: #cbd5e1;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1.5px 6px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  white-space: nowrap;
+  line-height: 1.3;
+  user-select: none;
+}
+
+.bada-key-action-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.bada-key-action-btn:active {
+  transform: translateY(0);
+}
+
+.bada-key-action-btn.testing {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+  cursor: wait;
+}
+
+.bada-key-action-btn.success {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: #10b981;
+  color: #6ee7b7;
+}
+
+.bada-key-action-btn.error {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.bada-spinner-tiny {
+  display: inline-block;
+  animation: badaSpinTiny 0.8s linear infinite;
+}
+
+@keyframes badaSpinTiny {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 가로 폭 축소 시 텍스트 숨기고 아이콘만 노출 (노드가 380px 이하로 극도로 좁아질 때만 아이콘 전용 전환) */
+@container (max-width: 380px) {
+  .bada-key-action-btn .bada-action-text {
+    display: none !important;
+  }
+  .bada-key-action-btn {
+    padding: 1.5px 5px !important;
+  }
+}
+
+.bada-compact-width .bada-key-action-btn .bada-action-text {
+  display: none !important;
+}
+.bada-compact-width .bada-key-action-btn {
+  padding: 1.5px 5px !important;
+}
+
+@container (max-width: 340px) {
+  .bada-config-label .bada-subtext {
+    display: none !important;
+  }
+}
+.bada-ultra-compact .bada-config-label .bada-subtext {
+  display: none !important;
+}
+
 .bada-subtext {
   font-size: 10px;
   color: var(--bada-text-dim);
+  white-space: nowrap;
+}
+
+/* Stop / Cancel Buttons */
+.bada-btn-generate.bada-btn-stop {
+  background: linear-gradient(135deg, #ef4444, #b91c1c) !important;
+  box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4) !important;
+  color: #fff !important;
+}
+
+.bada-typing-stop-btn {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: 4px;
+  color: #fca5a5;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1.5px 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  transition: all 0.15s;
+}
+
+.bada-typing-stop-btn:hover {
+  background: rgba(239, 68, 68, 0.38);
+  color: #fff;
+  border-color: #ef4444;
+}
+
+.bada-chat-send-btn.bada-stop-state {
+  background: #ef4444 !important;
+  color: #fff !important;
+  cursor: pointer !important;
+  opacity: 1 !important;
+  transform: none !important;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.5) !important;
+}
+
+.bada-chat-send-btn.bada-stop-state:hover {
+  background: #dc2626 !important;
+  transform: scale(1.08) !important;
 }
 
 .bada-config-row {

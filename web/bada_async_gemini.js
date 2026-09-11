@@ -45,7 +45,7 @@ const ENGINES = [
     { id: "minimax", name: "● MiniMax H3", name_en: "● MiniMax H3", tag: "Omni-Modal Video", tag_en: "Omni-Modal Video", color: "#6366f1" },
     { id: "ltx", name: "● LTX-Video", name_en: "● LTX-Video", tag: "6-Element DiT", tag_en: "6-Element DiT", color: "#06b6d4" },
     { id: "krea", name: "● KREA 2", name_en: "● KREA 2", tag: "Photorealism", tag_en: "Photorealism", color: "#10b981" },
-    { id: "uncensored", name: "✨ 무검열 제미나이", name_en: "✨ Uncensored Gemini", tag: "Zero-Refusal Chat", tag_en: "Zero-Refusal Chat", color: "#a855f7" },
+    { id: "uncensored", name: "🔞 제미나이", name_en: "🔞 Gemini", tag: "Zero-Refusal Uncensored Chat", tag_en: "Zero-Refusal Uncensored Chat", color: "#a855f7" },
 ];
 
 // MiniMax H3 Submodes
@@ -142,6 +142,7 @@ app.registerExtension({
 
             let isNSFW = localStorage.getItem("bada_is_nsfw") !== "false";
             let isTranslate = localStorage.getItem("bada_is_translate") !== "false";
+            let isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
 
             let uploadedImages = [];
             let isGenerating = false;
@@ -154,14 +155,13 @@ app.registerExtension({
             // Chat State (Uncensored Gemini Tab)
             let selectedGemPersona = localStorage.getItem("bada_gem_persona") || "universal";
             let webSearchEnabled = localStorage.getItem("bada_web_search") === "true";
-            let chatMessages = [
-                {
-                    role: "model",
-                    text: "안녕하세요! Google AI Studio 개발자 API와 직결된 **100% 무검열 자유 대화 & 프롬프트 스튜디오**입니다.\n무엇이든 자유롭게 질문하시거나 이미지를 첨부해 시네마틱 프롬프트 기획을 시작해 보세요!"
-                }
-            ];
+            let chatMessages = [];
             let chatUploadedImages = [];
             let isChatSending = false;
+            let errorLogs = [];
+            let unreadErrorCount = 0;
+            let generateAbortController = null;
+            let chatAbortController = null;
 
             // Root Card Container (방안 A: bada-async-gemini-root 병기)
             const root = document.createElement("div");
@@ -178,9 +178,115 @@ app.registerExtension({
                 <div class="bada-badges-group">
                     <span class="bada-badge uncensored" title="5대 카테고리 BLOCK_NONE 및 3-Pass 제로 거부">🛡️ ZERO-REFUSAL</span>
                     <span class="bada-badge">NON-BLOCKING ⚡</span>
+                    <button type="button" id="bada-error-bell" class="bada-bell-btn" title="${isKo ? "오류 알림 내역" : "Error Notification Log"}">
+                        <span class="bada-bell-icon">🔔</span>
+                        <span class="bada-bell-badge" id="bada-bell-badge" style="display: none;">0</span>
+                    </button>
                 </div>
             `;
             root.appendChild(header);
+
+            // Error Log Modal
+            const errorModalOverlay = document.createElement("div");
+            errorModalOverlay.className = "bada-error-modal-overlay bada-hidden";
+            errorModalOverlay.innerHTML = `
+                <div class="bada-error-modal">
+                    <div class="bada-error-modal-header">
+                        <div class="bada-error-modal-title">
+                            <span>🔔</span>
+                            <span id="bada-err-title">${isKo ? "오류 알림 내역" : "Error Notification Log"}</span>
+                        </div>
+                        <div class="bada-error-modal-actions">
+                            <button type="button" id="bada-err-clear-btn" class="bada-error-modal-btn">🗑️ ${isKo ? "비우기" : "Clear"}</button>
+                            <button type="button" id="bada-err-close-btn" class="bada-error-modal-close" title="${isKo ? "닫기" : "Close"}">✖️</button>
+                        </div>
+                    </div>
+                    <div class="bada-error-modal-body" id="bada-err-list">
+                    </div>
+                </div>
+            `;
+            root.appendChild(errorModalOverlay);
+
+            function renderErrorList() {
+                const listEl = errorModalOverlay.querySelector("#bada-err-list");
+                if (!listEl) return;
+                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                if (errorLogs.length === 0) {
+                    listEl.innerHTML = `
+                        <div class="bada-error-empty">
+                            <span style="font-size: 24px;">🎉</span>
+                            <span>${isKoNow ? "기록된 오류가 없습니다." : "No errors recorded."}</span>
+                        </div>
+                    `;
+                    return;
+                }
+                listEl.innerHTML = errorLogs.map(item => `
+                    <div class="bada-error-item">
+                        <div class="bada-error-meta">
+                            <span class="bada-error-source">[${item.source}]</span>
+                            <span>${item.time}</span>
+                        </div>
+                        <div class="bada-error-text">${item.msg}</div>
+                    </div>
+                `).join("");
+            }
+
+            function addErrorLog(source, msg) {
+                const now = new Date();
+                const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+                errorLogs.unshift({ id: Date.now(), time: timeStr, source, msg: String(msg) });
+                unreadErrorCount++;
+                updateBellBadge();
+            }
+
+            function updateBellBadge() {
+                const bellBtn = header.querySelector("#bada-error-bell");
+                const badgeEl = header.querySelector("#bada-bell-badge");
+                if (!badgeEl || !bellBtn) return;
+                if (unreadErrorCount > 0) {
+                    badgeEl.textContent = unreadErrorCount > 99 ? "99+" : unreadErrorCount;
+                    badgeEl.style.display = "inline-flex";
+                    bellBtn.classList.add("has-unread");
+                } else {
+                    badgeEl.style.display = "none";
+                    bellBtn.classList.remove("has-unread");
+                }
+            }
+
+            const errorBellBtn = header.querySelector("#bada-error-bell");
+            if (errorBellBtn) {
+                errorBellBtn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    unreadErrorCount = 0;
+                    updateBellBadge();
+                    renderErrorList();
+                    errorModalOverlay.classList.remove("bada-hidden");
+                };
+            }
+
+            const errCloseBtn = errorModalOverlay.querySelector("#bada-err-close-btn");
+            if (errCloseBtn) {
+                errCloseBtn.onclick = () => {
+                    errorModalOverlay.classList.add("bada-hidden");
+                };
+            }
+
+            const errClearBtn = errorModalOverlay.querySelector("#bada-err-clear-btn");
+            if (errClearBtn) {
+                errClearBtn.onclick = () => {
+                    errorLogs = [];
+                    unreadErrorCount = 0;
+                    updateBellBadge();
+                    renderErrorList();
+                };
+            }
+
+            errorModalOverlay.onclick = (e) => {
+                if (e.target === errorModalOverlay) {
+                    errorModalOverlay.classList.add("bada-hidden");
+                }
+            };
 
             // Toast Alert Banner
             const toast = document.createElement("div");
@@ -196,7 +302,201 @@ app.registerExtension({
                 }, duration);
             }
 
-            // 2. 4 Engine Tabs Navigation
+            // 2. 🔑 API Key & Priority Model (맨위에서 두번째 - 모든 4대 탭 공통 적용!)
+            const configSection = document.createElement("div");
+            configSection.className = "bada-section bada-config-top-section";
+            configSection.style.cssText = "flex: 0 0 auto !important; margin: 0 0 2px 0; padding: 6px 8px; background: rgba(0,0,0,0.25); border: 1px solid var(--bada-border); border-radius: var(--bada-radius-md);";
+            configSection.innerHTML = `
+                <div class="bada-label bada-config-label" style="margin-bottom: 4px;">
+                    <div class="bada-config-title-group">
+                        <span class="bada-config-title-text">${isKo ? "🔑 API Key & 우선순위 모델 선택" : "🔑 API Key & Priority Model"}</span>
+                        <div class="bada-key-actions">
+                            <button type="button" id="bada-btn-get-key" class="bada-key-action-btn" title="${isKo ? "Google AI Studio API 키 발급 페이지 열기" : "Open Google AI Studio API Key page"}">
+                                <span class="bada-action-icon">↗️</span><span class="bada-action-text">${isKo ? "발급" : "Get Key"}</span>
+                            </button>
+                            <button type="button" id="bada-btn-test-key" class="bada-key-action-btn" title="${isKo ? "Gemini API 연결 및 키 유효성 테스트" : "Test Gemini API connection and key validity"}">
+                                <span class="bada-action-icon">🔌</span><span class="bada-action-text">${isKo ? "연결확인" : "Check"}</span>
+                            </button>
+                        </div>
+                    </div>
+                    <span class="bada-subtext">${isKo ? "LocalStorage 자동 저장" : "Stored in LocalStorage"}</span>
+                </div>
+            `;
+            const configRow = document.createElement("div");
+            configRow.className = "bada-config-row";
+
+            const inputGroup = document.createElement("div");
+            inputGroup.className = "bada-input-group";
+            const apiKeyInput = document.createElement("input");
+            apiKeyInput.className = "bada-input";
+            apiKeyInput.type = "password";
+            apiKeyInput.placeholder = "Gemini API Key (••••••••)";
+            const savedKey = localStorage.getItem("bada_gemini_api_key") || "";
+            if (savedKey) apiKeyInput.value = savedKey;
+
+            apiKeyInput.addEventListener("input", () => {
+                localStorage.setItem("bada_gemini_api_key", apiKeyInput.value.trim());
+            });
+
+            const toggleEyeBtn = document.createElement("button");
+            toggleEyeBtn.className = "bada-toggle-eye";
+            toggleEyeBtn.type = "button";
+            toggleEyeBtn.innerHTML = "👁️";
+            toggleEyeBtn.onclick = (e) => {
+                e.preventDefault();
+                apiKeyInput.type = apiKeyInput.type === "password" ? "text" : "password";
+            };
+            inputGroup.appendChild(apiKeyInput);
+            inputGroup.appendChild(toggleEyeBtn);
+
+            const modelSelect = document.createElement("select");
+            modelSelect.className = "bada-select";
+            EXACT_MODELS.forEach(m => {
+                const opt = document.createElement("option");
+                opt.value = m.id;
+                opt.textContent = isKo ? m.name : (m.name_en || m.name);
+                modelSelect.appendChild(opt);
+            });
+            const savedModel = localStorage.getItem("bada_gemini_model") || "gemini-3.6-flash";
+            modelSelect.value = savedModel;
+            modelSelect.addEventListener("change", () => {
+                localStorage.setItem("bada_gemini_model", modelSelect.value);
+            });
+
+            configRow.appendChild(inputGroup);
+            configRow.appendChild(modelSelect);
+            configSection.appendChild(configRow);
+            root.appendChild(configSection);
+
+            // Button Event Handlers: 발급 (AI Studio 새 탭) & 연결확인 (API Test)
+            const getKeyBtn = configSection.querySelector("#bada-btn-get-key");
+            const testKeyBtn = configSection.querySelector("#bada-btn-test-key");
+
+            if (getKeyBtn) {
+                getKeyBtn.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.open("https://aistudio.google.com/app/apikey", "_blank", "noopener,noreferrer");
+                });
+            }
+
+            if (testKeyBtn) {
+                testKeyBtn.addEventListener("click", async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (testKeyBtn.dataset.busy === "true") return;
+
+                    const isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                    let curKey = (apiKeyInput.value || localStorage.getItem("bada_gemini_api_key") || "").trim();
+
+                    // If input box was empty but localStorage had it, sync into input box
+                    if (!apiKeyInput.value && curKey) {
+                        apiKeyInput.value = curKey;
+                    }
+
+                    if (!curKey) {
+                        showToast(isKo ? "Gemini API 키를 먼저 입력해 주세요." : "Please enter Gemini API Key first.", "error", 3500);
+                        apiKeyInput.focus();
+                        return;
+                    }
+
+                    testKeyBtn.dataset.busy = "true";
+                    testKeyBtn.classList.remove("success", "error");
+                    testKeyBtn.classList.add("testing");
+
+                    const origIcon = "🔌";
+                    const iconSpan = testKeyBtn.querySelector(".bada-action-icon");
+                    const textSpan = testKeyBtn.querySelector(".bada-action-text");
+
+                    if (iconSpan) iconSpan.innerHTML = '<span class="bada-spinner-tiny">⏳</span>';
+                    if (textSpan) textSpan.textContent = isKo ? "확인중..." : "Testing...";
+
+                    const startTime = Date.now();
+                    const testAbort = new AbortController();
+                    const timeoutTimer = setTimeout(() => testAbort.abort(), 6000);
+
+                    try {
+                        // Direct browser fetch to Google Generative Language API (Ultra-fast ~0.3-0.5s, exactly like Prompt Studio!)
+                        const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(curKey)}`;
+                        const res = await fetch(listUrl, { signal: testAbort.signal });
+                        clearTimeout(timeoutTimer);
+                        const latency = Date.now() - startTime;
+                        const data = await res.json().catch(() => ({}));
+
+                        testKeyBtn.classList.remove("testing");
+
+                        if (res.ok) {
+                            // 1. Success! Save to LocalStorage
+                            localStorage.setItem("bada_gemini_api_key", curKey);
+                            // 2. Sync to ComfyUI backend config in background (fire-and-forget)
+                            fetch("/api/bada/gemini/config", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ api_key: curKey })
+                            }).catch(() => {});
+
+                            testKeyBtn.classList.add("success");
+                            if (iconSpan) iconSpan.textContent = "✅";
+                            if (textSpan) textSpan.textContent = `${latency}ms`;
+                            showToast(
+                                isKo
+                                    ? `✅ Google Gemini API 정상 연결 확인 완료! (${latency}ms)`
+                                    : `✅ Google Gemini API Connected! (${latency}ms)`,
+                                "success",
+                                3500
+                            );
+                        } else {
+                            const errMsg = data?.error?.message || `HTTP ${res.status}`;
+                            testKeyBtn.classList.add("error");
+                            if (iconSpan) iconSpan.textContent = "❌";
+                            if (textSpan) textSpan.textContent = isKo ? "오류" : "Error";
+                            showToast(
+                                (isKo ? "❌ Gemini API 인증 실패: " : "❌ Gemini API auth failed: ") + errMsg,
+                                "error",
+                                5000
+                            );
+                            addErrorLog(isKo ? "API 연결 테스트" : "API Connection Test", errMsg);
+                        }
+                    } catch (err) {
+                        clearTimeout(timeoutTimer);
+                        testKeyBtn.classList.remove("testing");
+                        testKeyBtn.classList.add("error");
+                        if (iconSpan) iconSpan.textContent = "❌";
+                        if (textSpan) textSpan.textContent = isKo ? "오류" : "Error";
+
+                        const errDesc = err.name === "AbortError"
+                            ? (isKo ? "응답 시간 초과 (6초)" : "Timeout (6s)")
+                            : (err.message || "Network error");
+
+                        showToast(
+                            (isKo ? "❌ Gemini 연결 오류: " : "❌ Connection error: ") + errDesc,
+                            "error",
+                            5000
+                        );
+                        addErrorLog(isKo ? "API 연결 테스트" : "API Connection Test", errDesc);
+                    } finally {
+                        clearTimeout(timeoutTimer);
+                        setTimeout(() => {
+                            testKeyBtn.dataset.busy = "false";
+                            testKeyBtn.classList.remove("success", "error", "testing");
+                            if (iconSpan) iconSpan.textContent = origIcon;
+                            if (textSpan) textSpan.textContent = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko") ? "연결확인" : "Check";
+                        }, 3500);
+                    }
+                });
+            }
+
+            // Fetch server config if present
+            fetch("/api/bada/gemini/config")
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success && !apiKeyInput.value && data.has_key) {
+                        apiKeyInput.placeholder = data.masked_key || "Using Server/ENV Key ✅";
+                    }
+                })
+                .catch(() => {});
+
+            // 3. 4 Engine Tabs Navigation
             const engineNav = document.createElement("div");
             engineNav.className = "bada-engine-nav";
 
@@ -258,7 +558,6 @@ app.registerExtension({
             // Options Row (NSFW & Korean Translation Toggles)
             const optionsGrid = document.createElement("div");
             optionsGrid.className = "bada-options-grid";
-            const isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
             optionsGrid.innerHTML = `
                 <div class="bada-toggle-card" id="bada-toggle-nsfw">
                     <div class="bada-toggle-info">
@@ -297,78 +596,13 @@ app.registerExtension({
                 showToast(isKo ? `한국어 번역 및 해설: ${isTranslate ? 'ON' : 'OFF'}` : `Korean Translation & Notes: ${isTranslate ? 'ON' : 'OFF'}`, "info", 1500);
             };
 
-            // API Key & Model Config Section
-            const configSection = document.createElement("div");
-            configSection.className = "bada-section";
-            configSection.innerHTML = `
-                <div class="bada-label">
-                    <span>${isKo ? "🔑 API Key & 우선순위 모델 선택" : "🔑 API Key & Priority Model"}</span>
-                    <span class="bada-subtext">${isKo ? "LocalStorage 자동 저장" : "Stored in LocalStorage"}</span>
-                </div>
-            `;
-            const configRow = document.createElement("div");
-            configRow.className = "bada-config-row";
-
-            const inputGroup = document.createElement("div");
-            inputGroup.className = "bada-input-group";
-            const apiKeyInput = document.createElement("input");
-            apiKeyInput.className = "bada-input";
-            apiKeyInput.type = "password";
-            apiKeyInput.placeholder = "Gemini API Key (••••••••)";
-            const savedKey = localStorage.getItem("bada_gemini_api_key") || "";
-            if (savedKey) apiKeyInput.value = savedKey;
-
-            apiKeyInput.addEventListener("input", () => {
-                localStorage.setItem("bada_gemini_api_key", apiKeyInput.value.trim());
-            });
-
-            const toggleEyeBtn = document.createElement("button");
-            toggleEyeBtn.className = "bada-toggle-eye";
-            toggleEyeBtn.type = "button";
-            toggleEyeBtn.innerHTML = "👁️";
-            toggleEyeBtn.onclick = (e) => {
-                e.preventDefault();
-                apiKeyInput.type = apiKeyInput.type === "password" ? "text" : "password";
-            };
-            inputGroup.appendChild(apiKeyInput);
-            inputGroup.appendChild(toggleEyeBtn);
-
-            const modelSelect = document.createElement("select");
-            modelSelect.className = "bada-select";
-            EXACT_MODELS.forEach(m => {
-                const opt = document.createElement("option");
-                opt.value = m.id;
-                opt.textContent = isKo ? m.name : (m.name_en || m.name);
-                modelSelect.appendChild(opt);
-            });
-            const savedModel = localStorage.getItem("bada_gemini_model") || "gemini-3.6-flash";
-            modelSelect.value = savedModel;
-            modelSelect.addEventListener("change", () => {
-                localStorage.setItem("bada_gemini_model", modelSelect.value);
-            });
-
-            configRow.appendChild(inputGroup);
-            configRow.appendChild(modelSelect);
-            configSection.appendChild(configRow);
-            promptStudioContainer.appendChild(configSection);
-
-            // Fetch server config if present
-            fetch("/api/bada/gemini/config")
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success && !apiKeyInput.value && data.has_key) {
-                        apiKeyInput.placeholder = data.masked_key || "Using Server/ENV Key ✅";
-                    }
-                })
-                .catch(() => {});
-
             // Prompt Instruction Section
             const promptSection = document.createElement("div");
             promptSection.className = "bada-section";
             promptSection.innerHTML = `
                 <div class="bada-label">
                     <span id="bada-input-label">${isKo ? "✍️ 씬 연출 지시사항" : "✍️ Scene & Character Directives"}</span>
-                    <span class="bada-subtext" id="bada-char-counter">0자</span>
+                    <span class="bada-subtext" id="bada-char-counter">${isKo ? "0자" : "0 chars"}</span>
                 </div>
             `;
             const instructionTextarea = document.createElement("textarea");
@@ -379,7 +613,8 @@ app.registerExtension({
                 : "Describe the scene, character, composition, lighting in detail...";
             instructionTextarea.addEventListener("input", () => {
                 const counter = promptSection.querySelector("#bada-char-counter");
-                if (counter) counter.textContent = isKo ? `${instructionTextarea.value.length}자` : `${instructionTextarea.value.length} chars`;
+                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                if (counter) counter.textContent = isKoNow ? `${instructionTextarea.value.length}자` : `${instructionTextarea.value.length} chars`;
             });
             promptSection.appendChild(instructionTextarea);
 
@@ -387,28 +622,34 @@ app.registerExtension({
             const quickBar = document.createElement("div");
             quickBar.className = "bada-quick-bar";
             const quickTags = [
-                { label: "🎬 35mm Film", text: "35mm anamorphic lens, Kodak Portra 400 film grain, dramatic volumetric lighting" },
-                { label: "📸 Raw UGC", text: "iPhone 15 Pro raw snapshot, direct flash, authentic skin imperfections, zero filtering" },
-                { label: "🎥 Video Motion", text: "dynamic slow-motion tracking shot, atmospheric breeze blowing hair, fluid motion" },
-                { label: "🌧️ Wet Neon", text: "wet asphalt rain reflections, neon city lighting, dramatic moody shadows, cyberpunk" },
-                { label: "👗 Vogue Editorial", text: "high-fashion vogue editorial, studio strobe lighting, luxury fabrics" }
+                { label: "🎬 35mm Film", label_ko: "🎬 35mm 필름", text: "35mm anamorphic lens, Kodak Portra 400 film grain, dramatic volumetric lighting" },
+                { label: "📸 Raw UGC", label_ko: "📸 리얼 스냅", text: "iPhone 15 Pro raw snapshot, direct flash, authentic skin imperfections, zero filtering" },
+                { label: "🎥 Video Motion", label_ko: "🎥 비디오 모션", text: "dynamic slow-motion tracking shot, atmospheric breeze blowing hair, fluid motion" },
+                { label: "🌧️ Wet Neon", label_ko: "🌧️ 네온 비", text: "wet asphalt rain reflections, neon city lighting, dramatic moody shadows, cyberpunk" },
+                { label: "👗 Vogue Editorial", label_ko: "👗 보그 화보", text: "high-fashion vogue editorial, studio strobe lighting, luxury fabrics" }
             ];
-            quickTags.forEach(tag => {
-                const pill = document.createElement("button");
-                pill.type = "button";
-                pill.className = "bada-pill";
-                pill.textContent = tag.label;
-                pill.onclick = (e) => {
-                    e.preventDefault();
-                    if (instructionTextarea.value.trim().length > 0) {
-                        instructionTextarea.value += `, ${tag.text}`;
-                    } else {
-                        instructionTextarea.value = tag.text;
-                    }
-                    instructionTextarea.focus();
-                };
-                quickBar.appendChild(pill);
-            });
+
+            function renderQuickBar() {
+                quickBar.innerHTML = "";
+                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                quickTags.forEach(tag => {
+                    const pill = document.createElement("button");
+                    pill.type = "button";
+                    pill.className = "bada-pill";
+                    pill.textContent = isKoNow ? tag.label_ko : tag.label;
+                    pill.onclick = (e) => {
+                        e.preventDefault();
+                        if (instructionTextarea.value.trim().length > 0) {
+                            instructionTextarea.value += `, ${tag.text}`;
+                        } else {
+                            instructionTextarea.value = tag.text;
+                        }
+                        instructionTextarea.focus();
+                    };
+                    quickBar.appendChild(pill);
+                });
+            }
+            renderQuickBar();
             promptSection.appendChild(quickBar);
             promptStudioContainer.appendChild(promptSection);
 
@@ -582,7 +823,7 @@ app.registerExtension({
             outputSection.className = "bada-section";
             outputSection.innerHTML = `
                 <div class="bada-label">
-                    <span>✨ Generated Output</span>
+                    <span id="bada-output-title">${isKo ? "✨ 생성된 프롬프트 결과" : "✨ Generated Output"}</span>
                     <span class="bada-badge" id="bada-pass-status" style="display: none;"></span>
                 </div>
             `;
@@ -591,17 +832,17 @@ app.registerExtension({
             const tabEng = document.createElement("button");
             tabEng.type = "button";
             tabEng.className = "bada-tab-btn active";
-            tabEng.textContent = "🔤 English Master";
+            tabEng.textContent = isKo ? "🇺🇸 영문 마스터" : "🔤 English Master";
 
             const tabKor = document.createElement("button");
             tabKor.type = "button";
             tabKor.className = "bada-tab-btn";
-            tabKor.textContent = "🇰🇷 Korean Translation";
+            tabKor.textContent = isKo ? "🇰🇷 한국어 번역" : "🇰🇷 Korean Translation";
 
             const tabAll = document.createElement("button");
             tabAll.type = "button";
             tabAll.className = "bada-tab-btn";
-            tabAll.textContent = "📜 Combined";
+            tabAll.textContent = isKo ? "📜 통합본" : "📜 Combined";
 
             tabsHeader.appendChild(tabEng);
             tabsHeader.appendChild(tabKor);
@@ -1068,10 +1309,16 @@ app.registerExtension({
             }
 
             // -------------------------------------------------------------
-            // GENERATE PROMPT EXECUTION HANDLER
+            // -------------------------------------------------------------
+            // GENERATE PROMPT EXECUTION HANDLER (중단 기능 및 에러 로깅 지원)
             // -------------------------------------------------------------
             generateBtn.onclick = async () => {
-                if (isGenerating) return;
+                if (isGenerating) {
+                    if (generateAbortController) {
+                        generateAbortController.abort();
+                    }
+                    return;
+                }
 
                 const instruction = instructionTextarea.value.trim();
                 const key = apiKeyInput.value.trim();
@@ -1085,18 +1332,22 @@ app.registerExtension({
                 }
 
                 isGenerating = true;
-                generateBtn.disabled = true;
+                generateAbortController = new AbortController();
+                generateBtn.disabled = false;
+                generateBtn.classList.add("bada-btn-stop");
+                let dataSuccess = false;
                 const startTime = Date.now();
                 const btnOriginalHtml = generateBtn.innerHTML;
-                const genLoadingText = isKo ? "프롬프트 생성 중..." : "Generating Prompt...";
-                generateBtn.innerHTML = `<span class="bada-spinner"></span> <span>[${activeEngine.toUpperCase()}] ${genLoadingText} (0s)</span>`;
+                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                const genLoadingText = isKoNow ? "작업 중..." : "Working...";
+                generateBtn.innerHTML = `<span class="bada-spinner"></span> <span>${genLoadingText} ⏱️ 0.0s <b style="margin-left:6px;background:rgba(0,0,0,0.35);padding:1.5px 6px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);">⏹️ ${isKoNow ? "중단" : "Stop"}</b></span>`;
 
                 timerInterval = setInterval(() => {
-                    const elapsed = Math.round((Date.now() - startTime) / 1000);
-                    generateBtn.innerHTML = `<span class="bada-spinner"></span> <span>[${activeEngine.toUpperCase()}] ${genLoadingText} (${elapsed}s)</span>`;
-                }, 1000);
+                    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                    generateBtn.innerHTML = `<span class="bada-spinner"></span> <span>${genLoadingText} ⏱️ ${elapsed}s <b style="margin-left:6px;background:rgba(0,0,0,0.35);padding:1.5px 6px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);">⏹️ ${isKoNow ? "중단" : "Stop"}</b></span>`;
+                }, 100);
 
-                showToast(isKo ? `🚀 ${activeEngine.toUpperCase()} 프롬프트 생성 중 (독립 비동기 실행)` : `🚀 Generating ${activeEngine.toUpperCase()} prompt (Async non-blocking)`, "info", 3000);
+                showToast(isKoNow ? `🚀 ${activeEngine.toUpperCase()} 작업 중... (중단하려면 버튼 클릭)` : `🚀 ${activeEngine.toUpperCase()} working... (Click to Stop)`, "info", 2500);
 
                 // Prepare style / preset
                 let styleParam = "";
@@ -1126,13 +1377,15 @@ app.registerExtension({
                             instruction: instruction,
                             custom_directives: customDirectives,
                             images: uploadedImages
-                        })
+                        }),
+                        signal: generateAbortController.signal
                     });
 
                     const data = await resp.json();
                     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
 
                     if (data.success && (data.prompt || data.storyboard)) {
+                        dataSuccess = true;
                         lastEnglishPrompt = data.prompt || "";
                         lastKoreanTranslation = data.korean_translation || "";
                         lastStoryboardData = data.storyboard || null;
@@ -1153,22 +1406,39 @@ app.registerExtension({
                         if (passBadge) {
                             passBadge.style.display = "inline-block";
                             const passText = data.pass_used === 2 ? "🛡️ Pass 2 VFX Override" : (data.pass_used === 3 ? "🎨 Pass 3 Metaphor" : "⚡ Pass 1 Direct");
-                            passBadge.textContent = `${passText} (${data.model || model}) ${duration}s`;
+                            passBadge.textContent = `${passText} (${data.model || model}) • ⏱️ ${duration}${isKoNow ? "초 완료" : "s done"}`;
                         }
 
-                        showToast(isKo ? `✨ ${activeEngine.toUpperCase()} 프롬프트 생성 성공! (${duration}초)` : `✨ ${activeEngine.toUpperCase()} prompt generated successfully! (${duration}s)`, "success", 3000);
+                        // Completed state with elapsed time
+                        generateBtn.innerHTML = `<span>✨</span> <span>${isKoNow ? `생성 완료! (${duration}초)` : `Completed! (${duration}s)`}</span>`;
+                        setTimeout(() => {
+                            if (!isGenerating) updateInputPlaceholders();
+                        }, 3500);
+
+                        showToast(isKoNow ? `✨ ${activeEngine.toUpperCase()} 생성 완료! (소요 시간: ${duration}초)` : `✨ ${activeEngine.toUpperCase()} completed in ${duration}s!`, "success", 3000);
                     } else {
-                        const errMsg = data.error || (isKo ? "알 수 없는 오류가 발생했습니다." : "An unknown error occurred.");
-                        showToast(`❌ ${isKo ? "오류" : "Error"}: ${errMsg}`, "error", 5000);
+                        const errMsg = data.error || (isKoNow ? "알 수 없는 오류가 발생했습니다." : "An unknown error occurred.");
+                        showToast(`❌ ${isKoNow ? "오류" : "Error"}: ${errMsg}`, "error", 5000);
+                        addErrorLog(isKoNow ? `${activeEngine.toUpperCase()} 생성` : `${activeEngine.toUpperCase()} Generation`, errMsg);
                     }
                 } catch (err) {
-                    showToast((isKo ? "❌ 네트워크 오류: " : "❌ Network error: ") + err.message, "error", 5000);
+                    if (err.name === "AbortError") {
+                        showToast(isKoNow ? "⏹️ 생성이 사용자에 의해 중단되었습니다." : "⏹️ Generation cancelled by user.", "info", 3000);
+                    } else {
+                        const errDesc = err.message || "Network error";
+                        showToast((isKoNow ? "❌ 네트워크 오류: " : "❌ Network error: ") + errDesc, "error", 5000);
+                        addErrorLog(isKoNow ? `${activeEngine.toUpperCase()} 생성` : `${activeEngine.toUpperCase()} Generation`, errDesc);
+                    }
                 } finally {
                     isGenerating = false;
+                    generateAbortController = null;
                     clearInterval(timerInterval);
                     timerInterval = null;
                     generateBtn.disabled = false;
-                    generateBtn.innerHTML = btnOriginalHtml;
+                    generateBtn.classList.remove("bada-btn-stop");
+                    if (!dataSuccess) {
+                        generateBtn.innerHTML = btnOriginalHtml;
+                    }
                 }
             };
 
@@ -1273,14 +1543,7 @@ app.registerExtension({
                 newChatBtn.className = "bada-pill";
                 newChatBtn.innerHTML = isKo ? "✏️ 새 채팅" : "✏️ New Chat";
                 newChatBtn.onclick = () => {
-                    chatMessages = [
-                        {
-                            role: "model",
-                            text: isKo 
-                                ? "새 대화가 시작되었습니다! 무검열 제미나이에게 무엇이든 물어보세요."
-                                : "New conversation started! Ask Uncensored Gemini anything."
-                        }
-                    ];
+                    chatMessages = [];
                     renderChatMessages();
                     showToast(isKo ? "대화가 초기화되었습니다." : "Conversation reset.", "info", 1500);
                 };
@@ -1380,6 +1643,20 @@ app.registerExtension({
 
                 function renderChatMessages() {
                     thread.innerHTML = "";
+                    if (chatMessages.length === 0) {
+                        const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                        const emptyState = document.createElement("div");
+                        emptyState.className = "bada-chat-empty-state";
+                        emptyState.style.cssText = "display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 180px; text-align: center; color: var(--bada-text-dim); padding: 24px 16px; user-select: none;";
+                        emptyState.innerHTML = `
+                            <div style="font-size: 28px; margin-bottom: 8px;">🔞</div>
+                            <div style="font-size: 13px; font-weight: 700; color: var(--bada-text-main); margin-bottom: 4px;">${isKoNow ? "🔞 무검열 제미나이 자유 대화" : "🔞 Uncensored Gemini Studio"}</div>
+                            <div style="font-size: 11px; line-height: 1.5; max-width: 260px; color: var(--bada-text-muted);">${isKoNow ? "질문을 입력하거나 이미지를 첨부(Ctrl+V)하여 대화 및 프롬프트 기획을 시작하세요." : "Type a prompt or attach images (Ctrl+V) to start planning."}</div>
+                        `;
+                        thread.appendChild(emptyState);
+                        return;
+                    }
+
                     chatMessages.forEach(msg => {
                         const row = document.createElement("div");
                         row.className = `bada-msg-row ${msg.role}`;
@@ -1404,37 +1681,49 @@ app.registerExtension({
                         textContent.textContent = msg.text;
                         bubble.appendChild(textContent);
 
-                        // If model message, add Copy & Send to CLIP actions
+                        // If model message, add Copy & Send to CLIP actions + Duration tag
                         if (msg.role === "model") {
                             const actRow = document.createElement("div");
                             actRow.className = "bada-msg-actions";
+                            actRow.style.display = "flex";
+                            actRow.style.alignItems = "center";
+                            actRow.style.gap = "6px";
 
+                            const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                             const copyMBtn = document.createElement("button");
                             copyMBtn.type = "button";
                             copyMBtn.className = "bada-btn-msg-act";
-                            copyMBtn.innerHTML = isKo ? "📋 복사" : "📋 Copy";
+                            copyMBtn.innerHTML = isKoNow ? "📋 복사" : "📋 Copy";
                             copyMBtn.onclick = async () => {
                                 await navigator.clipboard.writeText(msg.text);
-                                showToast(isKo ? "답변 텍스트가 복사되었습니다! 📋" : "Reply copied to clipboard! 📋", "success", 1500);
+                                showToast(isKoNow ? "답변 텍스트가 복사되었습니다! 📋" : "Reply copied to clipboard! 📋", "success", 1500);
                             };
 
                             const clipMBtn = document.createElement("button");
                             clipMBtn.type = "button";
                             clipMBtn.className = "bada-btn-msg-act";
-                            clipMBtn.innerHTML = isKo ? "➡️ CLIP 전송" : "➡️ Send to CLIP";
+                            clipMBtn.innerHTML = isKoNow ? "➡️ CLIP 전송" : "➡️ Send to CLIP";
                             clipMBtn.onclick = () => {
                                 sendTextToActiveClip(msg.text);
                             };
 
                             actRow.appendChild(copyMBtn);
                             actRow.appendChild(clipMBtn);
+
+                            if (msg.duration) {
+                                const durSpan = document.createElement("span");
+                                durSpan.style.cssText = "font-size: 10.5px; color: var(--bada-text-dim); margin-left: auto; font-family: monospace; font-weight: 600;";
+                                durSpan.textContent = `⏱️ ${msg.duration}${isKoNow ? "초 완료" : "s done"}`;
+                                actRow.appendChild(durSpan);
+                            }
+
                             bubble.appendChild(actRow);
 
                             // Grounding sources
                             if (msg.grounding_sources && msg.grounding_sources.length > 0) {
                                 const gBox = document.createElement("div");
                                 gBox.className = "bada-grounding-box";
-                                gBox.innerHTML = `<div>🔍 <b>${isKo ? "웹 검색 출처:" : "Web Sources:"}</b></div>`;
+                                gBox.innerHTML = `<div>🔍 <b>${isKoNow ? "웹 검색 출처:" : "Web Sources:"}</b></div>`;
                                 const sList = document.createElement("div");
                                 sList.className = "bada-sources-list";
                                 msg.grounding_sources.forEach(src => {
@@ -1458,9 +1747,15 @@ app.registerExtension({
                 }
 
                 async function sendChatMessage() {
+                    if (isChatSending) {
+                        if (chatAbortController) {
+                            chatAbortController.abort();
+                        }
+                        return;
+                    }
+
                     const text = chatTextarea.value.trim();
                     if (!text && chatUploadedImages.length === 0) return;
-                    if (isChatSending) return;
 
                     const key = apiKeyInput.value.trim();
                     const model = modelSelect.value;
@@ -1478,8 +1773,44 @@ app.registerExtension({
                     renderChatMessages();
 
                     isChatSending = true;
-                    chatSendBtn.disabled = true;
-                    chatSendBtn.innerHTML = `<span class="bada-spinner"></span>`;
+                    chatAbortController = new AbortController();
+
+                    chatSendBtn.disabled = false;
+                    chatSendBtn.className = "bada-chat-send-btn bada-stop-state";
+                    chatSendBtn.innerHTML = "⏹️";
+                    chatSendBtn.title = isKo ? "채팅 응답 생성 중단" : "Stop generation";
+
+                    const chatStartTime = Date.now();
+                    const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                    const chatWorkingText = isKoNow ? "작업 중..." : "Working...";
+
+                    // Add typing status bubble to thread with Stop button
+                    const typingRow = document.createElement("div");
+                    typingRow.className = "bada-msg-row model bada-msg-typing";
+                    typingRow.innerHTML = `
+                        <div class="bada-msg-bubble model" style="display:flex; align-items:center; gap:8px; padding: 8px 12px; background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.3);">
+                            <span class="bada-spinner"></span>
+                            <span style="font-size: 12px; font-weight: 600; color: #a5b4fc;">${chatWorkingText}</span>
+                            <span class="bada-typing-timer" style="font-size: 11px; font-weight: 700; color: #38bdf8;">⏱️ 0.0s</span>
+                            <button type="button" class="bada-typing-stop-btn" id="bada-chat-bubble-stop">⏹️ ${isKoNow ? "중단" : "Stop"}</button>
+                        </div>
+                    `;
+                    const bubbleStop = typingRow.querySelector("#bada-chat-bubble-stop");
+                    if (bubbleStop) {
+                        bubbleStop.onclick = (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (chatAbortController) chatAbortController.abort();
+                        };
+                    }
+                    thread.appendChild(typingRow);
+                    thread.scrollTop = thread.scrollHeight;
+
+                    const chatTimerInterval = setInterval(() => {
+                        const elapsed = ((Date.now() - chatStartTime) / 1000).toFixed(1);
+                        const timerEl = typingRow.querySelector(".bada-typing-timer");
+                        if (timerEl) timerEl.textContent = `⏱️ ${elapsed}s`;
+                    }, 100);
 
                     try {
                         const resp = await fetch("/api/bada/gemini/chat", {
@@ -1491,26 +1822,47 @@ app.registerExtension({
                                 persona: selectedGemPersona,
                                 web_search: webSearchEnabled,
                                 messages: chatMessages
-                            })
+                            }),
+                            signal: chatAbortController.signal
                         });
 
                         const data = await resp.json();
+                        const duration = ((Date.now() - chatStartTime) / 1000).toFixed(1);
+                        clearInterval(chatTimerInterval);
+                        if (typingRow.parentNode) typingRow.remove();
+
                         if (data.success && data.reply) {
                             chatMessages.push({
                                 role: "model",
                                 text: data.reply,
-                                grounding_sources: data.grounding_sources || []
+                                grounding_sources: data.grounding_sources || [],
+                                duration: duration
                             });
                             renderChatMessages();
+                            showToast(isKoNow ? `✨ 답변 생성 완료! (${duration}초 소요)` : `✨ Reply completed in ${duration}s!`, "success", 2500);
                         } else {
-                            showToast((isKo ? "❌ 채팅 오류: " : "❌ Chat error: ") + (data.error || (isKo ? '응답 실패' : 'No response')), "error", 4000);
+                            const errDesc = data.error || (isKoNow ? '응답 실패' : 'No response');
+                            showToast((isKoNow ? "❌ 채팅 오류: " : "❌ Chat error: ") + errDesc, "error", 4000);
+                            addErrorLog(isKoNow ? "무검열 제미나이 채팅" : "Gemini Chat", errDesc);
                         }
                     } catch (err) {
-                        showToast((isKo ? "❌ 네트워크 오류: " : "❌ Network error: ") + err.message, "error", 4000);
+                        clearInterval(chatTimerInterval);
+                        if (typingRow.parentNode) typingRow.remove();
+                        if (err.name === "AbortError") {
+                            showToast(isKoNow ? "⏹️ 채팅 생성이 사용자에 의해 중단되었습니다." : "⏹️ Chat response cancelled by user.", "info", 3000);
+                        } else {
+                            const errDesc = err.message || "Network error";
+                            showToast((isKoNow ? "❌ 네트워크 오류: " : "❌ Network error: ") + errDesc, "error", 4000);
+                            addErrorLog(isKoNow ? "무검열 제미나이 채팅" : "Gemini Chat", errDesc);
+                        }
                     } finally {
+                        clearInterval(chatTimerInterval);
                         isChatSending = false;
+                        chatAbortController = null;
                         chatSendBtn.disabled = false;
+                        chatSendBtn.className = "bada-chat-send-btn";
                         chatSendBtn.innerHTML = "🚀";
+                        chatSendBtn.title = isKoNow ? "메시지 보내기" : "Send message";
                     }
                 }
 
@@ -1565,10 +1917,23 @@ app.registerExtension({
                 if (transDesc) transDesc.textContent = isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes";
 
                 // Config section
-                const cfgLabel = configSection.querySelector(".bada-label span:first-child");
+                const cfgTitle = configSection.querySelector(".bada-config-title-text");
                 const cfgSub = configSection.querySelector(".bada-subtext");
-                if (cfgLabel) cfgLabel.textContent = isKo ? "🔑 API Key & 우선순위 모델 선택" : "🔑 API Key & Priority Model";
+                if (cfgTitle) cfgTitle.textContent = isKo ? "🔑 API Key & 우선순위 모델 선택" : "🔑 API Key & Priority Model";
                 if (cfgSub) cfgSub.textContent = isKo ? "LocalStorage 자동 저장" : "Stored in LocalStorage";
+
+                const curGetKeyBtn = configSection.querySelector("#bada-btn-get-key");
+                const curTestKeyBtn = configSection.querySelector("#bada-btn-test-key");
+                if (curGetKeyBtn) {
+                    const textSpan = curGetKeyBtn.querySelector(".bada-action-text");
+                    if (textSpan) textSpan.textContent = isKo ? "발급" : "Get Key";
+                    curGetKeyBtn.title = isKo ? "Google AI Studio API 키 발급 페이지 열기" : "Open Google AI Studio API Key page";
+                }
+                if (curTestKeyBtn && curTestKeyBtn.dataset.busy !== "true") {
+                    const textSpan = curTestKeyBtn.querySelector(".bada-action-text");
+                    if (textSpan) textSpan.textContent = isKo ? "연결확인" : "Check";
+                    curTestKeyBtn.title = isKo ? "Gemini API 연결 및 키 유효성 테스트" : "Test Gemini API connection and key validity";
+                }
 
                 // Model select options
                 const currentModelVal = modelSelect.value;
@@ -1605,14 +1970,42 @@ app.registerExtension({
                 downloadTxtBtn.innerHTML = `<span>💾</span> <span>${isKo ? "TXT 다운로드" : "Download TXT"}</span>`;
                 outputTextarea.placeholder = isKo ? "생성된 프롬프트가 여기에 표시됩니다. 자유롭게 직접 수정할 수도 있습니다." : "Generated prompt will appear here. You can also edit it directly.";
 
+                // Output section header & tabs
+                const outputTitle = outputSection.querySelector("#bada-output-title");
+                if (outputTitle) outputTitle.textContent = isKo ? "✨ 생성된 프롬프트 결과" : "✨ Generated Output";
+                tabEng.textContent = isKo ? "🇺🇸 영문 마스터" : "🔤 English Master";
+                tabKor.textContent = isKo ? "🇰🇷 한국어 번역" : "🇰🇷 Korean Translation";
+                tabAll.textContent = isKo ? "📜 통합본" : "📜 Combined";
+
+                // Character counter
+                const charCounter = promptSection.querySelector("#bada-char-counter");
+                if (charCounter) {
+                    charCounter.textContent = isKo ? `${instructionTextarea.value.length}자` : `${instructionTextarea.value.length} chars`;
+                }
+
+                // Error modal & bell labels
+                const errTitleEl = errorModalOverlay.querySelector("#bada-err-title");
+                const errClearBtnEl = errorModalOverlay.querySelector("#bada-err-clear-btn");
+                const errCloseBtnEl = errorModalOverlay.querySelector("#bada-err-close-btn");
+                const errorBellBtnEl = header.querySelector("#bada-error-bell");
+                if (errTitleEl) errTitleEl.textContent = isKo ? "오류 알림 내역" : "Error Notification Log";
+                if (errClearBtnEl) errClearBtnEl.textContent = isKo ? "🗑️ 비우기" : "🗑️ Clear";
+                if (errCloseBtnEl) errCloseBtnEl.title = isKo ? "닫기" : "Close";
+                if (errorBellBtnEl) errorBellBtnEl.title = isKo ? "오류 알림 내역" : "Error Notifications";
+
+                renderQuickBar();
                 renderEngineNav();
                 renderEngineView();
+                app.graph?.setDirtyCanvas?.(true, true);
             }
 
             const langSubscription = () => {
                 updateAllStaticLabels();
             };
             BadaI18n.subscribe(langSubscription);
+
+            // Initial call to ensure all static labels match current Bada language
+            updateAllStaticLabels();
 
             // ─────────────────────────────────────────────────────────────
             // LAYOUT ENGINE  (방안 A: Pure Flex Chain & 매 프레임 onDrawForeground에서 직접 동기화)
@@ -1639,6 +2032,9 @@ app.registerExtension({
                 root.style.height = h + "px";
                 root.style.maxHeight = h + "px";
                 root.style.overflow = "hidden";
+
+                root.classList.toggle("bada-compact-width", w < 380);
+                root.classList.toggle("bada-ultra-compact", w < 340);
             }
 
             window.addEventListener("paste", onGlobalPaste);
@@ -1693,6 +2089,12 @@ app.registerExtension({
                     if (appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
                 }, 50);
                 return r;
+            };
+
+            const origRemoved = node.onRemoved;
+            node.onRemoved = function () {
+                BadaI18n.unsubscribe(langSubscription);
+                origRemoved?.apply(this, arguments);
             };
 
             // onDrawForeground: Regional Prompt 방식 그대로 — 매 프레임 직접 호출, throttle 없음

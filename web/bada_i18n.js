@@ -4,6 +4,8 @@
  * - Tier 2: Bada Master Language Switch (Controls canvas nodes, badges, context menus, modals, sidebars)
  */
 
+import { app as comfyApp } from "../../scripts/app.js";
+
 export const BadaI18n = {
     _lang: null,
     get lang() {
@@ -392,19 +394,26 @@ export const BadaI18n = {
      * Get Bada Custom Node Language Setting
      * Strictly independent from ComfyUI native locale (Comfy.Locale has 0 effect)
      */
-    getBadaLanguage(app) {
+    getBadaLanguage(appInstance) {
         try {
             // 1) Direct BADA localStorage setting
             const direct = localStorage.getItem("BadaUtils_Language") || localStorage.getItem("BadaUtils.Language");
             if (direct === "ko" || direct === "en") return direct;
 
             // 2) ComfyUI App Settings API lookup for BadaUtils.Language
-            const theApp = app || (typeof window !== "undefined" ? window.app : null);
-            const settingVal = theApp?.ui?.settings?.getSettingValue?.("BadaUtils.Language") ||
-                               theApp?.ui?.settings?.settings?.["BadaUtils.Language"]?.value;
+            const theApp = appInstance || comfyApp || (typeof window !== "undefined" ? window.app : null);
+            const settingVal = theApp?.ui?.settings?.getSettingValue?.("BadaUtils.Language") ??
+                               theApp?.ui?.settings?.settings?.["BadaUtils.Language"]?.value ??
+                               theApp?.ui?.settings?.settingsValues?.["BadaUtils.Language"];
             if (settingVal) {
                 const s = (typeof settingVal === "object" && settingVal.value) ? settingVal.value : String(settingVal);
-                if (s === "ko" || s === "en") return s;
+                if (s === "ko" || s === "en") {
+                    try {
+                        localStorage.setItem("BadaUtils_Language", s);
+                        localStorage.setItem("BadaUtils.Language", s);
+                    } catch (e) {}
+                    return s;
+                }
             }
 
             // 3) ComfyUI settings localStorage entry
@@ -419,8 +428,14 @@ export const BadaI18n = {
         return "en";
     },
 
-    init(app) {
-        this._lang = this.getBadaLanguage(app);
+    init(appInstance) {
+        const newLang = this.getBadaLanguage(appInstance);
+        if (newLang && newLang !== this._lang) {
+            this._lang = newLang;
+            this.notifyListeners();
+        } else if (!this._lang) {
+            this._lang = newLang;
+        }
     },
 
     _isSettingLang: false,
@@ -436,7 +451,7 @@ export const BadaI18n = {
                 localStorage.setItem("BadaUtils.Language", lang);
                 localStorage.setItem("Comfy.Settings.BadaUtils.Language", JSON.stringify(lang));
                 if (updateComfySetting) {
-                    const theApp = typeof window !== "undefined" ? window.app : null;
+                    const theApp = comfyApp || (typeof window !== "undefined" ? window.app : null);
                     if (theApp?.ui?.settings?.getSettingValue?.("BadaUtils.Language") !== lang) {
                         theApp?.ui?.settings?.setSettingValue?.("BadaUtils.Language", lang);
                     }
@@ -493,4 +508,24 @@ export const BadaI18n = {
         return str;
     }
 };
+
+// Immediate background auto-sync from ComfyUI /settings backend
+(async function autoSyncServerSettings() {
+    try {
+        const res = await fetch("/settings");
+        if (res.ok) {
+            const settings = await res.json();
+            const lang = settings?.["BadaUtils.Language"];
+            if (lang === "ko" || lang === "en") {
+                try {
+                    localStorage.setItem("BadaUtils_Language", lang);
+                    localStorage.setItem("BadaUtils.Language", lang);
+                } catch (e) {}
+                if (BadaI18n._lang !== lang) {
+                    BadaI18n.setLanguage(lang, false);
+                }
+            }
+        }
+    } catch (e) {}
+})();
 

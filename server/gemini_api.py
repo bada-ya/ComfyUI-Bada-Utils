@@ -335,6 +335,46 @@ def register_gemini_api_routes():
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=400)
 
+        @routes.post("/api/bada/gemini/test")
+        async def test_connection_handler(request):
+            try:
+                import time
+                body = await request.json()
+                req_key = (body.get("api_key") or "").strip()
+                cfg = load_server_config()
+                api_key = req_key or cfg.get("api_key", "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
+
+                if not api_key:
+                    return web.json_response({"success": False, "error": "API 키를 먼저 입력해 주세요."}, status=400)
+
+                start_time = time.time()
+                url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                        latency_ms = int((time.time() - start_time) * 1000)
+                        if resp.status == 200:
+                            data = await resp.json()
+                            model_count = len(data.get("models", []))
+                            return web.json_response({
+                                "success": True,
+                                "latency_ms": latency_ms,
+                                "model_count": model_count,
+                                "message": f"연결 정상 ({latency_ms}ms)"
+                            })
+                        else:
+                            try:
+                                err_data = await resp.json()
+                                err_msg = err_data.get("error", {}).get("message", f"HTTP {resp.status}")
+                            except Exception:
+                                err_msg = f"HTTP {resp.status}"
+                            return web.json_response({
+                                "success": False,
+                                "error": err_msg,
+                                "status_code": resp.status
+                            })
+            except Exception as e:
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
         @routes.post("/api/bada/gemini/generate")
         async def generate_prompt_handler(request):
             """
@@ -633,46 +673,71 @@ def register_gemini_api_routes():
                 if web_search_enabled:
                     payload["tools"] = [{"googleSearch": {}}]
 
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-                client_timeout = aiohttp.ClientTimeout(total=90)
+                candidate_pool = [
+                    model,
+                    "gemini-2.5-flash",
+                    "gemini-2.0-flash",
+                    "gemini-1.5-flash",
+                    "gemini-flash-latest"
+                ]
+                models_to_try = []
+                for m in candidate_pool:
+                    if m and m not in models_to_try:
+                        models_to_try.append(m)
+
+                client_timeout = aiohttp.ClientTimeout(total=45)
+                last_err = "응답 없음"
+                reply_text = None
+                successful_model = None
+                grounding_sources = []
+                search_queries = []
 
                 async with aiohttp.ClientSession(timeout=client_timeout) as session:
-                    async with session.post(url, json=payload) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            candidate = data.get("candidates", [{}])[0]
-                            parts = candidate.get("content", {}).get("parts", [])
-                            reply_text = "".join([p.get("text", "") for p in parts]).strip()
+                    for cur_model in models_to_try:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{cur_model}:generateContent?key={api_key}"
+                        try:
+                            async with session.post(url, json=payload) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    candidate = data.get("candidates", [{}])[0]
+                                    parts = candidate.get("content", {}).get("parts", [])
+                                    reply_text = "".join([p.get("text", "") for p in parts]).strip()
 
-                            # Extract Grounding Metadata (sources & search queries)
-                            grounding_sources = []
-                            search_queries = []
-                            grounding_meta = candidate.get("groundingMetadata", {})
-                            if grounding_meta:
-                                search_queries = grounding_meta.get("webSearchQueries", [])
-                                chunks = grounding_meta.get("groundingChunks", [])
-                                for ch in chunks:
-                                    web_info = ch.get("web", {})
-                                    if web_info:
-                                        grounding_sources.append({
-                                            "title": web_info.get("title", ""),
-                                            "uri": web_info.get("uri", "")
-                                        })
+                                    # Extract Grounding Metadata (sources & search queries)
+                                    grounding_meta = candidate.get("groundingMetadata", {})
+                                    if grounding_meta:
+                                        search_queries = grounding_meta.get("webSearchQueries", [])
+                                        chunks = grounding_meta.get("groundingChunks", [])
+                                        for ch in chunks:
+                                            web_info = ch.get("web", {})
+                                            if web_info:
+                                                grounding_sources.append({
+                                                    "title": web_info.get("title", ""),
+                                                    "uri": web_info.get("uri", "")
+                                                })
+                                    successful_model = cur_model
+                                    break
+                                else:
+                                    err_body = await resp.text()
+                                    last_err = f"HTTP {resp.status}: {err_body[:200]}"
+                                    logger.warning(f"[bada-AsyncGemini] Chat model {cur_model} failed: {last_err}")
+                        except Exception as req_e:
+                            last_err = str(req_e)
+                            logger.warning(f"[bada-AsyncGemini] Chat model {cur_model} exception: {req_e}")
 
-                            return web.json_response({
-                                "success": True,
-                                "reply": reply_text,
-                                "model": model,
-                                "search_queries": search_queries,
-                                "grounding_sources": grounding_sources
-                            })
-                        else:
-                            err_body = await resp.text()
-                            logger.warning(f"[bada-AsyncGemini] Chat error HTTP {resp.status}: {err_body}")
-                            return web.json_response({
-                                "success": False,
-                                "error": f"API 오류 ({resp.status}): {err_body[:300]}"
-                            }, status=resp.status)
+                if reply_text is not None:
+                    return web.json_response({
+                        "success": True,
+                        "reply": reply_text,
+                        "model": successful_model,
+                        "search_queries": search_queries,
+                        "grounding_sources": grounding_sources
+                    })
+                else:
+                    return web.json_response({
+                        "success": False,
+                        "error": f"채팅 응답 실패: {last_err}"
+                    }, status=400)
 
             except Exception as e:
                 logger.error(f"[bada-AsyncGemini] Chat exception: {e}", exc_info=True)
