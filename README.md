@@ -318,7 +318,7 @@ Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 
 
 ## 📂 Included Example Workflow
 
-Drag and drop [`workflows/visual_grid_prompt_workflow.json`](workflows/visual_grid_prompt_workflow.json) directly onto your ComfyUI canvas to immediately test the full regional prompt character turnaround pipeline.
+Drag and drop [`workflows/bada_utils_workflow.json`](workflows/bada_utils_workflow.json) directly onto your ComfyUI canvas to immediately test the full ComfyUI-Bada-Utils all-in-one flagship suite (`BadaPresetHub`, `BadaTerminalHub`, `BadaRegionalPrompt`, and `BadaAsyncGeminiStudio`).
 
 ---
 

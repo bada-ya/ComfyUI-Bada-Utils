@@ -1,0 +1,287 @@
+{
+  "id": "17b2344c-b901-4a6f-bed9-f2fb0bba611b",
+  "revision": 0,
+  "last_node_id": 4,
+  "last_link_id": 0,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "BadaPresetHub",
+      "pos": [
+        -428.99970064679667,
+        5544.727301327846
+      ],
+      "size": [
+        370,
+        110
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "hub_presets": {},
+        "active_preset": "None",
+        "Node name for S&R": "BadaPresetHub"
+      }
+    },
+    {
+      "id": 2,
+      "type": "BadaTerminalHub",
+      "pos": [
+        -525.9202009980335,
+        5775.299565604961
+      ],
+      "size": [
+        560,
+        520
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "initial_directory",
+          "name": "initial_directory",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "initial_directory"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "initial_command",
+          "name": "initial_command",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "initial_command"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "BadaTerminalHub"
+      },
+      "widgets_values": [
+        "custom_nodes",
+        "git status",
+        ""
+      ],
+      "widgets_values_named": {
+        "initial_directory": "custom_nodes",
+        "initial_command": "git status",
+        "bada_terminal_widget": ""
+      }
+    },
+    {
+      "id": 3,
+      "type": "BadaRegionalPrompt",
+      "pos": [
+        152.0737699909191,
+        5742.078871483664
+      ],
+      "size": [
+        510,
+        1060
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "prompt_text",
+          "name": "prompt_text",
+          "type": "STRING",
+          "widget": {
+            "name": "prompt_text"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "format",
+          "name": "format",
+          "type": "COMBO",
+          "widget": {
+            "name": "format"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "aspect_ratio",
+          "name": "aspect_ratio",
+          "type": "COMBO",
+          "widget": {
+            "name": "aspect_ratio"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "grid_cols",
+          "name": "grid_cols",
+          "type": "INT",
+          "widget": {
+            "name": "grid_cols"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "grid_rows",
+          "name": "grid_rows",
+          "type": "INT",
+          "widget": {
+            "name": "grid_rows"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "ui_language",
+          "name": "ui_language",
+          "type": "COMBO",
+          "widget": {
+            "name": "ui_language"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "grid_data",
+          "name": "grid_data",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "grid_data"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "prefix_prompt",
+          "name": "prefix_prompt",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "prefix_prompt"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "suffix_prompt",
+          "name": "suffix_prompt",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "suffix_prompt"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "BadaRegionalPrompt"
+      },
+      "widgets_values": [
+        "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\n\nA high-definition 16:9 multi-panel composition strictly partitioned into 0 proportional sections.\n[Spatial Layout & Exact Proportional Placement]:\n[Multi-Panel Layout & Strict Proportional Scale]: Split-screen multi-panel collage layout strictly adhering to the exact percentage width and height boundaries specified above for each column and row without shifting, resizing, or distorting relative panel scales. Each panel is cleanly separated by crisp thin black divider lines, clean comic grid panels, pristine artwork without any text, labels, numbers, coordinates, or watermarks.\n\nclean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "Natural Spatial (Krea/MiniMax/Gemini/GPT)",
+        "16:9",
+        6,
+        3,
+        "English",
+        "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"aspectRatio\":\"16:9\",\"white_bg\":false,\"whiteBg\":false,\"grid_borders\":true,\"gridBorders\":true,\"active_art_style\":\"photorealistic\",\"character_profile\":\"\",\"character_profile_ko\":\"\",\"characterProfile\":\"\",\"characterProfileKo\":\"\",\"areas\":[]}",
+        "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography",
+        "clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"white_bg\":false,\"grid_borders\":true,\"character_profile\":\"\",\"character_profile_ko\":\"\",\"areas\":[],\"prefix\":\"RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\",\"suffix\":\"clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range\",\"format\":\"Natural Spatial (Krea/MiniMax/Gemini/GPT)\",\"ui_language\":\"English\",\"stage_height\":320}"
+      ],
+      "widgets_values_named": {
+        "prompt_text": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\n\nA high-definition 16:9 multi-panel composition strictly partitioned into 0 proportional sections.\n[Spatial Layout & Exact Proportional Placement]:\n[Multi-Panel Layout & Strict Proportional Scale]: Split-screen multi-panel collage layout strictly adhering to the exact percentage width and height boundaries specified above for each column and row without shifting, resizing, or distorting relative panel scales. Each panel is cleanly separated by crisp thin black divider lines, clean comic grid panels, pristine artwork without any text, labels, numbers, coordinates, or watermarks.\n\nclean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "format": "Natural Spatial (Krea/MiniMax/Gemini/GPT)",
+        "aspect_ratio": "16:9",
+        "grid_cols": 6,
+        "grid_rows": 3,
+        "ui_language": "English",
+        "grid_data": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"aspectRatio\":\"16:9\",\"white_bg\":false,\"whiteBg\":false,\"grid_borders\":true,\"gridBorders\":true,\"active_art_style\":\"photorealistic\",\"character_profile\":\"\",\"character_profile_ko\":\"\",\"characterProfile\":\"\",\"characterProfileKo\":\"\",\"areas\":[]}",
+        "prefix_prompt": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography",
+        "suffix_prompt": "clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "visual_grid_ui": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"white_bg\":false,\"grid_borders\":true,\"character_profile\":\"\",\"character_profile_ko\":\"\",\"areas\":[],\"prefix\":\"RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\",\"suffix\":\"clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range\",\"format\":\"Natural Spatial (Krea/MiniMax/Gemini/GPT)\",\"ui_language\":\"English\",\"stage_height\":320}"
+      }
+    },
+    {
+      "id": 4,
+      "type": "BadaAsyncGeminiStudio",
+      "pos": [
+        773.0757492422767,
+        5740.00268725444
+      ],
+      "size": [
+        520,
+        820
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "localized_name": "generated_prompt",
+          "name": "generated_prompt",
+          "type": "STRING",
+          "widget": {
+            "name": "generated_prompt"
+          },
+          "link": null
+        },
+        {
+          "localized_name": "system_instruction",
+          "name": "system_instruction",
+          "shape": 7,
+          "type": "STRING",
+          "widget": {
+            "name": "system_instruction"
+          },
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "localized_name": "prompt",
+          "name": "prompt",
+          "type": "STRING",
+          "links": null
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "BadaAsyncGeminiStudio"
+      },
+      "widgets_values": [
+        "",
+        "You are a world-class AI prompt engineer specializing in cinematic video and image generation (such as Wan 2.1, LTX-Video, FLUX, SDXL, Midjourney). Carefully analyze any attached reference images (noticing color palettes, lighting, subject appearance, framing, texture) along with the user's instructions. Craft a rich, detailed, coherent, and visually captivating English prompt. Describe subjects, actions, environment, camera movement, atmospheric lighting, and high-fidelity textures. Output ONLY the final detailed prompt in English without any markdown conversational preamble or commentary.",
+        ""
+      ],
+      "widgets_values_named": {
+        "generated_prompt": "",
+        "system_instruction": "You are a world-class AI prompt engineer specializing in cinematic video and image generation (such as Wan 2.1, LTX-Video, FLUX, SDXL, Midjourney). Carefully analyze any attached reference images (noticing color palettes, lighting, subject appearance, framing, texture) along with the user's instructions. Craft a rich, detailed, coherent, and visually captivating English prompt. Describe subjects, actions, environment, camera movement, atmospheric lighting, and high-fidelity textures. Output ONLY the final detailed prompt in English without any markdown conversational preamble or commentary.",
+        "bada_gemini_ui": ""
+      }
+    }
+  ],
+  "links": [],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.9849732675808027,
+      "offset": [
+        649.7229998786788,
+        -5264.542341128171
+      ]
+    }
+  },
+  "version": 0.4
+}
