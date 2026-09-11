@@ -36,5 +36,16 @@
     "clear_areas": "Clear Grid",
     "white_bg": "Solid White Backdrop",
     "char_profile": "Character Profile (Consistency Anchor)"
+  },
+  "terminal_hub": {
+    "title": "⚓ Bada Terminal Hub & Command Studio",
+    "target_directory": "Target Directory (Path)",
+    "command_preset": "Command Preset (Action)",
+    "arguments": "Arguments / URL",
+    "execute": "Execute Command",
+    "stop": "Stop Task",
+    "copy": "Copy Output",
+    "clear": "Clear Console",
+    "restart": "Restart ComfyUI"
   }
 }

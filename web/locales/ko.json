@@ -36,5 +36,16 @@
     "clear_areas": "격자 초기화",
     "white_bg": "백색 배경 유지 (Solid White)",
     "char_profile": "인물 공통 외모 묘사 (일관성 앵커)"
+  },
+  "terminal_hub": {
+    "title": "⚓ Bada 터미널 허브 & 커맨드 스튜디오",
+    "target_directory": "대상 작업 경로 (Path)",
+    "command_preset": "명령어 프리셋 (Action)",
+    "arguments": "인자 / URL 입력",
+    "execute": "명령 실행",
+    "stop": "작업 중지",
+    "copy": "콘솔 복사",
+    "clear": "화면 지우기",
+    "restart": "ComfyUI 재시작"
   }
 }

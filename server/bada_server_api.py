@@ -6,9 +6,12 @@ ComfyUI-Bada-Utils: Unified Backend REST API Routes
 """
 
 import os
+import sys
 import shutil
 import json
 import logging
+import asyncio
+import subprocess
 from aiohttp import web
 from server import PromptServer
 import folder_paths
@@ -19,6 +22,10 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 PRESETS_FILE = os.path.join(PARENT_DIR, "presets_data.json")
 FAVORITES_FILE = os.path.join(PARENT_DIR, "favorites_data.json")
+
+# Active terminal subprocess tasks: task_id -> subprocess.Process
+ACTIVE_TERMINAL_TASKS = {}
+
 
 
 # =========================================================================
@@ -190,8 +197,224 @@ def get_all_available_models():
     return result
 
 
+
 # =========================================================================
-# 3. Master Route Registration
+# 3. Bada Terminal & Environment Helpers
+# =========================================================================
+
+def detect_comfyui_environment():
+    """
+    Detects ComfyUI installation environment and returns key paths and presets:
+    - Portable, StabilityMatrix, Desktop, Venv, Conda, Standard
+    """
+    try:
+        base_dir = os.path.realpath(folder_paths.base_path)
+    except Exception:
+        base_dir = os.path.realpath(os.path.dirname(os.path.dirname(PARENT_DIR)))
+
+    py_exec = os.path.realpath(sys.executable)
+    py_dir = os.path.dirname(py_exec)
+
+    env_type = "Standard"
+    norm_base = base_dir.replace("\\", "/").lower()
+    norm_py = py_exec.replace("\\", "/").lower()
+
+    if "stabilitymatrix" in norm_base or "stabilitymatrix" in norm_py or "packages/comfyui" in norm_base:
+        env_type = "StabilityMatrix"
+    elif "python_embeded" in norm_py or "comfyui_windows_portable" in norm_base:
+        env_type = "Portable"
+    elif "comfyui-electron" in norm_base or "electron" in norm_base or "comfyui desktop" in norm_base:
+        env_type = "Desktop"
+    elif os.environ.get("CONDA_PREFIX"):
+        env_type = "Conda"
+    elif sys.prefix != getattr(sys, "base_prefix", sys.prefix):
+        env_type = "Venv"
+
+    # Custom nodes root
+    custom_nodes_dirs = folder_paths.get_folder_paths("custom_nodes")
+    custom_nodes_root = os.path.realpath(custom_nodes_dirs[0]) if custom_nodes_dirs else os.path.join(base_dir, "custom_nodes")
+
+    # List installed custom node folders
+    custom_nodes_list = []
+    if os.path.exists(custom_nodes_root):
+        try:
+            for entry in sorted(os.scandir(custom_nodes_root), key=lambda e: e.name.lower()):
+                if entry.is_dir() and not entry.name.startswith((".", "__")):
+                    custom_nodes_list.append({
+                        "name": entry.name,
+                        "path": os.path.realpath(entry.path).replace("\\", "/")
+                    })
+        except Exception as e:
+            logger.warning(f"[Bada-Utils] Failed to list custom nodes: {e}")
+
+    # Python scripts directory
+    scripts_dir = os.path.join(py_dir, "Scripts")
+    if not os.path.exists(scripts_dir):
+        scripts_dir = py_dir
+
+    presets = [
+        {"id": "custom_nodes_root", "label": "📁 Custom Nodes Root", "path": custom_nodes_root.replace("\\", "/"), "category": "primary"},
+        {"id": "comfyui_root", "label": "🏠 ComfyUI Root", "path": base_dir.replace("\\", "/"), "category": "primary"},
+        {"id": "python_scripts", "label": "🐍 Python / Scripts", "path": scripts_dir.replace("\\", "/"), "category": "system"},
+    ]
+
+    try:
+        models_dir = os.path.realpath(folder_paths.models_dir)
+        if os.path.exists(models_dir):
+            presets.append({"id": "models_root", "label": "🎨 Models Directory", "path": models_dir.replace("\\", "/"), "category": "system"})
+    except Exception:
+        pass
+
+    try:
+        output_dir = os.path.realpath(folder_paths.get_output_directory())
+        if os.path.exists(output_dir):
+            presets.append({"id": "output_root", "label": "🖼️ Output Directory", "path": output_dir.replace("\\", "/"), "category": "system"})
+    except Exception:
+        pass
+
+    return {
+        "env_type": env_type,
+        "python_executable": py_exec.replace("\\", "/"),
+        "python_dir": py_dir.replace("\\", "/"),
+        "scripts_dir": scripts_dir.replace("\\", "/"),
+        "comfyui_root": base_dir.replace("\\", "/"),
+        "custom_nodes_root": custom_nodes_root.replace("\\", "/"),
+        "custom_nodes": custom_nodes_list,
+        "presets": presets
+    }
+
+
+def browse_subdirectories(target_path):
+    """
+    Returns list of direct subdirectories for tree expansion.
+    """
+    if not target_path or not os.path.exists(target_path):
+        return []
+    real_path = os.path.realpath(target_path)
+    if not os.path.isdir(real_path):
+        return []
+
+    subdirs = []
+    try:
+        for entry in sorted(os.scandir(real_path), key=lambda e: e.name.lower()):
+            if entry.is_dir() and not entry.name.startswith((".", "__")):
+                has_children = False
+                try:
+                    for sub in os.scandir(entry.path):
+                        if sub.is_dir() and not sub.name.startswith((".", "__")):
+                            has_children = True
+                            break
+                except Exception:
+                    pass
+
+                subdirs.append({
+                    "name": entry.name,
+                    "path": os.path.realpath(entry.path).replace("\\", "/"),
+                    "has_children": has_children
+                })
+    except Exception as e:
+        logger.warning(f"[Bada-Utils] Browse dir error {target_path}: {e}")
+    return subdirs
+
+
+async def run_terminal_command(task_id, command, cwd=None):
+    """
+    Executes shell command with real-time streaming via ComfyUI WebSocket.
+    """
+    env_info = detect_comfyui_environment()
+    effective_cwd = cwd if (cwd and os.path.exists(cwd)) else env_info["custom_nodes_root"]
+
+    # Environment PATH injection so 'pip' and 'python' point to ComfyUI's python
+    sub_env = os.environ.copy()
+    sub_env["PYTHONUNBUFFERED"] = "1"
+    py_dir = os.path.dirname(sys.executable)
+    scripts_dir = os.path.join(py_dir, "Scripts")
+    existing_path = sub_env.get("PATH", "")
+    sub_env["PATH"] = f"{scripts_dir}{os.pathsep}{py_dir}{os.pathsep}{existing_path}"
+
+    logger.info(f"[Bada-Terminal] Starting task {task_id} in {effective_cwd}: {command}")
+
+    # Send initial start event
+    PromptServer.instance.send_sync("bada_terminal_start", {
+        "task_id": task_id,
+        "command": command,
+        "cwd": effective_cwd.replace("\\", "/")
+    })
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            cwd=effective_cwd,
+            env=sub_env,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        ACTIVE_TERMINAL_TASKS[task_id] = proc
+
+        async def stream_pipe(pipe, event_type):
+            while True:
+                line = await pipe.readline()
+                if not line:
+                    break
+                try:
+                    text = line.decode("utf-8", errors="replace")
+                except Exception:
+                    text = str(line)
+                PromptServer.instance.send_sync(event_type, {
+                    "task_id": task_id,
+                    "text": text
+                })
+
+        await asyncio.gather(
+            stream_pipe(proc.stdout, "bada_terminal_stdout"),
+            stream_pipe(proc.stderr, "bada_terminal_stderr")
+        )
+
+        exit_code = await proc.wait()
+        logger.info(f"[Bada-Terminal] Task {task_id} exited with code {exit_code}")
+        PromptServer.instance.send_sync("bada_terminal_exit", {
+            "task_id": task_id,
+            "code": exit_code
+        })
+    except Exception as e:
+        logger.error(f"[Bada-Terminal] Task {task_id} execution error: {e}")
+        PromptServer.instance.send_sync("bada_terminal_stderr", {
+            "task_id": task_id,
+            "text": f"\r\n[Execution Error]: {str(e)}\r\n"
+        })
+        PromptServer.instance.send_sync("bada_terminal_exit", {
+            "task_id": task_id,
+            "code": -1
+        })
+    finally:
+        ACTIVE_TERMINAL_TASKS.pop(task_id, None)
+
+
+def kill_terminal_task(task_id):
+    """
+    Terminates active process including children on Windows.
+    """
+    proc = ACTIVE_TERMINAL_TASKS.get(task_id)
+    if not proc:
+        return False
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        else:
+            proc.terminate()
+        return True
+    except Exception as e:
+        logger.warning(f"[Bada-Terminal] Failed to kill task {task_id}: {e}")
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return False
+
+
+# =========================================================================
+# 4. Master Route Registration
 # =========================================================================
 
 def register_bada_api_routes():
@@ -410,6 +633,87 @@ def register_bada_api_routes():
         routes.post("/api/bada/workflows/delete")(delete_workflow_handler)
         routes.get("/api/bada/workflows/favorites")(favorites_handler)
         routes.post("/api/bada/workflows/favorites")(favorites_handler)
+
+        # --- D. Terminal Hub API ---
+        async def terminal_env_handler(request):
+            try:
+                env_data = detect_comfyui_environment()
+                return web.json_response({"success": True, "data": env_data})
+            except Exception as e:
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def terminal_browse_handler(request):
+            try:
+                target_path = request.query.get("path", "")
+                subdirs = browse_subdirectories(target_path)
+                return web.json_response({"success": True, "path": target_path, "subdirs": subdirs})
+            except Exception as e:
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def terminal_exec_handler(request):
+            try:
+                body = await request.json()
+                command = (body.get("command") or "").strip()
+                cwd = (body.get("cwd") or "").strip()
+                task_id = body.get("task_id") or f"task_{int(asyncio.get_event_loop().time() * 1000)}"
+
+                if not command:
+                    return web.json_response({"success": False, "error": "Command is required"}, status=400)
+
+                asyncio.create_task(run_terminal_command(task_id, command, cwd))
+                return web.json_response({
+                    "success": True,
+                    "task_id": task_id,
+                    "message": "Command execution started"
+                })
+            except Exception as e:
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def terminal_kill_handler(request):
+            try:
+                body = await request.json()
+                task_id = body.get("task_id")
+                if not task_id:
+                    return web.json_response({"success": False, "error": "task_id is required"}, status=400)
+
+                killed = kill_terminal_task(task_id)
+                return web.json_response({"success": True, "killed": killed})
+            except Exception as e:
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def terminal_restart_handler(request):
+            try:
+                PromptServer.instance.send_sync("bada_comfyui_restarting", {"message": "Restarting ComfyUI..."})
+                return web.json_response({"success": True, "message": "ComfyUI restart signaled"})
+            except Exception as e:
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def terminal_open_cmd_handler(request):
+            try:
+                body = await request.json()
+                cwd = (body.get("cwd") or "").strip()
+                env_info = detect_comfyui_environment()
+                effective_cwd = cwd if (cwd and os.path.exists(cwd)) else env_info["custom_nodes_root"]
+                effective_cwd = os.path.realpath(effective_cwd)
+
+                if os.name == "nt":
+                    dir_name = os.path.basename(effective_cwd) or effective_cwd
+                    cmd_str = f'start "Bada CMD - {dir_name}" cmd.exe'
+                    subprocess.Popen(cmd_str, cwd=effective_cwd, shell=True)
+                else:
+                    subprocess.Popen(["x-terminal-emulator"], cwd=effective_cwd)
+
+                return web.json_response({"success": True, "cwd": effective_cwd.replace("\\", "/")})
+            except Exception as e:
+                logger.error(f"[Bada-Terminal] Failed to open cmd: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        routes.get("/api/bada/terminal/env")(terminal_env_handler)
+        routes.get("/api/bada/terminal/browse")(terminal_browse_handler)
+        routes.post("/api/bada/terminal/exec")(terminal_exec_handler)
+        routes.post("/api/bada/terminal/kill")(terminal_kill_handler)
+        routes.post("/api/bada/terminal/restart")(terminal_restart_handler)
+        routes.post("/api/bada/terminal/open_cmd")(terminal_open_cmd_handler)
 
         # Legacy routes for QoL
         routes.get("/api/qol/workflows/folders")(list_folders_handler)
