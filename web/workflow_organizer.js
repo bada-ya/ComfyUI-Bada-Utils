@@ -61,6 +61,11 @@ class WorkflowsPlusManager {
         this.justFinishedDrag = false;
         this.hoverExpandTimer = null;
         this.hoveredFolder = null;
+
+        window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__ = this;
+        window.__BADA_SYNC_SIDEBAR_STATE__ = (val) => {
+            this.syncSidebarStateWithSetting(val);
+        };
     }
 
     async init() {
@@ -82,22 +87,35 @@ class WorkflowsPlusManager {
             document.head.appendChild(style);
         }
         style.textContent = `
-            /* Bada Anchor Icon for Sidebar Tab */
+            /* Bada Custom Blue Workflow Icon for Sidebar Tab */
+            .bada-tab-icon-workflow,
             .bada-tab-icon-wave,
             .bada-tab-icon-anchor {
                 display: inline-flex !important;
                 align-items: center !important;
                 justify-content: center !important;
                 font-style: normal !important;
-                font-size: 19px !important;
+                width: 1.25rem !important;
+                height: 1.25rem !important;
                 line-height: 1 !important;
-                width: 100% !important;
-                height: 100% !important;
+                background-repeat: no-repeat !important;
+                background-position: center !important;
+                background-size: contain !important;
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' width='16' height='16'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%2338bdf8'/%3E%3Cstop offset='100%25' stop-color='%2300f0ff'/%3E%3C/linearGradient%3E%3Cfilter id='glow' x='-20%25' y='-20%25' width='140%25' height='140%25'%3E%3CfeDropShadow dx='0' dy='0' stdDeviation='0.45' flood-color='%2300f0ff' flood-opacity='0.85'/%3E%3C/filter%3E%3C/defs%3E%3Cpath fill='none' stroke='url(%23g)' stroke-linecap='round' stroke-width='1.35' filter='url(%23glow)' d='M9.186 3.1H6.814m2.372 9.8H7.553C4.466 12.9 2.2 9.904 2.95 6.812l.305-1.262M14.75 2.172l-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Zm-8.304 0-.593 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.772 0-1.338-.749-1.15-1.522l.592-2.45A1.194 1.194 0 012.995.65h2.3c.771 0 1.337.749 1.15 1.522Zm8.304 9.8-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Z'/%3E%3C/svg%3E") !important;
+                transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), filter 0.18s ease !important;
             }
+            .bada-tab-icon-workflow::before,
             .bada-tab-icon-wave::before,
             .bada-tab-icon-anchor::before {
-                content: '⚓' !important;
-                font-style: normal !important;
+                content: '' !important;
+                display: none !important;
+            }
+
+            /* Hover & Active Micro-animations for Bada Workflow button */
+            [data-testid="bada-workflows-plus-tab-button"]:hover .bada-tab-icon-workflow,
+            [data-testid="bada-workflows-plus-tab-button"]:hover .bada-tab-icon-wave {
+                transform: scale(1.15) !important;
+                filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.95)) !important;
             }
 
             /* Clean Native Icon-Only Sidebar (Strictly hide all text labels & remove scrollbars) */
@@ -112,6 +130,32 @@ class WorkflowsPlusManager {
                 overflow-y: hidden !important;
             }
             [data-testid="bada-workflows-plus-tab-button"] .side-bar-button-label {
+                display: none !important;
+            }
+
+            /* Toggle State: When Bada Sidebar Organizer is ACTIVE (Setting ON):
+               Hide the native ComfyUI workflow button and display only the Bada blue workflow button */
+            body.bada-sidebar-organizer-active [data-testid="workflows-tab-button"],
+            body.bada-sidebar-organizer-active button[aria-label="Workflows"]:not([data-testid="bada-workflows-plus-tab-button"]),
+            body.bada-sidebar-organizer-active button[aria-label="워크플로우"]:not([data-testid="bada-workflows-plus-tab-button"]) {
+                display: none !important;
+            }
+            body.bada-sidebar-organizer-active [data-testid="bada-workflows-plus-tab-button"] {
+                display: inline-flex !important;
+            }
+
+            /* Toggle State: When Bada Sidebar Organizer is INACTIVE (Setting OFF):
+               Show the native ComfyUI workflow button and hide Bada blue workflow button */
+            body:not(.bada-sidebar-organizer-active) [data-testid="workflows-tab-button"],
+            body.bada-sidebar-organizer-disabled [data-testid="workflows-tab-button"],
+            body:not(.bada-sidebar-organizer-active) button[aria-label="Workflows"]:not([data-testid="bada-workflows-plus-tab-button"]),
+            body.bada-sidebar-organizer-disabled button[aria-label="Workflows"]:not([data-testid="bada-workflows-plus-tab-button"]),
+            body:not(.bada-sidebar-organizer-active) button[aria-label="워크플로우"]:not([data-testid="bada-workflows-plus-tab-button"]),
+            body.bada-sidebar-organizer-disabled button[aria-label="워크플로우"]:not([data-testid="bada-workflows-plus-tab-button"]) {
+                display: inline-flex !important;
+            }
+            body:not(.bada-sidebar-organizer-active) [data-testid="bada-workflows-plus-tab-button"],
+            body.bada-sidebar-organizer-disabled [data-testid="bada-workflows-plus-tab-button"] {
                 display: none !important;
             }
 
@@ -997,15 +1041,15 @@ class WorkflowsPlusManager {
 
         app.extensionManager.registerSidebarTab({
             id: "bada-workflows-plus",
-            icon: "bada-tab-icon-wave",
+            icon: "bada-tab-icon-workflow",
             title: "",
-            tooltip: "Workflows+",
+            tooltip: "Workflows",
             type: "custom",
             render: (el) => {
                 this.mountToContainer(el);
             }
         });
-        console.log("[BadaUtils] Workflows+ sidebar tab registered via extensionManager.");
+        console.log("[BadaUtils] Bada Workflows sidebar tab registered via extensionManager.");
 
         // Ensure sidebar size setting is cleanly kept as 'small' (icon-only, no labels)
         try {
@@ -1014,6 +1058,7 @@ class WorkflowsPlusManager {
             }
         } catch (e) {}
 
+        this.syncSidebarStateWithSetting();
         this.reorderSidebarTab();
         setTimeout(() => this.reorderSidebarTab(), 300);
         setTimeout(() => this.reorderSidebarTab(), 1000);
@@ -1038,6 +1083,36 @@ class WorkflowsPlusManager {
         } catch (e) {
             console.warn("[BadaUtils] Reorder sidebar tab error:", e);
         }
+    }
+
+    syncSidebarStateWithSetting(forcedVal) {
+        let isEnabled = forcedVal;
+        if (isEnabled === undefined) {
+            try {
+                if (window.app?.ui?.settings?.getSettingValue) {
+                    const val = window.app.ui.settings.getSettingValue("BadaUtils.SidebarOrganizer");
+                    isEnabled = (val !== undefined) ? !!val : true;
+                } else {
+                    isEnabled = true;
+                }
+            } catch (e) {
+                isEnabled = true;
+            }
+        }
+
+        if (isEnabled) {
+            document.body.classList.add("bada-sidebar-organizer-active");
+            document.body.classList.remove("bada-sidebar-organizer-disabled");
+        } else {
+            document.body.classList.remove("bada-sidebar-organizer-active");
+            document.body.classList.add("bada-sidebar-organizer-disabled");
+            try {
+                if (app.extensionManager?.sidebarTab?.activeSidebarTab === "bada-workflows-plus") {
+                    app.extensionManager.sidebarTab.activeSidebarTab = "workflows";
+                }
+            } catch (e) {}
+        }
+        this.reorderSidebarTab();
     }
 
     cleanNativeTooltipsAndKeybindings() {

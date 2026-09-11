@@ -446,7 +446,13 @@ app.registerExtension({
             name: BADA_UNIFIED_SETTINGS.sidebar.name,
             tooltip: BADA_UNIFIED_SETTINGS.sidebar.tooltip,
             type: BADA_UNIFIED_SETTINGS.sidebar.type,
-            defaultValue: BADA_UNIFIED_SETTINGS.sidebar.defaultValue
+            defaultValue: BADA_UNIFIED_SETTINGS.sidebar.defaultValue,
+            onChange: (newVal) => {
+                const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
+                if (window.__BADA_SYNC_SIDEBAR_STATE__) {
+                    window.__BADA_SYNC_SIDEBAR_STATE__(target);
+                }
+            }
         });
 
         // ③ Smooth Mouse Pan & Wheel Zoom Fixer
