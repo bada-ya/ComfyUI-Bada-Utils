@@ -249,10 +249,15 @@ function escapeHtml(str) {
 //  Build Rich Full-Width Presets Panel
 // ──────────────────────────────────────────────────────────────────────────────
 function buildInlinePresetsPanel() {
+    const isKo = BadaI18n.lang === "ko";
     const summary = getGlobalPresetsSummary();
     const summaryHeader = summary.totalPresets > 0
-        ? `🎯 Total Presets: ${summary.totalPresets} across ${summary.nodeCount} Node Types (총 ${summary.totalPresets}개 / ${summary.nodeCount}개 노드 등록됨)`
-        : `📭 No Global Presets Saved Yet (저장된 글로벌 프리셋이 없습니다)`;
+        ? (isKo 
+            ? `🎯 총 ${summary.totalPresets}개의 글로벌 프리셋 (${summary.nodeCount}개 노드 타입)`
+            : `🎯 Total Presets: ${summary.totalPresets} across ${summary.nodeCount} Node Types`)
+        : (isKo
+            ? `📭 저장된 글로벌 프리셋이 없습니다`
+            : `📭 No Global Presets Saved Yet`);
 
     const panel = document.createElement("div");
     panel.id = "bada-inline-presets-panel";
@@ -274,9 +279,9 @@ function buildInlinePresetsPanel() {
             <span style="font-size: 11px; font-weight: 700; color: #a5b4fc; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.4); padding: 1px 8px; border-radius: 10px;">${summary.totalPresets}</span>
         </div>
         <div style="display: flex; align-items: center; gap: 12px;">
-            <span style="font-size: 11px; color: #94a3b8;">※ Shared globally across workflows (모든 워크플로우에서 전역 공유됨)</span>
+            <span style="font-size: 11px; color: #94a3b8;">${isKo ? "※ 모든 워크플로우에서 전역 공유됨" : "※ Shared globally across workflows"}</span>
             <button type="button" id="bada-inline-toggle-btn" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.18); color: #e2e8f0; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-                <span class="bada-toggle-text">${isPresetsExpanded ? "▲ Collapse (접기)" : "▼ Expand (펼치기)"}</span>
+                <span class="bada-toggle-text">${isPresetsExpanded ? (isKo ? "▲ 접기" : "▲ Collapse") : (isKo ? "▼ 펼치기" : "▼ Expand")}</span>
             </button>
         </div>
     `;
@@ -294,8 +299,13 @@ function buildInlinePresetsPanel() {
     if (summary.nodeSummaries.length === 0) {
         cardsContainer.innerHTML = `
             <div style="text-align: center; padding: 24px; background: rgba(255, 255, 255, 0.02); border: 1px dashed rgba(255, 255, 255, 0.15); border-radius: 8px; color: #94a3b8; font-size: 12px; line-height: 1.6;">
-                📭 저장된 글로벌 프리셋이 없습니다.<br>
-                <span style="font-size: 11px; color: #64748b;">(캔버스에서 노드를 우클릭하여 '현재 세팅 글로벌 프리셋으로 저장'을 선택하면 여기에 표시됩니다)</span>
+                ${isKo ? `
+                    📭 저장된 글로벌 프리셋이 없습니다.<br>
+                    <span style="font-size: 11px; color: #64748b;">(캔버스에서 노드를 우클릭하여 '현재 세팅 글로벌 프리셋으로 저장'을 선택하면 여기에 표시됩니다)</span>
+                ` : `
+                    📭 No global presets saved yet.<br>
+                    <span style="font-size: 11px; color: #64748b;">(Right-click any node on canvas and select 'Save Current Settings as Global Preset' to view them here)</span>
+                `}
             </div>
         `;
     } else {
@@ -328,14 +338,14 @@ function buildInlinePresetsPanel() {
     actions.innerHTML = `
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" id="bada-inline-export-btn" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-                📤 Backup All (전체 백업 JSON)
+                ${isKo ? "📤 전체 백업 (JSON)" : "📤 Backup All (JSON)"}
             </button>
             <button type="button" id="bada-inline-import-btn" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-                📥 Import (불러오기)
+                ${isKo ? "📥 불러오기" : "📥 Import"}
             </button>
         </div>
         <button type="button" id="bada-inline-popup-btn" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.25); padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(99,102,241,0.3);">
-            🌐 Open Full Popup (전용 팝업으로 크게 보기)
+            ${isKo ? "🌐 전용 팝업으로 크게 보기" : "🌐 Open Presets Manager"}
         </button>
     `;
     body.appendChild(actions);
@@ -345,7 +355,7 @@ function buildInlinePresetsPanel() {
         isPresetsExpanded = !isPresetsExpanded;
         body.style.display = isPresetsExpanded ? "flex" : "none";
         const txt = headerBar.querySelector(".bada-toggle-text");
-        if (txt) txt.textContent = isPresetsExpanded ? "▲ Collapse (접기)" : "▼ Expand (펼치기)";
+        if (txt) txt.textContent = isPresetsExpanded ? (isKo ? "▲ 접기" : "▲ Collapse") : (isKo ? "▼ 펼치기" : "▼ Expand");
     });
 
     // Popup button
@@ -365,7 +375,7 @@ function buildInlinePresetsPanel() {
         a.download = `comfyui_global_presets_backup_${new Date().toISOString().slice(0, 10)}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        showToast("📤 Global presets backup JSON downloaded (백업 파일 다운로드 완료)", "success");
+        showToast(isKo ? "📤 백업 파일 다운로드 완료" : "📤 Global presets backup JSON downloaded", "success");
     });
 
     // Import button
@@ -394,10 +404,10 @@ function buildInlinePresetsPanel() {
                         }).catch(() => {});
                         // Seamlessly update panel in place
                         panel.replaceWith(buildInlinePresetsPanel());
-                        showToast("📥 Global presets imported successfully (글로벌 프리셋 불러오기 완료)", "success");
+                        showToast(isKo ? "📥 글로벌 프리셋 불러오기 완료" : "📥 Global presets imported successfully", "success");
                     }
                 } catch (err) {
-                    showToast("⚠️ Failed to parse JSON file (JSON 파일 형식 오류): " + err.message, "warning");
+                    showToast((isKo ? "⚠️ JSON 파일 형식 오류: " : "⚠️ Failed to parse JSON file: ") + err.message, "warning");
                 }
             };
             reader.readAsText(file);
@@ -436,6 +446,14 @@ app.registerExtension({
                     BadaI18n.setLanguage(target, false);
                     app.graph?.setDirtyCanvas?.(true, true);
                 }
+            }
+        });
+
+        // Auto-refresh presets inline panel when language switches
+        BadaI18n.subscribe(() => {
+            const existingPanel = document.getElementById("bada-inline-presets-panel");
+            if (existingPanel) {
+                existingPanel.replaceWith(buildInlinePresetsPanel());
             }
         });
 

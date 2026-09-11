@@ -13,6 +13,7 @@
  */
 
 import { app } from "../../scripts/app.js";
+import { BadaI18n } from "./bada_i18n.js";
 
 // Dynamically inject CSS stylesheet
 (function loadStylesheet() {
@@ -252,18 +253,19 @@ app.registerExtension({
             // Options Row (NSFW & Korean Translation Toggles)
             const optionsGrid = document.createElement("div");
             optionsGrid.className = "bada-options-grid";
+            const isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
             optionsGrid.innerHTML = `
                 <div class="bada-toggle-card" id="bada-toggle-nsfw">
                     <div class="bada-toggle-info">
-                        <span class="bada-toggle-title">성인용 콘텐츠 허용 (NSFW)</span>
-                        <span class="bada-toggle-desc">관능적/친밀한 장면 무검열 묘사</span>
+                        <span class="bada-toggle-title">${isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content"}</span>
+                        <span class="bada-toggle-desc">${isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes"}</span>
                     </div>
                     <span class="bada-toggle-badge ${isNSFW ? 'amber' : ''}" id="bada-badge-nsfw">${isNSFW ? 'ON' : 'OFF'}</span>
                 </div>
                 <div class="bada-toggle-card" id="bada-toggle-trans">
                     <div class="bada-toggle-info">
-                        <span class="bada-toggle-title">한국어 번역 및 해설</span>
-                        <span class="bada-toggle-desc">영문 프롬프트와 연출 해설 분할</span>
+                        <span class="bada-toggle-title">${isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes"}</span>
+                        <span class="bada-toggle-desc">${isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes"}</span>
                     </div>
                     <span class="bada-toggle-badge ${isTranslate ? 'green' : ''}" id="bada-badge-trans">${isTranslate ? 'ON' : 'OFF'}</span>
                 </div>
@@ -564,7 +566,7 @@ app.registerExtension({
             const generateBtn = document.createElement("button");
             generateBtn.type = "button";
             generateBtn.className = "bada-btn-generate";
-            generateBtn.innerHTML = `<span>🚀</span> <span>Generate Prompt (독립 비동기 실행)</span>`;
+            generateBtn.innerHTML = `<span>🚀</span> <span>${isKo ? "프롬프트 생성 (비동기)" : "Generate Prompt (Async)"}</span>`;
             promptStudioContainer.appendChild(generateBtn);
 
             // Output Section (Standard & Storyboard)
