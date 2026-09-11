@@ -748,15 +748,17 @@ class AutoModelAssigner {
         const modal = document.createElement("div");
         modal.className = "auto-assign-modal";
 
+        const isKo = BadaI18n.lang === "ko";
+
         // 1. 헤더
         const header = document.createElement("div");
         header.className = "auto-assign-header";
         header.innerHTML = `
             <div class="auto-assign-title">
                 <span class="icon">⚡</span>
-                <span>모델 / LoRA 스마트 자동 장착 &amp; 폴더 탐색기</span>
+                <span>${isKo ? "모델 / LoRA 스마트 자동 장착 &amp; 폴더 탐색기" : "Smart Model &amp; LoRA Assigner &amp; Folder Browser"}</span>
             </div>
-            <button class="auto-assign-close-btn" title="닫기">✕</button>
+            <button class="auto-assign-close-btn" title="${isKo ? '닫기' : 'Close'}">✕</button>
         `;
         header.querySelector(".auto-assign-close-btn").onclick = () => closeOverlay();
 
@@ -767,11 +769,19 @@ class AutoModelAssigner {
         let summaryBadgeHtml = "";
         let summaryText = "";
         if (missingCount > 0) {
-            summaryText = "누락된 모델을 내 PC 폴더 탐색기로 확인 및 장착하거나, 원하는 모델로 즉시 변경할 수 있습니다.";
-            summaryBadgeHtml = `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);">⚠️ ${missingCount}개 누락됨 / 총 ${items.length}개 노드</span>`;
+            summaryText = isKo 
+                ? "누락된 모델을 내 PC 폴더 탐색기로 확인 및 장착하거나, 원하는 모델로 즉시 변경할 수 있습니다."
+                : "Review and assign missing models with local PC folder explorer, or switch to your desired model.";
+            summaryBadgeHtml = isKo
+                ? `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);">⚠️ ${missingCount}개 누락됨 / 총 ${items.length}개 노드</span>`
+                : `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);">⚠️ ${missingCount} Missing / Total ${items.length} Nodes</span>`;
         } else {
-            summaryText = "모든 모델이 정상 장착되어 있습니다. 폴더 트리에서 모델을 확인하거나 다른 모델로 교체할 수 있습니다.";
-            summaryBadgeHtml = `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4);">✅ 전체 ${items.length}개 정상 장착됨</span>`;
+            summaryText = isKo
+                ? "모든 모델이 정상 장착되어 있습니다. 폴더 트리에서 모델을 확인하거나 다른 모델로 교체할 수 있습니다."
+                : "All models are properly loaded. You can browse or replace models from the folder tree.";
+            summaryBadgeHtml = isKo
+                ? `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4);">✅ 전체 ${items.length}개 정상 장착됨</span>`
+                : `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4);">✅ All ${items.length} Models Loaded</span>`;
         }
 
         summary.innerHTML = `
@@ -801,7 +811,7 @@ class AutoModelAssigner {
                 recsListHtml = item.recommendations.map(r => {
                     const badgeClass = r.score >= 80 ? "high" : (r.score >= 40 ? "medium" : "low");
                     const isSelected = r.file === item.selectedMatch;
-                    const labelText = r.isCurrent ? "현재장착" : `${r.score}%`;
+                    const labelText = r.isCurrent ? (isKo ? "현재장착" : "Current") : `${r.score}%`;
                     return `
                         <button type="button" class="auto-assign-rec-btn ${isSelected ? 'selected' : ''}" data-file="${escapeHtml(r.file)}">
                             <span class="auto-assign-match-badge ${badgeClass}">${labelText}</span>
@@ -815,15 +825,19 @@ class AutoModelAssigner {
             const isSkipSelected = item.selectedMatch === SKIP_VALUE;
             const skipBtnHtml = `
                 <button type="button" class="auto-assign-skip-btn ${isSkipSelected ? 'selected' : ''}" data-file="${SKIP_VALUE}">
-                    <span>⏭️ 적용 안함 (건너뛰기)</span>
+                    <span>${isKo ? "⏭️ 적용 안함 (건너뛰기)" : "⏭️ Skip / Keep Current"}</span>
                 </button>
             `;
 
-            const origLabel = item.isAlreadyValid ? "✅ 현재 장착됨:" : "❌ 누락된 원본:";
+            const origLabel = item.isAlreadyValid 
+                ? (isKo ? "✅ 현재 장착됨:" : "✅ Currently Loaded:")
+                : (isKo ? "❌ 누락된 원본:" : "❌ Missing Original:");
             const origClass = item.isAlreadyValid ? "valid" : "missing";
-            const statusBadgeText = item.isAlreadyValid ? "✅ 정상 장착" : "⚠️ 누락됨";
+            const statusBadgeText = item.isAlreadyValid ? (isKo ? "✅ 정상 장착" : "✅ Valid") : (isKo ? "⚠️ 누락됨" : "⚠️ Missing");
             const statusBadgeClass = item.isAlreadyValid ? "ok" : "warn";
-            const recsTitleText = item.isAlreadyValid ? "💡 빠른 추천 후보 (유사도순):" : "💡 추천 후보 (유사도순):";
+            const recsTitleText = item.isAlreadyValid 
+                ? (isKo ? "💡 빠른 추천 후보 (유사도순):" : "💡 Smart Recommendations (by similarity):")
+                : (isKo ? "💡 추천 후보 (유사도순):" : "💡 Suggested Matches (by similarity):");
 
             card.innerHTML = `
                 <div class="auto-assign-item-header">
@@ -840,13 +854,13 @@ class AutoModelAssigner {
                             <span>${origLabel}</span> ${escapeHtml(item.currentValue)}
                         </div>
                         <div class="auto-assign-search-group">
-                            <a href="${googleUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn google" title="구글에서 스마트 검색">
-                                <span>🔍 구글 검색</span>
+                            <a href="${googleUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn google" title="${isKo ? '구글에서 스마트 검색' : 'Smart Search on Google'}">
+                                <span>${isKo ? '🔍 구글 검색' : '🔍 Google'}</span>
                             </a>
-                            <a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn hf" title="HuggingFace에서 모델 검색">
+                            <a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn hf" title="${isKo ? 'HuggingFace에서 모델 검색' : 'Search model on HuggingFace'}">
                                 <span>🤗 HuggingFace</span>
                             </a>
-                            <a href="${civitaiUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn civitai" title="Civitai에서 모델 검색">
+                            <a href="${civitaiUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn civitai" title="${isKo ? 'Civitai에서 모델 검색' : 'Search model on Civitai'}">
                                 <span>💖 Civitai</span>
                             </a>
                         </div>
@@ -868,15 +882,15 @@ class AutoModelAssigner {
                     <div class="auto-assign-tree-header-row">
                         <div class="auto-assign-tree-title">
                             <span class="icon">📁</span>
-                            <span>[${escapeHtml(item.category)}] 보유 모델 폴더 탐색기 (클릭하여 펼침/선택)</span>
+                            <span>[${escapeHtml(item.category)}] ${isKo ? "보유 모델 폴더 탐색기 (클릭하여 펼침/선택)" : "Model Folder Explorer (Click to expand/select)"}</span>
                         </div>
                         <div class="auto-assign-tree-toolbar">
                             <div class="auto-assign-tree-search-wrapper">
                                 <span class="search-icon">🔍</span>
-                                <input type="text" class="auto-assign-tree-search-input" placeholder="파일명 / 하위 폴더 검색..." />
+                                <input type="text" class="auto-assign-tree-search-input" placeholder="${isKo ? '파일명 / 하위 폴더 검색...' : 'Search file / subfolder...'}" />
                             </div>
-                            <button type="button" class="auto-assign-tree-btn btn-expand-all">📂 모두 펼치기</button>
-                            <button type="button" class="auto-assign-tree-btn btn-collapse-all">📁 모두 접기</button>
+                            <button type="button" class="auto-assign-tree-btn btn-expand-all">${isKo ? '📂 모두 펼치기' : '📂 Expand All'}</button>
+                            <button type="button" class="auto-assign-tree-btn btn-collapse-all">${isKo ? '📁 모두 접기' : '📁 Collapse All'}</button>
                         </div>
                     </div>
 
@@ -884,8 +898,8 @@ class AutoModelAssigner {
                     </div>
 
                     <div class="auto-assign-selected-bar">
-                        <span class="selected-label">👉 최종 선택된 모델:</span>
-                        <span class="selected-value-display" id="selected-display-${index}">${escapeHtml(item.selectedMatch === SKIP_VALUE ? "⏭️ [적용 안함] 기존 모델 유지" : (item.selectedMatch || "(선택 안됨)"))}</span>
+                        <span class="selected-label">${isKo ? "👉 최종 선택된 모델:" : "👉 Selected Model:"}</span>
+                        <span class="selected-value-display" id="selected-display-${index}">${escapeHtml(item.selectedMatch === SKIP_VALUE ? (isKo ? "⏭️ [적용 안함] 기존 모델 유지" : "⏭️ [Skip] Keep original model") : (item.selectedMatch || (isKo ? "(선택 안됨)" : "(None selected)")))}</span>
                     </div>
                 </div>
             `;
@@ -905,7 +919,7 @@ class AutoModelAssigner {
                 item.selectedMatch = chosenFile;
 
                 if (chosenFile === SKIP_VALUE) {
-                    selectedDisplay.textContent = "⏭️ [적용 안함] 변경하지 않고 원본 유지";
+                    selectedDisplay.textContent = isKo ? "⏭️ [적용 안함] 변경하지 않고 원본 유지" : "⏭️ [Skip] Keep original model";
                     selectedDisplay.style.color = "#94a3b8";
                 } else {
                     selectedDisplay.textContent = chosenFile;
@@ -1034,11 +1048,11 @@ class AutoModelAssigner {
         footer.className = "auto-assign-footer";
         footer.innerHTML = `
             <div class="auto-assign-footer-left">
-                <span>※ 건너뛴 노드는 기존 모델명이 그대로 유지됩니다.</span>
+                <span>${isKo ? "※ 건너뛴 노드는 기존 모델명이 그대로 유지됩니다." : "※ Skipped nodes will retain their original model names."}</span>
             </div>
             <div class="auto-assign-footer-right">
-                <button class="auto-assign-btn auto-assign-btn-secondary" id="btn-cancel">닫기</button>
-                <button class="auto-assign-btn auto-assign-btn-primary" id="btn-apply">⚡ 선택한 모델 장착 / 확인</button>
+                <button class="auto-assign-btn auto-assign-btn-secondary" id="btn-cancel">${isKo ? "닫기" : "Close"}</button>
+                <button class="auto-assign-btn auto-assign-btn-primary" id="btn-apply">${isKo ? "⚡ 선택한 모델 장착 / 확인" : "⚡ Apply Selected Models"}</button>
             </div>
         `;
 

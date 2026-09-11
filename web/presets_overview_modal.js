@@ -1,8 +1,8 @@
 /**
  * ComfyUI-Bada-Utils: Global Presets Overview & Manager Modal
  * Displays comprehensive summary of all global presets registered across all node types in ComfyUI.
- * All texts are permanently unified in English (한국어) bilingual format.
- import { showToast } from "./presets_modal.js";
+ */
+import { showToast } from "./presets_modal.js";
 import { BadaI18n } from "./bada_i18n.js";
 
 let overviewModalEl = null;

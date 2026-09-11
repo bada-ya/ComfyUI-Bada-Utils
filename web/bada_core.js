@@ -17,6 +17,54 @@ import { showToast } from "./presets_modal.js";
 // ──────────────────────────────────────────────────────────────────────────────
 //  Bilingual Settings Definitions
 // ──────────────────────────────────────────────────────────────────────────────
+const BADA_SETTINGS_TEXTS = {
+    en: {
+        category: "⚓ Bada Utils",
+        catGeneral: "1. General",
+        catSmart: "2. Smart Features",
+        catWorkflow: "3. Workflow & QoL",
+        catStartup: "4. Startup Behavior",
+        catPresets: "5. Global Presets",
+        catImage: "6. Image & Clipboard QoL",
+        langName: "🌐 UI Language",
+        langTooltip: "Set display language for Bada nodes, context menus, modals, and Workflows+ sidebar.",
+        sidebarName: "📁 Sidebar Workflow Folder Management",
+        sidebarTooltip: "Organize and move workflow folders via drag-and-drop in the left sidebar.",
+        mouseName: "🖱️ Smooth Mouse Pan & Wheel Zoom Fixer",
+        mouseTooltip: "Smooth mouse wheel zooming and middle-click panning even over canvas nodes or text widgets.",
+        blankName: "🧼 Clean Blank Canvas Startup",
+        blankTooltip: "Start ComfyUI and new tabs with a clean blank canvas instead of default workflows with missing-model errors.",
+        presetsName: "Global Presets",
+        loadImageName: "📋 Clipboard & LoadImage Auto-Error Fixer",
+        loadImageTooltip: "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes."
+    },
+    ko: {
+        category: "⚓ Bada Utils",
+        catGeneral: "1. 일반",
+        catSmart: "2. 스마트 기능",
+        catWorkflow: "3. 워크플로우 & 편의성",
+        catStartup: "4. 시작 환경",
+        catPresets: "5. 글로벌 프리셋",
+        catImage: "6. 이미지 & 클립보드 편의성",
+        langName: "🌐 UI 언어 설정",
+        langTooltip: "Bada 모든 노드, 우클릭 메뉴, 모달 창, Workflows+의 표시 언어를 설정합니다.",
+        sidebarName: "📁 사이드바 워크플로우 폴더 관리",
+        sidebarTooltip: "왼쪽 사이드바에서 드래그 앤 드롭으로 워크플로우 폴더를 자유롭게 정리하고 이동합니다.",
+        mouseName: "🖱️ 부드러운 마우스 휠 줌 & 패닝 보정기",
+        mouseTooltip: "캔버스 위 노드나 텍스트 박스 위에서도 끊김 없이 휠 줌 및 중간 버튼 패닝이 가능하도록 보정합니다.",
+        blankName: "🧼 시작 시 클린 빈 캔버스로 열기",
+        blankTooltip: "ComfyUI 실행 시 모델 누락 에러가 발생하는 기본 템플릿 대신 깨끗한 빈 캔버스로 시작합니다.",
+        presetsName: "글로벌 프리셋",
+        loadImageName: "📋 클립보드 & LoadImage 자동 에러 해결사",
+        loadImageTooltip: "LoadImage 노드에 클립보드 이미지(Ctrl+V)를 붙여넣거나 하위 경로 로드 시 발생하는 빨간 테두리 에러를 자동으로 치료합니다."
+    }
+};
+
+function getSettingsText(key) {
+    const lang = BadaI18n.lang === "ko" ? "ko" : "en";
+    return BADA_SETTINGS_TEXTS[lang][key] || BADA_SETTINGS_TEXTS.en[key] || "";
+}
+
 const BADA_UNIFIED_SETTINGS = {
     lang: {
         id: "BadaUtils.Language",
@@ -421,6 +469,53 @@ function buildInlinePresetsPanel() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+//  Dynamic Settings Dialog Live Updater
+// ──────────────────────────────────────────────────────────────────────────────
+function applyBilingualSettingsUI(targetLang) {
+    const lang = targetLang || BadaI18n.lang || "en";
+    const isKo = lang === "ko";
+    const texts = BADA_SETTINGS_TEXTS[isKo ? "ko" : "en"];
+
+    // 1. Setting rows label updates
+    const settingRows = document.querySelectorAll('[data-setting-id^="BadaUtils"], [data-setting-id^="⚓ Bada"]');
+    settingRows.forEach(row => {
+        const id = row.getAttribute("data-setting-id");
+        const labelEl = row.querySelector(".form-label, label, .setting-item-name");
+
+        if (id === BADA_UNIFIED_SETTINGS.lang.id) {
+            if (labelEl) labelEl.textContent = texts.langName;
+        } else if (id === BADA_UNIFIED_SETTINGS.sidebar.id) {
+            if (labelEl) labelEl.textContent = texts.sidebarName;
+        } else if (id === BADA_UNIFIED_SETTINGS.mouse.id) {
+            if (labelEl) labelEl.textContent = texts.mouseName;
+        } else if (id === BADA_UNIFIED_SETTINGS.blankStartup.id) {
+            if (labelEl) labelEl.textContent = texts.blankName;
+        } else if (id === BADA_UNIFIED_SETTINGS.loadImageFix.id) {
+            if (labelEl) labelEl.textContent = texts.loadImageName;
+        }
+    });
+
+    // 2. Category group header text updates
+    const headers = document.querySelectorAll(".setting-group h3, .setting-group-header, .p-tabview-title");
+    headers.forEach(h => {
+        const text = h.textContent.trim();
+        if (text.includes("General") || text.includes("일반")) {
+            h.textContent = texts.catGeneral;
+        } else if (text.includes("Smart Features") || text.includes("스마트 기능")) {
+            h.textContent = texts.catSmart;
+        } else if (text.includes("Workflow & QoL") || text.includes("워크플로우 & 편의성") || text.includes("워크플로우")) {
+            h.textContent = texts.catWorkflow;
+        } else if (text.includes("Startup Behavior") || text.includes("시작 환경")) {
+            h.textContent = texts.catStartup;
+        } else if (text.includes("Global Presets") || text.includes("글로벌 프리셋")) {
+            h.textContent = texts.catPresets;
+        } else if (text.includes("Image & Clipboard") || text.includes("이미지 & 클립보드")) {
+            h.textContent = texts.catImage;
+        }
+    });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 //  Extension Registration
 // ──────────────────────────────────────────────────────────────────────────────
 app.registerExtension({
@@ -429,40 +524,60 @@ app.registerExtension({
     async setup() {
         // 1. Initialize Canvas bilingual translation engine
         BadaI18n.init(app);
+        const currentLang = BadaI18n.lang || "en";
+        const texts = BADA_SETTINGS_TEXTS[currentLang === "ko" ? "ko" : "en"];
 
         // 2. Register Unified Bilingual Settings (English + 한국어)
+        const safeAddSetting = (settingConfig) => {
+            try {
+                app.ui.settings.addSetting(settingConfig);
+            } catch (err) {
+                try {
+                    const fallbackConfig = { ...settingConfig };
+                    if (Array.isArray(fallbackConfig.category)) {
+                        fallbackConfig.category = fallbackConfig.category[0] || "⚓ Bada Utils";
+                    }
+                    app.ui.settings.addSetting(fallbackConfig);
+                } catch (fallbackErr) {
+                    console.warn("[ComfyUI-Bada-Utils] Failed to add setting:", settingConfig.id, err, fallbackErr);
+                }
+            }
+        };
+
         // ① UI Language
-        app.ui.settings.addSetting({
+        safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.lang.id,
-            category: BADA_UNIFIED_SETTINGS.lang.category,
-            name: BADA_UNIFIED_SETTINGS.lang.name,
-            tooltip: BADA_UNIFIED_SETTINGS.lang.tooltip,
+            category: [texts.category, texts.catGeneral],
+            name: texts.langName,
+            tooltip: texts.langTooltip,
             type: BADA_UNIFIED_SETTINGS.lang.type,
             options: BADA_UNIFIED_SETTINGS.lang.options,
-            defaultValue: BadaI18n.lang || "en",
+            defaultValue: currentLang,
             onChange: (newVal) => {
                 const target = (typeof newVal === "object" && newVal?.value) ? newVal.value : newVal;
                 if ((target === "ko" || target === "en") && BadaI18n.lang !== target) {
-                    BadaI18n.setLanguage(target, false);
+                    BadaI18n.setLanguage(target, true);
+                    applyBilingualSettingsUI(target);
                     app.graph?.setDirtyCanvas?.(true, true);
                 }
             }
         });
 
-        // Auto-refresh presets inline panel when language switches
-        BadaI18n.subscribe(() => {
+        // Auto-refresh presets inline panel and settings DOM when language switches
+        BadaI18n.subscribe((lang) => {
             const existingPanel = document.getElementById("bada-inline-presets-panel");
             if (existingPanel) {
                 existingPanel.replaceWith(buildInlinePresetsPanel());
             }
+            applyBilingualSettingsUI(lang);
         });
 
         // ② Sidebar Workflow Folder Management
-        app.ui.settings.addSetting({
+        safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.sidebar.id,
-            category: BADA_UNIFIED_SETTINGS.sidebar.category,
-            name: BADA_UNIFIED_SETTINGS.sidebar.name,
-            tooltip: BADA_UNIFIED_SETTINGS.sidebar.tooltip,
+            category: [texts.category, texts.catSmart],
+            name: texts.sidebarName,
+            tooltip: texts.sidebarTooltip,
             type: BADA_UNIFIED_SETTINGS.sidebar.type,
             defaultValue: BADA_UNIFIED_SETTINGS.sidebar.defaultValue,
             onChange: (newVal) => {
@@ -474,30 +589,30 @@ app.registerExtension({
         });
 
         // ③ Smooth Mouse Pan & Wheel Zoom Fixer
-        app.ui.settings.addSetting({
+        safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.mouse.id,
-            category: BADA_UNIFIED_SETTINGS.mouse.category,
-            name: BADA_UNIFIED_SETTINGS.mouse.name,
-            tooltip: BADA_UNIFIED_SETTINGS.mouse.tooltip,
+            category: [texts.category, texts.catWorkflow],
+            name: texts.mouseName,
+            tooltip: texts.mouseTooltip,
             type: BADA_UNIFIED_SETTINGS.mouse.type,
             defaultValue: BADA_UNIFIED_SETTINGS.mouse.defaultValue
         });
 
         // ④ Startup Behavior (Clean Blank Canvas)
-        app.ui.settings.addSetting({
+        safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.blankStartup.id,
-            category: BADA_UNIFIED_SETTINGS.blankStartup.category,
-            name: BADA_UNIFIED_SETTINGS.blankStartup.name,
-            tooltip: BADA_UNIFIED_SETTINGS.blankStartup.tooltip,
+            category: [texts.category, texts.catStartup],
+            name: texts.blankName,
+            tooltip: texts.blankTooltip,
             type: BADA_UNIFIED_SETTINGS.blankStartup.type,
             defaultValue: BADA_UNIFIED_SETTINGS.blankStartup.defaultValue
         });
 
         // ⑤ Full-Width Inline Global Presets Overview & Management Panel
-        app.ui.settings.addSetting({
+        safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.presetsPanel.id,
-            category: BADA_UNIFIED_SETTINGS.presetsPanel.category,
-            name: BADA_UNIFIED_SETTINGS.presetsPanel.name,
+            category: [texts.category, texts.catPresets],
+            name: texts.presetsName,
             type: () => {
                 return buildInlinePresetsPanel();
             },
@@ -505,11 +620,11 @@ app.registerExtension({
         });
 
         // ⑥ Clipboard & LoadImage Auto-Error Fixer
-        app.ui.settings.addSetting({
+        safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.loadImageFix.id,
-            category: BADA_UNIFIED_SETTINGS.loadImageFix.category,
-            name: BADA_UNIFIED_SETTINGS.loadImageFix.name,
-            tooltip: BADA_UNIFIED_SETTINGS.loadImageFix.tooltip,
+            category: [texts.category, texts.catImage],
+            name: texts.loadImageName,
+            tooltip: texts.loadImageTooltip,
             type: BADA_UNIFIED_SETTINGS.loadImageFix.type,
             defaultValue: BADA_UNIFIED_SETTINGS.loadImageFix.defaultValue,
             onChange: (newVal) => {
@@ -519,6 +634,15 @@ app.registerExtension({
                 }
             }
         });
+
+        // Monitor settings dialog opening to keep bilingual labels strictly synchronized
+        const observer = new MutationObserver(() => {
+            const hasSettingsModal = document.querySelector(".p-dialog, .comfy-modal, .comfy-settings-dialog");
+            if (hasSettingsModal) {
+                applyBilingualSettingsUI();
+            }
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
 
         // 3. 🛡️ PrimeVue Tooltip Deduplication & Stray Element Fixer
         if (!window.__BADA_TOOLTIP_FIX_INSTALLED__) {
