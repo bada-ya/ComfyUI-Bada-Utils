@@ -32,8 +32,9 @@
   --bada-radius-xl: 18px;
 }
 
-/* Base Card Container inside ComfyUI Node */
-.bada-gemini-card {
+/* Base Card Container inside ComfyUI Node (Pure Flex Container) */
+.bada-gemini-card,
+.bada-async-gemini-root {
   width: 100% !important;
   max-width: 100% !important;
   min-width: 0 !important;
@@ -43,8 +44,8 @@
   border: 1px solid var(--bada-border);
   border-radius: var(--bada-radius-lg);
   padding: 12px;
-  display: flex;
-  flex-direction: column;
+  display: flex !important;
+  flex-direction: column !important;
   gap: 12px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
   color: var(--bada-text-main);
@@ -52,28 +53,47 @@
   overflow: hidden !important;
 }
 
-/* Force ComfyUI Vue subgrid & wrapper containers to span full width and sync height */
+/* Force ComfyUI Vue subgrid & wrapper containers to span full width (do not override height) */
 .lg-node-widget:has(.bada-gemini-card),
-div[data-testid="node-widget"]:has(.bada-gemini-card) {
+div[data-testid="node-widget"]:has(.bada-gemini-card),
+.lg-node-widget:has(.bada-async-gemini-root),
+div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   grid-column: 1 / -1 !important;
   width: 100% !important;
   max-width: 100% !important;
   min-width: 0 !important;
-  height: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
   padding-right: 0 !important;
   box-sizing: border-box !important;
-  flex: 1 1 100% !important;
 }
 
-/* Header */
-.bada-header {
+/* Header & Engine Nav: Fixed non-shrinking */
+.bada-header,
+.bada-gemini-header {
+  flex: 0 0 auto !important;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--bada-border);
+}
+
+.bada-engine-nav {
+  flex: 0 0 auto !important;
+}
+
+.bada-toast {
+  flex: 0 0 auto !important;
+}
+
+/* Prompt Studio Container (Standard Generator Mode) */
+.bada-prompt-studio-container {
+  flex: 1 1 0px !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
 }
 
 .bada-title {
@@ -1006,19 +1026,21 @@ div[data-testid="node-widget"]:has(.bada-gemini-card) {
 }
 
 /* ==========================================================================
-   ✨ UNCENSORED GEMINI CHAT STUDIO STYLES
+   ✨ UNCENSORED GEMINI CHAT STUDIO STYLES (방안 A: Pure Flex Chain 완성)
    ========================================================================== */
 .bada-gemini-chat-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1 1 auto;    /* root의 남은 높이를 CSS가 자동으로 채움 */
-  min-height: 0;     /* flex 자식이 overflow되지 않도록 필수 */
-  box-sizing: border-box;
-  overflow: hidden;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  flex: 1 1 0px !important;    /* root의 남은 높이를 CSS가 100% 자동 채움 (flex-basis: 0) */
+  min-height: 0 !important;     /* flex 자식이 overflow되지 않도록 필수 */
+  height: 100% !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
 }
 
 .bada-chat-topbar {
+  flex: 0 0 auto !important;    /* 상단 페르소나/웹검색/새채팅 바 고정 */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1027,6 +1049,7 @@ div[data-testid="node-widget"]:has(.bada-gemini-card) {
   border-radius: var(--bada-radius-md);
   padding: 6px 10px;
   gap: 6px;
+  box-sizing: border-box !important;
 }
 
 .bada-gem-select {
@@ -1064,18 +1087,18 @@ div[data-testid="node-widget"]:has(.bada-gemini-card) {
 }
 
 .bada-chat-thread {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  flex: 1 1 0px !important;    /* 남은 공간 100% 흡수 (flex-basis: 0) */
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
   background: var(--bada-bg-input);
   border: 1px solid var(--bada-border);
   border-radius: var(--bada-radius-md);
   padding: 10px;
-  display: flex;
-  flex-direction: column;
+  display: flex !important;
+  flex-direction: column !important;
   gap: 12px;
-  box-sizing: border-box;
+  box-sizing: border-box !important;
 }
 
 .bada-msg-row {
@@ -1186,15 +1209,22 @@ div[data-testid="node-widget"]:has(.bada-gemini-card) {
   text-decoration: underline;
 }
 
-/* Chat Input Bar */
-.bada-chat-input-bar {
-  display: flex;
+/* Chat Input Bar & Attachments (Fixed non-shrinking, strictly docked at bottom) */
+.bada-thumbnails-grid {
+  flex: 0 0 auto !important;
+}
+
+.bada-chat-input-bar,
+.bada-gemini-chat-inputbar {
+  flex: 0 0 auto !important;    /* 하단 입력바 고정 — 스레드 하단에 밀착 */
+  display: flex !important;
   align-items: center;
   gap: 6px;
   background: var(--bada-bg-surface-elevated);
   border: 1px solid var(--bada-border);
   border-radius: var(--bada-radius-md);
   padding: 6px 8px;
+  box-sizing: border-box !important;
 }
 
 .bada-chat-textarea {

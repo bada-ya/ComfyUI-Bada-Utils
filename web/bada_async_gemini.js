@@ -160,13 +160,13 @@ app.registerExtension({
             let chatUploadedImages = [];
             let isChatSending = false;
 
-            // Root Card Container
+            // Root Card Container (방안 A: bada-async-gemini-root 병기)
             const root = document.createElement("div");
-            root.className = "bada-gemini-card";
+            root.className = "bada-gemini-card bada-async-gemini-root";
 
             // 1. Header
             const header = document.createElement("div");
-            header.className = "bada-header";
+            header.className = "bada-header bada-gemini-header";
             header.innerHTML = `
                 <div class="bada-title">
                     <span>⚓</span>
@@ -218,6 +218,7 @@ app.registerExtension({
 
             // Container for Standard Prompt Generator (MiniMax, LTX, KREA)
             const promptStudioContainer = document.createElement("div");
+            promptStudioContainer.className = "bada-prompt-studio-container";
             promptStudioContainer.style.display = "flex";
             promptStudioContainer.style.flexDirection = "column";
             promptStudioContainer.style.gap = "10px";
@@ -1246,9 +1247,9 @@ app.registerExtension({
                 thread.className = "bada-chat-thread";
                 chatStudioContainer.appendChild(thread);
 
-                // Chat Input Bar
+                // Chat Input Bar (방안 A: bada-gemini-chat-inputbar 병기)
                 const chatInputBar = document.createElement("div");
-                chatInputBar.className = "bada-chat-input-bar";
+                chatInputBar.className = "bada-chat-input-bar bada-gemini-chat-inputbar";
 
                 const chatFileInput = document.createElement("input");
                 chatFileInput.type = "file";
@@ -1499,21 +1500,31 @@ app.registerExtension({
                 if (imageFound) e.preventDefault();
             };
             // ─────────────────────────────────────────────────────────────
-            // LAYOUT ENGINE  (Regional Prompt 패턴: 매 프레임 onDrawForeground에서 직접 동기화)
+            // LAYOUT ENGINE  (방안 A: Pure Flex Chain & 매 프레임 onDrawForeground에서 직접 동기화)
             // ─────────────────────────────────────────────────────────────
+            function hideAllBackendWidgets(n) {
+                if (!n || !n.widgets) return;
+                for (const w of n.widgets) {
+                    if (w.name !== "bada_gemini_ui") {
+                        w.hidden = true;
+                        w.type = "hidden";
+                        if (w.computeSize) w.computeSize = () => [0, -4];
+                    }
+                }
+            }
+
             function syncContainerSize() {
                 if (!root || !node || !node.size) return;
 
                 const w = Math.max(400, node.size[0] - 20);
                 const h = Math.max(380, node.size[1] - 46);
 
-                // JS가 할 일: root 높이만 설정. 내부 레이아웃은 CSS flex가 담당.
+                // 방안 A: JS는 오직 root의 width/height만 설정 (자식 픽셀 계산 코드 완전 배제)
                 root.style.width = w + "px";
                 root.style.maxWidth = w + "px";
                 root.style.height = h + "px";
                 root.style.maxHeight = h + "px";
                 root.style.overflow = "hidden";
-                // chatStudioContainer 높이는 CSS flex:1 이 자동으로 채움 — JS 픽셀 계산 불필요
             }
 
             window.addEventListener("paste", onGlobalPaste);
@@ -1558,9 +1569,11 @@ app.registerExtension({
             const origConfigure = node.onConfigure;
             node.onConfigure = function (data) {
                 const r = origConfigure ? origConfigure.apply(this, arguments) : undefined;
+                hideAllBackendWidgets(this);
                 if (this.size && this.size[0] < 420) this.size[0] = 520;
                 if (this.size && this.size[1] < 420) this.size[1] = 780;
                 setTimeout(() => {
+                    hideAllBackendWidgets(this);
                     syncContainerSize();
                     if (appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
                 }, 50);
@@ -1570,6 +1583,7 @@ app.registerExtension({
             // onDrawForeground: Regional Prompt 방식 그대로 — 매 프레임 직접 호출, throttle 없음
             const origDrawFg = node.onDrawForeground;
             node.onDrawForeground = function (ctx) {
+                hideAllBackendWidgets(this);
                 syncContainerSize();
                 origDrawFg?.apply(this, arguments);
             };
