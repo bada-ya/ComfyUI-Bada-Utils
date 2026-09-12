@@ -10,7 +10,7 @@
 
 ### 💡 "A pragmatic collection of utilities crafted to fix small, annoying friction points discovered while building workflows in ComfyUI every single day."
 
-[English Documentation](#-6-flagship-tools-overview) •
+[English Documentation](#-7-flagship-tools-overview) •
 [🇰🇷 한국어 설명서 보기 (README_ko.md)](README_ko.md) •
 [⚙️ Settings & i18n](#-bada-unified-settings) •
 [🚀 Installation](#-installation)
@@ -19,19 +19,20 @@
 
 ---
 
-## 🧭 6 Flagship Tools Overview
+## 🧭 7 Flagship Tools Overview
 
 For quick evaluation, here is **what each tool does and when to use it**.  
 Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instructions, visual guides, and screenshots.
 
 ```
-⚓ ComfyUI-Bada-Utils (6 Flagship Modules)
+⚓ ComfyUI-Bada-Utils (7 Flagship Modules)
 ├── 1. 📐 Visual Grid Regional Prompt Pro (BadaRegionalPrompt)
 ├── 2. 🌟 Universal Smart Presets & Master Hub (BadaPresetHub & SmartPresets)
-├── 3. ⚡ Auto Model & LoRA Assigner (Auto Model Assigner)
-├── 4. ✨ Quality of Life (QoL) Master (Workflows+, LoadImage Auto-Heal, Blank Canvas, Mouse Fix)
-├── 5. ⚓ Bada Async Gemini Studio (BadaAsyncGeminiStudio)
-└── 6. 💻 Bada Terminal Hub (BadaTerminalConsole)
+├── 3. ⚡ Auto Model & LoRA Assigner (Auto Assigner)
+├── 4. 📂 Next-Gen Smart Workflow Manager (Workflows+)
+├── 5. ✨ Canvas & Clipboard QoL Master (Canvas & Image QoL)
+├── 6. ⚓ Bada Async Gemini Studio (BadaAsyncGeminiStudio)
+└── 7. 💻 Bada Terminal Hub (BadaTerminalConsole)
 ```
 
 ---
@@ -64,7 +65,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
      6. **🧍 Full Body Turnaround**: Front, Side, 3/4 View, Back View, Walking Pose
      7. **🦵 Lower Body (Hips to Legs)**: Front, Side, 3/4 View, Back View, Dynamic Pose
      8. **🍑 Hips & Buttocks**: Front Pelvis, Side Hip, Back View, Low Angle
-     9. **🖐️ Hands & Fingers**: Back of Hand, Palm
+     9. **🖐️ 손 클로즈업 (Hands & Fingers)**: Back of Hand, Palm
      10. **🦶 Feet & Toes**: Barefoot Top, Sole, Front, 3/4, Side
    <p align="center">
      <img src="docs/images/vrp/preset_dropdown.png" alt="Shot Tree Selector" width="600">
@@ -164,16 +165,9 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 
 ---
 
-### 4. ✨ Quality of Life (QoL) Master (`Workflows+`, Clipboard LoadImage Fixer & Clean Startup)
-- **What it does**: 
-  - 🖼️ **Clipboard (Ctrl+V) & LoadImage Auto-Error Fixer**: Auto-heals red error borders and "Missing Media" validation failures caused by pasting web/clipboard images into `LoadImage` nodes.
-  - 🧼 **Clean Blank Canvas Startup**: Completely blocks ComfyUI's annoying startup missing-model error popups ("2 errors found") and starts fresh with a lightweight, clean canvas.
-  - 📂 **Workflows+ Sidebar Explorer**: Preserves 0-item empty folders, enables mouse drag-and-drop workflow folder moving, and auto-tracks the active workflow in real time.
-  - 🖱️ **Global Canvas Mouse Pan & Zoom Fixer**: Keeps middle-click panning and wheel zooming smooth and unblocked even over textareas or custom nodes.
-- **When to use it**: 
-  - When copying images from the web and pressing `Ctrl+V` on `LoadImage` nodes (no more red error outlines!).
-  - When you want to eliminate the useless default AuraFlow template and missing-model popups every time you launch ComfyUI.
-  - When organizing hundreds of workflow files into nested folders and preventing wheel zoom freezes.
+### 4. 📂 Next-Gen Smart Workflow Manager (`Workflows+`)
+- **What it does**: Preserves 0-item empty folders, enables mouse drag-and-drop workflow folder moving, 1.2s hover auto-expansion, real-time active workflow auto-focusing, 100% two-way native SQLite favorites sync, and 4-tier font/row scaling.
+- **When to use it**: When organizing hundreds of workflow files cleanly into folders, when empty folders disappearing is frustrating, or when you need to locate the active open workflow's folder in 1 second.
 
 <details>
 <summary><b>📖 Detailed Guide & Settings (Click to expand) ▼</b></summary>
@@ -191,15 +185,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 | **Context Menu** | ❌ Basic | ⭕ **Load / Move to / Favorite / Rename / Delete** |
 
 #### 📸 Feature Highlights
-* **(1) 🖼️ Clipboard (Ctrl+V) & LoadImage Auto-Error Fixer (`LoadImage Fixer`)**:
-  * In native ComfyUI, pasting an image from your clipboard into a `LoadImage` node often triggers red outline validation errors because the frontend fails to recognize `pasted/...` subpaths.
-  * Bada Utils automatically intercepts `LoadImage`, `LoadImageMask`, and `LoadImageOutput` combo widgets to register the pasted file path and **immediately clear the red error border (Auto-Heal)**.
-
-* **(2) 🧼 Clean Blank Canvas Startup (`Clean Blank Startup`)**:
-  * Completely blocks the annoying **`2 errors found` popup** caused by ComfyUI v1.48+ forcing the uninstalled AuraFlow blueprint template (10 nodes) on startup.
-  * Ensures initial launches, new tabs, and closed tabs open to a **clean, lightweight blank canvas** for an uncluttered working environment. (Can be toggled in BADA Settings).
-
-* **(3) ✨ Workflows+ Explorer & 🎛️ Quick Toolbar**:
+* **(1) ✨ Workflows+ Explorer & 🎛️ Quick Toolbar**:
   <p align="center">
     <img src="docs/images/qol/02_workflows_plus.png" alt="Enhanced Workflows+ Tab" width="380">
     <img src="docs/images/qol/04_toolbar_menu.png" alt="Quick Toolbar" width="380">
@@ -208,7 +194,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
   * **`A⁺⁺` Font & Row Scaling**: Left-click cycles through 4 levels (`A⁻` to `A⁺⁺`), right-click opens quick selector.
   * ➕ **New Folder**, 📂 **Expand/Collapse All**, 🔄 **Refresh**.
 
-* **(4) 🖱️ Drag & Drop Folder Moving**:
+* **(2) 🖱️ Drag & Drop Folder Moving**:
   <p align="center">
     <img src="docs/images/qol/05_drag_and_drop.png" alt="Drag and Drop Moving" width="380">
     <img src="docs/images/qol/03_context_menu.png" alt="Context Menu" width="320">
@@ -216,21 +202,47 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
   * Drag files with mouse ghost badge to `🏠 Root` dropzone or target subfolders.
   * Hovering over a collapsed folder for 1.2s automatically expands it.
 
-* **(5) 🎯 Real-Time Active Workflow Focus & Favorites Sync**:
+* **(3) 🎯 Real-Time Active Workflow Focus & Favorites Sync**:
   <p align="center">
     <img src="docs/images/qol/06_active_workflow_focus.png" alt="Active Workflow Auto Focus" width="500">
   </p>
   * Automatically marks the open workflow with a blue `[• Active]` badge and centers it in the view.
   * 100% two-way synchronized with native ComfyUI SQLite database (`comfyui.db`) and favorites bar.
 
-* **(6) 🖱️ Global Canvas Mouse Pan & Zoom Fixer**:
+</details>
+
+---
+
+### 5. ✨ Canvas & Clipboard QoL Master (`Canvas & Image QoL`)
+- **What it does**: 
+  - 🖼️ **Clipboard (Ctrl+V) & LoadImage Auto-Error Fixer**: Auto-heals red error borders and "Missing Media" validation failures caused by pasting web/clipboard images into `LoadImage` nodes.
+  - 🧼 **Clean Blank Canvas Startup**: Completely blocks ComfyUI's annoying startup missing-model error popups ("2 errors found") and starts fresh with a lightweight, clean canvas.
+  - 🖱️ **Global Canvas Mouse Pan & Zoom Fixer**: Keeps middle-click panning and wheel zooming smooth and unblocked even over textareas or custom nodes.
+- **When to use it**: 
+  - When copying images from the web and pressing `Ctrl+V` on `LoadImage` nodes (no more red error outlines!).
+  - When you want to eliminate the useless default AuraFlow template and missing-model popups every time you launch ComfyUI.
+  - When organizing workflow layouts and preventing wheel zoom or pan freezes over text inputs.
+
+<details>
+<summary><b>📖 Detailed Guide & Settings (Click to expand) ▼</b></summary>
+
+#### 🌟 Key Features
+* **(1) 🖼️ Clipboard (Ctrl+V) & LoadImage Auto-Error Fixer (`LoadImage Fixer`)**:
+  * In native ComfyUI, pasting an image from your clipboard into a `LoadImage` node often triggers red outline validation errors because the frontend fails to recognize `pasted/...` subpaths.
+  * Bada Utils automatically intercepts `LoadImage`, `LoadImageMask`, and `LoadImageOutput` combo widgets to register the pasted file path and **immediately clear the red error border (Auto-Heal)**.
+
+* **(2) 🧼 Clean Blank Canvas Startup (`Clean Blank Startup`)**:
+  * Completely blocks the annoying **`2 errors found` popup** caused by ComfyUI v1.48+ forcing the uninstalled AuraFlow blueprint template (10 nodes) on startup.
+  * Ensures initial launches, new tabs, and closed tabs open to a **clean, lightweight blank canvas** for an uncluttered working environment. (Can be toggled in BADA Settings).
+
+* **(3) 🖱️ Global Canvas Mouse Pan & Zoom Fixer**:
   * Prevents middle-click panning and wheel zooming from freezing over textareas, DOM widgets, or custom nodes.
 
 </details>
 
 ---
 
-### 5. ⚓ Bada Async Gemini Studio (`BadaAsyncGeminiStudio`)
+### 6. ⚓ Bada Async Gemini Studio (`BadaAsyncGeminiStudio`)
 - **What it does**: Formulates high-end cinematic video and photorealistic image prompts with 4 dedicated engines (MiniMax H3, LTX-Video, KREA 2, Uncensored Gemini Chat) without VRAM impact or execution blocks, with 1-click CLIP injection.
 - **When to use it**: When English prompt phrasing is tedious, when you want automatic multi-cut storyboard division for KREA 2, or when brainstorming freely with zero censorship and directly injecting outputs into canvas CLIP nodes.
 
@@ -265,7 +277,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 
 ---
 
-### 6. 💻 Bada Terminal Hub (`BadaTerminalConsole`)
+### 7. 💻 Bada Terminal Hub (`BadaTerminalConsole`)
 - **What it does**: Execute real-time terminal commands (`git pull`, `pip install`, etc.) directly inside the ComfyUI sidebar, search all 37+ installed custom node folders, and launch native Windows CMD console windows with 1 click.
 - **When to use it**: When updating custom nodes or installing dependencies without opening separate terminals or copying complex directory paths.
 

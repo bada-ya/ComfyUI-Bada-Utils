@@ -1,95 +1,4 @@
 {
-  "UNETLoader": {
-    "Load Diffusion Model #1": {
-      "nodeType": "UNETLoader",
-      "timestamp": 1788951477868,
-      "mode": 0,
-      "isBypassed": false,
-      "isMuted": false,
-      "widgets": {
-        "unet_name": "checkpoints\\KREA2\\moodyKrea2Mix_v6seAsianFever4K_int8.safetensors",
-        "weight_dtype": "default"
-      },
-      "_isLoraStack": false,
-      "_isFastGroups": false
-    }
-  },
-  "KSampler": {
-    "Fast Test": {
-      "nodeType": "KSampler",
-      "timestamp": 639245590906837800,
-      "mode": 0,
-      "widgets": {
-        "cfg": 7,
-        "steps": 20
-      }
-    }
-  },
-  "BadaRegionalPrompt": {
-    "⚓ Bada Visual Regional Prompt #1": {
-      "nodeType": "BadaRegionalPrompt",
-      "timestamp": 1788938129718,
-      "mode": 0,
-      "isBypassed": false,
-      "isMuted": false,
-      "widgets": {
-        "prompt_text": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\n\nA high-definition 16:9 multi-panel composition strictly partitioned into 2 proportional sections.\n[Subject / Character Profile & Visual Consistency]: Korean man in his 30s, neat dandy cut black hair, navy business suit, identical character features and costume maintained across all panels.\n[Spatial Layout & Exact Proportional Placement]:\n- Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height): .\n- Top center panel (occupying exactly 33% width from 33% to 67%, 67% height from 0% to 67%): .\n[Multi-Panel Layout & Strict Proportional Scale]: Split-screen multi-panel collage layout strictly adhering to the exact percentage width and height boundaries specified above for each column and row without shifting, resizing, or distorting relative panel scales. Each panel is cleanly separated by crisp thin black divider lines, clean comic grid panels, pristine artwork without any text, labels, numbers, coordinates, or watermarks.\n\nclean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
-        "format": "Natural Spatial (Krea/MiniMax/Gemini/GPT)",
-        "aspect_ratio": "16:9",
-        "grid_cols": 6,
-        "grid_rows": 3,
-        "ui_language": "한국어",
-        "grid_data": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"aspectRatio\":\"16:9\",\"white_bg\":false,\"whiteBg\":false,\"grid_borders\":true,\"gridBorders\":true,\"active_art_style\":\"photorealistic\",\"character_profile\":\"Korean man in his 30s, neat dandy cut black hair, navy business suit\",\"character_profile_ko\":\"30대 한국 남성, 깔끔한 댄디컷 흑발, 네이비 정장 수트\",\"characterProfile\":\"Korean man in his 30s, neat dandy cut black hair, navy business suit\",\"characterProfileKo\":\"30대 한국 남성, 깔끔한 댄디컷 흑발, 네이비 정장 수트\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height)\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":1,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Top center panel (occupying exactly 33% width from 33% to 67%, 67% height from 0% to 67%)\"}]}",
-        "prefix_prompt": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography",
-        "suffix_prompt": "clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
-        "visual_grid_ui": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"white_bg\":false,\"grid_borders\":true,\"character_profile\":\"Korean man in his 30s, neat dandy cut black hair, navy business suit\",\"character_profile_ko\":\"30대 한국 남성, 깔끔한 댄디컷 흑발, 네이비 정장 수트\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height)\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":1,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Top center panel (occupying exactly 33% width from 33% to 67%, 67% height from 0% to 67%)\"}],\"prefix\":\"RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\",\"suffix\":\"clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range\",\"format\":\"Natural Spatial (Krea/MiniMax/Gemini/GPT)\",\"ui_language\":\"한국어\",\"stage_height\":320}"
-      },
-      "_isLoraStack": false,
-      "_isFastGroups": false
-    },
-    "⚓ Bada Visual Regional Prompt #2": {
-      "nodeType": "BadaRegionalPrompt",
-      "timestamp": 1788951657692,
-      "mode": 0,
-      "isBypassed": false,
-      "isMuted": false,
-      "widgets": {
-        "prompt_text": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\n\nA high-definition 16:9 multi-panel composition strictly partitioned into 3 proportional sections.\n[Spatial Layout & Exact Proportional Placement]:\n- Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height): bust shot, upper body to chest, front view, neckline detail.\n- Center vertical panel (occupying exactly 33% width from 33% to 67%, full 100% height): Full body sitting with knees bent and covering knees with hands.\n- Right vertical panel (occupying exactly 33% width from 67% to 100%, full 100% height): Full body: side.\n[Multi-Panel Layout & Strict Proportional Scale]: Split-screen multi-panel collage layout strictly adhering to the exact percentage width and height boundaries specified above for each column and row without shifting, resizing, or distorting relative panel scales. Each panel is cleanly separated by crisp thin black divider lines, clean comic grid panels, pristine artwork without any text, labels, numbers, coordinates, or watermarks.\n\nclean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
-        "format": "Natural Spatial (Krea/MiniMax/Gemini/GPT)",
-        "aspect_ratio": "16:9",
-        "grid_cols": 6,
-        "grid_rows": 3,
-        "ui_language": "English",
-        "grid_data": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"aspectRatio\":\"16:9\",\"white_bg\":false,\"whiteBg\":false,\"grid_borders\":true,\"gridBorders\":true,\"active_art_style\":\"photorealistic\",\"character_profile\":\"\",\"character_profile_ko\":\"\",\"characterProfile\":\"\",\"characterProfileKo\":\"\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"상반신 가슴까지: 정면\",\"koPrompt\":\"상반신 가슴까지: 정면\",\"prompt\":\"bust shot, upper body to chest, front view, neckline detail\",\"spatial\":\"Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height)\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":2,\"ko_prompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"koPrompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"prompt\":\"Full body sitting with knees bent and covering knees with hands\",\"spatial\":\"Center vertical panel (occupying exactly 33% width from 33% to 67%, full 100% height)\"},{\"id\":3,\"c1\":4,\"c2\":5,\"r1\":0,\"r2\":2,\"ko_prompt\":\"전신: 측면\",\"koPrompt\":\"전신: 측면\",\"prompt\":\"Full body: side\",\"spatial\":\"Right vertical panel (occupying exactly 33% width from 67% to 100%, full 100% height)\"}]}",
-        "prefix_prompt": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography",
-        "suffix_prompt": "clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
-        "visual_grid_ui": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"white_bg\":false,\"grid_borders\":true,\"character_profile\":\"\",\"character_profile_ko\":\"\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"상반신 가슴까지: 정면\",\"prompt\":\"bust shot, upper body to chest, front view, neckline detail\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":2,\"ko_prompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"prompt\":\"Full body sitting with knees bent and covering knees with hands\"},{\"id\":3,\"c1\":4,\"c2\":5,\"r1\":0,\"r2\":2,\"ko_prompt\":\"전신: 측면\",\"prompt\":\"Full body: side\"}],\"prefix\":\"RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\",\"suffix\":\"clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range\",\"format\":\"Natural Spatial (Krea/MiniMax/Gemini/GPT)\",\"ui_language\":\"English\",\"stage_height\":320}"
-      },
-      "_isLoraStack": false,
-      "_isFastGroups": false
-    },
-    "⚓ Bada Visual Regional Prompt #3": {
-      "nodeType": "BadaRegionalPrompt",
-      "timestamp": 1788951696685,
-      "mode": 0,
-      "isBypassed": false,
-      "isMuted": false,
-      "widgets": {
-        "prompt_text": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\n\nA high-definition 16:9 multi-panel composition strictly partitioned into 5 proportional sections.\n[Spatial Layout & Exact Proportional Placement]:\n- Top-left panel (occupying exactly 33% width from 0% to 33%, 60% height from 0% to 60%): bust shot, upper body to chest, front view, neckline detail.\n- Top center panel (occupying exactly 33% width from 33% to 67%, 60% height from 0% to 60%): Full body sitting with knees bent and covering knees with hands.\n- Top-right panel (occupying exactly 33% width from 67% to 100%, 60% height from 0% to 60%): Full body: side.\n- Bottom-left panel (occupying exactly 50% width from 0% to 50%, 40% height from 60% to 100%): Full body lying in fetal position.\n- Bottom-right panel (occupying exactly 50% width from 50% to 100%, 40% height from 60% to 100%): pink tight exercise full body suit, bare feet, pink feet top.\n[Multi-Panel Layout & Strict Proportional Scale]: Split-screen multi-panel collage layout strictly adhering to the exact percentage width and height boundaries specified above for each column and row without shifting, resizing, or distorting relative panel scales. Each panel is cleanly separated by crisp thin black divider lines, clean comic grid panels, pristine artwork without any text, labels, numbers, coordinates, or watermarks.\n\nclean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
-        "format": "Natural Spatial (Krea/MiniMax/Gemini/GPT)",
-        "aspect_ratio": "16:9",
-        "grid_cols": 6,
-        "grid_rows": 5,
-        "ui_language": "English",
-        "grid_data": "{\"cols\":6,\"rows\":5,\"aspect_ratio\":\"16:9\",\"aspectRatio\":\"16:9\",\"white_bg\":false,\"whiteBg\":false,\"grid_borders\":true,\"gridBorders\":true,\"active_art_style\":\"photorealistic\",\"character_profile\":\"\",\"character_profile_ko\":\"\",\"characterProfile\":\"\",\"characterProfileKo\":\"\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"상반신 가슴까지: 정면\",\"koPrompt\":\"상반신 가슴까지: 정면\",\"prompt\":\"bust shot, upper body to chest, front view, neckline detail\",\"spatial\":\"Top-left panel (occupying exactly 33% width from 0% to 33%, 60% height from 0% to 60%)\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":2,\"ko_prompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"koPrompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"prompt\":\"Full body sitting with knees bent and covering knees with hands\",\"spatial\":\"Top center panel (occupying exactly 33% width from 33% to 67%, 60% height from 0% to 60%)\"},{\"id\":3,\"c1\":4,\"c2\":5,\"r1\":0,\"r2\":2,\"ko_prompt\":\"전신: 측면\",\"koPrompt\":\"전신: 측면\",\"prompt\":\"Full body: side\",\"spatial\":\"Top-right panel (occupying exactly 33% width from 67% to 100%, 60% height from 0% to 60%)\"},{\"id\":4,\"c1\":0,\"c2\":2,\"r1\":3,\"r2\":4,\"ko_prompt\":\"태아자세로 누워 있는 전신\",\"koPrompt\":\"태아자세로 누워 있는 전신\",\"prompt\":\"Full body lying in fetal position\",\"spatial\":\"Bottom-left panel (occupying exactly 50% width from 0% to 50%, 40% height from 60% to 100%)\"},{\"id\":5,\"c1\":3,\"c2\":5,\"r1\":3,\"r2\":4,\"ko_prompt\":\"핑크색 타이트한 운동 전신 슈트, 맨발, 핑크색 발톱\",\"koPrompt\":\"핑크색 타이트한 운동 전신 슈트, 맨발, 핑크색 발톱\",\"prompt\":\"pink tight exercise full body suit, bare feet, pink feet top\",\"spatial\":\"Bottom-right panel (occupying exactly 50% width from 50% to 100%, 40% height from 60% to 100%)\"}]}",
-        "prefix_prompt": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography",
-        "suffix_prompt": "clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
-        "visual_grid_ui": "{\"cols\":6,\"rows\":5,\"aspect_ratio\":\"16:9\",\"white_bg\":false,\"grid_borders\":true,\"character_profile\":\"\",\"character_profile_ko\":\"\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"상반신 가슴까지: 정면\",\"prompt\":\"bust shot, upper body to chest, front view, neckline detail\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":2,\"ko_prompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"prompt\":\"Full body sitting with knees bent and covering knees with hands\"},{\"id\":3,\"c1\":4,\"c2\":5,\"r1\":0,\"r2\":2,\"ko_prompt\":\"전신: 측면\",\"prompt\":\"Full body: side\"},{\"id\":4,\"c1\":0,\"c2\":2,\"r1\":3,\"r2\":4,\"ko_prompt\":\"태아자세로 누워 있는 전신\",\"prompt\":\"Full body lying in fetal position\"},{\"id\":5,\"c1\":3,\"c2\":5,\"r1\":3,\"r2\":4,\"ko_prompt\":\"핑크색 타이트한 운동 전신 슈트, 맨발, 핑크색 발톱\",\"prompt\":\"pink tight exercise full body suit, bare feet, pink feet top\"}],\"prefix\":\"RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\",\"suffix\":\"clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range\",\"format\":\"Natural Spatial (Krea/MiniMax/Gemini/GPT)\",\"ui_language\":\"English\",\"stage_height\":320}"
-      },
-      "_isLoraStack": false,
-      "_isFastGroups": false
-    }
-  },
   "Power Lora Loader (rgthree)": {
     "Power Lora Loader (rgthree) #1": {
       "nodeType": "Power Lora Loader (rgthree)",
@@ -120,6 +29,17 @@
           "on": true
         }
       ]
+    }
+  },
+  "KSampler": {
+    "Fast Test": {
+      "nodeType": "KSampler",
+      "timestamp": 639245590906837800,
+      "mode": 0,
+      "widgets": {
+        "cfg": 7,
+        "steps": 20
+      }
     }
   },
   "EmptySD3LatentImage": {},
@@ -184,6 +104,87 @@
         "force_uniform_tiles": true,
         "tiled_decode": false,
         "batch_size": 1
+      },
+      "_isLoraStack": false,
+      "_isFastGroups": false
+    }
+  },
+  "UNETLoader": {
+    "Load Diffusion Model #1": {
+      "nodeType": "UNETLoader",
+      "timestamp": 1788951477868,
+      "mode": 0,
+      "isBypassed": false,
+      "isMuted": false,
+      "widgets": {
+        "unet_name": "checkpoints\\KREA2\\moodyKrea2Mix_v6seAsianFever4K_int8.safetensors",
+        "weight_dtype": "default"
+      },
+      "_isLoraStack": false,
+      "_isFastGroups": false
+    }
+  },
+  "BadaRegionalPrompt": {
+    "⚓ Bada Visual Regional Prompt #1": {
+      "nodeType": "BadaRegionalPrompt",
+      "timestamp": 1788938129718,
+      "mode": 0,
+      "isBypassed": false,
+      "isMuted": false,
+      "widgets": {
+        "prompt_text": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\n\nA high-definition 16:9 multi-panel composition strictly partitioned into 2 proportional sections.\n[Subject / Character Profile & Visual Consistency]: Korean man in his 30s, neat dandy cut black hair, navy business suit, identical character features and costume maintained across all panels.\n[Spatial Layout & Exact Proportional Placement]:\n- Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height): .\n- Top center panel (occupying exactly 33% width from 33% to 67%, 67% height from 0% to 67%): .\n[Multi-Panel Layout & Strict Proportional Scale]: Split-screen multi-panel collage layout strictly adhering to the exact percentage width and height boundaries specified above for each column and row without shifting, resizing, or distorting relative panel scales. Each panel is cleanly separated by crisp thin black divider lines, clean comic grid panels, pristine artwork without any text, labels, numbers, coordinates, or watermarks.\n\nclean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "format": "Natural Spatial (Krea/MiniMax/Gemini/GPT)",
+        "aspect_ratio": "16:9",
+        "grid_cols": 6,
+        "grid_rows": 3,
+        "ui_language": "한국어",
+        "grid_data": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"aspectRatio\":\"16:9\",\"white_bg\":false,\"whiteBg\":false,\"grid_borders\":true,\"gridBorders\":true,\"active_art_style\":\"photorealistic\",\"character_profile\":\"Korean man in his 30s, neat dandy cut black hair, navy business suit\",\"character_profile_ko\":\"30대 한국 남성, 깔끔한 댄디컷 흑발, 네이비 정장 수트\",\"characterProfile\":\"Korean man in his 30s, neat dandy cut black hair, navy business suit\",\"characterProfileKo\":\"30대 한국 남성, 깔끔한 댄디컷 흑발, 네이비 정장 수트\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height)\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":1,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Top center panel (occupying exactly 33% width from 33% to 67%, 67% height from 0% to 67%)\"}]}",
+        "prefix_prompt": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography",
+        "suffix_prompt": "clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "visual_grid_ui": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"white_bg\":false,\"grid_borders\":true,\"character_profile\":\"Korean man in his 30s, neat dandy cut black hair, navy business suit\",\"character_profile_ko\":\"30대 한국 남성, 깔끔한 댄디컷 흑발, 네이비 정장 수트\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height)\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":1,\"ko_prompt\":\"\",\"koPrompt\":\"\",\"prompt\":\"\",\"spatial\":\"Top center panel (occupying exactly 33% width from 33% to 67%, 67% height from 0% to 67%)\"}],\"prefix\":\"RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\",\"suffix\":\"clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range\",\"format\":\"Natural Spatial (Krea/MiniMax/Gemini/GPT)\",\"ui_language\":\"한국어\",\"stage_height\":320}"
+      },
+      "_isLoraStack": false,
+      "_isFastGroups": false,
+      "_disabledWidgets": []
+    },
+    "⚓ Bada Visual Regional Prompt #2": {
+      "nodeType": "BadaRegionalPrompt",
+      "timestamp": 1788951657692,
+      "mode": 0,
+      "isBypassed": false,
+      "isMuted": false,
+      "widgets": {
+        "prompt_text": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\n\nA high-definition 16:9 multi-panel composition strictly partitioned into 3 proportional sections.\n[Spatial Layout & Exact Proportional Placement]:\n- Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height): bust shot, upper body to chest, front view, neckline detail.\n- Center vertical panel (occupying exactly 33% width from 33% to 67%, full 100% height): Full body sitting with knees bent and covering knees with hands.\n- Right vertical panel (occupying exactly 33% width from 67% to 100%, full 100% height): Full body: side.\n[Multi-Panel Layout & Strict Proportional Scale]: Split-screen multi-panel collage layout strictly adhering to the exact percentage width and height boundaries specified above for each column and row without shifting, resizing, or distorting relative panel scales. Each panel is cleanly separated by crisp thin black divider lines, clean comic grid panels, pristine artwork without any text, labels, numbers, coordinates, or watermarks.\n\nclean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "format": "Natural Spatial (Krea/MiniMax/Gemini/GPT)",
+        "aspect_ratio": "16:9",
+        "grid_cols": 6,
+        "grid_rows": 3,
+        "ui_language": "English",
+        "grid_data": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"aspectRatio\":\"16:9\",\"white_bg\":false,\"whiteBg\":false,\"grid_borders\":true,\"gridBorders\":true,\"active_art_style\":\"photorealistic\",\"character_profile\":\"\",\"character_profile_ko\":\"\",\"characterProfile\":\"\",\"characterProfileKo\":\"\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"상반신 가슴까지: 정면\",\"koPrompt\":\"상반신 가슴까지: 정면\",\"prompt\":\"bust shot, upper body to chest, front view, neckline detail\",\"spatial\":\"Left vertical panel (occupying exactly 33% width from 0% to 33%, full 100% height)\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":2,\"ko_prompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"koPrompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"prompt\":\"Full body sitting with knees bent and covering knees with hands\",\"spatial\":\"Center vertical panel (occupying exactly 33% width from 33% to 67%, full 100% height)\"},{\"id\":3,\"c1\":4,\"c2\":5,\"r1\":0,\"r2\":2,\"ko_prompt\":\"전신: 측면\",\"koPrompt\":\"전신: 측면\",\"prompt\":\"Full body: side\",\"spatial\":\"Right vertical panel (occupying exactly 33% width from 67% to 100%, full 100% height)\"}]}",
+        "prefix_prompt": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography",
+        "suffix_prompt": "clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "visual_grid_ui": "{\"cols\":6,\"rows\":3,\"aspect_ratio\":\"16:9\",\"white_bg\":false,\"grid_borders\":true,\"character_profile\":\"\",\"character_profile_ko\":\"\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"상반신 가슴까지: 정면\",\"prompt\":\"bust shot, upper body to chest, front view, neckline detail\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":2,\"ko_prompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"prompt\":\"Full body sitting with knees bent and covering knees with hands\"},{\"id\":3,\"c1\":4,\"c2\":5,\"r1\":0,\"r2\":2,\"ko_prompt\":\"전신: 측면\",\"prompt\":\"Full body: side\"}],\"prefix\":\"RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\",\"suffix\":\"clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range\",\"format\":\"Natural Spatial (Krea/MiniMax/Gemini/GPT)\",\"ui_language\":\"English\",\"stage_height\":320}"
+      },
+      "_isLoraStack": false,
+      "_isFastGroups": false
+    },
+    "⚓ Bada Visual Regional Prompt #3": {
+      "nodeType": "BadaRegionalPrompt",
+      "timestamp": 1788951696685,
+      "mode": 0,
+      "isBypassed": false,
+      "isMuted": false,
+      "widgets": {
+        "prompt_text": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\n\nA high-definition 16:9 multi-panel composition strictly partitioned into 5 proportional sections.\n[Spatial Layout & Exact Proportional Placement]:\n- Top-left panel (occupying exactly 33% width from 0% to 33%, 60% height from 0% to 60%): bust shot, upper body to chest, front view, neckline detail.\n- Top center panel (occupying exactly 33% width from 33% to 67%, 60% height from 0% to 60%): Full body sitting with knees bent and covering knees with hands.\n- Top-right panel (occupying exactly 33% width from 67% to 100%, 60% height from 0% to 60%): Full body: side.\n- Bottom-left panel (occupying exactly 50% width from 0% to 50%, 40% height from 60% to 100%): Full body lying in fetal position.\n- Bottom-right panel (occupying exactly 50% width from 50% to 100%, 40% height from 60% to 100%): pink tight exercise full body suit, bare feet, pink feet top.\n[Multi-Panel Layout & Strict Proportional Scale]: Split-screen multi-panel collage layout strictly adhering to the exact percentage width and height boundaries specified above for each column and row without shifting, resizing, or distorting relative panel scales. Each panel is cleanly separated by crisp thin black divider lines, clean comic grid panels, pristine artwork without any text, labels, numbers, coordinates, or watermarks.\n\nclean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "format": "Natural Spatial (Krea/MiniMax/Gemini/GPT)",
+        "aspect_ratio": "16:9",
+        "grid_cols": 6,
+        "grid_rows": 5,
+        "ui_language": "English",
+        "grid_data": "{\"cols\":6,\"rows\":5,\"aspect_ratio\":\"16:9\",\"aspectRatio\":\"16:9\",\"white_bg\":false,\"whiteBg\":false,\"grid_borders\":true,\"gridBorders\":true,\"active_art_style\":\"photorealistic\",\"character_profile\":\"\",\"character_profile_ko\":\"\",\"characterProfile\":\"\",\"characterProfileKo\":\"\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"상반신 가슴까지: 정면\",\"koPrompt\":\"상반신 가슴까지: 정면\",\"prompt\":\"bust shot, upper body to chest, front view, neckline detail\",\"spatial\":\"Top-left panel (occupying exactly 33% width from 0% to 33%, 60% height from 0% to 60%)\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":2,\"ko_prompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"koPrompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"prompt\":\"Full body sitting with knees bent and covering knees with hands\",\"spatial\":\"Top center panel (occupying exactly 33% width from 33% to 67%, 60% height from 0% to 60%)\"},{\"id\":3,\"c1\":4,\"c2\":5,\"r1\":0,\"r2\":2,\"ko_prompt\":\"전신: 측면\",\"koPrompt\":\"전신: 측면\",\"prompt\":\"Full body: side\",\"spatial\":\"Top-right panel (occupying exactly 33% width from 67% to 100%, 60% height from 0% to 60%)\"},{\"id\":4,\"c1\":0,\"c2\":2,\"r1\":3,\"r2\":4,\"ko_prompt\":\"태아자세로 누워 있는 전신\",\"koPrompt\":\"태아자세로 누워 있는 전신\",\"prompt\":\"Full body lying in fetal position\",\"spatial\":\"Bottom-left panel (occupying exactly 50% width from 0% to 50%, 40% height from 60% to 100%)\"},{\"id\":5,\"c1\":3,\"c2\":5,\"r1\":3,\"r2\":4,\"ko_prompt\":\"핑크색 타이트한 운동 전신 슈트, 맨발, 핑크색 발톱\",\"koPrompt\":\"핑크색 타이트한 운동 전신 슈트, 맨발, 핑크색 발톱\",\"prompt\":\"pink tight exercise full body suit, bare feet, pink feet top\",\"spatial\":\"Bottom-right panel (occupying exactly 50% width from 50% to 100%, 40% height from 60% to 100%)\"}]}",
+        "prefix_prompt": "RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography",
+        "suffix_prompt": "clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range",
+        "visual_grid_ui": "{\"cols\":6,\"rows\":5,\"aspect_ratio\":\"16:9\",\"white_bg\":false,\"grid_borders\":true,\"character_profile\":\"\",\"character_profile_ko\":\"\",\"areas\":[{\"id\":1,\"c1\":0,\"c2\":1,\"r1\":0,\"r2\":2,\"ko_prompt\":\"상반신 가슴까지: 정면\",\"prompt\":\"bust shot, upper body to chest, front view, neckline detail\"},{\"id\":2,\"c1\":2,\"c2\":3,\"r1\":0,\"r2\":2,\"ko_prompt\":\"무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신\",\"prompt\":\"Full body sitting with knees bent and covering knees with hands\"},{\"id\":3,\"c1\":4,\"c2\":5,\"r1\":0,\"r2\":2,\"ko_prompt\":\"전신: 측면\",\"prompt\":\"Full body: side\"},{\"id\":4,\"c1\":0,\"c2\":2,\"r1\":3,\"r2\":4,\"ko_prompt\":\"태아자세로 누워 있는 전신\",\"prompt\":\"Full body lying in fetal position\"},{\"id\":5,\"c1\":3,\"c2\":5,\"r1\":3,\"r2\":4,\"ko_prompt\":\"핑크색 타이트한 운동 전신 슈트, 맨발, 핑크색 발톱\",\"prompt\":\"pink tight exercise full body suit, bare feet, pink feet top\"}],\"prefix\":\"RAW candid photo, authentic portrait photography, shot on 50mm f/1.8 lens, natural human skin texture with subtle pores, soft daylight studio lighting, unretouched real person photography\",\"suffix\":\"clean neutral background, true-to-life skin tones, natural shadows, sharp focus, 35mm film grain, high dynamic range\",\"format\":\"Natural Spatial (Krea/MiniMax/Gemini/GPT)\",\"ui_language\":\"English\",\"stage_height\":320}"
       },
       "_isLoraStack": false,
       "_isFastGroups": false

@@ -1151,25 +1151,8 @@ class WorkflowsPlusManager {
             setTimeout(() => clearInterval(timer), 10000);
         }
 
-        if (!window.__BADA_TOOLTIP_OBSERVER_ATTACHED__) {
-            window.__BADA_TOOLTIP_OBSERVER_ATTACHED__ = true;
-            const tipObserver = new MutationObserver((mutations) => {
-                for (const m of mutations) {
-                    for (const node of m.addedNodes) {
-                        if (node.nodeType === 1) {
-                            const tip = node.classList?.contains("p-tooltip-text") ? node : node.querySelector?.(".p-tooltip-text");
-                            if (tip && tip.textContent) {
-                                const cleaned = tip.textContent.replace(/\s*\([anmw]\)$/i, "");
-                                if (cleaned !== tip.textContent) {
-                                    tip.textContent = cleaned;
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-            tipObserver.observe(document.body, { childList: true, subtree: true });
-        }
+        // Tooltip observer removed: All Bada settings now use explicit sub-descriptions,
+        // eliminating interference with native PrimeVue tooltips.
     }
 
     mountToContainer(container) {

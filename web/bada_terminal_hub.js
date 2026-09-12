@@ -911,6 +911,34 @@ function registerSidebarTab() {
     }
 }
 
+function isTerminalSidebarEnabled() {
+    try {
+        if (window.app?.ui?.settings) {
+            const val = window.app.ui.settings.getSettingValue("BadaUtils.TerminalHubSidebar", true);
+            if (typeof val === "boolean") return val;
+        }
+    } catch (_) {}
+    return true;
+}
+
+export function updateTerminalSidebarVisibility(forceState) {
+    const enabled = (forceState !== undefined) ? !!forceState : isTerminalSidebarEnabled();
+    const buttons = document.querySelectorAll('button:has(.bada-tab-icon-terminal), [data-testid="bada-terminal-hub-tab-button"]');
+    buttons.forEach(btn => {
+        btn.style.display = enabled ? "" : "none";
+    });
+
+    if (!enabled) {
+        try {
+            const activeTab = window.app?.extensionManager?.sidebarTab?.activeTab;
+            if (activeTab === "bada-terminal-hub" || activeTab?.id === "bada-terminal-hub") {
+                window.app.extensionManager.sidebarTab.activeTab = null;
+            }
+        } catch (_) {}
+    }
+}
+window.__BADA_SYNC_TERMINAL_SIDEBAR__ = updateTerminalSidebarVisibility;
+
 function reorderTerminalSidebarTab() {
     // 1. Move to end of extensionManager tabs array
     try {
@@ -934,6 +962,8 @@ function reorderTerminalSidebarTab() {
             }
         }
     } catch (e) {}
+
+    updateTerminalSidebarVisibility();
 }
 
 // Ensure strict single DOM button and keep at bottom of sidebar

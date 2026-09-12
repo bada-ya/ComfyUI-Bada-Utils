@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
 import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary, getGlobalPresetsStore } from "./presets_overview_modal.js";
 import { showToast } from "./presets_modal.js";
+import { setupDualManager } from "./bada_dual_manager.js";
 
 /**
  * ComfyUI-Bada-Utils · bada_core.js
@@ -17,46 +18,72 @@ import { showToast } from "./presets_modal.js";
 // ──────────────────────────────────────────────────────────────────────────────
 //  Bilingual Settings Definitions
 // ──────────────────────────────────────────────────────────────────────────────
+//  SVG Vector Icons for Settings UI (100% Native Vector Matches)
+// ──────────────────────────────────────────────────────────────────────────────
+const BADA_ICONS = {
+    workflow: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="15" height="15" style="display:inline-block; vertical-align:-2px; filter:drop-shadow(0 0 3px rgba(0,240,255,0.85));"><path fill="none" stroke="#00f0ff" stroke-linecap="round" stroke-width="1.35" d="M9.186 3.1H6.814m2.372 9.8H7.553C4.466 12.9 2.2 9.904 2.95 6.812l.305-1.262M14.75 2.172l-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Zm-8.304 0-.593 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.772 0-1.338-.749-1.15-1.522l.592-2.45A1.194 1.194 0 012.995.65h2.3c.771 0 1.337.749 1.15 1.522Zm8.304 9.8-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Z"/></svg>`,
+    terminal: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#00e5ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:-3px; filter:drop-shadow(0 0 4px rgba(0,229,255,0.85));"><rect x="2" y="4" width="20" height="16" rx="3"/><polyline points="6 9 10 12 6 15"/><line x1="12" y1="15" x2="17" y2="15"/></svg>`
+};
+
+// ──────────────────────────────────────────────────────────────────────────────
+//  Bilingual Settings Definitions (Title + Sub-description, No Numbers, No Tooltips)
+// ──────────────────────────────────────────────────────────────────────────────
 const BADA_SETTINGS_TEXTS = {
     en: {
-        category: "⚓ Bada Utils",
-        catGeneral: "1. General",
-        catSmart: "2. Smart Features",
-        catWorkflow: "3. Workflow & QoL",
-        catStartup: "4. Startup Behavior",
-        catPresets: "5. Global Presets",
-        catImage: "6. Image & Clipboard QoL",
+        category: "Bada Utils",
         langName: "🌐 UI Language",
-        langTooltip: "Set display language for Bada nodes, context menus, modals, and Workflows+ sidebar.",
-        sidebarName: "📁 Sidebar Workflow Folder Management",
-        sidebarTooltip: "Organize and move workflow folders via drag-and-drop in the left sidebar.",
-        mouseName: "🖱️ Smooth Mouse Pan & Wheel Zoom Fixer",
-        mouseTooltip: "Smooth mouse wheel zooming and middle-click panning even over canvas nodes or text widgets.",
+        langDesc: "Set display language for Bada nodes, context menus, modals, and Workflows+ sidebar.",
+
+        sidebarName: "📁 Sidebar Workflows+ Folder Management",
+        sidebarDesc: `Replaces native sidebar Workflows with <span style="color: #00f0ff; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">${BADA_ICONS.workflow} Workflows+</span>. Enables folder creation and drag-and-drop management.`,
+
+        mouseName: "🖱️ Mouse Wheel Zoom & Middle-Click Pan Fixer",
+        mouseDesc: "Ensures smooth mouse wheel zooming and middle-click drag-panning even directly over canvas nodes or text widgets.",
+
         blankName: "🧼 Clean Blank Canvas Startup",
-        blankTooltip: "Start ComfyUI and new tabs with a clean blank canvas instead of default workflows with missing-model errors.",
+        blankDesc: "Start ComfyUI and new tabs with a clean blank canvas instead of default workflows with missing-model errors.",
+
+        presetsBadgeName: "🏷️ Global Presets",
+        presetsBadgeDesc: "Display shortcut preset badges on node roofs. Disabling this hides the badges without deleting any preset data.",
         presetsName: "Global Presets",
+
         loadImageName: "📋 Clipboard & LoadImage Auto-Error Fixer",
-        loadImageTooltip: "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes."
+        loadImageDesc: "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes.",
+
+        terminalHubPlain: "Bada Terminal Hub",
+        terminalHubTitle: `${BADA_ICONS.terminal} Bada Terminal Hub`,
+        terminalHubDesc: "Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar.",
+
+        dualManagerName: "🧩 Classic Manager Quick Launcher",
+        dualManagerDesc: "Adds a classic ComfyUI-Manager launch button directly to the left of Extensions on the top bar, allowing both new and legacy managers to be used."
     },
     ko: {
-        category: "⚓ Bada Utils",
-        catGeneral: "1. 일반",
-        catSmart: "2. 스마트 기능",
-        catWorkflow: "3. 워크플로우 & 편의성",
-        catStartup: "4. 시작 환경",
-        catPresets: "5. 글로벌 프리셋",
-        catImage: "6. 이미지 & 클립보드 편의성",
+        category: "Bada Utils",
         langName: "🌐 UI 언어 설정",
-        langTooltip: "Bada 모든 노드, 우클릭 메뉴, 모달 창, Workflows+의 표시 언어를 설정합니다.",
-        sidebarName: "📁 사이드바 워크플로우 폴더 관리",
-        sidebarTooltip: "왼쪽 사이드바에서 드래그 앤 드롭으로 워크플로우 폴더를 자유롭게 정리하고 이동합니다.",
-        mouseName: "🖱️ 부드러운 마우스 휠 줌 & 패닝 보정기",
-        mouseTooltip: "캔버스 위 노드나 텍스트 박스 위에서도 끊김 없이 휠 줌 및 중간 버튼 패닝이 가능하도록 보정합니다.",
+        langDesc: "Bada 모든 노드, 우클릭 메뉴, 모달 창, Workflows+의 표시 언어를 설정합니다.",
+
+        sidebarName: "📁 사이드바 워크플로우+ 폴더 관리",
+        sidebarDesc: `왼쪽 사이드바의 순정 워크플로우를 <span style="color: #00f0ff; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">${BADA_ICONS.workflow} 워크플로우+</span>로 대체합니다. 폴더 생성, 워크플로우 이동이 가능해집니다.`,
+
+        mouseName: "🖱️ 마우스 휠 줌 & 중간 버튼(휠) 패닝 보정기",
+        mouseDesc: "캔버스 위 노드나 텍스트 박스 위에서도 끊김 없이 휠 줌 및 중간 버튼(휠 클릭) 드래그 패닝이 작동하도록 보정합니다.",
+
         blankName: "🧼 시작 시 클린 빈 캔버스로 열기",
-        blankTooltip: "ComfyUI 실행 시 모델 누락 에러가 발생하는 기본 템플릿 대신 깨끗한 빈 캔버스로 시작합니다.",
+        blankDesc: "ComfyUI 실행 시 모델 누락 에러가 발생하는 기본 템플릿 대신 깨끗한 빈 캔버스로 시작합니다.",
+
+        presetsBadgeName: "🏷️ 글로벌 프리셋",
+        presetsBadgeDesc: "노드 상단 지붕에 글로벌 프리셋 바로가기 뱃지를 표시합니다. 꺼도 저장된 프리셋 데이터는 안전하게 유지됩니다.",
         presetsName: "글로벌 프리셋",
+
         loadImageName: "📋 클립보드 & LoadImage 자동 에러 해결사",
-        loadImageTooltip: "LoadImage 노드에 클립보드 이미지(Ctrl+V)를 붙여넣거나 하위 경로 로드 시 발생하는 빨간 테두리 에러를 자동으로 치료합니다."
+        loadImageDesc: "LoadImage 노드에 클립보드 이미지(Ctrl+V)를 붙여넣거나 하위 경로 로드 시 발생하는 빨간 테두리 에러를 자동으로 치료합니다.",
+
+        terminalHubPlain: "바다 터미널 허브",
+        terminalHubTitle: `${BADA_ICONS.terminal} 바다 터미널 허브`,
+        terminalHubDesc: "좌측 사이드바 하단에 Bada Terminal Hub 바로가기 탭 아이콘을 표시합니다.",
+
+        dualManagerName: "🧩 클래식 매니저 퀵 런처",
+        dualManagerDesc: "신형 상단 바의 Extensions 버튼 왼쪽에 클래식 ComfyUI-Manager 호출 버튼을 추가하여 신형과 구형 매니저를 동시에 사용합니다."
     }
 };
 
@@ -68,10 +95,10 @@ function getSettingsText(key) {
 const BADA_UNIFIED_SETTINGS = {
     lang: {
         id: "BadaUtils.Language",
-        category: ["⚓ Bada Utils", "1. General"],
+        category: ["Bada Utils", "Language"],
         name: "🌐 UI Language",
-        tooltip: "Set display language for Bada nodes, context menus, modals, and Workflows+ sidebar.",
         type: "combo",
+        sortOrder: 900,
         options: [
             { value: "en", text: "English" },
             { value: "ko", text: "한국어 (Korean)" },
@@ -80,40 +107,65 @@ const BADA_UNIFIED_SETTINGS = {
     },
     sidebar: {
         id: "BadaUtils.SidebarOrganizer",
-        category: ["⚓ Bada Utils", "2. Smart Features"],
-        name: "📁 Sidebar Workflow Folder Management",
-        tooltip: "Organize and move workflow folders via drag-and-drop in the left sidebar.",
+        category: ["Bada Utils", "Sidebar"],
+        name: "📁 Sidebar Workflows+ Folder Management",
         type: "boolean",
+        sortOrder: 800,
         defaultValue: true
     },
     mouse: {
         id: "BadaUtils.MouseFix",
-        category: ["⚓ Bada Utils", "3. Workflow & QoL"],
-        name: "🖱️ Smooth Mouse Pan & Wheel Zoom Fixer",
-        tooltip: "Smooth mouse wheel zooming and middle-click panning even over canvas nodes or text widgets.",
+        category: ["Bada Utils", "MouseFix"],
+        name: "🖱️ Mouse Wheel Zoom & Middle-Click Pan Fixer",
         type: "boolean",
+        sortOrder: 700,
         defaultValue: true
     },
     blankStartup: {
         id: "BadaUtils.BlankStartup",
-        category: ["⚓ Bada Utils", "4. Startup Behavior"],
+        category: ["Bada Utils", "BlankStartup"],
         name: "🧼 Clean Blank Canvas Startup",
-        tooltip: "Start ComfyUI and new tabs with a clean blank canvas instead of default workflows with missing-model errors.",
         type: "boolean",
+        sortOrder: 600,
+        defaultValue: true
+    },
+    presetsBadge: {
+        id: "BadaUtils.ShowPresetBadges",
+        category: ["Bada Utils", "PresetBadges"],
+        name: "🏷️ Global Presets",
+        type: "boolean",
+        sortOrder: 500,
         defaultValue: true
     },
     presetsPanel: {
         id: "BadaUtils.GlobalPresetsPanel",
-        category: ["⚓ Bada Utils", "5. Global Presets"],
+        category: ["Bada Utils", "PresetsPanel"],
         name: "Global Presets",
+        sortOrder: 400,
         defaultValue: null
     },
     loadImageFix: {
         id: "BadaUtils.LoadImageClipboardFix",
-        category: ["⚓ Bada Utils", "6. Image & Clipboard QoL"],
+        category: ["Bada Utils", "LoadImageFix"],
         name: "📋 Clipboard & LoadImage Auto-Error Fixer",
-        tooltip: "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes.",
         type: "boolean",
+        sortOrder: 300,
+        defaultValue: true
+    },
+    terminalHub: {
+        id: "BadaUtils.TerminalHubSidebar",
+        category: ["Bada Utils", "TerminalHub"],
+        name: "Bada Terminal Hub",
+        type: "boolean",
+        sortOrder: 200,
+        defaultValue: true
+    },
+    dualManager: {
+        id: "BadaUtils.DualManager",
+        category: ["Bada Utils", "DualManager"],
+        name: "🧩 Classic Manager Quick Launcher",
+        type: "boolean",
+        sortOrder: 100,
         defaultValue: true
     }
 };
@@ -199,16 +251,26 @@ function escapeHtml(str) {
             border-color: rgba(255, 255, 255, 0.08) !important;
         }
         .setting-group:has([data-setting-id^="BadaUtils"]) h3 {
-            margin-top: 2px !important;
-            margin-bottom: 6px !important;
-            font-size: 14px !important;
-            font-weight: 700 !important;
+            display: none !important;
         }
         .setting-group:has([data-setting-id^="BadaUtils"]) .setting-item {
-            margin-bottom: 6px !important;
+            margin-bottom: 14px !important;
+            padding-bottom: 12px !important;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+        }
+        .setting-group:has([data-setting-id^="BadaUtils"]) .setting-item:last-child {
+            border-bottom: none !important;
         }
         .setting-group:has([data-setting-id^="BadaUtils"]) .flex.min-h-8 {
-            min-height: 28px !important;
+            min-height: 34px !important;
+            align-items: flex-start !important;
+        }
+        .setting-group:has([data-setting-id^="BadaUtils"]) .form-label {
+            align-items: flex-start !important;
+            margin-top: 2px !important;
+        }
+        .setting-group:has([data-setting-id^="BadaUtils"]) .form-input {
+            margin-top: 2px !important;
         }
 
         /* 2. Full-width styling for Bada Global Presets panel */
@@ -241,54 +303,6 @@ function escapeHtml(str) {
             filter: brightness(1.18);
             transform: translateY(-1px);
         }
-
-        /* 3. Wide readable tooltips for settings */
-        .p-tooltip {
-            max-width: 520px !important;
-            width: max-content !important;
-            z-index: 9999 !important;
-        }
-        .p-tooltip .p-tooltip-text {
-            max-width: 520px !important;
-            min-width: 320px !important;
-            white-space: normal !important;
-            line-height: 1.55 !important;
-            font-size: 13px !important;
-            font-weight: 400 !important;
-            padding: 9px 14px !important;
-            border-radius: 8px !important;
-            background: #374151 !important;
-            color: #ffffff !important;
-            border: 1px solid rgba(255, 255, 255, 0.16) !important;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.6), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
-            word-break: keep-all !important;
-            text-align: left !important;
-        }
-        .p-tooltip.p-tooltip-right .p-tooltip-arrow {
-            border-right-color: #374151 !important;
-        }
-        .p-tooltip.p-tooltip-left .p-tooltip-arrow {
-            border-left-color: #374151 !important;
-        }
-        .p-tooltip.p-tooltip-top .p-tooltip-arrow {
-            border-top-color: #374151 !important;
-        }
-        .p-tooltip.p-tooltip-bottom .p-tooltip-arrow {
-            border-bottom-color: #374151 !important;
-        }
-
-        /* Enlarge hit-area for Bada setting info icons */
-        .setting-group:has([data-setting-id^="BadaUtils"]) .pi-info-circle {
-            cursor: pointer;
-            padding: 4px 6px;
-            margin: -4px 0;
-            border-radius: 4px;
-            transition: color 0.15s, background-color 0.15s;
-        }
-        .setting-group:has([data-setting-id^="BadaUtils"]) .pi-info-circle:hover {
-            color: #38bdf8 !important;
-            background-color: rgba(56, 189, 248, 0.14);
-        }
     `;
     document.head.appendChild(style);
 })();
@@ -309,7 +323,66 @@ function buildInlinePresetsPanel() {
 
     const panel = document.createElement("div");
     panel.id = "bada-inline-presets-panel";
-    panel.style.cssText = "width: 100%; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box;";
+    panel.style.cssText = "width: 100%; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box;";
+
+    // 0. Preset Badges Toggle Control Row
+    const badgeRow = document.createElement("div");
+    badgeRow.id = "bada-preset-badge-toggle-row";
+    badgeRow.style.cssText = [
+        "display: flex; align-items: center; justify-content: space-between; gap: 12px;",
+        "padding: 10px 14px; background: rgba(255, 255, 255, 0.03);",
+        "border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px;"
+    ].join("");
+
+    const isBadgesEnabled = (() => {
+        try {
+            if (window.app?.ui?.settings) {
+                const v = window.app.ui.settings.getSettingValue("BadaUtils.ShowPresetBadges", true);
+                if (typeof v === "boolean") return v;
+            }
+        } catch (_) {}
+        try {
+            const local = localStorage.getItem("Comfy.Settings.BadaUtils.ShowPresetBadges");
+            if (local !== null) return JSON.parse(local);
+        } catch (_) {}
+        return true;
+    })();
+
+    badgeRow.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+            <span style="font-size: 13px; font-weight: 700; color: #f8fafc;">${isKo ? "🏷️ 노드 프리셋 뱃지 표시" : "🏷️ Show Node Preset Badges"}</span>
+            <span style="font-size: 11px; color: #94a3b8; line-height: 1.4;">${isKo ? "노드 상단 지붕에 글로벌 프리셋 바로가기 뱃지를 표시합니다. 꺼도 저장된 프리셋 데이터는 안전하게 유지됩니다." : "Display shortcut preset badges on node roofs. Disabling this hides the badges without deleting any preset data."}</span>
+        </div>
+        <label style="position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; flex-shrink: 0; margin-left: 12px;">
+            <input type="checkbox" id="bada-badge-toggle-checkbox" ${isBadgesEnabled ? "checked" : ""} style="opacity: 0; width: 0; height: 0;">
+            <span class="bada-switch-track" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: ${isBadgesEnabled ? "#6366f1" : "rgba(255, 255, 255, 0.2)"}; transition: .2s; border-radius: 24px;"></span>
+            <span class="bada-switch-thumb" style="position: absolute; content: ''; height: 18px; width: 18px; left: ${isBadgesEnabled ? "23px" : "3px"}; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.4);"></span>
+        </label>
+    `;
+
+    const checkbox = badgeRow.querySelector("#bada-badge-toggle-checkbox");
+    const track = badgeRow.querySelector(".bada-switch-track");
+    const thumb = badgeRow.querySelector(".bada-switch-thumb");
+
+    checkbox.addEventListener("change", (e) => {
+        const checked = e.target.checked;
+        if (track) track.style.backgroundColor = checked ? "#6366f1" : "rgba(255, 255, 255, 0.2)";
+        if (thumb) thumb.style.left = checked ? "23px" : "3px";
+        try {
+            if (window.app?.ui?.settings) {
+                window.app.ui.settings.setSettingValue("BadaUtils.ShowPresetBadges", checked);
+            }
+        } catch (_) {}
+        try {
+            localStorage.setItem("Comfy.Settings.BadaUtils.ShowPresetBadges", JSON.stringify(checked));
+        } catch (_) {}
+        app.graph?.setDirtyCanvas?.(true, true);
+        showToast(isKo 
+            ? (checked ? "🏷️ 노드 프리셋 뱃지 표시 켜짐" : "🏷️ 노드 프리셋 뱃지 숨김 (프리셋 데이터는 안전하게 보존됨)")
+            : (checked ? "🏷️ Node preset badges shown" : "🏷️ Node preset badges hidden (data preserved)"), "info");
+    });
+
+    panel.appendChild(badgeRow);
 
     // Header Controls Bar (Summary + Badges + Toggle Button)
     const headerBar = document.createElement("div");
@@ -480,70 +553,100 @@ function applyBilingualSettingsUI(targetLang) {
         const isKo = lang === "ko";
         const texts = BADA_SETTINGS_TEXTS[isKo ? "ko" : "en"];
 
-        // 1. Synchronize reactive settings store definitions in ComfyUI frontend
-        const lookup = app.ui?.settings?.settingsLookup || app.ui?.settings?.settingsById;
-        if (lookup) {
-            const updateDef = (id, name, tooltip, catKey) => {
-                if (lookup[id]) {
-                    if (name) lookup[id].name = name;
-                    if (tooltip) lookup[id].tooltip = tooltip;
-                    if (catKey) lookup[id].category = [texts.category, texts[catKey]];
-                }
-            };
-            updateDef(BADA_UNIFIED_SETTINGS.lang.id, texts.langName, texts.langTooltip, "catGeneral");
-            updateDef(BADA_UNIFIED_SETTINGS.sidebar.id, texts.sidebarName, texts.sidebarTooltip, "catSmart");
-            updateDef(BADA_UNIFIED_SETTINGS.mouse.id, texts.mouseName, texts.mouseTooltip, "catWorkflow");
-            updateDef(BADA_UNIFIED_SETTINGS.blankStartup.id, texts.blankName, texts.blankTooltip, "catStartup");
-            updateDef(BADA_UNIFIED_SETTINGS.presetsPanel.id, texts.presetsName, null, "catPresets");
-            updateDef(BADA_UNIFIED_SETTINGS.loadImageFix.id, texts.loadImageName, texts.loadImageTooltip, "catImage");
-        }
+        // NOTE: Do NOT modify app.ui.settings.settingsLookup/settingsById here.
+        // Those are Vue reactive refs — any mutation triggers a full dialog re-render,
+        // which orphans PrimeVue tooltips at (0,0) and breaks ALL native tooltips.
+        // Bilingual display is handled purely through DOM-level label updates below.
 
-        // 2. Setting rows label updates (if dialog is currently rendered in DOM)
+        // 2. Setting rows label updates (Title with custom SVG + Sub-description below)
         const settingRows = document.querySelectorAll('[data-setting-id^="BadaUtils"], [data-setting-id^="⚓ Bada"]');
         settingRows.forEach(row => {
             const id = row.getAttribute("data-setting-id");
-            const labelEl = row.querySelector(".form-label, label, .setting-item-name, [id$='-label']");
-            if (!labelEl) return;
+            if (id === BADA_UNIFIED_SETTINGS.presetsPanel.id) return; // inline presets panel is handled separately
 
-            let targetText = null;
-            if (id === BADA_UNIFIED_SETTINGS.lang.id) targetText = texts.langName;
-            else if (id === BADA_UNIFIED_SETTINGS.sidebar.id) targetText = texts.sidebarName;
-            else if (id === BADA_UNIFIED_SETTINGS.mouse.id) targetText = texts.mouseName;
-            else if (id === BADA_UNIFIED_SETTINGS.blankStartup.id) targetText = texts.blankName;
-            else if (id === BADA_UNIFIED_SETTINGS.loadImageFix.id) targetText = texts.loadImageName;
+            const formLabel = row.querySelector(".form-label, label");
+            if (!formLabel) return;
 
-            if (targetText && labelEl.textContent.trim() !== targetText.trim()) {
-                labelEl.textContent = targetText;
+            let targetTitle = null;
+            let targetDesc = null;
+
+            if (id === BADA_UNIFIED_SETTINGS.lang.id) {
+                targetTitle = texts.langName;
+                targetDesc = texts.langDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.sidebar.id) {
+                targetTitle = texts.sidebarName;
+                targetDesc = texts.sidebarDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.mouse.id) {
+                targetTitle = texts.mouseName;
+                targetDesc = texts.mouseDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.blankStartup.id) {
+                targetTitle = texts.blankName;
+                targetDesc = texts.blankDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.presetsBadge.id) {
+                targetTitle = texts.presetsBadgeName;
+                targetDesc = texts.presetsBadgeDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.loadImageFix.id) {
+                targetTitle = texts.loadImageName;
+                targetDesc = texts.loadImageDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.terminalHub.id) {
+                targetTitle = texts.terminalHubTitle;
+                targetDesc = texts.terminalHubDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.dualManager.id) {
+                targetTitle = texts.dualManagerName;
+                targetDesc = texts.dualManagerDesc;
+            }
+
+            if (!targetTitle) return;
+
+            // Enforce vertical flex layout for form-label
+            formLabel.style.display = "flex";
+            formLabel.style.flexDirection = "column";
+            formLabel.style.alignItems = "flex-start";
+            formLabel.style.justifyContent = "center";
+            formLabel.style.gap = "3px";
+
+            // Title span injection (with custom SVG)
+            const titleSpan = formLabel.querySelector("span[id$='-label']") || formLabel.querySelector("span");
+            if (titleSpan && titleSpan.__badaTitle !== targetTitle) {
+                titleSpan.__badaTitle = targetTitle;
+                titleSpan.innerHTML = targetTitle;
+                titleSpan.style.color = "#f8fafc";
+                titleSpan.style.fontWeight = "600";
+                titleSpan.style.fontSize = "13px";
+                titleSpan.style.display = "inline-flex";
+                titleSpan.style.alignItems = "center";
+                titleSpan.style.gap = "6px";
+            }
+
+            // Sub-description injection
+            let descEl = formLabel.querySelector(".bada-setting-desc");
+            if (!descEl && targetDesc) {
+                descEl = document.createElement("div");
+                descEl.className = "bada-setting-desc";
+                descEl.style.cssText = "font-size: 11px; color: #94a3b8; line-height: 1.4; font-weight: 400; margin-top: 1px;";
+                formLabel.appendChild(descEl);
+            }
+            if (descEl && targetDesc && descEl.__badaDesc !== targetDesc) {
+                descEl.__badaDesc = targetDesc;
+                descEl.innerHTML = targetDesc;
             }
         });
 
-        // 3. Category group header text updates (preserve parent hierarchy spans if any)
-        const headers = document.querySelectorAll(".setting-group h3, .setting-group-header, .p-tabview-title");
-        headers.forEach(h => {
-            const lastChild = h.lastChild;
-            const text = (lastChild ? lastChild.textContent : h.textContent).trim();
-            let newText = null;
-            if (text.includes("General") || text.includes("일반")) newText = " " + texts.catGeneral;
-            else if (text.includes("Smart Features") || text.includes("스마트 기능")) newText = " " + texts.catSmart;
-            else if (text.includes("Workflow & QoL") || text.includes("워크플로우 & 편의성") || text.includes("워크플로우")) newText = " " + texts.catWorkflow;
-            else if (text.includes("Startup Behavior") || text.includes("시작 환경")) newText = " " + texts.catStartup;
-            else if (text.includes("Global Presets") || text.includes("글로벌 프리셋")) newText = " " + texts.catPresets;
-            else if (text.includes("Image & Clipboard") || text.includes("이미지 & 클립보드")) newText = " " + texts.catImage;
-
-            if (newText) {
-                if (lastChild && lastChild.nodeType === Node.TEXT_NODE) {
-                    if (lastChild.textContent !== newText) lastChild.textContent = newText;
-                } else if (h.textContent !== newText) {
-                    h.textContent = newText;
-                }
+        // 3. Decorate left sidebar nav item with anchor ⚓
+        const navLink = document.querySelector('[data-nav-id="root/Bada Utils"]');
+        if (navLink) {
+            const span = navLink.querySelector("span");
+            if (span && !span.textContent.startsWith("⚓")) {
+                span.textContent = "⚓ Bada Utils";
             }
-        });
+        }
     } catch (e) {
         console.warn("[ComfyUI-Bada-Utils] Safe bilingual UI updater handled exception:", e);
     } finally {
         isApplyingBilingualUI = false;
     }
 }
+window.__badaApplySettingsUI = applyBilingualSettingsUI;
 
 // ──────────────────────────────────────────────────────────────────────────────
 //  Extension Registration
@@ -560,13 +663,12 @@ app.registerExtension({
         // 2. Register Unified Bilingual Settings (English + 한국어)
         const safeAddSetting = (settingConfig) => {
             try {
+                console.log("[Bada safeAddSetting]", settingConfig.id, JSON.stringify(settingConfig.category));
                 app.ui.settings.addSetting(settingConfig);
             } catch (err) {
+                console.warn("[Bada safeAddSetting CAUGHT ERROR]", settingConfig.id, err);
                 try {
                     const fallbackConfig = { ...settingConfig };
-                    if (Array.isArray(fallbackConfig.category)) {
-                        fallbackConfig.category = fallbackConfig.category[0] || "⚓ Bada Utils";
-                    }
                     app.ui.settings.addSetting(fallbackConfig);
                 } catch (fallbackErr) {
                     console.warn("[ComfyUI-Bada-Utils] Failed to add setting:", settingConfig.id, err, fallbackErr);
@@ -577,10 +679,10 @@ app.registerExtension({
         // ① UI Language
         safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.lang.id,
-            category: [texts.category, texts.catGeneral],
+            category: [texts.category, "Language"],
             name: texts.langName,
-            tooltip: texts.langTooltip,
             type: BADA_UNIFIED_SETTINGS.lang.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.lang.sortOrder,
             options: BADA_UNIFIED_SETTINGS.lang.options,
             defaultValue: currentLang,
             onChange: (newVal) => {
@@ -605,10 +707,10 @@ app.registerExtension({
         // ② Sidebar Workflow Folder Management
         safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.sidebar.id,
-            category: [texts.category, texts.catSmart],
+            category: [texts.category, "Sidebar"],
             name: texts.sidebarName,
-            tooltip: texts.sidebarTooltip,
             type: BADA_UNIFIED_SETTINGS.sidebar.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.sidebar.sortOrder,
             defaultValue: BADA_UNIFIED_SETTINGS.sidebar.defaultValue,
             onChange: (newVal) => {
                 const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
@@ -621,28 +723,42 @@ app.registerExtension({
         // ③ Smooth Mouse Pan & Wheel Zoom Fixer
         safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.mouse.id,
-            category: [texts.category, texts.catWorkflow],
+            category: [texts.category, "MouseFix"],
             name: texts.mouseName,
-            tooltip: texts.mouseTooltip,
             type: BADA_UNIFIED_SETTINGS.mouse.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.mouse.sortOrder,
             defaultValue: BADA_UNIFIED_SETTINGS.mouse.defaultValue
         });
 
-        // ④ Startup Behavior (Clean Blank Canvas)
+        // ④ Startup Behavior (Clean Blank Canvas Startup)
         safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.blankStartup.id,
-            category: [texts.category, texts.catStartup],
+            category: [texts.category, "BlankStartup"],
             name: texts.blankName,
-            tooltip: texts.blankTooltip,
             type: BADA_UNIFIED_SETTINGS.blankStartup.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.blankStartup.sortOrder,
             defaultValue: BADA_UNIFIED_SETTINGS.blankStartup.defaultValue
         });
 
-        // ⑤ Full-Width Inline Global Presets Overview & Management Panel
+        // ⑤-1 Node Preset Badges
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.presetsBadge.id,
+            category: [texts.category, "PresetBadges"],
+            name: texts.presetsBadgeName,
+            type: BADA_UNIFIED_SETTINGS.presetsBadge.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.presetsBadge.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.presetsBadge.defaultValue,
+            onChange: () => {
+                app.graph?.setDirtyCanvas?.(true, true);
+            }
+        });
+
+        // ⑤-2 Full-Width Inline Global Presets Overview & Management Panel
         safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.presetsPanel.id,
-            category: [texts.category, texts.catPresets],
+            category: [texts.category, "PresetsPanel"],
             name: texts.presetsName,
+            sortOrder: BADA_UNIFIED_SETTINGS.presetsPanel.sortOrder,
             type: () => {
                 return buildInlinePresetsPanel();
             },
@@ -652,10 +768,10 @@ app.registerExtension({
         // ⑥ Clipboard & LoadImage Auto-Error Fixer
         safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.loadImageFix.id,
-            category: [texts.category, texts.catImage],
+            category: [texts.category, "LoadImageFix"],
             name: texts.loadImageName,
-            tooltip: texts.loadImageTooltip,
             type: BADA_UNIFIED_SETTINGS.loadImageFix.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.loadImageFix.sortOrder,
             defaultValue: BADA_UNIFIED_SETTINGS.loadImageFix.defaultValue,
             onChange: (newVal) => {
                 const isEnabled = (typeof newVal === "object" && newVal?.value !== undefined) ? newVal.value : newVal;
@@ -665,44 +781,43 @@ app.registerExtension({
             }
         });
 
-        // 3. 🛡️ PrimeVue Tooltip Deduplication & Stray Element Fixer
-        if (!window.__BADA_TOOLTIP_FIX_INSTALLED__) {
-            window.__BADA_TOOLTIP_FIX_INSTALLED__ = true;
-
-            const origAppendChild = document.body.appendChild.bind(document.body);
-            document.body.appendChild = function (node) {
-                if (node && node.nodeType === 1 && node.classList?.contains("p-tooltip")) {
-                    if (node.id && document.getElementById(node.id)) {
-                        return node;
-                    }
+        // ⑦ Bada Terminal Hub Sidebar Tab
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.terminalHub.id,
+            category: [texts.category, "TerminalHub"],
+            name: texts.terminalHubPlain || "Bada Terminal Hub",
+            type: BADA_UNIFIED_SETTINGS.terminalHub.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.terminalHub.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.terminalHub.defaultValue,
+            onChange: (newVal) => {
+                const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
+                if (window.__BADA_SYNC_TERMINAL_SIDEBAR__) {
+                    window.__BADA_SYNC_TERMINAL_SIDEBAR__(target);
                 }
-                return origAppendChild(node);
-            };
+            }
+        });
 
-            const origAddEventListener = EventTarget.prototype.addEventListener;
-            EventTarget.prototype.addEventListener = function (type, listener, options) {
-                if (type === "mouseenter" && (this.dataset?.pdTooltip === "true" || this.$_ptooltipIdAttr || this.classList?.contains("pi-info-circle") || (this.hasAttribute && this.hasAttribute("v-tooltip")))) {
-                    if (this.__badaTooltipMouseenter) {
-                        try {
-                            this.removeEventListener("mouseenter", this.__badaTooltipMouseenter);
-                        } catch (e) {}
-                    }
-                    this.__badaTooltipMouseenter = listener;
+        // ⑧ Classic Manager Quick Launcher
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.dualManager.id,
+            category: [texts.category, "DualManager"],
+            name: texts.dualManagerName,
+            type: BADA_UNIFIED_SETTINGS.dualManager.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.dualManager.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.dualManager.defaultValue,
+            onChange: (newVal) => {
+                const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
+                if (window.__BADA_SET_DUAL_MANAGER_VISIBILITY__) {
+                    window.__BADA_SET_DUAL_MANAGER_VISIBILITY__(target);
                 }
-                return origAddEventListener.call(this, type, listener, options);
-            };
+            }
+        });
 
-            const pruneStrayTooltips = () => {
-                document.querySelectorAll(".p-tooltip").forEach(el => {
-                    const r = el.getBoundingClientRect();
-                    if (r.left === 0 && r.top === 0) {
-                        el.remove();
-                    }
-                });
-            };
-
-            window.addEventListener("pointermove", pruneStrayTooltips, { passive: true });
-            window.addEventListener("mousemove", pruneStrayTooltips, { passive: true });
+        // Initialize Classic Manager Launcher
+        try {
+            setupDualManager();
+        } catch (e) {
+            console.warn("[ComfyUI-Bada-Utils] Dual Manager launcher init notice:", e);
         }
 
         // 4. ⌨️ Global ESC Key Dismissal for All Custom Bada Modals & Dialogs
@@ -763,12 +878,12 @@ app.registerExtension({
             if (window.LiteGraph && LiteGraph.registered_node_types) {
                 for (const [type, ctor] of Object.entries(LiteGraph.registered_node_types)) {
                     if (type.startsWith("Bada") || type === "UniversalPresetHub" || (ctor.category && (ctor.category.includes("Bada") || ctor.category.includes("🌊") || ctor.category.includes("🌟")))) {
-                        if (ctor.title) ctor.title = ctor.title.replace(/🌊|🌟/g, "⚓");
-                        if (ctor.prototype?.title) ctor.prototype.title = ctor.prototype.title.replace(/🌊|🌟/g, "⚓");
-                        if (ctor.category) ctor.category = ctor.category.replace(/🌊|🌟/g, "⚓");
+                        try { if (ctor.title) ctor.title = ctor.title.replace(/🌊|🌟/g, "⚓"); } catch (_) {}
+                        try { if (ctor.prototype?.title) ctor.prototype.title = ctor.prototype.title.replace(/🌊|🌟/g, "⚓"); } catch (_) {}
+                        try { if (ctor.category) ctor.category = ctor.category.replace(/🌊|🌟/g, "⚓"); } catch (_) {}
                         if (ctor.nodeData) {
-                            if (ctor.nodeData.category) ctor.nodeData.category = ctor.nodeData.category.replace(/🌊|🌟/g, "⚓");
-                            if (ctor.nodeData.display_name) ctor.nodeData.display_name = ctor.nodeData.display_name.replace(/🌊|🌟/g, "⚓");
+                            try { if (ctor.nodeData.category) ctor.nodeData.category = ctor.nodeData.category.replace(/🌊|🌟/g, "⚓"); } catch (_) {}
+                            try { if (ctor.nodeData.display_name) ctor.nodeData.display_name = ctor.nodeData.display_name.replace(/🌊|🌟/g, "⚓"); } catch (_) {}
                         }
                     }
                 }
@@ -778,6 +893,90 @@ app.registerExtension({
         setTimeout(updateNodeTitles, 500);
         setTimeout(updateNodeTitles, 1500);
         setTimeout(updateNodeTitles, 3000);
+
+        // 5. Safe & Efficient Triggering for Bilingual Settings UI (Title SVGs + Sub-descriptions)
+        if (!window.__BADA_SETTINGS_UI_OBSERVER_INSTALLED__) {
+            window.__BADA_SETTINGS_UI_OBSERVER_INSTALLED__ = true;
+
+            function observeSettingsDialog() {
+                const dialog = document.querySelector('[role="dialog"]');
+                if (!dialog || dialog.__badaObserverAttached) return;
+                dialog.__badaObserverAttached = true;
+
+                let scheduled = false;
+                const observer = new MutationObserver(() => {
+                    if (scheduled) return;
+                    scheduled = true;
+                    requestAnimationFrame(() => {
+                        scheduled = false;
+                        applyBilingualSettingsUI();
+                    });
+                });
+
+                observer.observe(dialog, { childList: true, subtree: true });
+            }
+
+            const triggerUIUpdate = () => {
+                observeSettingsDialog();
+                applyBilingualSettingsUI();
+            };
+
+            // Intercept settings dialog open
+            if (app.ui?.settings && !app.ui.settings.__badaHooked) {
+                app.ui.settings.__badaHooked = true;
+                const origShow = app.ui.settings.show;
+                if (origShow) {
+                    app.ui.settings.show = function (...args) {
+                        const res = origShow.apply(this, args);
+                        setTimeout(triggerUIUpdate, 60);
+                        setTimeout(triggerUIUpdate, 250);
+                        return res;
+                    };
+                }
+            }
+
+            // Click listener for settings sidebar, categories, and tabs
+            document.addEventListener("click", (e) => {
+                const target = e.target;
+                if (target && target.closest) {
+                    const isSettingsRelated = target.closest(
+                        '.side-tool-bar-container button, button[aria-label*="Setting"], button[title*="Setting"], [role="dialog"] div.cursor-pointer, [role="dialog"] [role="tab"], [role="dialog"] li, .p-listbox-item'
+                    );
+                    if (isSettingsRelated) {
+                        setTimeout(triggerUIUpdate, 50);
+                        setTimeout(triggerUIUpdate, 200);
+                        setTimeout(triggerUIUpdate, 500);
+                    }
+                }
+            }, true);
+
+            // Input listener for settings search box filtering
+            document.addEventListener("input", (e) => {
+                if (e.target && e.target.closest && e.target.closest('[role="dialog"] input')) {
+                    setTimeout(triggerUIUpdate, 50);
+                    setTimeout(triggerUIUpdate, 200);
+                }
+            }, true);
+
+            // Shortcut listener for Ctrl + ,
+            window.addEventListener("keydown", (e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === ",") {
+                    setTimeout(triggerUIUpdate, 150);
+                    setTimeout(triggerUIUpdate, 500);
+                }
+            }, true);
+
+            // Scoped dialog detector interval (checks only if [role="dialog"] exists)
+            setInterval(() => {
+                const dialog = document.querySelector('[role="dialog"]');
+                if (dialog && !dialog.__badaObserverAttached) {
+                    observeSettingsDialog();
+                    applyBilingualSettingsUI();
+                }
+            }, 400);
+
+            // Ghost tooltip pruner removed: was interfering with native PrimeVue tooltips.
+        }
 
         console.log(
             "%c[ComfyUI-Bada-Utils]%c BADA Bilingual Settings & Full-Width Global Presets Panel Ready ⚓",

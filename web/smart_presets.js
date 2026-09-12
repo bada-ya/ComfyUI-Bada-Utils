@@ -343,7 +343,22 @@ export function getBadgesForNode(node) {
     return result;
 }
 
+export function arePresetBadgesEnabled() {
+    try {
+        if (window.app?.ui?.settings) {
+            const val = window.app.ui.settings.getSettingValue("BadaUtils.ShowPresetBadges", true);
+            if (typeof val === "boolean") return val;
+        }
+    } catch (_) {}
+    try {
+        const local = localStorage.getItem("Comfy.Settings.BadaUtils.ShowPresetBadges");
+        if (local !== null) return JSON.parse(local);
+    } catch (_) {}
+    return true;
+}
+
 function drawRoofBadges(node, ctx) {
+    if (!arePresetBadgesEnabled()) return;
     const badges = getBadgesForNode(node);
     if (!badges) return;
 
@@ -444,6 +459,7 @@ function hideTooltip() {
  * Accurate search for roof badge under screen mouse position
  */
 function findBadgeAtScreenPos(clientX, clientY) {
+    if (!arePresetBadgesEnabled()) return null;
     const canvas = app.canvas;
     const graph = app.graph;
     if (!canvas || !graph || !graph._nodes) return null;
