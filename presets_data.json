@@ -40,6 +40,60 @@
         "cfg": 7,
         "steps": 20
       }
+    },
+    "KSampler #2": {
+      "nodeType": "KSampler",
+      "timestamp": 1789292543502,
+      "mode": 0,
+      "isBypassed": false,
+      "isMuted": false,
+      "widgets": {
+        "seed": 1,
+        "control_after_generate": "randomize",
+        "steps": 21,
+        "cfg": 8.1,
+        "sampler_name": "euler",
+        "scheduler": "sgm_uniform",
+        "denoise": 1
+      },
+      "_isLoraStack": false,
+      "_isFastGroups": false
+    },
+    "KSampler #3": {
+      "nodeType": "KSampler",
+      "timestamp": 1789292567123,
+      "mode": 0,
+      "isBypassed": false,
+      "isMuted": false,
+      "widgets": {
+        "seed": 0,
+        "control_after_generate": "randomize",
+        "steps": 21,
+        "cfg": 8.1,
+        "sampler_name": "euler_cfg_pp",
+        "scheduler": "sgm_uniform",
+        "denoise": 1
+      },
+      "_isLoraStack": false,
+      "_isFastGroups": false
+    },
+    "KSampler #4": {
+      "nodeType": "KSampler",
+      "timestamp": 1789292583741,
+      "mode": 0,
+      "isBypassed": false,
+      "isMuted": false,
+      "widgets": {
+        "seed": 0,
+        "control_after_generate": "randomize",
+        "steps": 21,
+        "cfg": 8,
+        "sampler_name": "euler_ancestral",
+        "scheduler": "karras",
+        "denoise": 1
+      },
+      "_isLoraStack": false,
+      "_isFastGroups": false
     }
   },
   "EmptySD3LatentImage": {},

@@ -45,7 +45,7 @@
 <summary><b>📖 자세한 설명 및 설정 방법 (클릭하여 펼치기) ▼</b></summary>
 
 <p align="center">
-  <img src="docs/images/vrp/node_overview.png" alt="Visual Grid Regional Prompt 노드 전체 화면" width="850">
+  <img src="docs/images/vrp/node_overview_ko.png" alt="Visual Grid Regional Prompt 노드 전체 화면" width="850">
 </p>
 
 #### 🌟 핵심 세부 기능
@@ -68,7 +68,7 @@
      9. **🖐️ 손 클로즈업 (Hands & Fingers)**: 손등, 손바닥
      10. **🦶 발 클로즈업 (Feet & Toes)**: 발등(맨발), 발바닥, 정면, 45도, 측면
    <p align="center">
-     <img src="docs/images/vrp/preset_dropdown.png" alt="샷 트리 셀렉터" width="600">
+     <img src="docs/images/vrp/shot_explorer_ko.png" alt="샷 트리 셀렉터" width="600">
    </p>
 
 3. **🧍 정밀 벡터 SVG 실루엣 뷰어**: 전신, 얼굴, 상반신, 손, 발 등에 맞춰 캔버스 내부에 벡터 실루엣이 동적 렌더링되며, 16:9, 9:16, 1:1 종횡비에 맞춰 자동 스케일링됩니다.
@@ -187,18 +187,14 @@
 #### 📸 주요 화면 가이드
 * **(1) ✨ Workflows+ 탐색기 & 🎛️ 상단 원터치 퀵 툴바**:
   <p align="center">
-    <img src="docs/images/qol/02_workflows_plus.png" alt="강화된 Workflows+ 탭" width="380">
-    <img src="docs/images/qol/04_toolbar_menu.png" alt="상단 원터치 툴바" width="380">
+    <img src="docs/images/qol/02_workflows_search_highlight.png" alt="강화된 Workflows+ 탭 & 실시간 검색어 하이라이트" width="420">
   </p>
+  * 🔍 **실시간 검색 & 키워드 하이라이트**: 검색창에 단어 입력 시 일치하는 키워드를 눈에 띄는 노란색 뱃지로 실시간 강조 표시하여 수많은 파일 중 원하는 워크플로우를 1초 만에 시각적으로 탐색.
   * 🎯 **작업 중 워크플로우 포커스**: 열려 있는 워크플로우의 위치로 즉시 스크롤하고 초록색 하이라이트로 반짝여 표시.
   * **`A⁺⁺` 글자/행 크기 조절**: 좌클릭 순환 변경 (`A⁻` ~ `A⁺⁺`), 우클릭 즉시 선택 메뉴.
   * ➕ **새 폴더 생성**, 📂 **모두 펼치기/접기**, 🔄 **새로고침**.
 
 * **(2) 🖱️ 마우스 드래그 앤 드롭 폴더 이동**:
-  <p align="center">
-    <img src="docs/images/qol/05_drag_and_drop.png" alt="마우스 드래그 앤 드롭 이동" width="380">
-    <img src="docs/images/qol/03_context_menu.png" alt="우클릭 컨텍스트 메뉴" width="320">
-  </p>
   * 마우스 고스트 배지와 함께 최상위 `🏠 Root` 박스 또는 하위 폴더로 드래그하여 이동.
   * 닫힌 폴더 위에 1.2초간 머무르면 폴더가 자동으로 펼쳐집니다.
 
@@ -249,6 +245,10 @@
 <details>
 <summary><b>📖 자세한 설명 및 설정 방법 (클릭하여 펼치기) ▼</b></summary>
 
+<p align="center">
+  <img src="docs/images/gemini/gemini_studio_ko.png" alt="비동기 제미나이 스튜디오 노드 전체 화면" width="600">
+</p>
+
 #### 🌟 4대 독립 전용 엔진 구성
 1. **🎬 ● MiniMax H3 (비디오 + 오디오)**:
    * 5대 세부 모드: `Ref2VA` (전체 참조), `T2VA` (텍스트), `I2VA` (첫 프레임), `FL2VA` (첫-끝 루프), `L2VA` (끝 착륙)
@@ -284,6 +284,12 @@
 <details>
 <summary><b>📖 자세한 설명 및 설정 방법 (클릭하여 펼치기) ▼</b></summary>
 
+#### 🚀 2가지 편리한 실행 방식
+| 1. 좌측 사이드바 툴바 고정 콘솔 | 2. 캔버스 독립 커스텀 노드 |
+| :---: | :---: |
+| <img src="docs/images/terminal/terminal_sidebar.png" alt="좌측 사이드바 터미널 허브" width="380"> | <img src="docs/images/terminal/terminal_canvas_node.png" alt="캔버스 독립 터미널 노드" width="500"> |
+| *좌측 사이드바 툴바에서 `>_` 단추를 눌러 즉시 호출* | *캔버스에 `⚓ Bada Terminal Hub` 노드를 꺼내어 작업* |
+
 #### 🌟 핵심 세부 기능
 1. **🖥️ 사이드바 툴바 고정 콘솔**:
    * ComfyUI 왼쪽 사이드 툴바 최하단에 상시 상주하여 작업 흐름을 끊지 않고 언제든 즉시 호출할 수 있습니다.
@@ -306,18 +312,20 @@
 ComfyUI 우측 상단 톱니바퀴(**`⚙️ Settings`**) 메뉴에서 **`🌊 Bada Utils`** 탭을 선택하여 모든 편의 기능을 한눈에 제어할 수 있습니다:
 
 <p align="center">
-  <img src="docs/images/bada_settings.png" alt="BADA 전역 통합 설정창" width="850">
+  <img src="docs/images/bada_settings_ko.png" alt="BADA 전역 통합 설정창" width="850">
 </p>
 
-### 📋 5대 통합 설정 항목 상세
+### 📋 통합 설정 제어 센터 안내
 
 | 섹션 | 설정 항목 | 설명 |
 | :--- | :--- | :--- |
-| **1. General (일반)** | **🌐 UI Language (UI 언어 설정)** | `English (영어)` 및 `한국어 (Korean)` 실시간 전환. ComfyUI 순정 언어 설정과 완전 독립적으로 작동하여 안정적인 언어 환경을 유지합니다. |
-| **2. Smart Features (스마트 기능)** | **📁 Sidebar Workflow Folder Management**<br>*(사이드바 워크플로우 폴더 정리 및 이동)* | 왼쪽 사이드바에서 드래그 앤 드롭 폴더 이동, 빈 폴더(0개) 보존, 실시간 작업 파일 포커싱을 지원하는 Workflows+ 기능을 제어합니다. |
-| **3. Workflow & QoL (워크플로우 & 편의성)** | **🖱️ Smooth Mouse Pan & Wheel Zoom Fixer**<br>*(마우스 휠 줌 & 중간 버튼 패닝 보정기)* | 텍스트 입력창이나 서드파티 노드 위에서도 마우스 휠 줌 및 중간 버튼 패닝이 멈추지 않고 매끄럽게 동작하도록 보정합니다. |
-| **4. Startup Behavior (시작 환경)** | **🧼 Clean Blank Canvas Startup**<br>*(시작 시 클린 빈 캔버스로 열기)* | ComfyUI 최초 실행 및 새 탭 오픈 시 기본 모델 누락 오류("2 errors found")를 방지하고 깨끗한 빈 캔버스로 기동하도록 설정합니다. |
-| **5. Global Presets**<br>*(글로벌 프리셋 등록 현황 및 관리)* | **🗃️ 인라인 통합 프리셋 관리 패널** | 워크플로우 간 전역 공유되는 노드별 프리셋을 한눈에 파악할 수 있는 전체 폭 패널입니다. **접기/펼치기**, **전체 백업(JSON)**, **불러오기**, **전용 팝업으로 크게 보기**를 지원합니다. |
+| **1. 언어 설정** | **🌐 UI 언어 설정** | `English` 및 `한국어 (Korean)` 실시간 전환. ComfyUI 순정 언어 설정과 완전 독립적으로 작동하여 안정적인 언어 환경을 유지합니다. |
+| **2. 워크플로우+** | **📁 사이드바 워크플로우+ 폴더 관리** | 왼쪽 사이드바에서 드래그 앤 드롭 폴더 이동, 빈 폴더(0개) 보존, 실시간 작업 파일 포커싱을 지원하는 Workflows+ 기능을 제어합니다. |
+| **3. 캔버스 편의성** | **🖱️ 마우스 휠 줌 & 중간 버튼(휠) 패닝 보정기** | 텍스트 입력창이나 서드파티 노드 위에서도 마우스 휠 줌 및 중간 버튼 패닝이 멈추지 않고 매끄럽게 동작하도록 보정합니다. |
+| **4. 시작 환경** | **🧼 시작 시 클린 빈 캔버스로 열기** | ComfyUI 최초 실행 및 새 탭 오픈 시 기본 모델 누락 오류("2 errors found")를 방지하고 깨끗한 빈 캔버스로 기동하도록 설정합니다. |
+| **5. 프리셋 관리** | **🗃️ 글로벌 프리셋 & 인라인 요약 패널** | 노드 상단 지붕에 바로가기 뱃지 표시 및 워크플로우 간 전역 공유되는 노드별 프리셋을 한눈에 파악하고 백업/복원할 수 있는 통합 패널을 제공합니다. |
+| **6. 이미지 편의성** | **📋 클립보드 & LoadImage 자동 에러 해결사** | 클립보드 이미지(`Ctrl+V`)를 붙여넣거나 하위 경로 로드 시 발생하는 빨간 테두리 에러를 자동으로 치료합니다. |
+| **7. 터미널 허브** | **🖥️ 바다 터미널 허브** | 좌측 사이드바 하단에 Bada Terminal Hub 바로가기 탭 아이콘 표시 여부를 설정합니다. |
 
 ---
 

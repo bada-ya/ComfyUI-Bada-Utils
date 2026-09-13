@@ -45,7 +45,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 <summary><b>📖 Detailed Guide & Settings (Click to expand) ▼</b></summary>
 
 <p align="center">
-  <img src="docs/images/vrp/node_overview.png" alt="Visual Grid Regional Prompt Node Overview" width="850">
+  <img src="docs/images/vrp/node_overview_en.png" alt="Visual Grid Regional Prompt Node Overview" width="850">
 </p>
 
 #### 🌟 Key Features
@@ -68,7 +68,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
      9. **🖐️ 손 클로즈업 (Hands & Fingers)**: Back of Hand, Palm
      10. **🦶 Feet & Toes**: Barefoot Top, Sole, Front, 3/4, Side
    <p align="center">
-     <img src="docs/images/vrp/preset_dropdown.png" alt="Shot Tree Selector" width="600">
+     <img src="docs/images/vrp/shot_explorer_en.png" alt="Shot Tree Selector" width="600">
    </p>
 
 3. **🧍 Vector SVG Silhouette Dynamic Viewer**: Full body, macro face, bust, hands, feet, and seated poses render dynamic SVG silhouettes with automatic 16:9, 9:16, and 1:1 aspect ratio scaling.
@@ -93,7 +93,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 <summary><b>📖 Detailed Guide & Settings (Click to expand) ▼</b></summary>
 
 <p align="center">
-  <img src="docs/images/usp/01_universal_hub_node.png" alt="Universal Preset Hub Node" width="600">
+  <img src="docs/images/usp/01_universal_hub_node_en.png" alt="Universal Preset Hub Node" width="600">
 </p>
 
 #### 🌟 Key Features
@@ -123,7 +123,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
    * Disable `seed` (strike-through) to **keep the active seed while injecting steps, cfg, sampler, and scheduler**.
    <p align="center">
      <img src="docs/images/usp/06_context_menu.png" alt="Context Menu" width="48%">
-     <img src="docs/images/usp/07_global_preset_modal.png" alt="Global Preset Manager" width="48%">
+     <img src="docs/images/usp/07_global_preset_modal_en.png" alt="Global Preset Manager" width="48%">
    </p>
 7. **🧠 3-Tier Smart Node Matching Engine**:
    * `Tier 1 (Node ID)` ➔ `Tier 2 (Title + Type)` ➔ `Tier 3 (Left-to-Right Canvas Coordinate Mapping)` ensures 100% collision-free preset restoration on third-party workflows.
@@ -187,18 +187,14 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 #### 📸 Feature Highlights
 * **(1) ✨ Workflows+ Explorer & 🎛️ Quick Toolbar**:
   <p align="center">
-    <img src="docs/images/qol/02_workflows_plus.png" alt="Enhanced Workflows+ Tab" width="380">
-    <img src="docs/images/qol/04_toolbar_menu.png" alt="Quick Toolbar" width="380">
+    <img src="docs/images/qol/02_workflows_search_highlight.png" alt="Enhanced Workflows+ Tab & Live Search Highlight" width="420">
   </p>
+  * 🔍 **Live Search & Keyword Highlighting**: Typing into the search bar instantly highlights matching text with vibrant yellow tags, allowing you to visually spot target workflows across dozens of folders in seconds.
   * 🎯 **Focus Active Workflow**: Smoothly scrolls to and highlights the currently active workflow in bright green.
   * **`A⁺⁺` Font & Row Scaling**: Left-click cycles through 4 levels (`A⁻` to `A⁺⁺`), right-click opens quick selector.
   * ➕ **New Folder**, 📂 **Expand/Collapse All**, 🔄 **Refresh**.
 
 * **(2) 🖱️ Drag & Drop Folder Moving**:
-  <p align="center">
-    <img src="docs/images/qol/05_drag_and_drop.png" alt="Drag and Drop Moving" width="380">
-    <img src="docs/images/qol/03_context_menu.png" alt="Context Menu" width="320">
-  </p>
   * Drag files with mouse ghost badge to `🏠 Root` dropzone or target subfolders.
   * Hovering over a collapsed folder for 1.2s automatically expands it.
 
@@ -249,6 +245,10 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 <details>
 <summary><b>📖 Detailed Guide & Settings (Click to expand) ▼</b></summary>
 
+<p align="center">
+  <img src="docs/images/gemini/gemini_studio_en.png" alt="Bada Async Gemini Studio Node Overview" width="600">
+</p>
+
 #### 🌟 4 Dedicated Engine Tabs
 1. **🎬 ● MiniMax H3 (Video + Audio)**:
    * 5 submodes: `Ref2VA` (all-in-one ref), `T2VA` (text), `I2VA` (first frame), `FL2VA` (first-last loop), `L2VA` (last landing)
@@ -284,6 +284,12 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 <details>
 <summary><b>📖 Detailed Guide & Settings (Click to expand) ▼</b></summary>
 
+#### 🚀 2 Convenient Ways to Use
+| 1. Docked Sidebar Console (Left Panel) | 2. On-Canvas Custom Node |
+| :---: | :---: |
+| <img src="docs/images/terminal/terminal_sidebar.png" alt="Docked Sidebar Terminal" width="380"> | <img src="docs/images/terminal/terminal_canvas_node.png" alt="On-Canvas Terminal Node" width="500"> |
+| *Click the `>_` terminal tab on the left sidebar anytime* | *Spawn `⚓ Bada Terminal Hub` node directly on canvas* |
+
 #### 🌟 Key Features
 1. **🖥️ Docked Sidebar Console**:
    * Stays integrated at the bottom of the ComfyUI left sidebar for instant access anytime.
@@ -306,18 +312,20 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 Bada Utils`** tab to access the centralized bilingual control center:
 
 <p align="center">
-  <img src="docs/images/bada_settings.png" alt="BADA Unified Settings Control Center" width="850">
+  <img src="docs/images/bada_settings_en.png" alt="BADA Unified Settings Control Center" width="850">
 </p>
 
-### 📋 5 Control Sections Overview
+### 📋 Settings Control Center Overview
 
 | Section | Setting Item | Description |
 | :--- | :--- | :--- |
-| **1. General (일반)** | **🌐 UI Language (UI 언어 설정)** | Switch display language between `English (영어)` and `한국어 (Korean)`. Operates independently from ComfyUI native locale to ensure complete UI consistency. |
-| **2. Smart Features (스마트 기능)** | **📁 Sidebar Workflow Folder Management**<br>*(사이드바 워크플로우 폴더 정리 및 이동)* | Enables drag-and-drop workflow folder organization, 0-item folder preservation, and Workflows+ tabs in the left sidebar. |
-| **3. Workflow & QoL (워크플로우 & 편의성)** | **🖱️ Smooth Mouse Pan & Wheel Zoom Fixer**<br>*(마우스 휠 줌 & 중간 버튼 패닝 보정기)* | Fixes middle-click panning and wheel zoom freezes even over textareas, DOM widgets, and custom nodes. |
-| **4. Startup Behavior (시작 환경)** | **🧼 Clean Blank Canvas Startup**<br>*(시작 시 클린 빈 캔버스로 열기)* | Starts ComfyUI and new tabs with a clean blank canvas, completely preventing annoying missing-model startup errors (`2 errors found`). |
-| **5. Global Presets**<br>*(글로벌 프리셋 등록 현황 및 관리)* | **🗃️ Inline Overview & Management Panel** | Full-width interactive preset summary across all node types. Features 1-click **Collapse/Expand**, **Backup All (JSON)**, **Import**, and **Open Full Popup**. |
+| **1. Language** | **🌐 UI Language** | Switch display language between `English` and `한국어 (Korean)` in real time. |
+| **2. Workflows+** | **📁 Sidebar Workflows+ Folder Management** | Enables drag-and-drop workflow folder organization, 0-item folder preservation, and Workflows+ in the left sidebar. |
+| **3. Canvas QoL** | **🖱️ Mouse Wheel Zoom & Middle-Click Pan Fixer** | Fixes middle-click panning and wheel zoom freezes even over textareas, DOM widgets, and custom nodes. |
+| **4. Startup** | **🧼 Clean Blank Canvas Startup** | Starts ComfyUI and new tabs with a clean blank canvas, completely preventing annoying missing-model startup errors (`2 errors found`). |
+| **5. Presets** | **🗃️ Global Presets & Inline Overview Panel** | Display shortcut preset badges on node roofs and provides full-width interactive preset summary across all node types. |
+| **6. Image QoL** | **📋 Clipboard & LoadImage Auto-Error Fixer** | Automatically fixes red border and input validation errors caused by pasting clipboard images (`Ctrl+V`) or subfolder paths in LoadImage nodes. |
+| **7. Terminal** | **🖥️ Bada Terminal Hub** | Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar. |
 
 ---
 
