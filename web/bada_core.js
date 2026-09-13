@@ -241,6 +241,21 @@ function escapeHtml(str) {
             overflow-y: hidden !important;
         }
 
+        /* 0. Annihilate orphaned PrimeVue ghost tooltips rendered offscreen or at (0, 0) */
+        .p-tooltip[style*="left: 0px"],
+        .p-tooltip[style*="left: 1px"],
+        .p-tooltip[style*="left: 2px"],
+        .p-tooltip[style*="left: 3px"],
+        .p-tooltip[style*="left: 4px"],
+        .p-tooltip[style*="left: 5px"],
+        .p-tooltip[style*="left: -"],
+        .p-tooltip[style*="top: -"] {
+            display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+        }
+
         /* 1. Drastically reduce vertical gaps between Bada Utils setting groups */
         .setting-group:has([data-setting-id^="BadaUtils"]) {
             margin-bottom: 0 !important;
@@ -308,6 +323,65 @@ function escapeHtml(str) {
 })();
 
 // ──────────────────────────────────────────────────────────────────────────────
+//  Ghost Tooltip Annihilator (Active PrimeVue Orphan Sanitizer)
+// ──────────────────────────────────────────────────────────────────────────────
+(function setupTooltipSanitizer() {
+    if (typeof document === "undefined" || window._badaTooltipSanitizerInstalled) return;
+    window._badaTooltipSanitizerInstalled = true;
+
+    function cleanOrphanTooltips() {
+        const tooltips = document.querySelectorAll(".p-tooltip");
+        if (tooltips.length === 0) return;
+
+        tooltips.forEach((tt) => {
+            const rect = tt.getBoundingClientRect();
+            // Orphan ghost tooltips are placed at left <= 25px or top < 0
+            if (rect.left <= 25 || rect.top < 0 || (rect.left === 0 && rect.top === 0)) {
+                tt.remove();
+                return;
+            }
+        });
+
+        // Strict single-tooltip policy: only 1 visible tooltip on screen at any time
+        const visible = Array.from(document.querySelectorAll(".p-tooltip")).filter((tt) => {
+            const style = window.getComputedStyle(tt);
+            return style.display !== "none" && style.visibility !== "hidden" && parseFloat(style.opacity || "1") > 0.1;
+        });
+
+        if (visible.length > 1) {
+            // Keep only the most recently mounted one, remove all older duplicate ghosts
+            for (let i = 0; i < visible.length - 1; i++) {
+                visible[i].remove();
+            }
+        }
+    }
+
+    // Fast mutation observer to catch PrimeVue tooltips mounted to body
+    try {
+        const observer = new MutationObserver((mutations) => {
+            let hasTooltip = false;
+            for (const m of mutations) {
+                for (const node of m.addedNodes) {
+                    if (node.nodeType === 1 && (node.classList?.contains("p-tooltip") || node.querySelector?.(".p-tooltip"))) {
+                        hasTooltip = true;
+                        break;
+                    }
+                }
+                if (hasTooltip) break;
+            }
+            if (hasTooltip) {
+                requestAnimationFrame(cleanOrphanTooltips);
+            }
+        });
+        observer.observe(document.body, { childList: true });
+    } catch (_) {}
+
+    // Global events to purge any lingering/orphan tooltips
+    window.addEventListener("pointerdown", () => requestAnimationFrame(cleanOrphanTooltips), { passive: true });
+    window.addEventListener("scroll", () => requestAnimationFrame(cleanOrphanTooltips), { capture: true, passive: true });
+})();
+
+// ──────────────────────────────────────────────────────────────────────────────
 //  Build Rich Full-Width Presets Panel
 // ──────────────────────────────────────────────────────────────────────────────
 function buildInlinePresetsPanel() {
@@ -324,65 +398,6 @@ function buildInlinePresetsPanel() {
     const panel = document.createElement("div");
     panel.id = "bada-inline-presets-panel";
     panel.style.cssText = "width: 100%; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box;";
-
-    // 0. Preset Badges Toggle Control Row
-    const badgeRow = document.createElement("div");
-    badgeRow.id = "bada-preset-badge-toggle-row";
-    badgeRow.style.cssText = [
-        "display: flex; align-items: center; justify-content: space-between; gap: 12px;",
-        "padding: 10px 14px; background: rgba(255, 255, 255, 0.03);",
-        "border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px;"
-    ].join("");
-
-    const isBadgesEnabled = (() => {
-        try {
-            if (window.app?.ui?.settings) {
-                const v = window.app.ui.settings.getSettingValue("BadaUtils.ShowPresetBadges", true);
-                if (typeof v === "boolean") return v;
-            }
-        } catch (_) {}
-        try {
-            const local = localStorage.getItem("Comfy.Settings.BadaUtils.ShowPresetBadges");
-            if (local !== null) return JSON.parse(local);
-        } catch (_) {}
-        return true;
-    })();
-
-    badgeRow.innerHTML = `
-        <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
-            <span style="font-size: 13px; font-weight: 700; color: #f8fafc;">${isKo ? "🏷️ 노드 프리셋 뱃지 표시" : "🏷️ Show Node Preset Badges"}</span>
-            <span style="font-size: 11px; color: #94a3b8; line-height: 1.4;">${isKo ? "노드 상단 지붕에 글로벌 프리셋 바로가기 뱃지를 표시합니다. 꺼도 저장된 프리셋 데이터는 안전하게 유지됩니다." : "Display shortcut preset badges on node roofs. Disabling this hides the badges without deleting any preset data."}</span>
-        </div>
-        <label style="position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; flex-shrink: 0; margin-left: 12px;">
-            <input type="checkbox" id="bada-badge-toggle-checkbox" ${isBadgesEnabled ? "checked" : ""} style="opacity: 0; width: 0; height: 0;">
-            <span class="bada-switch-track" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: ${isBadgesEnabled ? "#6366f1" : "rgba(255, 255, 255, 0.2)"}; transition: .2s; border-radius: 24px;"></span>
-            <span class="bada-switch-thumb" style="position: absolute; content: ''; height: 18px; width: 18px; left: ${isBadgesEnabled ? "23px" : "3px"}; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.4);"></span>
-        </label>
-    `;
-
-    const checkbox = badgeRow.querySelector("#bada-badge-toggle-checkbox");
-    const track = badgeRow.querySelector(".bada-switch-track");
-    const thumb = badgeRow.querySelector(".bada-switch-thumb");
-
-    checkbox.addEventListener("change", (e) => {
-        const checked = e.target.checked;
-        if (track) track.style.backgroundColor = checked ? "#6366f1" : "rgba(255, 255, 255, 0.2)";
-        if (thumb) thumb.style.left = checked ? "23px" : "3px";
-        try {
-            if (window.app?.ui?.settings) {
-                window.app.ui.settings.setSettingValue("BadaUtils.ShowPresetBadges", checked);
-            }
-        } catch (_) {}
-        try {
-            localStorage.setItem("Comfy.Settings.BadaUtils.ShowPresetBadges", JSON.stringify(checked));
-        } catch (_) {}
-        app.graph?.setDirtyCanvas?.(true, true);
-        showToast(isKo 
-            ? (checked ? "🏷️ 노드 프리셋 뱃지 표시 켜짐" : "🏷️ 노드 프리셋 뱃지 숨김 (프리셋 데이터는 안전하게 보존됨)")
-            : (checked ? "🏷️ Node preset badges shown" : "🏷️ Node preset badges hidden (data preserved)"), "info");
-    });
-
-    panel.appendChild(badgeRow);
 
     // Header Controls Bar (Summary + Badges + Toggle Button)
     const headerBar = document.createElement("div");
@@ -632,12 +647,25 @@ function applyBilingualSettingsUI(targetLang) {
             }
         });
 
-        // 3. Clean left sidebar nav item (Single clean plug icon)
+        // 3. Clean left sidebar nav item: Distinctive Anchor ⚓ icon (replaces generic plug 🔌)
         const navLink = document.querySelector('[data-nav-id="root/Bada Utils"]');
         if (navLink) {
-            const span = navLink.querySelector("span");
-            if (span && span.textContent.startsWith("⚓")) {
-                span.textContent = "Bada Utils";
+            let anchor = navLink.querySelector(".bada-nav-anchor");
+            if (!anchor) {
+                // Hide generic plug icon if present
+                const plugIcon = navLink.querySelector("i, svg, [class*='icon']");
+                if (plugIcon) {
+                    plugIcon.style.display = "none";
+                }
+                anchor = document.createElement("span");
+                anchor.className = "bada-nav-anchor";
+                anchor.textContent = "⚓";
+                anchor.style.cssText = "font-size: 15px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; margin-right: 6px;";
+                navLink.insertBefore(anchor, navLink.firstChild);
+            }
+            const labelSpan = navLink.querySelector("span:not(.bada-nav-anchor)");
+            if (labelSpan && labelSpan.textContent.startsWith("⚓")) {
+                labelSpan.textContent = "Bada Utils";
             }
         }
     } catch (e) {
