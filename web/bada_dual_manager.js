@@ -8,19 +8,31 @@
  */
 import { app } from "../../scripts/app.js";
 
-// 1. Invisible anchor guard: Prevents legacy comfyui-manager.js setup from crashing on null .comfy-menu
-(function ensureLegacyMenuAnchor() {
+// 1. Detached Sink Guard: Intercepts legacy comfyui-manager.js setup without mounting (0,0) buttons to document.body
+(function setupLegacyMenuSink() {
     if (typeof document === "undefined") return;
-    const ensure = () => {
-        if (!document.querySelector(".comfy-menu") && document.body) {
-            const dummy = document.createElement("div");
-            dummy.className = "comfy-menu bada-hidden-anchor";
-            dummy.style.display = "none";
-            document.body.appendChild(dummy);
+    if (window._badaLegacyMenuSinkInstalled) return;
+    window._badaLegacyMenuSinkInstalled = true;
+
+    // Clean up any existing hidden dummy anchor if present from previous sessions
+    const leftover = document.querySelector(".bada-hidden-anchor");
+    if (leftover) leftover.remove();
+
+    let _detachedSink = null;
+    const origQuerySelector = Document.prototype.querySelector;
+    Document.prototype.querySelector = function (selector) {
+        if (selector === ".comfy-menu") {
+            const found = origQuerySelector.call(this, selector);
+            if (found && !found.classList.contains("bada-hidden-anchor")) return found;
+            if (!_detachedSink) {
+                _detachedSink = document.createElement("div");
+                _detachedSink.className = "comfy-menu-detached-sink";
+                window._badaDetachedSink = _detachedSink;
+            }
+            return _detachedSink;
         }
+        return origQuerySelector.call(this, selector);
     };
-    if (document.body) ensure();
-    else document.addEventListener("DOMContentLoaded", ensure);
 })();
 
 // 2. Channel list sanitizer: Ensure selected channel (e.g. 'custom') is present in dropdown list
@@ -213,6 +225,22 @@ export function setupDualManager() {
                     return;
                 }
 
+                // 2. Detached sink button trigger (runs comfyui-manager's native action)
+                if (window._badaDetachedSink) {
+                    const btns = window._badaDetachedSink.querySelectorAll("button");
+                    for (const b of btns) {
+                        if (b.textContent?.trim() === "Manager" || b.title?.includes("Manager") || b.getAttribute("aria-label")?.includes("Manager")) {
+                            b.click();
+                            return;
+                        }
+                    }
+                    if (btns.length > 0) {
+                        btns[0].click();
+                        return;
+                    }
+                }
+
+                // 3. Extension registry lookup
                 try {
                     const legacyExt = app.extensions?.find(x => x.name === "Comfy.Legacy.ManagerMenu" || x.name === "Comfy.Manager" || x.name === "ComfyUI-Manager");
                     if (legacyExt) {
@@ -266,7 +294,7 @@ export function setupDualManager() {
                     return;
                 }
 
-                console.warn("[bada] Classic ComfyUI-Manager dialog could not be invoked.");
+                console.warn("[ComfyUI-Bada-Utils] Classic ComfyUI-Manager dialog could not be invoked.");
             };
 
             pill.appendChild(btn);
@@ -275,23 +303,17 @@ export function setupDualManager() {
         // Insert / reposition pill right before anchorEl
         anchorEl.parentElement.insertBefore(pill, anchorEl);
         updateDualManagerVisibility();
-        console.log("[ComfyUI-Bada-Utils] Classic Manager Quick Launcher pill placed before anchor:", anchorEl);
+        return true;
     };
 
-    // Continuous polling check every 600ms
-    setInterval(injectButton, 600);
-
-    // Immediate reaction to DOM changes
-    try {
-        const observer = new MutationObserver(() => {
-            const anchorEl = findAnchorContainer();
-            const pill = document.getElementById("bada-dual-manager-pill");
-            if (!pill || !pill.isConnected || (anchorEl && pill.nextElementSibling !== anchorEl)) {
-                injectButton();
-            }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-    } catch (e) {}
+    // Safe, self-terminating polling: stops once injected
+    let attempts = 0;
+    const pollTimer = setInterval(() => {
+        attempts++;
+        if (injectButton() || attempts >= 40) {
+            clearInterval(pollTimer);
+        }
+    }, 400);
 
     // Initial attempt
     injectButton();

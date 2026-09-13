@@ -632,12 +632,12 @@ function applyBilingualSettingsUI(targetLang) {
             }
         });
 
-        // 3. Decorate left sidebar nav item with anchor ⚓
+        // 3. Clean left sidebar nav item (Single clean plug icon)
         const navLink = document.querySelector('[data-nav-id="root/Bada Utils"]');
         if (navLink) {
             const span = navLink.querySelector("span");
-            if (span && !span.textContent.startsWith("⚓")) {
-                span.textContent = "⚓ Bada Utils";
+            if (span && span.textContent.startsWith("⚓")) {
+                span.textContent = "Bada Utils";
             }
         }
     } catch (e) {
@@ -904,7 +904,20 @@ app.registerExtension({
                 dialog.__badaObserverAttached = true;
 
                 let scheduled = false;
-                const observer = new MutationObserver(() => {
+                const observer = new MutationObserver((mutations) => {
+                    // Strictly ignore tooltips and non-Bada elements to prevent any layout interference
+                    let hasBadaChange = false;
+                    for (const m of mutations) {
+                        for (const node of m.addedNodes) {
+                            if (node.nodeType === 1 && (node.matches?.('[data-setting-id^="BadaUtils"]') || node.querySelector?.('[data-setting-id^="BadaUtils"]'))) {
+                                hasBadaChange = true;
+                                break;
+                            }
+                        }
+                        if (hasBadaChange) break;
+                    }
+                    if (!hasBadaChange) return;
+
                     if (scheduled) return;
                     scheduled = true;
                     requestAnimationFrame(() => {
