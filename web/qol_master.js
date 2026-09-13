@@ -7,7 +7,6 @@ import { setupBlankStartup } from "./blank_startup.js";
 import { setupCanvasMouseFix } from "./canvas_mouse_fix.js";
 import { setupWorkflowOrganizer } from "./workflow_organizer.js";
 import { setupLoadImageFixer, healImageNode, healAllImageNodes } from "./load_image_fixer.js";
-import { setupDualManager } from "./bada_dual_manager.js";
 
 app.registerExtension({
     name: "ComfyUI.QoL.Utils",
@@ -26,7 +25,6 @@ app.registerExtension({
         try {
             setupBlankStartup();
             setupWorkflowOrganizer();
-            setupDualManager();
         } catch (e) {
             console.error("[QoL-Utils] Error during setup:", e);
         }

@@ -2,7 +2,6 @@ import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
 import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary, getGlobalPresetsStore } from "./presets_overview_modal.js";
 import { showToast } from "./presets_modal.js";
-import { setupDualManager } from "./bada_dual_manager.js";
 
 /**
  * ComfyUI-Bada-Utils · bada_core.js
@@ -52,10 +51,7 @@ const BADA_SETTINGS_TEXTS = {
 
         terminalHubPlain: "Bada Terminal Hub",
         terminalHubTitle: `${BADA_ICONS.terminal} Bada Terminal Hub`,
-        terminalHubDesc: "Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar.",
-
-        dualManagerName: "🧩 Classic Manager Quick Launcher",
-        dualManagerDesc: "Adds a classic ComfyUI-Manager launch button directly to the left of Extensions on the top bar, allowing both new and legacy managers to be used."
+        terminalHubDesc: "Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar."
     },
     ko: {
         category: "Bada Utils",
@@ -80,10 +76,7 @@ const BADA_SETTINGS_TEXTS = {
 
         terminalHubPlain: "바다 터미널 허브",
         terminalHubTitle: `${BADA_ICONS.terminal} 바다 터미널 허브`,
-        terminalHubDesc: "좌측 사이드바 하단에 Bada Terminal Hub 바로가기 탭 아이콘을 표시합니다.",
-
-        dualManagerName: "🧩 클래식 매니저 퀵 런처",
-        dualManagerDesc: "신형 상단 바의 Extensions 버튼 왼쪽에 클래식 ComfyUI-Manager 호출 버튼을 추가하여 신형과 구형 매니저를 동시에 사용합니다."
+        terminalHubDesc: "좌측 사이드바 하단에 Bada Terminal Hub 바로가기 탭 아이콘을 표시합니다."
     }
 };
 
@@ -158,14 +151,6 @@ const BADA_UNIFIED_SETTINGS = {
         name: "Bada Terminal Hub",
         type: "boolean",
         sortOrder: 200,
-        defaultValue: true
-    },
-    dualManager: {
-        id: "BadaUtils.DualManager",
-        category: ["Bada Utils", "DualManager"],
-        name: "🧩 Classic Manager Quick Launcher",
-        type: "boolean",
-        sortOrder: 100,
         defaultValue: true
     }
 };
@@ -532,9 +517,6 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.terminalHub.id) {
                 targetTitle = texts.terminalHubTitle;
                 targetDesc = texts.terminalHubDesc;
-            } else if (id === BADA_UNIFIED_SETTINGS.dualManager.id) {
-                targetTitle = texts.dualManagerName;
-                targetDesc = texts.dualManagerDesc;
             }
 
             if (!targetTitle) return;
@@ -751,28 +733,10 @@ app.registerExtension({
             }
         });
 
-        // ⑧ Classic Manager Quick Launcher
-        safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.dualManager.id,
-            category: [texts.category, "DualManager"],
-            name: texts.dualManagerName,
-            type: BADA_UNIFIED_SETTINGS.dualManager.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.dualManager.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.dualManager.defaultValue,
-            onChange: (newVal) => {
-                const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
-                if (window.__BADA_SET_DUAL_MANAGER_VISIBILITY__) {
-                    window.__BADA_SET_DUAL_MANAGER_VISIBILITY__(target);
-                }
-            }
-        });
-
-        // Initialize Classic Manager Launcher
+        // Clean up any leftover launcher elements from previous sessions
         try {
-            setupDualManager();
-        } catch (e) {
-            console.warn("[ComfyUI-Bada-Utils] Dual Manager launcher init notice:", e);
-        }
+            document.getElementById("bada-dual-manager-pill")?.remove();
+        } catch (_) {}
 
         // 4. ⌨️ Global ESC Key Dismissal for All Custom Bada Modals & Dialogs
         if (!window.__BADA_GLOBAL_ESC_INSTALLED__) {
