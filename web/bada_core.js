@@ -241,21 +241,6 @@ function escapeHtml(str) {
             overflow-y: hidden !important;
         }
 
-        /* 0. Annihilate orphaned PrimeVue ghost tooltips rendered offscreen or at (0, 0) */
-        .p-tooltip[style*="left: 0px"],
-        .p-tooltip[style*="left: 1px"],
-        .p-tooltip[style*="left: 2px"],
-        .p-tooltip[style*="left: 3px"],
-        .p-tooltip[style*="left: 4px"],
-        .p-tooltip[style*="left: 5px"],
-        .p-tooltip[style*="left: -"],
-        .p-tooltip[style*="top: -"] {
-            display: none !important;
-            opacity: 0 !important;
-            visibility: hidden !important;
-            pointer-events: none !important;
-        }
-
         /* 1. Drastically reduce vertical gaps between Bada Utils setting groups */
         .setting-group:has([data-setting-id^="BadaUtils"]) {
             margin-bottom: 0 !important;
@@ -320,65 +305,6 @@ function escapeHtml(str) {
         }
     `;
     document.head.appendChild(style);
-})();
-
-// ──────────────────────────────────────────────────────────────────────────────
-//  Ghost Tooltip Annihilator (Active PrimeVue Orphan Sanitizer)
-// ──────────────────────────────────────────────────────────────────────────────
-(function setupTooltipSanitizer() {
-    if (typeof document === "undefined" || window._badaTooltipSanitizerInstalled) return;
-    window._badaTooltipSanitizerInstalled = true;
-
-    function cleanOrphanTooltips() {
-        const tooltips = document.querySelectorAll(".p-tooltip");
-        if (tooltips.length === 0) return;
-
-        tooltips.forEach((tt) => {
-            const rect = tt.getBoundingClientRect();
-            // Orphan ghost tooltips are placed at left <= 25px or top < 0
-            if (rect.left <= 25 || rect.top < 0 || (rect.left === 0 && rect.top === 0)) {
-                tt.remove();
-                return;
-            }
-        });
-
-        // Strict single-tooltip policy: only 1 visible tooltip on screen at any time
-        const visible = Array.from(document.querySelectorAll(".p-tooltip")).filter((tt) => {
-            const style = window.getComputedStyle(tt);
-            return style.display !== "none" && style.visibility !== "hidden" && parseFloat(style.opacity || "1") > 0.1;
-        });
-
-        if (visible.length > 1) {
-            // Keep only the most recently mounted one, remove all older duplicate ghosts
-            for (let i = 0; i < visible.length - 1; i++) {
-                visible[i].remove();
-            }
-        }
-    }
-
-    // Fast mutation observer to catch PrimeVue tooltips mounted to body
-    try {
-        const observer = new MutationObserver((mutations) => {
-            let hasTooltip = false;
-            for (const m of mutations) {
-                for (const node of m.addedNodes) {
-                    if (node.nodeType === 1 && (node.classList?.contains("p-tooltip") || node.querySelector?.(".p-tooltip"))) {
-                        hasTooltip = true;
-                        break;
-                    }
-                }
-                if (hasTooltip) break;
-            }
-            if (hasTooltip) {
-                requestAnimationFrame(cleanOrphanTooltips);
-            }
-        });
-        observer.observe(document.body, { childList: true });
-    } catch (_) {}
-
-    // Global events to purge any lingering/orphan tooltips
-    window.addEventListener("pointerdown", () => requestAnimationFrame(cleanOrphanTooltips), { passive: true });
-    window.addEventListener("scroll", () => requestAnimationFrame(cleanOrphanTooltips), { capture: true, passive: true });
 })();
 
 // ──────────────────────────────────────────────────────────────────────────────
