@@ -8,32 +8,7 @@
  */
 import { app } from "../../scripts/app.js";
 
-// 1. Detached Sink Guard: Intercepts legacy comfyui-manager.js setup without mounting (0,0) buttons to document.body
-(function setupLegacyMenuSink() {
-    if (typeof document === "undefined") return;
-    if (window._badaLegacyMenuSinkInstalled) return;
-    window._badaLegacyMenuSinkInstalled = true;
-
-    // Clean up any existing hidden dummy anchor if present from previous sessions
-    const leftover = document.querySelector(".bada-hidden-anchor");
-    if (leftover) leftover.remove();
-
-    let _detachedSink = null;
-    const origQuerySelector = Document.prototype.querySelector;
-    Document.prototype.querySelector = function (selector) {
-        if (selector === ".comfy-menu") {
-            const found = origQuerySelector.call(this, selector);
-            if (found && !found.classList.contains("bada-hidden-anchor")) return found;
-            if (!_detachedSink) {
-                _detachedSink = document.createElement("div");
-                _detachedSink.className = "comfy-menu-detached-sink";
-                window._badaDetachedSink = _detachedSink;
-            }
-            return _detachedSink;
-        }
-        return origQuerySelector.call(this, selector);
-    };
-})();
+// 1. Dual Manager operates purely on-demand: no startup DOM monkey-patching or script injection.
 
 // 2. Channel list sanitizer: Ensure selected channel (e.g. 'custom') is present in dropdown list
 (function setupChannelSanitizer() {
@@ -216,31 +191,50 @@ export function setupDualManager() {
                 btn.style.transform = "none";
             };
 
-            btn.onclick = (e) => {
+            btn.onclick = async (e) => {
                 e.stopPropagation();
                 e.preventDefault();
 
+                // 1. Direct manager_instance execution if already available
                 if (window.manager_instance && typeof window.manager_instance.show === "function") {
                     window.manager_instance.show();
                     return;
                 }
 
-                // 2. Detached sink button trigger (runs comfyui-manager's native action)
-                if (window._badaDetachedSink) {
-                    const btns = window._badaDetachedSink.querySelectorAll("button");
-                    for (const b of btns) {
-                        if (b.textContent?.trim() === "Manager" || b.title?.includes("Manager") || b.getAttribute("aria-label")?.includes("Manager")) {
-                            b.click();
-                            return;
-                        }
+                // 2. On-demand lazy load from /bada_dual/mgr_assets
+                if (!window._badaLegacyManagerLoaded) {
+                    window._badaLegacyManagerLoaded = true;
+                    console.log("[ComfyUI-Bada-Utils] 🧩 Lazy-loading Classic Manager assets on demand...");
+
+                    const origQS = Document.prototype.querySelector;
+                    let tempSink = null;
+                    if (!document.querySelector(".comfy-menu")) {
+                        tempSink = document.createElement("div");
+                        tempSink.className = "bada-temp-menu-sink";
+                        Document.prototype.querySelector = function (selector) {
+                            if (selector === ".comfy-menu") return tempSink;
+                            return origQS.call(this, selector);
+                        };
                     }
-                    if (btns.length > 0) {
-                        btns[0].click();
-                        return;
+
+                    try {
+                        await import("/bada_dual/mgr_assets/comfyui-manager.js");
+                    } catch (err) {
+                        console.warn("[ComfyUI-Bada-Utils] Lazy loading legacy manager failed:", err);
+                    } finally {
+                        if (tempSink) {
+                            Document.prototype.querySelector = origQS;
+                        }
                     }
                 }
 
-                // 3. Extension registry lookup
+                // 3. Trigger manager dialog after load
+                if (window.manager_instance && typeof window.manager_instance.show === "function") {
+                    window.manager_instance.show();
+                    return;
+                }
+
+                // 4. Extension registry lookup
                 try {
                     const legacyExt = app.extensions?.find(x => x.name === "Comfy.Legacy.ManagerMenu" || x.name === "Comfy.Manager" || x.name === "ComfyUI-Manager");
                     if (legacyExt) {
@@ -259,7 +253,7 @@ export function setupDualManager() {
                         }
                     }
                 } catch (err) {
-                    console.warn("[bada] Legacy manager extension lookup error:", err);
+                    console.warn("[ComfyUI-Bada-Utils] Legacy manager extension lookup error:", err);
                 }
 
                 if (window.ComfyListManagerDialog) {
@@ -267,7 +261,7 @@ export function setupDualManager() {
                         new window.ComfyListManagerDialog().show();
                         return;
                     } catch (err) {
-                        console.warn("[bada] ComfyListManagerDialog error:", err);
+                        console.warn("[ComfyUI-Bada-Utils] ComfyListManagerDialog error:", err);
                     }
                 }
 

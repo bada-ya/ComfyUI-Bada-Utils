@@ -32,9 +32,14 @@ try:
     if mgr_mod and hasattr(mgr_mod, "__file__") and mgr_mod.__file__:
         mgr_dir = os.path.dirname(os.path.abspath(mgr_mod.__file__))
         mgr_js = os.path.join(mgr_dir, "js")
-        if os.path.isdir(mgr_js) and "comfyui-manager-legacy" not in nodes.EXTENSION_WEB_DIRS:
-            nodes.EXTENSION_WEB_DIRS["comfyui-manager-legacy"] = mgr_js
-            logger.info("[ComfyUI-Bada-Utils] 🧩 Dual Manager: ComfyUI-Manager legacy UI assets activated.")
+        if os.path.isdir(mgr_js):
+            # Mount static assets for on-demand lazy load WITHOUT auto-injecting into browser startup:
+            if hasattr(PromptServer, "instance") and PromptServer.instance and hasattr(PromptServer.instance, "app"):
+                try:
+                    PromptServer.instance.app.router.add_static("/bada_dual/mgr_assets", mgr_js)
+                    logger.info("[ComfyUI-Bada-Utils] 🧩 Dual Manager: On-demand assets mounted at /bada_dual/mgr_assets (startup clean).")
+                except Exception as static_err:
+                    logger.debug(f"[ComfyUI-Bada-Utils] Dual Manager static route notice: {static_err}")
 
         # Safe non-conflicting route bridge:
         if hasattr(PromptServer, "instance") and PromptServer.instance and hasattr(PromptServer.instance, "routes"):
