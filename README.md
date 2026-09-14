@@ -10,7 +10,7 @@
 
 ### 💡 "A pragmatic collection of utilities crafted to fix small, annoying friction points discovered while building workflows in ComfyUI every single day."
 
-[English Documentation](#-7-flagship-tools-overview) •
+[English Documentation](#-8-flagship-tools-overview) •
 [🇰🇷 한국어 설명서 보기 (README_ko.md)](README_ko.md) •
 [⚙️ Settings & i18n](#-bada-unified-settings) •
 [🚀 Installation](#-installation)
@@ -19,20 +19,21 @@
 
 ---
 
-## 🧭 7 Flagship Tools Overview
+## 🧭 8 Flagship Tools Overview
 
 For quick evaluation, here is **what each tool does and when to use it**.  
 Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instructions, visual guides, and screenshots.
 
 ```
-⚓ ComfyUI-Bada-Utils (7 Flagship Modules)
+⚓ ComfyUI-Bada-Utils (8 Flagship Modules)
 ├── 1. 📐 Visual Grid Regional Prompt Pro (BadaRegionalPrompt)
 ├── 2. 🌟 Universal Smart Presets & Master Hub (BadaPresetHub & SmartPresets)
 ├── 3. ⚡ Auto Model & LoRA Assigner (Auto Assigner)
 ├── 4. 📂 Next-Gen Smart Workflow Manager (Workflows+)
 ├── 5. ✨ Canvas & Clipboard QoL Master (Canvas & Image QoL)
 ├── 6. ⚓ Bada Async Gemini Studio (BadaAsyncGeminiStudio)
-└── 7. 💻 Bada Terminal Hub (BadaTerminalConsole)
+├── 7. 💻 Bada Terminal Hub (BadaTerminalConsole)
+└── 8. 🧩 Classic Manager Quick Launcher & Tooltip Bug Auto-Healer (Dual Manager & Tooltip Healer)
 ```
 
 ---
@@ -307,6 +308,38 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 
 ---
 
+### 8. 🧩 Classic Manager Quick Launcher & Tooltip Bug Auto-Healer (`Dual Manager & Tooltip Healer`)
+- **What it does**: 
+  - **Dual Manager**: Integrates a `[ 🧩 Manager ]` button directly into the top navigation bar, enabling instantaneous access to the classic ComfyUI Manager V4 popup while keeping the modern `[Extensions]` manager fully functional side-by-side.
+  - **PrimeVue Tooltip Auto-Healer**: Automatically intercepts and resolves the persistent `(0, 0)` ghost tooltip bug (`.p-tooltip`) in ComfyUI, guaranteeing a clean canvas.
+- **When to use it**: 
+  - When you want to use **both** the modern `Extensions` store (searching packages, etc.) and the classic manager (bulk update, channel switcher, restart) side-by-side without compromises.
+  - When an empty tooltip bubble gets permanently stuck at the top-left corner `(0, 0)` of your ComfyUI window.
+
+> [!WARNING]
+> ### 🚨 [CRITICAL] Want to use BOTH Modern Extensions and Classic Manager?
+> **DO NOT add `--enable-manager-legacy-ui` to your ComfyUI startup arguments!**
+> 
+> * **Why**: When `--enable-manager-legacy-ui` is passed, ComfyUI's core frontend **overrides and replaces the `[ Extensions ]` button** with the legacy manager popup. This prevents you from accessing the modern Extensions manager at all.
+> * **Solution**: **Run ComfyUI WITHOUT `--enable-manager-legacy-ui`**. Bada Utils preserves the native `[ Extensions ]` button and adds the independent **`[ 🧩 Manager ]`** button right next to it, giving you true dual-manager coexistence!
+
+<details>
+<summary><b>📖 Detailed Guide & Settings (Click to expand) ▼</b></summary>
+
+#### 🌟 Key Features
+1. **🧩 Full Dual Manager Coexistence**:
+   * Places a clean `[ 🧩 Manager ]` pill button in the top menu bar.
+   * Clicking it immediately opens the familiar ComfyUI Manager V4 window (Custom Nodes Manager, Model Manager, Update All, Restart, etc.).
+   * Toggle the top button on/off anytime via `BADA Settings`.
+2. **🛡️ 100% Automatic Ghost Tooltip Healing (`Tooltip Fixer`)**:
+   * In ComfyUI, using `--enable-manager-legacy-ui` or certain extensions causes event capturing in `common.js` that disrupts PrimeVue coordinate calculations, permanently sticking `.p-tooltip` at coordinates `(0, 0)` on the top-left of the screen.
+   * Bada Utils' built-in auto-healer intercepts aggressive capturing listeners and continuously ensures tooltips correctly track their parent elements or despawn cleanly.
+   * **Even if you do use `--enable-manager-legacy-ui`, Bada Utils completely cures the top-left ghost tooltip bug automatically.**
+
+</details>
+
+---
+
 ## ⚙️ BADA Unified Settings (`⚙️ Settings -> 🌊 Bada Utils`)
 
 Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 Bada Utils`** tab to access the centralized bilingual control center:
@@ -321,11 +354,13 @@ Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 
 | :--- | :--- | :--- |
 | **1. Language** | **🌐 UI Language** | Switch display language between `English` and `한국어 (Korean)` in real time. |
 | **2. Workflows+** | **📁 Sidebar Workflows+ Folder Management** | Enables drag-and-drop workflow folder organization, 0-item folder preservation, and Workflows+ in the left sidebar. |
-| **3. Canvas QoL** | **🖱️ Mouse Wheel Zoom & Middle-Click Pan Fixer** | Fixes middle-click panning and wheel zoom freezes even over textareas, DOM widgets, and custom nodes. |
-| **4. Startup** | **🧼 Clean Blank Canvas Startup** | Starts ComfyUI and new tabs with a clean blank canvas, completely preventing annoying missing-model startup errors (`2 errors found`). |
-| **5. Presets** | **🗃️ Global Presets & Inline Overview Panel** | Display shortcut preset badges on node roofs and provides full-width interactive preset summary across all node types. |
-| **6. Image QoL** | **📋 Clipboard & LoadImage Auto-Error Fixer** | Automatically fixes red border and input validation errors caused by pasting clipboard images (`Ctrl+V`) or subfolder paths in LoadImage nodes. |
-| **7. Terminal** | **🖥️ Bada Terminal Hub** | Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar. |
+| **3. Sidebar** | **📐 Compact Sidebar Mode (Icons Only)** | Hides text labels below left sidebar icons to keep the sidebar slim, compact, and icon-centric. |
+| **4. Manager** | **🧩 Classic Manager Quick Launcher (Dual Manager)** | Displays the `[ 🧩 Manager ]` button in the top menu bar to open the classic manager alongside the modern manager. |
+| **5. Canvas QoL** | **🖱️ Mouse Wheel Zoom & Middle-Click Pan Fixer** | Fixes middle-click panning and wheel zoom freezes even over textareas, DOM widgets, and custom nodes. |
+| **6. Startup** | **🧼 Clean Blank Canvas Startup** | Starts ComfyUI and new tabs with a clean blank canvas, completely preventing annoying missing-model startup errors (`2 errors found`). |
+| **7. Presets** | **🗃️ Global Presets & Inline Overview Panel** | Display shortcut preset badges on node roofs and provides full-width interactive preset summary across all node types. |
+| **8. Image QoL** | **📋 Clipboard & LoadImage Auto-Error Fixer** | Automatically fixes red border and input validation errors caused by pasting clipboard images (`Ctrl+V`) or subfolder paths in LoadImage nodes. |
+| **9. Terminal** | **🖥️ Bada Terminal Hub** | Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar. |
 
 ---
 

@@ -2,6 +2,8 @@ import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
 import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary, getGlobalPresetsStore } from "./presets_overview_modal.js";
 import { showToast } from "./presets_modal.js";
+import "./tooltip_fixer.js";
+import { setupDualManager, updateDualManagerVisibility } from "./bada_dual_manager.js";
 
 /**
  * ComfyUI-Bada-Utils · bada_core.js
@@ -39,6 +41,9 @@ const BADA_SETTINGS_TEXTS = {
         mouseName: "🖱️ Mouse Wheel Zoom & Middle-Click Pan Fixer",
         mouseDesc: "Ensures smooth mouse wheel zooming and middle-click drag-panning even directly over canvas nodes or text widgets.",
 
+        compactSidebarName: "📐 Compact Sidebar (Icons Only)",
+        compactSidebarDesc: "Hides text labels beneath sidebar icons and applies compact padding, eliminating vertical scrollbars.",
+
         blankName: "🧼 Clean Blank Canvas Startup",
         blankDesc: "Start ComfyUI and new tabs with a clean blank canvas instead of default workflows with missing-model errors.",
 
@@ -51,7 +56,10 @@ const BADA_SETTINGS_TEXTS = {
 
         terminalHubPlain: "Bada Terminal Hub",
         terminalHubTitle: `${BADA_ICONS.terminal} Bada Terminal Hub`,
-        terminalHubDesc: "Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar."
+        terminalHubDesc: "Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar.",
+
+        dualManagerName: "🧩 Classic Manager Quick Launcher",
+        dualManagerDesc: "Displays a blue puzzle button in the top menu bar to open classic ComfyUI-Manager anytime."
     },
     ko: {
         category: "Bada Utils",
@@ -63,6 +71,9 @@ const BADA_SETTINGS_TEXTS = {
 
         mouseName: "🖱️ 마우스 휠 줌 & 중간 버튼(휠) 패닝 보정기",
         mouseDesc: "캔버스 위 노드나 텍스트 박스 위에서도 끊김 없이 휠 줌 및 중간 버튼(휠 클릭) 드래그 패닝이 작동하도록 보정합니다.",
+
+        compactSidebarName: "📐 사이드바 콤팩트 모드 (아이콘만 표시)",
+        compactSidebarDesc: "사이드바 아이콘 아래 글씨 라벨을 숨기고 여백을 줄여 세로 스크롤바 없는 깔끔한 미니멀 툴바로 만듭니다.",
 
         blankName: "🧼 시작 시 클린 빈 캔버스로 열기",
         blankDesc: "ComfyUI 실행 시 모델 누락 에러가 발생하는 기본 템플릿 대신 깨끗한 빈 캔버스로 시작합니다.",
@@ -76,7 +87,10 @@ const BADA_SETTINGS_TEXTS = {
 
         terminalHubPlain: "바다 터미널 허브",
         terminalHubTitle: `${BADA_ICONS.terminal} 바다 터미널 허브`,
-        terminalHubDesc: "좌측 사이드바 하단에 Bada Terminal Hub 바로가기 탭 아이콘을 표시합니다."
+        terminalHubDesc: "좌측 사이드바 하단에 Bada Terminal Hub 바로가기 탭 아이콘을 표시합니다.",
+
+        dualManagerName: "🧩 클래식 매니저 퀵 런처 (듀얼 매니저)",
+        dualManagerDesc: "상단 메뉴 바에 파란 퍼즐 버튼을 표시하여 언제든 익숙한 구형 클래식 매니저 창을 바로 실행합니다."
     }
 };
 
@@ -112,6 +126,14 @@ const BADA_UNIFIED_SETTINGS = {
         name: "🖱️ Mouse Wheel Zoom & Middle-Click Pan Fixer",
         type: "boolean",
         sortOrder: 700,
+        defaultValue: true
+    },
+    compactSidebar: {
+        id: "BadaUtils.CompactSidebar",
+        category: ["Bada Utils", "CompactSidebar"],
+        name: "📐 Compact Sidebar",
+        type: "boolean",
+        sortOrder: 650,
         defaultValue: true
     },
     blankStartup: {
@@ -151,6 +173,14 @@ const BADA_UNIFIED_SETTINGS = {
         name: "Bada Terminal Hub",
         type: "boolean",
         sortOrder: 200,
+        defaultValue: true
+    },
+    dualManager: {
+        id: "BadaUtils.DualManager",
+        category: ["Bada Utils", "DualManager"],
+        name: "🧩 Classic Manager Quick Launcher",
+        type: "boolean",
+        sortOrder: 100,
         defaultValue: true
     }
 };
@@ -214,16 +244,34 @@ function escapeHtml(str) {
     const style = document.createElement("style");
     style.id = "bada-core-css";
     style.textContent = `
-        /* Clean Minimalist Sidebar: Pure Icons Only (Strictly hide labels & eliminate scrollbars) */
-        .side-bar-button-label {
+        /* Clean Minimalist Sidebar: Pure Icons Only (Controlled by BadaUtils.CompactSidebar) */
+        body.bada-compact-sidebar .side-bar-button-label {
             display: none !important;
         }
-        .side-bar-button {
+        body.bada-compact-sidebar .side-bar-button {
             height: 2.25rem !important;
             padding: 0.5rem !important;
         }
-        .side-tool-bar-container {
+        body.bada-compact-sidebar .side-tool-bar-container {
             overflow-y: hidden !important;
+        }
+
+        /* Settings Sidebar: Immediate Distinctive Anchor ⚓ icon for Bada Utils */
+        [data-nav-id="root/Bada Utils"] i,
+        [data-nav-id="root/Bada Utils"] svg,
+        [data-nav-id="root/Bada Utils"] [class*="icon"],
+        [data-nav-id*="Bada"] i,
+        [data-nav-id*="Bada"] svg {
+            display: none !important;
+        }
+        [data-nav-id="root/Bada Utils"]:not(:has(.bada-nav-anchor))::before,
+        [data-nav-id*="Bada"]:not(:has(.bada-nav-anchor))::before {
+            content: "⚓" !important;
+            font-size: 15px !important;
+            margin-right: 6px !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
         }
 
         /* 1. Drastically reduce vertical gaps between Bada Utils setting groups */
@@ -505,6 +553,9 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.mouse.id) {
                 targetTitle = texts.mouseName;
                 targetDesc = texts.mouseDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.compactSidebar.id) {
+                targetTitle = texts.compactSidebarName;
+                targetDesc = texts.compactSidebarDesc;
             } else if (id === BADA_UNIFIED_SETTINGS.blankStartup.id) {
                 targetTitle = texts.blankName;
                 targetDesc = texts.blankDesc;
@@ -517,6 +568,9 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.terminalHub.id) {
                 targetTitle = texts.terminalHubTitle;
                 targetDesc = texts.terminalHubDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.dualManager.id) {
+                targetTitle = texts.dualManagerName;
+                targetDesc = texts.dualManagerDesc;
             }
 
             if (!targetTitle) return;
@@ -666,6 +720,53 @@ app.registerExtension({
             defaultValue: BADA_UNIFIED_SETTINGS.mouse.defaultValue
         });
 
+        // ③-1 Compact Sidebar Mode (Icon-Only, Scrollbar-Free)
+        function applyCompactSidebarState(enabled) {
+            if (enabled) {
+                document.body.classList.add("bada-compact-sidebar");
+                try {
+                    if (window.app?.ui?.settings?.setSettingValue) {
+                        window.app.ui.settings.setSettingValue("Comfy.Sidebar.Size", "small");
+                    }
+                } catch (_) {}
+            } else {
+                document.body.classList.remove("bada-compact-sidebar");
+                try {
+                    if (window.app?.ui?.settings?.setSettingValue) {
+                        window.app.ui.settings.setSettingValue("Comfy.Sidebar.Size", "normal");
+                    }
+                } catch (_) {}
+            }
+        }
+
+        const initialCompact = (() => {
+            try {
+                if (window.app?.ui?.settings) {
+                    const v = window.app.ui.settings.getSettingValue("BadaUtils.CompactSidebar", true);
+                    if (typeof v === "boolean") return v;
+                }
+            } catch (_) {}
+            try {
+                const local = localStorage.getItem("Comfy.Settings.BadaUtils.CompactSidebar");
+                if (local !== null) return JSON.parse(local);
+            } catch (_) {}
+            return true;
+        })();
+        applyCompactSidebarState(initialCompact);
+
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.compactSidebar.id,
+            category: [texts.category, "CompactSidebar"],
+            name: texts.compactSidebarName,
+            type: BADA_UNIFIED_SETTINGS.compactSidebar.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.compactSidebar.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.compactSidebar.defaultValue,
+            onChange: (newVal) => {
+                const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
+                applyCompactSidebarState(target);
+            }
+        });
+
         // ④ Startup Behavior (Clean Blank Canvas Startup)
         safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.blankStartup.id,
@@ -733,10 +834,22 @@ app.registerExtension({
             }
         });
 
-        // Clean up any leftover launcher elements from previous sessions
-        try {
-            document.getElementById("bada-dual-manager-pill")?.remove();
-        } catch (_) {}
+        // ⑧ Classic Manager Quick Launcher (Dual Manager)
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.dualManager.id,
+            category: [texts.category, "DualManager"],
+            name: texts.dualManagerName,
+            type: BADA_UNIFIED_SETTINGS.dualManager.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.dualManager.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.dualManager.defaultValue,
+            onChange: (newVal) => {
+                const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
+                updateDualManagerVisibility(target);
+            }
+        });
+
+        // Initialize Dual Manager Launcher
+        setupDualManager();
 
         // 4. ⌨️ Global ESC Key Dismissal for All Custom Bada Modals & Dialogs
         if (!window.__BADA_GLOBAL_ESC_INSTALLED__) {
@@ -823,11 +936,14 @@ app.registerExtension({
 
                 let scheduled = false;
                 const observer = new MutationObserver((mutations) => {
-                    // Strictly ignore tooltips and non-Bada elements to prevent any layout interference
+                    // Detect Bada setting rows or settings sidebar nav items
                     let hasBadaChange = false;
                     for (const m of mutations) {
                         for (const node of m.addedNodes) {
-                            if (node.nodeType === 1 && (node.matches?.('[data-setting-id^="BadaUtils"]') || node.querySelector?.('[data-setting-id^="BadaUtils"]'))) {
+                            if (node.nodeType === 1 && (
+                                node.matches?.('[data-setting-id^="BadaUtils"], [data-nav-id*="Bada"]') ||
+                                node.querySelector?.('[data-setting-id^="BadaUtils"], [data-nav-id*="Bada"]')
+                            )) {
                                 hasBadaChange = true;
                                 break;
                             }
@@ -900,11 +1016,19 @@ app.registerExtension({
             // Scoped dialog detector interval (checks only if [role="dialog"] exists)
             setInterval(() => {
                 const dialog = document.querySelector('[role="dialog"]');
-                if (dialog && !dialog.__badaObserverAttached) {
-                    observeSettingsDialog();
-                    applyBilingualSettingsUI();
+                if (dialog) {
+                    if (!dialog.__badaObserverAttached) {
+                        observeSettingsDialog();
+                        applyBilingualSettingsUI();
+                    } else {
+                        // Keep anchor icon continuously decorated on the left sidebar
+                        const navLink = dialog.querySelector('[data-nav-id="root/Bada Utils"], [data-nav-id*="Bada"]');
+                        if (navLink && !navLink.querySelector(".bada-nav-anchor")) {
+                            applyBilingualSettingsUI();
+                        }
+                    }
                 }
-            }, 400);
+            }, 300);
 
             // Ghost tooltip pruner removed: was interfering with native PrimeVue tooltips.
         }

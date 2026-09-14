@@ -123,18 +123,18 @@ class WorkflowsPlusManager {
                 filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.95)) !important;
             }
 
-            /* Clean Native Icon-Only Sidebar (Strictly hide all text labels & remove scrollbars) */
-            .side-bar-button-label {
+            /* Clean Native Icon-Only Sidebar (Controlled by BadaUtils.CompactSidebar) */
+            body.bada-compact-sidebar .side-bar-button-label {
                 display: none !important;
             }
-            .side-bar-button {
+            body.bada-compact-sidebar .side-bar-button {
                 height: 2.25rem !important;
                 padding: 0.5rem !important;
             }
-            .side-tool-bar-container {
+            body.bada-compact-sidebar .side-tool-bar-container {
                 overflow-y: hidden !important;
             }
-            [data-testid="bada-workflows-plus-tab-button"] .side-bar-button-label {
+            body.bada-compact-sidebar [data-testid="bada-workflows-plus-tab-button"] .side-bar-button-label {
                 display: none !important;
             }
 
@@ -1047,7 +1047,7 @@ class WorkflowsPlusManager {
         app.extensionManager.registerSidebarTab({
             id: "bada-workflows-plus",
             icon: "bada-tab-icon-workflow",
-            title: "",
+            title: "Workflows",
             tooltip: "Workflows",
             type: "custom",
             render: (el) => {
@@ -1055,13 +1055,6 @@ class WorkflowsPlusManager {
             }
         });
         console.log("[BadaUtils] Bada Workflows sidebar tab registered via extensionManager.");
-
-        // Ensure sidebar size setting is cleanly kept as 'small' (icon-only, no labels)
-        try {
-            if (window.app?.ui?.settings?.setSettingValue) {
-                window.app.ui.settings.setSettingValue("Comfy.Sidebar.Size", "small");
-            }
-        } catch (e) {}
 
         this.syncSidebarStateWithSetting();
         this.reorderSidebarTab();
