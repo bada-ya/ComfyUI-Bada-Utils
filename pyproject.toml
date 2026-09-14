@@ -20,12 +20,14 @@ Homepage = "https://github.com/bada-ya/ComfyUI-Bada-Utils"
 PublisherId = "bada-ya"
 DisplayName = "ComfyUI-Bada-Utils"
 Icon = "https://raw.githubusercontent.com/bada-ya/ComfyUI-Bada-Utils/main/assets/bada_icon.png"
+Banner = "https://raw.githubusercontent.com/bada-ya/ComfyUI-Bada-Utils/main/docs/images/bada_banner.png"
 Includes = [
     "nodes",
     "server",
     "web",
     "workflows",
     "assets",
+    "docs",
     "__init__.py",
     "presets_data.json",
     "node_list.json",

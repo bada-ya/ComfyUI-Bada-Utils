@@ -17,6 +17,10 @@
 
 </div>
 
+<p align="center">
+  <img src="docs/images/bada_banner.png" alt="ComfyUI-Bada-Utils Suite Banner" width="100%">
+</p>
+
 ---
 
 ## 🧭 8대 핵심 도구 목록
