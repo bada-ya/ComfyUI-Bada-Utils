@@ -15,24 +15,79 @@ const SETTING_ID = "BadaUtils.LoadImageClipboardFix";
  * Checks if the Clipboard & LoadImage Auto-Error Fixer is enabled in Bada Utils settings.
  */
 export function isLoadImageFixEnabled() {
-    if (!app?.ui?.settings) return true;
-    try {
-        const val = app.ui.settings.getSettingValue(SETTING_ID, true);
-        return typeof val === "boolean" ? val : true;
-    } catch {
-        return true;
+    // 1. Direct in-memory sync variable (instant reactive updates from onChange)
+    if (typeof window._badaLoadImageFixEnabled === "boolean") {
+        return window._badaLoadImageFixEnabled;
     }
+
+    // 2. ComfyUI settings API (handling primitive, object/ref, and string cases)
+    try {
+        if (window.app?.ui?.settings) {
+            const val = window.app.ui.settings.getSettingValue(SETTING_ID);
+            if (typeof val === "boolean") return val;
+            if (typeof val === "object" && val !== null && "value" in val) return !!val.value;
+            if (val === "false" || val === false) return false;
+            if (val === "true" || val === true) return true;
+        }
+    } catch (_) {}
+
+    // 3. LocalStorage fallback
+    try {
+        const local = localStorage.getItem("Comfy.Settings." + SETTING_ID);
+        if (local !== null) {
+            const parsed = JSON.parse(local);
+            if (typeof parsed === "boolean") return parsed;
+            if (typeof parsed === "object" && parsed !== null && "value" in parsed) return !!parsed.value;
+            if (parsed === "false" || parsed === false) return false;
+            if (parsed === "true" || parsed === true) return true;
+        }
+    } catch (_) {}
+
+    return true;
 }
 
 /**
- * Checks if a node is an image-loading node (LoadImage, LoadImageMask, LoadImageOutput, or custom).
+ * Strict Whitelist of Pure Image Loading Nodes.
+ * Absolutely NO model loaders, upscalers, face detailers, detectors, audio/video nodes.
+ */
+const PURE_IMAGE_LOADER_TYPES = new Set([
+    "LoadImage",
+    "LoadImageMask",
+    "LoadImageOutput",
+    "UploadImage"
+]);
+
+/**
+ * Checks if a node is strictly a pure image-loading node (LoadImage, LoadImageMask, etc.).
+ * Guarantees that model loaders, upscalers, face detailers, detectors, etc. are NEVER touched.
  */
 export function isImageLoadingNode(node) {
     if (!node) return false;
-    const type = node.type || node.comfyClass || "";
-    if (type.includes("LoadImage") || type.includes("ImageLoader")) return true;
-    if (node.widgets?.some(w => w.name === "image" && (w.type === "combo" || w.options?.values))) return true;
+    const type = String(node.type || node.comfyClass || "").trim();
+
+    // 1. Direct Whitelist Match
+    if (PURE_IMAGE_LOADER_TYPES.has(type)) return true;
+
+    // 2. Strict Pattern: Must contain LoadImage or ImageLoader,
+    //    AND must NOT contain any model, upscale, detailer, detector, provider, etc.
+    const isImageLoaderPattern = /(?:^|[^a-zA-Z])LoadImage(?:$|[^a-zA-Z])|ImageLoader/i.test(type);
+    const hasDisallowedKeywords = /Model|Upscale|Detailer|Detector|Provider|Audio|Video|Latent|Conditioning|Sampler|Lora|Checkpoint|ControlNet|Segment|SAM|Bbox|Face|Yolo/i.test(type);
+
+    if (isImageLoaderPattern && !hasDisallowedKeywords) {
+        return true;
+    }
+
     return false;
+}
+
+/**
+ * Checks if a specific widget is strictly the image file widget on an image loading node.
+ */
+export function isImageLoadingWidget(node, widget) {
+    if (!node || !widget) return false;
+    if (!isImageLoadingNode(node)) return false;
+    const name = String(widget.name || "").trim().toLowerCase();
+    return name === "image";
 }
 
 /**
@@ -41,7 +96,7 @@ export function isImageLoadingNode(node) {
  * `scanNodeMediaCandidates` validator does NOT falsely flag it as missing media.
  */
 export function protectImageWidgetCombo(node, widget) {
-    if (!widget) return;
+    if (!widget || !node || !isImageLoadingWidget(node, widget)) return;
     if (!widget.options) widget.options = {};
     if (widget.options.__badaComboProtected) return;
     widget.options.__badaComboProtected = true;
@@ -103,7 +158,7 @@ export function protectImageWidgetCombo(node, widget) {
  * Clears false-positive error flags on an image-loading node.
  */
 export function clearNodeFalseErrors(node) {
-    if (!node || !isLoadImageFixEnabled()) return;
+    if (!node || !isLoadImageFixEnabled() || !isImageLoadingNode(node)) return;
 
     // Check if node has genuine unconnected required inputs
     const hasUnconnectedRequiredInputs = node.inputs?.some(input => !input.link && !input.optional);
@@ -135,11 +190,11 @@ export function clearNodeFalseErrors(node) {
  * Heals a specific node by syncing all its image widgets and removing red borders.
  */
 export function healImageNode(node) {
-    if (!node || !isLoadImageFixEnabled()) return;
+    if (!node || !isLoadImageFixEnabled() || !isImageLoadingNode(node)) return;
 
     if (node.widgets) {
         for (const w of node.widgets) {
-            if (w.name === "image" || w.type === "combo" || (typeof w.value === "string" && (w.value.includes("/") || w.value.includes("\\")))) {
+            if (isImageLoadingWidget(node, w)) {
                 protectImageWidgetCombo(node, w);
                 
                 // Directly ensure in internal array
@@ -153,9 +208,7 @@ export function healImageNode(node) {
         }
     }
 
-    if (isImageLoadingNode(node)) {
-        clearNodeFalseErrors(node);
-    }
+    clearNodeFalseErrors(node);
 }
 
 /**
@@ -167,7 +220,9 @@ export function healAllImageNodes() {
     if (!graph?._nodes) return;
 
     for (const node of graph._nodes) {
-        healImageNode(node);
+        if (isImageLoadingNode(node)) {
+            healImageNode(node);
+        }
     }
     graph.setDirtyCanvas?.(true, true);
 }
@@ -193,7 +248,7 @@ export function setupLoadImageFixer() {
         window.LGraphNode.prototype.configure = function (data) {
             const r = origConfigure ? origConfigure.apply(this, arguments) : undefined;
             try {
-                if (isLoadImageFixEnabled()) {
+                if (isLoadImageFixEnabled() && isImageLoadingNode(this)) {
                     healImageNode(this);
                 }
             } catch (e) {
@@ -206,7 +261,7 @@ export function setupLoadImageFixer() {
         const origAddWidget = window.LGraphNode.prototype.addWidget;
         window.LGraphNode.prototype.addWidget = function (type, name, value, callback, options) {
             const widget = origAddWidget ? origAddWidget.apply(this, arguments) : null;
-            if (widget && (name === "image" || type === "combo")) {
+            if (widget && isImageLoadingWidget(this, widget)) {
                 try {
                     protectImageWidgetCombo(this, widget);
                 } catch (e) {}

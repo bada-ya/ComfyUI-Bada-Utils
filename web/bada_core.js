@@ -846,7 +846,10 @@ app.registerExtension({
             sortOrder: BADA_UNIFIED_SETTINGS.loadImageFix.sortOrder,
             defaultValue: BADA_UNIFIED_SETTINGS.loadImageFix.defaultValue,
             onChange: (newVal) => {
-                const isEnabled = (typeof newVal === "object" && newVal?.value !== undefined) ? newVal.value : newVal;
+                const isEnabled = (typeof newVal === "object" && newVal !== null && "value" in newVal)
+                    ? !!newVal.value
+                    : (newVal === true || newVal === "true");
+                window._badaLoadImageFixEnabled = isEnabled;
                 if (isEnabled && window.BadaLoadImageFixer?.healAllImageNodes) {
                     window.BadaLoadImageFixer.healAllImageNodes();
                 }
