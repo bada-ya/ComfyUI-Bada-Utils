@@ -1147,10 +1147,10 @@ class AutoModelAssigner {
 
         setTimeout(() => {
             toast.style.opacity = "0";
-            toast.style.transform = "translateY(10px)";
-            toast.style.transition = "all 0.3s ease";
-            setTimeout(() => toast.remove(), 300);
-        }, 3200);
+            toast.style.transform = "translateY(-12px) scale(0.95)";
+            toast.style.transition = "all 0.25s cubic-bezier(0.16, 1, 0.3, 1)";
+            setTimeout(() => toast.remove(), 250);
+        }, 2400);
     }
 }
 

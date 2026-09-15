@@ -737,55 +737,69 @@
     transform: translateY(-2px);
 }
 
-/* Toast Notifications */
+/* Toast Notifications (Top Center Compact Pill) */
 .auto-assign-toast-container {
     position: fixed;
-    bottom: 28px;
-    right: 28px;
-    z-index: 100000;
+    top: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100005;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    align-items: center;
+    gap: 8px;
     pointer-events: none;
 }
 
 .auto-assign-toast {
-    background: #1e212b;
-    border: 2px solid #475569;
-    border-left: 6px solid #6366f1;
-    color: #ffffff;
-    padding: 16px 24px;
-    border-radius: 12px;
-    font-size: 1.15rem;
+    background: rgba(26, 30, 42, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    border-left: 4px solid #6366f1;
+    color: #f8fafc;
+    padding: 8px 18px;
+    border-radius: 9999px;
+    font-size: 0.88rem;
     font-weight: 600;
-    box-shadow: 0 12px 35px rgba(0, 0, 0, 0.6);
+    letter-spacing: -0.01em;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px rgba(99, 102, 241, 0.25);
     display: flex;
     align-items: center;
-    gap: 12px;
-    animation: toast-slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    pointer-events: auto;
+    gap: 8px;
+    animation: toast-slide-in-top 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    pointer-events: none;
+    white-space: nowrap;
 }
 
 .auto-assign-toast.success {
+    border-color: rgba(16, 185, 129, 0.4);
     border-left-color: #10b981;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px rgba(16, 185, 129, 0.25);
 }
 
 .auto-assign-toast.warning {
+    border-color: rgba(245, 158, 11, 0.4);
     border-left-color: #f59e0b;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px rgba(245, 158, 11, 0.25);
 }
 
 .auto-assign-toast.error {
+    border-color: rgba(239, 68, 68, 0.4);
     border-left-color: #ef4444;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px rgba(239, 68, 68, 0.25);
 }
 
 .auto-assign-toast.info {
+    border-color: rgba(59, 130, 246, 0.4);
     border-left-color: #3b82f6;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px rgba(59, 130, 246, 0.25);
 }
 
-@keyframes toast-slide-in {
+@keyframes toast-slide-in-top {
     from {
         opacity: 0;
-        transform: translateY(25px) scale(0.92);
+        transform: translateY(-18px) scale(0.95);
     }
     to {
         opacity: 1;
