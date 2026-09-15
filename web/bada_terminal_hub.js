@@ -670,14 +670,90 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
 
     btnRestart.addEventListener("click", async () => {
         if (confirm("Restart ComfyUI server now?")) {
-            appendLog(`\r\n[System] Signaling ComfyUI restart...\r\n`, "system");
-            try {
-                await fetch("/api/bada/terminal/restart", { method: "POST" });
-            } catch (e) {
-                appendLog(`[Restart signal]: ${e.message}\r\n`, "stderr");
-            }
+            triggerServerRestart();
         }
     });
+
+    async function triggerServerRestart() {
+        appendLog(`\r\n[System] 🔄 ComfyUI 서버 재시작을 요청합니다...\r\n`, "system");
+        btnRestart.disabled = true;
+        btnRestart.textContent = "🔄 Restarting...";
+
+        // 1. Create and show full-screen restart overlay
+        const backdrop = document.createElement("div");
+        backdrop.className = "bada-restart-backdrop";
+        backdrop.innerHTML = `
+            <div class="bada-restart-card">
+                <div class="bada-restart-spinner">⚓</div>
+                <h3 class="bada-restart-title">ComfyUI 서버 재시작 중</h3>
+                <p class="bada-restart-status" id="badaRestartStatus">서버 프로세스를 재기동하고 있습니다.<br>서버가 준비되면 자동으로 새로고침됩니다.</p>
+                <div class="bada-restart-timer" id="badaRestartTimer">재연결 대기 중 (0s)</div>
+                <button class="bada-restart-force-btn" id="badaRestartForceBtn" style="display:none;">지금 바로 새로고침</button>
+            </div>
+        `;
+        document.body.appendChild(backdrop);
+
+        const statusEl = backdrop.querySelector("#badaRestartStatus");
+        const timerEl = backdrop.querySelector("#badaRestartTimer");
+        const forceBtn = backdrop.querySelector("#badaRestartForceBtn");
+
+        forceBtn.addEventListener("click", () => {
+            window.location.reload();
+        });
+
+        let elapsedSeconds = 0;
+        const timerInterval = setInterval(() => {
+            elapsedSeconds++;
+            if (timerEl) {
+                timerEl.textContent = `재연결 대기 중 (${elapsedSeconds}s)`;
+            }
+            if (elapsedSeconds >= 25 && forceBtn) {
+                forceBtn.style.display = "inline-block";
+            }
+        }, 1000);
+
+        // 2. Trigger backend restart endpoints
+        try {
+            const resp = await fetch("/api/bada/terminal/restart", { method: "POST" });
+            const resData = await resp.json().catch(() => ({}));
+            appendLog(`[System] ${resData.message || "서버 재기동 시퀀스가 시작되었습니다."}\r\n`, "system");
+        } catch (e) {
+            appendLog(`[Restart signal]: ${e.message}\r\n`, "stderr");
+            try {
+                await fetch("/v2/manager/reboot", { method: "POST" });
+            } catch (_) {}
+        }
+
+        // 3. Poll server status until it comes back up and responds
+        let restartConfirmed = false;
+        const pollInterval = setInterval(async () => {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 2000);
+                const pingResp = await fetch("/api/bada/terminal/env?t=" + Date.now(), { 
+                    method: "GET", 
+                    signal: controller.signal 
+                });
+                clearTimeout(timeoutId);
+
+                if (pingResp.ok && elapsedSeconds >= 2) {
+                    clearInterval(pollInterval);
+                    clearInterval(timerInterval);
+                    if (statusEl) {
+                        statusEl.innerHTML = `<span style="color:#3fb950;font-weight:600;">✅ 서버 재시작 완료!</span><br>잠시 후 화면을 새로고침합니다...`;
+                    }
+                    appendLog(`[System] ✅ ComfyUI 서버가 성공적으로 재부팅되었습니다. 페이지를 새로고침합니다...\r\n`, "system");
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 800);
+                }
+            } catch (err) {
+                if (statusEl && elapsedSeconds >= 3) {
+                    statusEl.innerHTML = `서버 재기동 진행 중...<br>네트워크 준비를 확인하고 있습니다.`;
+                }
+            }
+        }, 1500);
+    }
 
     // Folder Tree Explorer Modal
     treeBtn.addEventListener("click", () => {

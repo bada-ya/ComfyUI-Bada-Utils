@@ -632,3 +632,97 @@ button:has(.bada-tab-icon-terminal):hover .bada-tab-icon-terminal {
     background: #0d1117;
     border-top: 1px solid #21262d;
 }
+
+/* =========================================================================
+   Bada Restarting Overlay Modal
+   ========================================================================= */
+.bada-restart-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(13, 17, 23, 0.85);
+    backdrop-filter: blur(6px);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: badaFadeIn 0.25s ease-out;
+}
+
+.bada-restart-card {
+    background: #161b22;
+    border: 1px solid rgba(88, 166, 255, 0.35);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 20px rgba(88, 166, 255, 0.2);
+    border-radius: 12px;
+    padding: 30px 36px;
+    width: 380px;
+    max-width: 90vw;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 14px;
+    color: #c9d1d9;
+}
+
+.bada-restart-spinner {
+    font-size: 38px;
+    display: inline-block;
+    animation: badaSpin 1.8s linear infinite;
+    filter: drop-shadow(0 0 8px rgba(88, 166, 255, 0.6));
+}
+
+@keyframes badaSpin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes badaFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.bada-restart-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #58a6ff;
+    margin: 0;
+    letter-spacing: -0.2px;
+}
+
+.bada-restart-status {
+    font-size: 12.5px;
+    color: #8b949e;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.bada-restart-timer {
+    font-size: 11.5px;
+    font-family: var(--font-mono, monospace);
+    color: #388bfd;
+    background: rgba(56, 139, 253, 0.1);
+    padding: 4px 12px;
+    border-radius: 20px;
+    border: 1px solid rgba(56, 139, 253, 0.25);
+}
+
+.bada-restart-force-btn {
+    margin-top: 6px;
+    background: #238636;
+    color: #ffffff;
+    border: 1px solid rgba(240, 246, 252, 0.1);
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.bada-restart-force-btn:hover {
+    background: #2ea043;
+}
+

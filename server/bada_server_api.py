@@ -12,6 +12,8 @@ import json
 import logging
 import asyncio
 import subprocess
+import time
+import threading
 from aiohttp import web
 from server import PromptServer
 import folder_paths
@@ -711,8 +713,54 @@ def register_bada_api_routes():
         async def terminal_restart_handler(request):
             try:
                 PromptServer.instance.send_sync("bada_comfyui_restarting", {"message": "Restarting ComfyUI..."})
-                return web.json_response({"success": True, "message": "ComfyUI restart signaled"})
+
+                def execute_restart_worker():
+                    time.sleep(0.8)
+                    try:
+                        try:
+                            sys.stdout.flush()
+                            sys.stderr.flush()
+                            if hasattr(sys.stdout, "close_log"):
+                                sys.stdout.close_log()
+                        except Exception:
+                            pass
+
+                        # 1. Comfy-CLI session support
+                        if "__COMFY_CLI_SESSION__" in os.environ:
+                            reboot_file = os.path.join(os.environ["__COMFY_CLI_SESSION__"] + ".reboot")
+                            with open(reboot_file, "w"):
+                                pass
+                            print("\n[ComfyUI-Bada-Utils] Signaling reboot to comfy-cli...\n", flush=True)
+                            os._exit(0)
+
+                        # 2. Reconstruct launch arguments
+                        sys_argv = sys.argv.copy()
+                        if "--windows-standalone-build" in sys_argv:
+                            sys_argv.remove("--windows-standalone-build")
+
+                        if sys_argv[0].endswith("__main__.py"):
+                            module_name = os.path.basename(os.path.dirname(sys_argv[0]))
+                            cmds = [sys.executable, "-m", module_name] + sys_argv[1:]
+                        elif sys.platform.startswith("win32"):
+                            cmds = ['"' + sys.executable + '"', '"' + sys_argv[0] + '"'] + sys_argv[1:]
+                        else:
+                            cmds = [sys.executable] + sys_argv
+
+                        print(f"\n[ComfyUI-Bada-Utils] 🔄 Restarting ComfyUI server: {cmds}\n", flush=True)
+                        os.execv(sys.executable, cmds)
+                    except Exception as err:
+                        logger.error(f"[ComfyUI-Bada-Utils] os.execv restart failed: {err}. Attempting subprocess fallback...")
+                        try:
+                            clean_cmds = [sys.executable, sys.argv[0]] + sys_argv[1:]
+                            subprocess.Popen(clean_cmds, cwd=getattr(folder_paths, "base_path", None), shell=False)
+                            os._exit(0)
+                        except Exception as err2:
+                            logger.error(f"[ComfyUI-Bada-Utils] Subprocess fallback failed: {err2}")
+
+                threading.Thread(target=execute_restart_worker, daemon=True).start()
+                return web.json_response({"success": True, "message": "ComfyUI restart initiated"})
             except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Failed to initiate restart: {e}")
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
         async def terminal_open_cmd_handler(request):
