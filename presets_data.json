@@ -39,7 +39,8 @@
       "widgets": {
         "cfg": 7,
         "steps": 20
-      }
+      },
+      "_disabledWidgets": []
     },
     "KSampler #2": {
       "nodeType": "KSampler",
