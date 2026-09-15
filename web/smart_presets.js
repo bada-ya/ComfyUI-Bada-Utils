@@ -323,8 +323,22 @@ export function getBadgesForNode(node) {
     if (globalCount === 0 && hubCount === 0) return null;
 
     const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) ? LiteGraph.NODE_TITLE_HEIGHT : 30;
-    const tabY = -titleH - 18; // -48px
     const tabHeight = 18;
+    const posSetting = getPresetBadgePosition();
+    const nodeH = (node.size && typeof node.size[1] === "number") ? node.size[1] : 100;
+
+    let tabY;
+    if (posSetting === "top_high") {
+        tabY = -titleH - 36;
+    } else if (posSetting === "top_left") {
+        tabY = -titleH - 18;
+    } else if (posSetting === "bottom_inside") {
+        tabY = nodeH - tabHeight - 4;
+    } else {
+        // Default: "bottom" (B 방안: 노드 하단 바깥쪽 - 생성물 길이에 따라 자동 추적)
+        tabY = nodeH + 4;
+    }
+
     let curX = 10;
 
     const result = {};
@@ -341,6 +355,23 @@ export function getBadgesForNode(node) {
     }
 
     return result;
+}
+
+export function getPresetBadgePosition() {
+    try {
+        if (window.app?.ui?.settings) {
+            const val = window.app.ui.settings.getSettingValue("BadaUtils.PresetBadgePosition", "bottom");
+            if (val) return val;
+        }
+    } catch (_) {}
+    try {
+        const local = localStorage.getItem("Comfy.Settings.BadaUtils.PresetBadgePosition");
+        if (local !== null) {
+            const parsed = JSON.parse(local);
+            if (parsed) return parsed;
+        }
+    } catch (_) {}
+    return "bottom";
 }
 
 export function arePresetBadgesEnabled() {

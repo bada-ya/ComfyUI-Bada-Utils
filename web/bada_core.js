@@ -48,7 +48,9 @@ const BADA_SETTINGS_TEXTS = {
         blankDesc: "Start ComfyUI and new tabs with a clean blank canvas instead of default workflows with missing-model errors.",
 
         presetsBadgeName: "🏷️ Global Presets",
-        presetsBadgeDesc: "Display shortcut preset badges on node roofs. Disabling this hides the badges without deleting any preset data.",
+        presetsBadgeDesc: "Display shortcut preset badges on nodes. Disabling this hides the badges without deleting any preset data.",
+        presetsBadgePosName: "🏷️ Preset Badge Position",
+        presetsBadgePosDesc: "Position for preset badges on nodes. 'Bottom Dock' auto-tracks dynamic node height changes without overlapping execution time.",
         presetsName: "Global Presets",
 
         loadImageName: "📋 Clipboard & LoadImage Auto-Error Fixer",
@@ -79,7 +81,9 @@ const BADA_SETTINGS_TEXTS = {
         blankDesc: "ComfyUI 실행 시 모델 누락 에러가 발생하는 기본 템플릿 대신 깨끗한 빈 캔버스로 시작합니다.",
 
         presetsBadgeName: "🏷️ 글로벌 프리셋",
-        presetsBadgeDesc: "노드 상단 지붕에 글로벌 프리셋 바로가기 뱃지를 표시합니다. 꺼도 저장된 프리셋 데이터는 안전하게 유지됩니다.",
+        presetsBadgeDesc: "노드에 글로벌 프리셋 바로가기 뱃지를 표시합니다. 꺼도 저장된 프리셋 데이터는 안전하게 유지됩니다.",
+        presetsBadgePosName: "🏷️ 프리셋 뱃지 위치",
+        presetsBadgePosDesc: "노드의 프리셋 뱃지 표시 위치를 설정합니다. 기본값(노드 하단 바깥쪽)은 생성물로 인한 노드 길이 변화를 자동 추적하며 상단 실행 시간과 겹치지 않습니다.",
         presetsName: "글로벌 프리셋",
 
         loadImageName: "📋 클립보드 & LoadImage 자동 에러 해결사",
@@ -151,6 +155,20 @@ const BADA_UNIFIED_SETTINGS = {
         type: "boolean",
         sortOrder: 500,
         defaultValue: true
+    },
+    presetsBadgePosition: {
+        id: "BadaUtils.PresetBadgePosition",
+        category: ["Bada Utils", "PresetBadgePosition"],
+        name: "🏷️ Preset Badge Position",
+        type: "combo",
+        options: [
+            { value: "bottom", text: "노드 하단 바깥쪽 (Bottom Dock - 권장)" },
+            { value: "bottom_inside", text: "노드 하단 안쪽 (Bottom Inside)" },
+            { value: "top_high", text: "노드 상단 2층 (Top Stacked)" },
+            { value: "top_left", text: "노드 상단 좌측 (Top Left - 레거시)" },
+        ],
+        sortOrder: 490,
+        defaultValue: "bottom"
     },
     presetsPanel: {
         id: "BadaUtils.GlobalPresetsPanel",
@@ -562,6 +580,9 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.presetsBadge.id) {
                 targetTitle = texts.presetsBadgeName;
                 targetDesc = texts.presetsBadgeDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.presetsBadgePosition.id) {
+                targetTitle = texts.presetsBadgePosName;
+                targetDesc = texts.presetsBadgePosDesc;
             } else if (id === BADA_UNIFIED_SETTINGS.loadImageFix.id) {
                 targetTitle = texts.loadImageName;
                 targetDesc = texts.loadImageDesc;
@@ -785,6 +806,20 @@ app.registerExtension({
             type: BADA_UNIFIED_SETTINGS.presetsBadge.type,
             sortOrder: BADA_UNIFIED_SETTINGS.presetsBadge.sortOrder,
             defaultValue: BADA_UNIFIED_SETTINGS.presetsBadge.defaultValue,
+            onChange: () => {
+                app.graph?.setDirtyCanvas?.(true, true);
+            }
+        });
+
+        // ⑤-1-b Node Preset Badge Position
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.presetsBadgePosition.id,
+            category: [texts.category, "PresetBadgePosition"],
+            name: texts.presetsBadgePosName,
+            type: BADA_UNIFIED_SETTINGS.presetsBadgePosition.type,
+            options: BADA_UNIFIED_SETTINGS.presetsBadgePosition.options,
+            sortOrder: BADA_UNIFIED_SETTINGS.presetsBadgePosition.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.presetsBadgePosition.defaultValue,
             onChange: () => {
                 app.graph?.setDirtyCanvas?.(true, true);
             }
