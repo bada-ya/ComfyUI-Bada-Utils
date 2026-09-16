@@ -791,22 +791,140 @@ function findDetectiveBadgeAtPos(eOrX, maybeY) {
 // Backward-compatible alias
 const findDetectiveBadgeAtScreenPos = findDetectiveBadgeAtPos;
 
+/**
+ * Helper to identify transparent or zero-alpha colors.
+ * Prevents ComfyUI's modern frontend color adjuster (applyColorAdjustments)
+ * from stripping alpha=0 and forcing opacity=0.95 (which turns #fff0 into blinding solid white).
+ */
+function isTransparentColor(color) {
+    if (!color || typeof color !== "string") return false;
+    const c = color.trim().toLowerCase();
+    if (c === "transparent") return true;
+    if (c.startsWith("#")) {
+        // 4-digit hex #RGBA (e.g. #fff0, #0000, #abc0)
+        if (c.length === 5 && c[4] === "0") return true;
+        // 8-digit hex #RRGGBBAA (e.g. #ffffff00, #00000000)
+        if (c.length === 9 && c.slice(7, 9) === "00") return true;
+    }
+    if (c.startsWith("rgba") && /,\s*0(?:\.0+)?\s*\)/.test(c)) return true;
+    if (c.startsWith("hsla") && /,\s*0(?:\.0+)?\s*\)/.test(c)) return true;
+    return false;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
-//  Canvas Badge Renderer (LGraphNode Prototype Hook)
+//  Canvas Badge & Missing Node Aesthetics (LGraphNode Prototype Hooks)
 // ══════════════════════════════════════════════════════════════════════════════
 
-(function hookCanvasBadgeDrawing() {
-    if (window._badaDetectiveBadgeHooked) return;
-    window._badaDetectiveBadgeHooked = true;
+export function hookLGraphNodePrototypes() {
+    const NodeClass = window.LGraphNode || window.LiteGraph?.LGraphNode;
+    if (!NodeClass || !NodeClass.prototype) return;
 
-    const origOnDrawForeground = window.LGraphNode?.prototype?.onDrawForeground;
-    if (window.LGraphNode && window.LGraphNode.prototype) {
-        window.LGraphNode.prototype.onDrawForeground = function (ctx) {
+    if (!window._badaLGraphColorHooked) {
+        window._badaLGraphColorHooked = true;
+
+        // 1. Fix renderingBgColor: Prevent #fff0 and transparent colors from turning opaque white
+        const origBgDesc = Object.getOwnPropertyDescriptor(NodeClass.prototype, "renderingBgColor");
+        const origBgGet = origBgDesc?.get;
+        Object.defineProperty(NodeClass.prototype, "renderingBgColor", {
+            get() {
+                if (isTransparentColor(this.bgcolor) || (isMissingNode(this) && this.type === "Label (rgthree)")) {
+                    return "transparent";
+                }
+                if (origBgGet) {
+                    return origBgGet.call(this);
+                }
+                return this.bgcolor || window.LiteGraph?.NODE_DEFAULT_BGCOLOR || "#353535";
+            },
+            configurable: true,
+            enumerable: true
+        });
+
+        // 2. Fix renderingColor: Prevent #fff0 and transparent colors from turning opaque white
+        const origColorDesc = Object.getOwnPropertyDescriptor(NodeClass.prototype, "renderingColor");
+        const origColorGet = origColorDesc?.get;
+        Object.defineProperty(NodeClass.prototype, "renderingColor", {
+            get() {
+                if (isTransparentColor(this.color) || (isMissingNode(this) && this.type === "Label (rgthree)")) {
+                    return "transparent";
+                }
+                if (origColorGet) {
+                    return origColorGet.call(this);
+                }
+                return this.color || window.LiteGraph?.NODE_DEFAULT_COLOR || "#464646";
+            },
+            configurable: true,
+            enumerable: true
+        });
+
+        // 3. Fix title_mode: For missing Label (rgthree), prevent LiteGraph from drawing default 11px title bar
+        const origTitleModeDesc = Object.getOwnPropertyDescriptor(NodeClass.prototype, "title_mode");
+        const origTitleModeGet = origTitleModeDesc?.get;
+        Object.defineProperty(NodeClass.prototype, "title_mode", {
+            get() {
+                if (this._custom_title_mode !== undefined) return this._custom_title_mode;
+                if (isMissingNode(this) && this.type === "Label (rgthree)") {
+                    return window.LiteGraph?.NO_TITLE ?? 1;
+                }
+                if (origTitleModeGet) return origTitleModeGet.call(this);
+                return this.constructor?.title_mode ?? window.LiteGraph?.NORMAL_TITLE ?? 0;
+            },
+            set(v) {
+                this._custom_title_mode = v;
+            },
+            configurable: true,
+            enumerable: true
+        });
+    }
+
+    if (!window._badaDetectiveBadgeHooked) {
+        window._badaDetectiveBadgeHooked = true;
+
+        const origOnDrawForeground = NodeClass.prototype.onDrawForeground;
+        NodeClass.prototype.onDrawForeground = function (ctx) {
             if (origOnDrawForeground) {
                 origOnDrawForeground.apply(this, arguments);
             }
 
             if (!isDetectiveEnabled() || !isMissingNode(this)) return;
+
+            // If missing Label (rgthree), render its label text gracefully with author's font settings
+            if (this.type === "Label (rgthree)") {
+                const fontSize = Number(this.properties?.fontSize) || 28;
+                const fontFamily = this.properties?.fontFamily || "Arial";
+                const fontColor = this.properties?.fontColor || "#ffffff";
+                const textAlign = this.properties?.textAlign || "left";
+                const angleDeg = parseInt(String(this.properties?.angle || 0)) || 0;
+                const padding = Number(this.properties?.padding) || 0;
+
+                ctx.save();
+                if (angleDeg) {
+                    const cx = this.size[0] / 2;
+                    const cy = this.size[1] / 2;
+                    ctx.translate(cx, cy);
+                    ctx.rotate((angleDeg * Math.PI) / 180);
+                    ctx.translate(-cx, -cy);
+                }
+
+                ctx.font = `${Math.max(fontSize, 12)}px ${fontFamily}, sans-serif`;
+                ctx.fillStyle = fontColor;
+                ctx.textAlign = textAlign;
+                ctx.textBaseline = "top";
+                ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
+                ctx.shadowBlur = 4;
+
+                let textX = padding;
+                if (textAlign === "center") textX = this.size[0] / 2;
+                else if (textAlign === "right") textX = this.size[0] - padding;
+
+                const text = (this.title || "").replace(/\\n/g, "\n").replace(/\n*$/, "");
+                const lines = text.split("\n");
+                let currentY = padding;
+                for (let i = 0; i < lines.length; i++) {
+                    ctx.fillText(lines[i] || " ", textX, currentY);
+                    currentY += fontSize;
+                }
+                ctx.restore();
+            }
 
             const b = getDetectiveBadgeRect(this);
             if (!b) return;
@@ -847,7 +965,10 @@ const findDetectiveBadgeAtScreenPos = findDetectiveBadgeAtPos;
             ctx.restore();
         };
     }
-})();
+}
+
+// Run immediately if LiteGraph is already loaded
+hookLGraphNodePrototypes();
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  Extension Registration
@@ -858,6 +979,10 @@ app.registerExtension({
 
     async setup() {
         console.log("[ComfyUI-Bada-Utils] 🕵️ Missing Node Detective (미싱 노드 탐정) Active!");
+        hookLGraphNodePrototypes();
+        try {
+            app.graph?.setDirtyCanvas?.(true, true);
+        } catch (_) {}
 
         const handleCanvasPointerMove = (e) => {
             if (!isDetectiveEnabled()) return;
@@ -957,5 +1082,12 @@ app.registerExtension({
 
         // Prepend to top of context menu
         options.unshift(...detectiveItems);
+    },
+
+    afterConfigureGraph() {
+        hookLGraphNodePrototypes();
+        try {
+            app.graph?.setDirtyCanvas?.(true, true);
+        } catch (_) {}
     }
 });
