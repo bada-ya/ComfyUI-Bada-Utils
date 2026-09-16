@@ -6,8 +6,8 @@
  * Automatically detects uninstalled/missing nodes on the canvas (red 'X' nodes).
  * Features:
  * 1. Reveals the original un-altered Python class type ('node.type') even if renamed.
- * 2. Instant on-node detective button widget [🕵️ 미싱 노드 탐정 & 깃허브 찾기].
- * 3. Right-click context menu shortcuts (Copy real name, GitHub code search, Google search).
+ * 2. High-visibility floating neon badge at the bottom-right of the missing node.
+ * 3. Right-click context menu shortcuts (Copy real name, Exact GitHub code search, Google search).
  * 4. High-speed lookup against ComfyUI Manager's local database cache to find the exact GitHub repo!
  * 5. One-click direct installation via Bada Terminal Hub (git clone).
  * 6. Displays original inputs, outputs, and stored parameter values for easy manual node replacement.
@@ -48,6 +48,22 @@ export function isMissingNode(node) {
     if (node.is_missing) return true;
     if (node.flags && node.flags.missing) return true;
     return false;
+}
+
+/**
+ * Badge Dimensions & Placement (Bottom-Right Dock under Node)
+ */
+const BADGE_WIDTH = 175;
+const BADGE_HEIGHT = 24;
+
+export function getDetectiveBadgeRect(node) {
+    if (!node || !node.size) return null;
+    return {
+        x: Math.max(10, node.size[0] - BADGE_WIDTH - 8),
+        y: node.size[1] + 6,
+        w: BADGE_WIDTH,
+        h: BADGE_HEIGHT
+    };
 }
 
 /**
@@ -262,6 +278,9 @@ export async function showMissingNodeModal(node) {
                 // FOUND IN MANAGER DATABASE
                 const repoUrl = data.repo;
                 const packTitle = data.title || "Custom Node";
+                const authorStr = data.author ? `<span style="font-size: 12px; color: #34d399; font-weight: normal; margin-left: 6px;">by ${data.author}</span>` : "";
+                const descStr = data.description ? `<div style="font-size: 12px; color: #94a3b8; line-height: 1.4; margin-top: 4px; max-height: 60px; overflow-y: auto;">${data.description}</div>` : "";
+
                 repoSection.className = "bada-detective-repo-card found";
                 repoSection.innerHTML = `
                     <div class="bada-detective-repo-header found">
@@ -269,8 +288,9 @@ export async function showMissingNodeModal(node) {
                         <span>${isKo ? "알려진 커스텀 노드 저장소 발견!" : "Known Custom Node Repository Found!"}</span>
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <div class="bada-detective-repo-title">📦 ${packTitle}</div>
+                        <div class="bada-detective-repo-title">📦 ${packTitle} ${authorStr}</div>
                         <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="bada-detective-repo-url">${repoUrl}</a>
+                        ${descStr}
                     </div>
                     <div class="bada-detective-actions">
                         <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-primary">
@@ -322,10 +342,12 @@ export async function showMissingNodeModal(node) {
         }
 
         // NOT FOUND IN MANAGER DATABASE (NEW OR UNINDEXED)
-        const ghCodeSearchUrl = `https://github.com/search?q=${encodeURIComponent(realType)}+language:Python&type=code`;
-        const ghRepoSearchUrl = `https://github.com/search?q=${encodeURIComponent(realType)}&type=repositories`;
-        const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(`"${realType}" ComfyUI`)}`;
-        const registrySearchUrl = `https://registry.comfy.org/search?q=${encodeURIComponent(realType)}`;
+        // Precise quoted search query to avoid matching millions of unrelated files
+        const exactPhrase = `"${realType.replace(/"/g, '')}"`;
+        const ghCodeSearchUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}+language:Python&type=code`;
+        const ghRepoSearchUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}&type=repositories`;
+        const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(exactPhrase + ' ComfyUI')}`;
+        const registrySearchUrl = `https://registry.comfy.org/search?q=${encodeURIComponent(realType.trim())}`;
 
         repoSection.className = "bada-detective-repo-card not-found";
         repoSection.innerHTML = `
@@ -335,13 +357,13 @@ export async function showMissingNodeModal(node) {
             </div>
             <div style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
                 ${isKo 
-                    ? "매니저 공식 목록에 아직 등록되지 않은 노드입니다. 아래 원클릭 검색 버튼을 누르면 원작자의 깃허브 저장소와 파이썬 소스 코드를 바로 찾으실 수 있습니다." 
-                    : "This node is not yet indexed in ComfyUI Manager DB. Use the one-click search buttons below to find the author's repo and Python code directly:"}
+                    ? `매니저 공식 목록에 아직 등록되지 않은 노드입니다. 아래 <b>정확한 따옴표 검색</b> 버튼을 누르면 <b>${realType}</b>의 원작자 깃허브 저장소와 파이썬 코드를 1초 만에 바로 찾으실 수 있습니다.` 
+                    : `This node is not yet indexed in ComfyUI Manager DB. Use the exact-quoted search buttons below to find the author's repo and Python code:`}
             </div>
             <div class="bada-detective-actions">
                 <a href="${ghCodeSearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-primary">
                     <span>🐙</span>
-                    <span>${isKo ? "GitHub 코드 검색 (가장 정확 ⭐)" : "GitHub Code Search"}</span>
+                    <span>${isKo ? "GitHub 코드 정확 일치 검색 ⭐" : "Exact GitHub Code Search"}</span>
                 </a>
                 <a href="${googleSearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-secondary">
                     <span>🔍</span>
@@ -363,41 +385,100 @@ export async function showMissingNodeModal(node) {
 }
 
 /**
- * Attaches the Detective Button Widget to a missing node on the canvas.
+ * Screen Space Hit Testing for Floating Detective Badge
  */
-export function attachDetectiveWidget(node) {
-    if (!isDetectiveEnabled()) return;
-    if (!isMissingNode(node)) return;
-    if (node._badaDetectiveWidgetAdded) return;
-    node._badaDetectiveWidgetAdded = true;
+function findDetectiveBadgeAtScreenPos(clientX, clientY) {
+    if (!isDetectiveEnabled()) return null;
+    const canvas = app.canvas;
+    const graph = app.graph;
+    if (!canvas || !graph || !graph._nodes) return null;
 
-    // Add clean button widget to the missing node
-    const btnLabel = BadaI18n.lang === "ko" ? "🕵️ [바다] 노드 정보 & 깃허브 찾기" : "🕵️ [Bada] Find Real Node & GitHub";
-    const w = node.addWidget("button", btnLabel, null, () => {
-        showMissingNodeModal(node);
-    });
+    const canvasEl = canvas.canvas || document.querySelector("canvas");
+    if (!canvasEl) return null;
 
-    if (w) {
-        w.serialize = false; // Never serialize to workflow JSON
+    const rect = canvasEl.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+        return null;
     }
 
-    if (node.setDirtyCanvas) {
-        node.setDirtyCanvas(true, true);
-    }
-}
+    const scale = Number(canvas.ds?.scale || 1);
+    const offset = canvas.ds?.offset || [0, 0];
 
-/**
- * Scans all nodes on the graph and attaches detective widget to any missing node.
- */
-export function scanAndHealMissingNodes() {
-    if (!isDetectiveEnabled()) return;
-    if (!app.graph || !app.graph._nodes) return;
-    for (const node of app.graph._nodes) {
-        if (isMissingNode(node)) {
-            attachDetectiveWidget(node);
+    for (const n of graph._nodes) {
+        if (!isMissingNode(n)) continue;
+        const b = getDetectiveBadgeRect(n);
+        if (!b) continue;
+
+        const sx = (n.pos[0] + b.x + offset[0]) * scale + rect.left;
+        const sy = (n.pos[1] + b.y + offset[1]) * scale + rect.top;
+        const sw = b.w * scale;
+        const sh = b.h * scale;
+
+        if (clientX >= sx - 4 && clientX <= sx + sw + 4 && clientY >= sy - 4 && clientY <= sy + sh + 4) {
+            return n;
         }
     }
+
+    return null;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  Canvas Badge Renderer (LGraphNode Prototype Hook)
+// ══════════════════════════════════════════════════════════════════════════════
+
+(function hookCanvasBadgeDrawing() {
+    if (window._badaDetectiveBadgeHooked) return;
+    window._badaDetectiveBadgeHooked = true;
+
+    const origOnDrawForeground = window.LGraphNode?.prototype?.onDrawForeground;
+    if (window.LGraphNode && window.LGraphNode.prototype) {
+        window.LGraphNode.prototype.onDrawForeground = function (ctx) {
+            if (origOnDrawForeground) {
+                origOnDrawForeground.apply(this, arguments);
+            }
+
+            if (!isDetectiveEnabled() || !isMissingNode(this)) return;
+
+            const b = getDetectiveBadgeRect(this);
+            if (!b) return;
+
+            ctx.save();
+            ctx.beginPath();
+            if (ctx.roundRect) {
+                ctx.roundRect(b.x, b.y, b.w, b.h, 6);
+            } else {
+                ctx.rect(b.x, b.y, b.w, b.h);
+            }
+
+            // High-visibility glowing neon gradient (Pink-Red to Indigo to Electric Cyan)
+            const grad = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h);
+            grad.addColorStop(0, "#f43f5e");
+            grad.addColorStop(0.5, "#8b5cf6");
+            grad.addColorStop(1, "#06b6d4");
+            ctx.fillStyle = grad;
+
+            ctx.shadowColor = "rgba(0, 240, 255, 0.85)";
+            ctx.shadowBlur = 10;
+            ctx.fill();
+
+            // Crisp outline
+            ctx.lineWidth = 1.3;
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+            ctx.stroke();
+
+            // Centered Bold White Text
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = "#ffffff";
+            ctx.font = "bold 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const label = BadaI18n.lang === "ko" ? "🕵️ [바다] 깃허브/노드 찾기" : "🕵️ [Bada] Find Node Repo";
+            ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2);
+
+            ctx.restore();
+        };
+    }
+})();
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  Extension Registration
@@ -407,36 +488,28 @@ app.registerExtension({
     name: "BadaUtils.MissingNodeDetective",
 
     async setup() {
-        console.log("[ComfyUI-Bada-Utils] 🕵️ Missing Node Detective (미싱 노드 탐정) Initialized!");
+        console.log("[ComfyUI-Bada-Utils] 🕵️ Missing Node Detective (미싱 노드 탐정) Active!");
 
-        // Auto-scan whenever graph configuration completes
-        const origConfigure = app.graph.configure;
-        if (origConfigure) {
-            app.graph.configure = function () {
-                const res = origConfigure.apply(this, arguments);
-                setTimeout(() => scanAndHealMissingNodes(), 150);
-                return res;
-            };
-        }
-
-        // Periodic check to catch any dynamically pasted / dropped nodes
-        setInterval(() => {
-            if (isDetectiveEnabled()) {
-                scanAndHealMissingNodes();
+        // Window-level Pointer Event Listeners for Hover & Click on Detective Badges
+        window.addEventListener("pointermove", (e) => {
+            if (!isDetectiveEnabled()) return;
+            const node = findDetectiveBadgeAtScreenPos(e.clientX, e.clientY);
+            if (node && app.canvas?.canvas) {
+                app.canvas.canvas.style.cursor = "pointer";
             }
-        }, 2000);
-    },
+        }, { passive: true });
 
-    async nodeCreated(node) {
-        if (isMissingNode(node)) {
-            attachDetectiveWidget(node);
-        }
-    },
-
-    async loadedGraphNode(node) {
-        if (isMissingNode(node)) {
-            attachDetectiveWidget(node);
-        }
+        window.addEventListener("pointerdown", (e) => {
+            if (!isDetectiveEnabled()) return;
+            if (e.button === 0) { // Left-click
+                const node = findDetectiveBadgeAtScreenPos(e.clientX, e.clientY);
+                if (node) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showMissingNodeModal(node);
+                }
+            }
+        }, { capture: true });
     },
 
     /**
@@ -448,6 +521,7 @@ app.registerExtension({
 
         const isKo = (BadaI18n.lang === "ko");
         const realType = String(node.type || "Unknown").trim();
+        const exactPhrase = `"${realType.replace(/"/g, '')}"`;
 
         const detectiveItems = [
             null, // Separator
@@ -462,14 +536,14 @@ app.registerExtension({
             {
                 content: isKo ? "🐙 [바다] GitHub에서 이 노드 코드 검색" : "🐙 [Bada] Search Node on GitHub",
                 callback: () => {
-                    const ghUrl = `https://github.com/search?q=${encodeURIComponent(realType)}+language:Python&type=code`;
+                    const ghUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}+language:Python&type=code`;
                     window.open(ghUrl, "_blank");
                 }
             },
             {
                 content: isKo ? "🔍 [바다] Google에서 설치법 검색" : "🔍 [Bada] Search on Google",
                 callback: () => {
-                    const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(`"${realType}" ComfyUI`)}`;
+                    const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(exactPhrase + ' ComfyUI')}`;
                     window.open(googleUrl, "_blank");
                 }
             },

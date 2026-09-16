@@ -425,22 +425,30 @@ def get_inverted_node_map():
     global CACHED_INVERTED_NODE_MAP
     import glob
 
-    base_dirs = [
-        os.path.dirname(PARENT_DIR),                  # custom_nodes
-        os.path.dirname(os.path.dirname(PARENT_DIR)),  # ComfyUI root
-    ]
     candidates = []
+    user_dir = None
 
-    # 1. Look in ComfyUI User Manager Cache
-    for b in base_dirs:
-        cache_dir = os.path.join(b, "user", "__manager", "cache")
-        if os.path.isdir(cache_dir):
-            candidates.extend(glob.glob(os.path.join(cache_dir, "*_extension-node-map.json")))
-        mgr_dir = os.path.join(b, "custom_nodes", "ComfyUI-Manager")
-        if os.path.isdir(mgr_dir):
-            p = os.path.join(mgr_dir, "extension-node-map.json")
-            if os.path.exists(p):
-                candidates.append(p)
+    # 1. Discover via ComfyUI folder_paths (100% reliable across symlinks/junctions)
+    try:
+        import folder_paths
+        user_dir = folder_paths.get_user_directory()
+        if user_dir:
+            cache_dir = os.path.join(user_dir, "__manager", "cache")
+            if os.path.isdir(cache_dir):
+                candidates.extend(glob.glob(os.path.join(cache_dir, "*_extension-node-map.json")))
+
+        base_dir = getattr(folder_paths, "base_path", None)
+        if base_dir:
+            mgr_cache = os.path.join(base_dir, "user", "__manager", "cache")
+            if os.path.isdir(mgr_cache):
+                candidates.extend(glob.glob(os.path.join(mgr_cache, "*_extension-node-map.json")))
+            mgr_dir = os.path.join(base_dir, "custom_nodes", "ComfyUI-Manager")
+            if os.path.isdir(mgr_dir):
+                p = os.path.join(mgr_dir, "extension-node-map.json")
+                if os.path.exists(p):
+                    candidates.append(p)
+    except Exception as e:
+        logger.debug(f"[Bada-Detective] folder_paths discovery notice: {e}")
 
     # 2. Site-packages if installed via pip / embedded
     try:
@@ -462,6 +470,25 @@ def get_inverted_node_map():
         if CACHED_INVERTED_NODE_MAP and CACHED_INVERTED_NODE_MAP[0] == latest_mtime:
             return CACHED_INVERTED_NODE_MAP[1]
 
+        # Enrich with custom-node-list metadata if available
+        custom_node_info = {}
+        try:
+            cn_files = []
+            if user_dir:
+                cache_dir = os.path.join(user_dir, "__manager", "cache")
+                if os.path.isdir(cache_dir):
+                    cn_files.extend(glob.glob(os.path.join(cache_dir, "*_custom-node-list.json")))
+            if cn_files:
+                latest_cn = max(cn_files, key=os.path.getmtime)
+                with open(latest_cn, "r", encoding="utf-8") as f:
+                    cn_data = json.load(f)
+                    for item in cn_data.get("custom_nodes", []):
+                        ref = item.get("reference", "").strip().rstrip("/")
+                        if ref:
+                            custom_node_info[ref.lower()] = item
+        except Exception as cn_err:
+            logger.debug(f"[Bada-Detective] custom-node-list parse notice: {cn_err}")
+
         with open(latest_file, "r", encoding="utf-8") as f:
             raw_map = json.load(f)
 
@@ -472,10 +499,23 @@ def get_inverted_node_map():
             nodes_list = info[0] if isinstance(info[0], list) else []
             meta = info[1] if len(info) > 1 and isinstance(info[1], dict) else {}
             title_aux = meta.get("title_aux") or meta.get("title") or os.path.basename(repo)
+
+            clean_repo = repo.strip().rstrip("/").lower()
+            extra_meta = custom_node_info.get(clean_repo, {})
+            author = extra_meta.get("author", "")
+            desc = extra_meta.get("description", "")
+            title = extra_meta.get("title") or title_aux
+
             for n in nodes_list:
                 norm = str(n).strip().lower()
                 if norm and norm not in inverted:
-                    inverted[norm] = {"repo": repo, "title": title_aux, "node_name": str(n)}
+                    inverted[norm] = {
+                        "repo": repo,
+                        "title": title,
+                        "author": author,
+                        "description": desc,
+                        "node_name": str(n)
+                    }
 
         CACHED_INVERTED_NODE_MAP = (latest_mtime, inverted)
         return inverted
@@ -910,6 +950,8 @@ def register_bada_api_routes():
                         "found": True,
                         "repo": match.get("repo", ""),
                         "title": match.get("title", ""),
+                        "author": match.get("author", ""),
+                        "description": match.get("description", ""),
                         "node_name": match.get("node_name", node_type),
                         "type": node_type
                     })
