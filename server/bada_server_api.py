@@ -7,6 +7,7 @@ ComfyUI-Bada-Utils: Unified Backend REST API Routes
 
 import os
 import sys
+import re
 import shutil
 import json
 import logging

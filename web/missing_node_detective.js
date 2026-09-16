@@ -386,168 +386,236 @@ export async function showMissingNodeModal(node) {
         copyToClipboard(realType, isKo ? "진짜 노드 이름(Type)이 복사되었습니다!" : "Real node class type copied!");
     });
 
-    // 2. Perform Backend Lookup
+    // 2. Perform Deep Lookup (1. Bada Multi-Tier Engine -> 2. Client-side Manager Mapping Fallback)
     try {
-        const queryUrl = `/api/bada/missing-node/lookup?type=${encodeURIComponent(realType)}&title=${encodeURIComponent(displayTitle)}`;
-        const resp = await api.fetchApi(queryUrl);
         const repoSection = modal.querySelector("#bada-det-repo-section");
+        let data = null;
 
-        if (resp.ok) {
-            const data = await resp.json();
-            if (data.found && data.repo) {
-                // ══════════════════════════════════════════════════════════════
-                //  1순위: ComfyUI 매니저 공식 등록 노드 발견!
-                // ══════════════════════════════════════════════════════════════
-                const repoUrl = data.repo;
-                const packTitle = data.title || "Custom Node";
-                const authorStr = data.author ? `<span style="font-size: 12px; color: #34d399; font-weight: normal; margin-left: 6px;">by ${data.author}</span>` : "";
-                const descStr = data.description ? `<div style="font-size: 12px; color: #94a3b8; line-height: 1.4; margin-top: 4px; max-height: 60px; overflow-y: auto;">${data.description}</div>` : "";
+        // Step 1: Query Bada Backend 6-Tier Lookup Engine
+        try {
+            const queryUrl = `/api/bada/missing-node/lookup?type=${encodeURIComponent(realType)}&title=${encodeURIComponent(displayTitle)}`;
+            const resp = await api.fetchApi(queryUrl);
+            if (resp.ok) {
+                const resJson = await resp.json();
+                if (resJson.found && resJson.repo) {
+                    data = resJson;
+                }
+            }
+        } catch (e) {
+            console.debug("[Bada-Detective] Backend lookup exception:", e);
+        }
 
-                repoSection.className = "bada-detective-repo-card found";
-                repoSection.innerHTML = `
-                    <div class="bada-detective-repo-header found" style="display: flex; justify-content: space-between; align-items: center;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span>🟢</span>
-                            <span>${isKo ? "ComfyUI 매니저 공식 등록 노드 확인!" : "ComfyUI Manager Registered Node!"}</span>
-                        </div>
-                        <span class="bada-priority-badge p1">${isKo ? "1순위: 매니저 설치 권장" : "Priority 1: Manager"}</span>
+        // Step 2: Client-Side Dual-Layer Fallback (Direct ComfyUI Manager Mappings)
+        if (!data) {
+            try {
+                if (!window._badaManagerMappingsPromise) {
+                    window._badaManagerMappingsPromise = api.fetchApi("/v2/customnode/getmappings?mode=local")
+                        .then(r => r.ok ? r.json() : null)
+                        .catch(() => null);
+                }
+                const mappings = await window._badaManagerMappingsPromise;
+                if (mappings) {
+                    const clean = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+                    const targetClean = clean(realType);
+                    const targetCleanTitle = clean(displayTitle);
+
+                    for (const repoKey in mappings) {
+                        const packInfo = mappings[repoKey];
+                        const nodeList = packInfo[0] || [];
+                        const meta = packInfo[1] || {};
+
+                        const isHit = nodeList.some(n => {
+                            const c = clean(n);
+                            return c === targetClean || (targetCleanTitle && c === targetCleanTitle);
+                        });
+
+                        if (isHit) {
+                            let finalRepo = repoKey;
+                            if (!finalRepo.startsWith("http")) {
+                                const cn = window.CustomNodesManager?.instance?.custom_nodes;
+                                if (cn) {
+                                    for (const k in cn) {
+                                        if (cn[k].title === meta.title_aux || k === repoKey || cn[k].reference === repoKey) {
+                                            finalRepo = cn[k].files?.[0] || cn[k].repository || finalRepo;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if (!finalRepo.startsWith("http")) {
+                                finalRepo = `https://github.com/${repoKey}`;
+                            }
+
+                            data = {
+                                found: true,
+                                repo: finalRepo,
+                                title: meta.title_aux || repoKey.split("/").pop(),
+                                author: meta.author || "",
+                                description: meta.description || "",
+                                search_term: meta.title_aux || repoKey.split("/").pop()
+                            };
+                            break;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.debug("[Bada-Detective] Client manager mapping fallback exception:", err);
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  1순위: ComfyUI 매니저 공식 등록 노드 발견!
+        // ══════════════════════════════════════════════════════════════
+        if (data && data.found && data.repo) {
+            const repoUrl = data.repo;
+            const packTitle = data.title || "Custom Node";
+            const authorStr = data.author ? `<span style="font-size: 12px; color: #34d399; font-weight: normal; margin-left: 6px;">by ${data.author}</span>` : "";
+            const descStr = data.description ? `<div style="font-size: 12px; color: #94a3b8; line-height: 1.4; margin-top: 4px; max-height: 60px; overflow-y: auto;">${data.description}</div>` : "";
+
+            repoSection.className = "bada-detective-repo-card found";
+            repoSection.innerHTML = `
+                <div class="bada-detective-repo-header found" style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span>🟢</span>
+                        <span>${isKo ? "ComfyUI 매니저 공식 등록 노드 확인!" : "ComfyUI Manager Registered Node!"}</span>
                     </div>
+                    <span class="bada-priority-badge p1">${isKo ? "1순위: 매니저 설치 권장" : "Priority 1: Manager"}</span>
+                </div>
 
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <div class="bada-detective-repo-title">📦 ${packTitle} ${authorStr}</div>
-                        <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="bada-detective-repo-url">${repoUrl}</a>
-                        ${descStr}
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <div class="bada-detective-repo-title">📦 ${packTitle} ${authorStr}</div>
+                    <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="bada-detective-repo-url">${repoUrl}</a>
+                    ${descStr}
+                </div>
+
+                <!-- 1순위: 매니저 설치 및 매니저 창 열기 메인 액션 영역 -->
+                <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 6px;">
+                    <div style="font-size: 12px; font-weight: 700; color: #34d399; display: flex; align-items: center; gap: 5px;">
+                        <span>⚡</span>
+                        <span>${isKo ? "1순위 추천: ComfyUI 매니저로 설치" : "Priority 1: Install via ComfyUI Manager"}</span>
                     </div>
-
-                    <!-- 1순위: 매니저 설치 및 매니저 창 열기 메인 액션 영역 -->
-                    <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 6px;">
-                        <div style="font-size: 12px; font-weight: 700; color: #34d399; display: flex; align-items: center; gap: 5px;">
-                            <span>⚡</span>
-                            <span>${isKo ? "1순위 추천: ComfyUI 매니저로 설치" : "Priority 1: Install via ComfyUI Manager"}</span>
-                        </div>
-                        <div class="bada-detective-actions">
-                            <button class="bada-btn-manager" id="bada-det-install-btn">
-                                <span>📦</span>
-                                <span>${isKo ? "ComfyUI 매니저로 설치 (원클릭)" : "Install via Manager (One-Click)"}</span>
-                            </button>
-                            <button class="bada-btn-manager-open" id="bada-det-open-mgr">
-                                <span>🔍</span>
-                                <span>${isKo ? "매니저 창에서 보기" : "Open in Manager"}</span>
-                            </button>
-                        </div>
+                    <div class="bada-detective-actions">
+                        <button class="bada-btn-manager" id="bada-det-install-btn">
+                            <span>📦</span>
+                            <span>${isKo ? "ComfyUI 매니저로 설치 (원클릭)" : "Install via Manager (One-Click)"}</span>
+                        </button>
+                        <button class="bada-btn-manager-open" id="bada-det-open-mgr">
+                            <span>🔍</span>
+                            <span>${isKo ? "매니저 창에서 보기" : "Open in Manager"}</span>
+                        </button>
                     </div>
+                </div>
 
-                    <!-- 2순위 & 3순위: 깃허브 및 구글 검색 보조 액션 영역 -->
-                    <div style="margin-top: 6px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 6px;">
-                        <div style="font-size: 11.5px; color: #94a3b8; font-weight: 600;">
-                            ${isKo ? "보조 수동 옵션 (2순위 깃허브 / 3순위 구글)" : "Alternative Options (GitHub / Google)"}
-                        </div>
-                        <div class="bada-detective-actions">
-                            <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-primary">
-                                <span>🐙</span>
-                                <span>${isKo ? "GitHub 저장소 열기 (2순위)" : "Open GitHub Repo"}</span>
-                            </a>
-                            <a href="https://www.google.com/search?q=${encodeURIComponent('"' + packTitle + '" ComfyUI')}" target="_blank" rel="noopener noreferrer" class="bada-btn-secondary">
-                                <span>🔍</span>
-                                <span>${isKo ? "Google 검색 (3순위)" : "Google Search"}</span>
-                            </a>
-                            <button class="bada-btn-secondary" id="bada-det-copy-clone">
-                                <span>📋</span>
-                                <span>${isKo ? "Git Clone 복사" : "Copy Clone Cmd"}</span>
-                            </button>
-                        </div>
+                <!-- 2순위 & 3순위: 깃허브 및 구글 검색 보조 액션 영역 -->
+                <div style="margin-top: 6px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 6px;">
+                    <div style="font-size: 11.5px; color: #94a3b8; font-weight: 600;">
+                        ${isKo ? "보조 수동 옵션 (2순위 깃허브 / 3순위 구글)" : "Alternative Options (GitHub / Google)"}
                     </div>
+                    <div class="bada-detective-actions">
+                        <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-primary">
+                            <span>🐙</span>
+                            <span>${isKo ? "GitHub 저장소 열기 (2순위)" : "Open GitHub Repo"}</span>
+                        </a>
+                        <a href="https://www.google.com/search?q=${encodeURIComponent('"' + packTitle + '" ComfyUI')}" target="_blank" rel="noopener noreferrer" class="bada-btn-secondary">
+                            <span>🔍</span>
+                            <span>${isKo ? "Google 검색 (3순위)" : "Google Search"}</span>
+                        </a>
+                        <button class="bada-btn-secondary" id="bada-det-copy-clone">
+                            <span>📋</span>
+                            <span>${isKo ? "Git Clone 복사" : "Copy Clone Cmd"}</span>
+                        </button>
+                    </div>
+                </div>
 
-                    <!-- 설치 진행 상태 및 재시작 안내 영역 -->
-                    <div id="bada-det-install-status-box" style="display: none;"></div>
+                <!-- 설치 진행 상태 및 재시작 안내 영역 -->
+                <div id="bada-det-install-status-box" style="display: none;"></div>
+            `;
+
+            // Clone command copy
+            repoSection.querySelector("#bada-det-copy-clone")?.addEventListener("click", () => {
+                const cmd = `git clone ${repoUrl}`;
+                copyToClipboard(cmd, isKo ? "git clone 명령어가 복사되었습니다!" : "git clone command copied!");
+            });
+
+            // Manager GUI Open button
+            repoSection.querySelector("#bada-det-open-mgr")?.addEventListener("click", () => {
+                closeModal();
+                const mgrSearchTerm = data.search_term || packTitle;
+                openComfyUiManager(mgrSearchTerm);
+            });
+
+            // 1순위: ComfyUI 매니저 연동 설치
+            const installBtn = repoSection.querySelector("#bada-det-install-btn");
+            const statusBox = repoSection.querySelector("#bada-det-install-status-box");
+
+            installBtn?.addEventListener("click", async () => {
+                if (!confirm(isKo 
+                    ? `📦 [ComfyUI 매니저 연동 설치]\n\n'${packTitle}' 커스텀 노드를 ComfyUI에 설치하시겠습니까?\n\n저장소: ${repoUrl}` 
+                    : `Install '${packTitle}' into ComfyUI custom_nodes?\n\nRepo: ${repoUrl}`)) {
+                    return;
+                }
+
+                installBtn.disabled = true;
+                installBtn.innerHTML = `<span>⏳</span><span>${isKo ? "설치 진행 중... (Git clone & pip 패키지)" : "Installing..."}</span>`;
+
+                statusBox.style.display = "block";
+                statusBox.className = "bada-install-card";
+                statusBox.innerHTML = `
+                    <div style="color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+                        <span style="display: inline-block; animation: spin 1s linear infinite;">⏳</span>
+                        <span>${isKo ? "저장소를 다운로드하고 필요한 파이썬 패키지(requirements.txt)를 설치하고 있습니다..." : "Cloning repository and installing dependencies..."}</span>
+                    </div>
                 `;
 
-                // Clone command copy
-                repoSection.querySelector("#bada-det-copy-clone").addEventListener("click", () => {
-                    const cmd = `git clone ${repoUrl}`;
-                    copyToClipboard(cmd, isKo ? "git clone 명령어가 복사되었습니다!" : "git clone command copied!");
-                });
+                try {
+                    const resp = await api.fetchApi("/api/bada/customnode/install", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ repo: repoUrl, title: packTitle })
+                    });
+                    const result = await resp.json();
 
-                // Manager GUI Open button
-                repoSection.querySelector("#bada-det-open-mgr").addEventListener("click", () => {
-                    closeModal();
-                    const mgrSearchTerm = data.search_term || packTitle;
-                    openComfyUiManager(mgrSearchTerm);
-                });
+                    if (result.success) {
+                        installBtn.style.display = "none";
+                        statusBox.innerHTML = `
+                            <div style="color: #34d399; font-weight: 700; font-size: 13.5px; display: flex; align-items: center; gap: 6px;">
+                                <span>✅</span>
+                                <span>${isKo ? `'${packTitle}' 설치가 완료되었습니다!` : `'${packTitle}' installed successfully!`}</span>
+                            </div>
+                            <div style="color: #cbd5e1; font-size: 12px; line-height: 1.4;">
+                                ${isKo ? "ComfyUI 서버를 재시작하시면 워크플로우에서 이 노드를 즉시 사용하실 수 있습니다." : "Restart ComfyUI server to load and use the newly installed nodes."}
+                            </div>
+                            <div style="margin-top: 4px;">
+                                <button class="bada-btn-restart" id="bada-det-restart-btn">
+                                    <span>🔄</span>
+                                    <span>${isKo ? "ComfyUI 지금 재시작" : "Restart ComfyUI Now"}</span>
+                                </button>
+                            </div>
+                        `;
 
-                // 1순위: ComfyUI 매니저 연동 설치
-                const installBtn = repoSection.querySelector("#bada-det-install-btn");
-                const statusBox = repoSection.querySelector("#bada-det-install-status-box");
-
-                installBtn.addEventListener("click", async () => {
-                    if (!confirm(isKo 
-                        ? `📦 [ComfyUI 매니저 연동 설치]\n\n'${packTitle}' 커스텀 노드를 ComfyUI에 설치하시겠습니까?\n\n저장소: ${repoUrl}` 
-                        : `Install '${packTitle}' into ComfyUI custom_nodes?\n\nRepo: ${repoUrl}`)) {
-                        return;
-                    }
-
-                    installBtn.disabled = true;
-                    installBtn.innerHTML = `<span>⏳</span><span>${isKo ? "설치 진행 중... (Git clone & pip 패키지)" : "Installing..."}</span>`;
-
-                    statusBox.style.display = "block";
-                    statusBox.className = "bada-install-card";
-                    statusBox.innerHTML = `
-                        <div style="color: #38bdf8; display: flex; align-items: center; gap: 8px;">
-                            <span style="display: inline-block; animation: spin 1s linear infinite;">⏳</span>
-                            <span>${isKo ? "저장소를 다운로드하고 필요한 파이썬 패키지(requirements.txt)를 설치하고 있습니다..." : "Cloning repository and installing dependencies..."}</span>
-                        </div>
-                    `;
-
-                    try {
-                        const resp = await api.fetchApi("/api/bada/customnode/install", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ repo: repoUrl, title: packTitle })
+                        statusBox.querySelector("#bada-det-restart-btn")?.addEventListener("click", async () => {
+                            showToast(isKo ? "🔄 ComfyUI 서버 재시작 중... 잠시 후 새로고침 됩니다." : "Restarting ComfyUI...");
+                            try {
+                                await api.fetchApi("/api/bada/terminal/restart", { method: "POST" });
+                            } catch (e) {}
+                            setTimeout(() => window.location.reload(), 3500);
                         });
-                        const result = await resp.json();
-
-                        if (result.success) {
-                            installBtn.style.display = "none";
-                            statusBox.innerHTML = `
-                                <div style="color: #34d399; font-weight: 700; font-size: 13.5px; display: flex; align-items: center; gap: 6px;">
-                                    <span>✅</span>
-                                    <span>${isKo ? `'${packTitle}' 설치가 완료되었습니다!` : `'${packTitle}' installed successfully!`}</span>
-                                </div>
-                                <div style="color: #cbd5e1; font-size: 12px; line-height: 1.4;">
-                                    ${isKo ? "ComfyUI 서버를 재시작하시면 워크플로우에서 이 노드를 즉시 사용하실 수 있습니다." : "Restart ComfyUI server to load and use the newly installed nodes."}
-                                </div>
-                                <div style="margin-top: 4px;">
-                                    <button class="bada-btn-restart" id="bada-det-restart-btn">
-                                        <span>🔄</span>
-                                        <span>${isKo ? "ComfyUI 지금 재시작" : "Restart ComfyUI Now"}</span>
-                                    </button>
-                                </div>
-                            `;
-
-                            statusBox.querySelector("#bada-det-restart-btn").addEventListener("click", async () => {
-                                showToast(isKo ? "🔄 ComfyUI 서버 재시작 중... 잠시 후 새로고침 됩니다." : "Restarting ComfyUI...");
-                                try {
-                                    await api.fetchApi("/api/bada/terminal/restart", { method: "POST" });
-                                } catch (e) {}
-                                setTimeout(() => window.location.reload(), 3500);
-                            });
-                        } else {
-                            installBtn.disabled = false;
-                            installBtn.innerHTML = `<span>📦</span><span>${isKo ? "ComfyUI 매니저로 다시 설치" : "Retry Install via Manager"}</span>`;
-                            statusBox.innerHTML = `
-                                <div style="color: #f87171; font-weight: 700;">❌ ${isKo ? "설치 실패" : "Installation Failed"}</div>
-                                <div style="color: #94a3b8; font-size: 11.5px; word-break: break-all;">${result.error || "Unknown error"}</div>
-                            `;
-                        }
-                    } catch (err) {
+                    } else {
                         installBtn.disabled = false;
                         installBtn.innerHTML = `<span>📦</span><span>${isKo ? "ComfyUI 매니저로 다시 설치" : "Retry Install via Manager"}</span>`;
-                        statusBox.innerHTML = `<div style="color: #f87171;">❌ ${err.message}</div>`;
+                        statusBox.innerHTML = `
+                            <div style="color: #f87171; font-weight: 700;">❌ ${isKo ? "설치 실패" : "Installation Failed"}</div>
+                            <div style="color: #94a3b8; font-size: 11.5px; word-break: break-all;">${result.error || "Unknown error"}</div>
+                        `;
                     }
-                });
+                } catch (err) {
+                    installBtn.disabled = false;
+                    installBtn.innerHTML = `<span>📦</span><span>${isKo ? "ComfyUI 매니저로 다시 설치" : "Retry Install via Manager"}</span>`;
+                    statusBox.innerHTML = `<div style="color: #f87171;">❌ ${err.message}</div>`;
+                }
+            });
 
-                return;
-            }
+            return;
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -555,7 +623,8 @@ export async function showMissingNodeModal(node) {
         // ══════════════════════════════════════════════════════════════
         const exactPhrase = `"${realType.replace(/"/g, '')}"`;
         const ghCodeSearchUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}+language:Python&type=code`;
-        const ghRepoSearchUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}&type=repositories`;
+        const cleanWords = realType.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[^a-zA-Z0-9]/g, ' ').trim();
+        const ghRepoSearchUrl = `https://github.com/search?q=${encodeURIComponent(cleanWords + ' ComfyUI')}&type=repositories`;
         const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(exactPhrase + ' ComfyUI')}`;
         const registrySearchUrl = `https://registry.comfy.org/search?q=${encodeURIComponent(realType.trim())}`;
 
@@ -566,42 +635,42 @@ export async function showMissingNodeModal(node) {
                     <span>🟡</span>
                     <span>${isKo ? "ComfyUI 매니저 미등록 노드 (독립 커스텀 노드)" : "Unindexed / Independent Node"}</span>
                 </div>
-                <span class="bada-priority-badge p2">${isKo ? "1순위: GitHub 검색" : "Priority 1: GitHub"}</span>
+                <span class="bada-priority-badge p2">${isKo ? "1순위: Google & GitHub 검색" : "Priority 1: Google & GitHub"}</span>
             </div>
 
             <div style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
                 ${isKo 
-                    ? `이 노드는 ComfyUI 매니저 공식 DB에 등록되어 있지 않은 독립 커스텀 노드입니다.<br>아래 <b>1순위 GitHub 코드 정확 일치 검색</b>을 누르면 <b>${realType}</b>의 원작자 깃허브 저장소와 소스 코드를 1초 만에 바로 찾으실 수 있습니다.` 
-                    : `This node is not yet indexed in ComfyUI Manager DB. Use GitHub exact search (Priority 1) to find the author's repo and Python code:`}
+                    ? `이 노드는 ComfyUI 매니저 공식 DB에 등록되어 있지 않은 개인/독립 노드입니다.<br>아래 <b>1순위 Google 검색</b> 및 <b>2순위 GitHub 코드 검색</b>을 누르면 원작자 저장소를 즉시 찾으실 수 있습니다.` 
+                    : `This node is not indexed in ComfyUI Manager DB. Use Google Search (Priority 1) or GitHub Code Search to find the author's repo:`}
             </div>
 
-            <!-- 1순위: 깃허브 코드 & 저장소 검색 -->
+            <!-- 1순위: Google 검색 (가장 정확한 저장소 발굴) -->
             <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 6px;">
                 <div style="font-size: 12px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 5px;">
-                    <span>🐙</span>
-                    <span>${isKo ? "1순위: GitHub 원본 코드 & 저장소 검색" : "Priority 1: GitHub Code Search"}</span>
+                    <span>🔍</span>
+                    <span>${isKo ? "1순위 추천: Google에서 저장소 찾기 ⭐" : "Priority 1: Google Search"}</span>
                 </div>
                 <div class="bada-detective-actions">
-                    <a href="${ghCodeSearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-primary">
+                    <a href="${googleSearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-primary">
+                        <span>🔍</span>
+                        <span>${isKo ? "Google에서 저장소 검색 (1순위 추천)" : "Google Search (Best Match)"}</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- 2순위: GitHub 코드 & 저장소 검색 -->
+            <div style="margin-top: 6px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 6px;">
+                <div style="font-size: 11.5px; color: #94a3b8; font-weight: 600;">
+                    ${isKo ? "2순위: GitHub 직접 검색" : "Priority 2: GitHub Search"}
+                </div>
+                <div class="bada-detective-actions">
+                    <a href="${ghCodeSearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-secondary">
                         <span>🐙</span>
-                        <span>${isKo ? "GitHub 코드 정확 일치 검색 ⭐" : "Exact GitHub Code Search"}</span>
+                        <span>${isKo ? "GitHub 코드 정확 일치 검색" : "GitHub Code Search"}</span>
                     </a>
                     <a href="${ghRepoSearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-secondary">
                         <span>📂</span>
                         <span>${isKo ? "GitHub 저장소 검색" : "GitHub Repos"}</span>
-                    </a>
-                </div>
-            </div>
-
-            <!-- 2순위 & 3순위: 구글 및 레지스트리 검색 -->
-            <div style="margin-top: 6px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 6px;">
-                <div style="font-size: 11.5px; color: #94a3b8; font-weight: 600;">
-                    ${isKo ? "보조 검색 옵션 (2순위 구글 / 3순위 레지스트리)" : "Alternative Search Options"}
-                </div>
-                <div class="bada-detective-actions">
-                    <a href="${googleSearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-secondary">
-                        <span>🔍</span>
-                        <span>${isKo ? "Google에서 검색 (2순위)" : "Google Search"}</span>
                     </a>
                     <a href="${registrySearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-secondary">
                         <span>📦</span>
@@ -611,6 +680,11 @@ export async function showMissingNodeModal(node) {
                         <span>📋</span>
                         <span>${isKo ? "노드 이름 복사" : "Copy Node Name"}</span>
                     </button>
+                </div>
+                <div style="font-size: 11px; color: #38bdf8; background: rgba(56, 189, 248, 0.08); padding: 6px 10px; border-radius: 6px; border-left: 3px solid #38bdf8; margin-top: 4px; line-height: 1.4;">
+                    ${isKo 
+                        ? "💡 <b>GitHub 코드 검색 팁</b>: 검색 결과 창에서 각 소스 파일 상단에 파란색으로 표시되는 <b>'작성자/저장소명'</b>(예: AlnVFX/ComfyUI-SeedVR2_VideoUpscaler)을 클릭하시면 해당 노드의 원작자 메인 저장소로 바로 이동합니다."
+                        : "💡 <b>Tip</b>: On GitHub Code Search, click the repository name (e.g. author/repo) at the top of the file snippet to visit the main repo."}
                 </div>
             </div>
         `;
