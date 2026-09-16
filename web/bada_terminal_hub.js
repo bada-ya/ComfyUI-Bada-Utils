@@ -54,22 +54,6 @@ const COMMAND_PRESETS = [
         needArg: false
     },
     {
-        id: "pip_numpy_fix",
-        name: "🔢 pip install \"numpy<=2.4\" (WAS / Nunchaku)",
-        template: '{PYTHON} -m pip install "numpy<=2.4"',
-        placeholder: "No arguments needed (Downgrades numpy for WAS Node & Nunchaku compatibility)",
-        defaultTarget: "comfyui_root",
-        needArg: false
-    },
-    {
-        id: "pip_kornia_fix",
-        name: "🎥 pip install kornia==0.7.3 (LTX-Video)",
-        template: "{PYTHON} -m pip install kornia==0.7.3",
-        placeholder: "No arguments needed (Downgrades kornia for LTX-Video compatibility)",
-        defaultTarget: "comfyui_root",
-        needArg: false
-    },
-    {
         id: "pip_req",
         name: "📦 pip install -r requirements.txt",
         template: "{PYTHON} -m pip install -r requirements.txt",
@@ -94,6 +78,86 @@ const COMMAND_PRESETS = [
         needArg: true
     }
 ];
+
+// Quick Compatibility Fix Definitions
+const QUICK_FIX_OPTIONS = [
+    {
+        id: "numpy",
+        label: "🔢 Numpy ≤ 2.4 (WAS 노드 / 눈차쿠 호환 패치)",
+        title: "Numpy ≤ 2.4 설치 확인",
+        package: '"numpy<=2.4"',
+        question: "WAS 노드 슈트(WAS Node Suite) 및 눈차쿠(Nunchaku) 등 넘파이 2.x 버전 충돌을 방지하기 위해 Numpy를 <= 2.4 버전으로 다운그레이드 설치하시겠습니까?",
+        desc: "WAS Node Suite & Nunchaku 호환용 Numpy 다운그레이드"
+    },
+    {
+        id: "kornia",
+        label: "🎥 Kornia 0.7.3 (LTX-Video 노드 호환 패치)",
+        title: "Kornia 0.7.3 설치 확인",
+        package: "kornia==0.7.3",
+        question: "LTX-Video 노드의 최신 Kornia 버전 호환성 오류를 방지하기 위해 Kornia를 0.7.3 버전으로 다운그레이드 설치하시겠습니까?",
+        desc: "LTX-Video 노드 호환용 Kornia 0.7.3 다운그레이드"
+    }
+];
+
+/**
+ * Interactive Cyber Confirmation Modal for Quick Fixes
+ */
+function showQuickFixConfirmModal({ title, question, pythonPath, command, onConfirm }) {
+    document.querySelector(".bada-quickfix-modal-overlay")?.remove();
+
+    const overlay = document.createElement("div");
+    overlay.className = "bada-quickfix-modal-overlay";
+
+    const modal = document.createElement("div");
+    modal.className = "bada-quickfix-modal";
+
+    modal.innerHTML = `
+        <div class="bada-quickfix-modal-header">
+            <div class="bada-quickfix-modal-title">
+                <span>⚡</span> ${title}
+            </div>
+            <button class="bada-quickfix-modal-close" title="닫기">✕</button>
+        </div>
+        <div class="bada-quickfix-modal-body">
+            <div class="bada-quickfix-modal-msg">${question}</div>
+            <div class="bada-quickfix-detail-box">
+                <div class="bada-quickfix-detail-row">
+                    <span class="lbl">🐍 Python 실행 환경:</span>
+                    <span class="val" title="${pythonPath}">${pythonPath}</span>
+                </div>
+                <div class="bada-quickfix-detail-row">
+                    <span class="lbl">💻 실행 명령어:</span>
+                    <code class="val-code">${command}</code>
+                </div>
+            </div>
+        </div>
+        <div class="bada-quickfix-modal-footer">
+            <button class="bada-quickfix-btn-cancel">취소</button>
+            <button class="bada-quickfix-btn-confirm">⚡ 확인 및 설치 시작</button>
+        </div>
+    `;
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    const close = () => {
+        overlay.classList.remove("active");
+        setTimeout(() => overlay.remove(), 180);
+    };
+
+    modal.querySelector(".bada-quickfix-modal-close").addEventListener("click", close);
+    modal.querySelector(".bada-quickfix-btn-cancel").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) close();
+    });
+
+    modal.querySelector(".bada-quickfix-btn-confirm").addEventListener("click", () => {
+        close();
+        if (onConfirm) onConfirm();
+    });
+
+    requestAnimationFrame(() => overlay.classList.add("active"));
+}
 
 /**
  * Creates the complete Terminal Hub UI Component (Reusable for Node Widget and Sidebar Tab)
@@ -416,23 +480,19 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
     execBtn.innerHTML = `<span>⚡</span> Execute Command`;
     controls.appendChild(execBtn);
 
-    // Quick Compatibility Fixes (자주 쓰는 호환성 패치 단추)
-    const quickBar = document.createElement("div");
-    quickBar.className = "bada-term-quick-bar";
-    quickBar.innerHTML = `
-        <div class="bada-term-quick-header">
+    // Quick Compatibility Fixes Dropdown (자주 쓰는 호환성 패치 선택창)
+    const quickFixField = document.createElement("div");
+    quickFixField.className = "bada-term-field bada-quickfix-field";
+    quickFixField.innerHTML = `
+        <div class="bada-term-label">
             <span>⚡ 자주 쓰는 호환성 패치 (Quick Fix)</span>
         </div>
-        <div class="bada-term-quick-btns">
-            <button type="button" class="bada-quick-btn numpy" id="badaQuickNumpy" title='WAS 노드, 눈차쿠(Nunchaku) 호환용 Numpy 다운그레이드&#10;실행: "{python}" -m pip install "numpy<=2.4"'>
-                <span>🔢</span> Numpy ≤ 2.4 (와스/눈차쿠)
-            </button>
-            <button type="button" class="bada-quick-btn kornia" id="badaQuickKornia" title='LTX 비디오 노드 호환용 Kornia 다운그레이드&#10;실행: "{python}" -m pip install kornia==0.7.3'>
-                <span>🎥</span> Kornia 0.7.3 (LTX 비디오)
-            </button>
-        </div>
+        <select class="bada-term-select bada-quickfix-select" id="badaQuickFixSelect">
+            <option value="" disabled selected>⚡ 호환성 패치 선택 (클릭하여 펼치기)...</option>
+            ${QUICK_FIX_OPTIONS.map(opt => `<option value="${opt.id}">${opt.label}</option>`).join("")}
+        </select>
     `;
-    controls.appendChild(quickBar);
+    controls.appendChild(quickFixField);
 
     root.appendChild(controls);
 
@@ -480,8 +540,7 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
     const btnCopy = consoleToolbar.querySelector("#badaBtnCopy");
     const btnClear = consoleToolbar.querySelector("#badaBtnClear");
     const btnRestart = consoleToolbar.querySelector("#badaBtnRestart");
-    const btnQuickNumpy = quickBar.querySelector("#badaQuickNumpy");
-    const btnQuickKornia = quickBar.querySelector("#badaQuickKornia");
+    const quickFixSelect = quickFixField.querySelector("#badaQuickFixSelect");
 
     function appendLog(text, type = "stdout") {
         const span = document.createElement("span");
@@ -677,7 +736,16 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
         }
     }
 
-    async function runQuickFix(type) {
+    quickFixSelect.addEventListener("change", async () => {
+        const selectedId = quickFixSelect.value;
+        if (!selectedId) return;
+
+        // Reset the dropdown selection back to placeholder so it can be re-selected easily
+        quickFixSelect.value = "";
+
+        const opt = QUICK_FIX_OPTIONS.find(o => o.id === selectedId);
+        if (!opt) return;
+
         if (isRunning) {
             appendLog(`\r\n[Warning] 작업이 이미 실행 중입니다. 기존 작업이 완료되거나 중지된 후 실행해주세요.\r\n`, "stderr");
             return;
@@ -693,45 +761,23 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
             pyExec = pyExec.replace(/\//g, "\\");
         }
 
-        let presetId = "";
-        let cmdToRun = "";
-        let patchName = "";
+        const cmdToRun = `"${pyExec}" -m pip install ${opt.package}`;
 
-        if (type === "numpy") {
-            presetId = "pip_numpy_fix";
-            cmdToRun = `"${pyExec}" -m pip install "numpy<=2.4"`;
-            patchName = "Numpy ≤ 2.4 패치 (WAS Node & 눈차쿠 호환)";
-        } else if (type === "kornia") {
-            presetId = "pip_kornia_fix";
-            cmdToRun = `"${pyExec}" -m pip install kornia==0.7.3`;
-            patchName = "Kornia 0.7.3 패치 (LTX-Video 노드 호환)";
-        }
+        // Show Interactive Cyber Confirmation Dialog ("~~~~을 하겠냐")
+        showQuickFixConfirmModal({
+            title: opt.title,
+            question: opt.question,
+            pythonPath: pyExec,
+            command: cmdToRun,
+            onConfirm: () => {
+                appendLog(`\r\n⚡ [호환성 패치 승인 및 실행]: ${opt.desc}\r\n`, "system");
+                appendLog(`[실행 명령어]: ${cmdToRun}\r\n`, "system");
 
-        if (!cmdToRun) return;
-
-        // Synchronize UI dropdowns & preview
-        if (envData?.comfyui_root) {
-            currentPath = envData.comfyui_root;
-            searchInput.value = getSelectedLabel();
-        }
-        const pFound = COMMAND_PRESETS.find(p => p.id === presetId);
-        if (pFound) {
-            currentPreset = pFound;
-            cmdSelect.value = presetId;
-            argInput.value = "";
-            argInput.placeholder = pFound.placeholder;
-        }
-        updatePreview();
-
-        appendLog(`\r\n⚡ [호환성 원클릭 패치 실행]: ${patchName}\r\n`, "system");
-        appendLog(`[자동 감지된 Python]: ${pyExec}\r\n`, "system");
-
-        const targetCwd = envData?.comfyui_root || currentPath || "";
-        executeAction(cmdToRun, targetCwd);
-    }
-
-    btnQuickNumpy.addEventListener("click", () => runQuickFix("numpy"));
-    btnQuickKornia.addEventListener("click", () => runQuickFix("kornia"));
+                const targetCwd = envData?.comfyui_root || currentPath || "";
+                executeAction(cmdToRun, targetCwd);
+            }
+        });
+    });
 
     execBtn.addEventListener("click", () => executeAction());
 
