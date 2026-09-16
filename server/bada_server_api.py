@@ -416,6 +416,111 @@ def kill_terminal_task(task_id):
 
 
 # =========================================================================
+# 3.5. Missing Node Detective & Repository Lookup Engine
+# =========================================================================
+
+CACHED_INVERTED_NODE_MAP = None
+
+def get_inverted_node_map():
+    global CACHED_INVERTED_NODE_MAP
+    import glob
+
+    base_dirs = [
+        os.path.dirname(PARENT_DIR),                  # custom_nodes
+        os.path.dirname(os.path.dirname(PARENT_DIR)),  # ComfyUI root
+    ]
+    candidates = []
+
+    # 1. Look in ComfyUI User Manager Cache
+    for b in base_dirs:
+        cache_dir = os.path.join(b, "user", "__manager", "cache")
+        if os.path.isdir(cache_dir):
+            candidates.extend(glob.glob(os.path.join(cache_dir, "*_extension-node-map.json")))
+        mgr_dir = os.path.join(b, "custom_nodes", "ComfyUI-Manager")
+        if os.path.isdir(mgr_dir):
+            p = os.path.join(mgr_dir, "extension-node-map.json")
+            if os.path.exists(p):
+                candidates.append(p)
+
+    # 2. Site-packages if installed via pip / embedded
+    try:
+        import comfyui_manager
+        if hasattr(comfyui_manager, "__file__") and comfyui_manager.__file__:
+            p = os.path.join(os.path.dirname(comfyui_manager.__file__), "extension-node-map.json")
+            if os.path.exists(p):
+                candidates.append(p)
+    except Exception:
+        pass
+
+    if not candidates:
+        return {}
+
+    try:
+        latest_file = max(candidates, key=os.path.getmtime)
+        latest_mtime = os.path.getmtime(latest_file)
+
+        if CACHED_INVERTED_NODE_MAP and CACHED_INVERTED_NODE_MAP[0] == latest_mtime:
+            return CACHED_INVERTED_NODE_MAP[1]
+
+        with open(latest_file, "r", encoding="utf-8") as f:
+            raw_map = json.load(f)
+
+        inverted = {}
+        for repo, info in raw_map.items():
+            if not isinstance(info, list) or len(info) == 0:
+                continue
+            nodes_list = info[0] if isinstance(info[0], list) else []
+            meta = info[1] if len(info) > 1 and isinstance(info[1], dict) else {}
+            title_aux = meta.get("title_aux") or meta.get("title") or os.path.basename(repo)
+            for n in nodes_list:
+                norm = str(n).strip().lower()
+                if norm and norm not in inverted:
+                    inverted[norm] = {"repo": repo, "title": title_aux, "node_name": str(n)}
+
+        CACHED_INVERTED_NODE_MAP = (latest_mtime, inverted)
+        return inverted
+    except Exception as e:
+        logger.warning(f"[Bada-Detective] Failed to parse node map: {e}")
+        return {}
+
+
+def lookup_node_repo(node_type, node_title=None):
+    inv_map = get_inverted_node_map()
+    if not inv_map:
+        return None
+
+    candidates = []
+    if node_type:
+        candidates.append(str(node_type).strip())
+    if node_title:
+        candidates.append(str(node_title).strip())
+
+    for cand in candidates:
+        if not cand:
+            continue
+        norm = cand.lower()
+        if norm in inv_map:
+            return inv_map[norm]
+
+        # Try replacing underscore with space
+        if "_" in norm:
+            spaced = norm.replace("_", " ")
+            if spaced in inv_map:
+                return inv_map[spaced]
+
+        # Try stripping common prefixes
+        for prefix in ["was_", "comfyui_", "comfy_", "cui_", "c_"]:
+            if norm.startswith(prefix):
+                stripped = norm[len(prefix):]
+                if stripped in inv_map:
+                    return inv_map[stripped]
+                if "_" in stripped and stripped.replace("_", " ") in inv_map:
+                    return inv_map[stripped.replace("_", " ")]
+
+    return None
+
+
+# =========================================================================
 # 4. Master Route Registration
 # =========================================================================
 
@@ -789,6 +894,37 @@ def register_bada_api_routes():
         routes.post("/api/bada/terminal/kill")(terminal_kill_handler)
         routes.post("/api/bada/terminal/restart")(terminal_restart_handler)
         routes.post("/api/bada/terminal/open_cmd")(terminal_open_cmd_handler)
+
+        # --- E. Missing Node Detective API ---
+        async def missing_node_lookup_handler(request):
+            try:
+                node_type = request.query.get("type", "").strip()
+                node_title = request.query.get("title", "").strip()
+                if not node_type and not node_title:
+                    return web.json_response({"success": False, "error": "Missing node type parameter"}, status=400)
+
+                match = lookup_node_repo(node_type, node_title)
+                if match:
+                    return web.json_response({
+                        "success": True,
+                        "found": True,
+                        "repo": match.get("repo", ""),
+                        "title": match.get("title", ""),
+                        "node_name": match.get("node_name", node_type),
+                        "type": node_type
+                    })
+                else:
+                    return web.json_response({
+                        "success": True,
+                        "found": False,
+                        "type": node_type,
+                        "title": node_title
+                    })
+            except Exception as e:
+                logger.error(f"[Bada-Detective] Lookup error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        routes.get("/api/bada/missing-node/lookup")(missing_node_lookup_handler)
 
         # Legacy routes for QoL
         routes.get("/api/qol/workflows/folders")(list_folders_handler)

@@ -1,0 +1,362 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   ⚓ Bada Missing Node Detective (미싱 노드 탐정) Stylesheet
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+.bada-detective-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(8, 10, 15, 0.82);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 999999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: #e2e8f0;
+    opacity: 0;
+    transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bada-detective-overlay.visible {
+    opacity: 1;
+}
+
+.bada-detective-modal {
+    background: #141721;
+    border: 1.5px solid #2d3345;
+    border-radius: 16px;
+    width: 640px;
+    max-width: 92vw;
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 25px 65px rgba(0, 0, 0, 0.85), 0 0 30px rgba(0, 240, 255, 0.15);
+    overflow: hidden;
+    transform: scale(0.96);
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bada-detective-overlay.visible .bada-detective-modal {
+    transform: scale(1);
+}
+
+/* Modal Header */
+.bada-detective-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    background: #1a1e2b;
+    border-bottom: 1.5px solid #262c3d;
+}
+
+.bada-detective-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: -0.2px;
+}
+
+.bada-detective-title-icon {
+    font-size: 20px;
+    filter: drop-shadow(0 0 6px rgba(0, 240, 255, 0.6));
+}
+
+.bada-detective-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #f87171;
+    border-radius: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+}
+
+.bada-detective-close {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+}
+
+.bada-detective-close:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Modal Body */
+.bada-detective-body {
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Card Section */
+.bada-detective-card {
+    background: #1b1f2d;
+    border: 1px solid #283042;
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.bada-detective-field-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.bada-detective-label {
+    font-size: 12.5px;
+    color: #94a3b8;
+    font-weight: 600;
+    min-width: 100px;
+}
+
+.bada-detective-value-box {
+    flex: 1;
+    background: #0f121a;
+    border: 1px solid #283042;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+    color: #00f0ff;
+    word-break: break-all;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.bada-detective-copy-btn {
+    background: #252b3b;
+    border: 1px solid #374158;
+    color: #e2e8f0;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.bada-detective-copy-btn:hover {
+    background: #00f0ff;
+    color: #000000;
+    border-color: #00f0ff;
+}
+
+/* Repo Result Card */
+.bada-detective-repo-card {
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.bada-detective-repo-card.found {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(5, 150, 105, 0.05));
+    border: 1.5px solid rgba(16, 185, 129, 0.45);
+}
+
+.bada-detective-repo-card.not-found {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(217, 119, 6, 0.05));
+    border: 1.5px solid rgba(245, 158, 11, 0.4);
+}
+
+.bada-detective-repo-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14.5px;
+    font-weight: 700;
+}
+
+.bada-detective-repo-header.found {
+    color: #34d399;
+}
+
+.bada-detective-repo-header.not-found {
+    color: #fbbf24;
+}
+
+.bada-detective-repo-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.bada-detective-repo-url {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 12.5px;
+    color: #38bdf8;
+    word-break: break-all;
+    text-decoration: none;
+}
+
+.bada-detective-repo-url:hover {
+    text-decoration: underline;
+}
+
+/* Action Button Grid */
+.bada-detective-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.bada-btn-primary {
+    background: #0284c7;
+    color: #ffffff;
+    border: 1px solid #38bdf8;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+    text-decoration: none;
+}
+
+.bada-btn-primary:hover {
+    background: #0369a1;
+    transform: translateY(-1px);
+}
+
+.bada-btn-success {
+    background: #059669;
+    color: #ffffff;
+    border: 1px solid #34d399;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+    text-decoration: none;
+}
+
+.bada-btn-success:hover {
+    background: #047857;
+    transform: translateY(-1px);
+}
+
+.bada-btn-secondary {
+    background: #232838;
+    color: #cbd5e1;
+    border: 1px solid #394258;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+    text-decoration: none;
+}
+
+.bada-btn-secondary:hover {
+    background: #2d3448;
+    color: #ffffff;
+    border-color: #64748b;
+    transform: translateY(-1px);
+}
+
+/* Sockets Inspection Table */
+.bada-detective-slots-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.bada-detective-slots-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.bada-detective-slot-column {
+    background: #0f121a;
+    border: 1px solid #232a3b;
+    border-radius: 8px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.bada-detective-slot-col-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 2px;
+}
+
+.bada-detective-slot-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: #e2e8f0;
+    font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.bada-slot-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.bada-slot-dot.in {
+    background: #10b981;
+    box-shadow: 0 0 5px rgba(16, 185, 129, 0.8);
+}
+
+.bada-slot-dot.out {
+    background: #3b82f6;
+    box-shadow: 0 0 5px rgba(59, 130, 246, 0.8);
+}
+
+/* Modal Footer */
+.bada-detective-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 12px 20px;
+    background: #1a1e2b;
+    border-top: 1.5px solid #262c3d;
+    gap: 10px;
+}

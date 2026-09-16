@@ -11,7 +11,9 @@
     "sidebar_organizer": "Sidebar Workflow Folder Management",
     "sidebar_organizer_desc": "Enables drag-and-drop workflow folder moving and organization in the left sidebar.",
     "load_image_fix": "Clipboard & LoadImage Auto-Error Fixer",
-    "load_image_fix_desc": "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes."
+    "load_image_fix_desc": "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes.",
+    "missing_detective": "Missing Node Detective (Real Name & GitHub Finder)",
+    "missing_detective_desc": "Automatically detects missing nodes (red X), provides on-node detective button & context menu, reveals original class type, and finds exact GitHub repo in 1 second."
   },
   "presets": {
     "title": "Bada Preset Hub",

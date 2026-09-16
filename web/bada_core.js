@@ -61,7 +61,10 @@ const BADA_SETTINGS_TEXTS = {
         terminalHubDesc: "Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar.",
 
         dualManagerName: "🧩 Classic Manager Quick Launcher",
-        dualManagerDesc: "Displays a blue puzzle button in the top menu bar to open classic ComfyUI-Manager anytime."
+        dualManagerDesc: "Displays a blue puzzle button in the top menu bar to open classic ComfyUI-Manager anytime.",
+
+        detectiveName: "🕵️ Missing Node Detective (Real Name & GitHub Finder)",
+        detectiveDesc: "Automatically detects missing nodes (red X), provides on-node detective button & context menu, reveals original class type, and finds exact GitHub repo in 1 second."
     },
     ko: {
         category: "Bada Utils",
@@ -94,7 +97,10 @@ const BADA_SETTINGS_TEXTS = {
         terminalHubDesc: "좌측 사이드바 하단에 Bada Terminal Hub 바로가기 탭 아이콘을 표시합니다.",
 
         dualManagerName: "🧩 클래식 매니저 퀵 런처 (듀얼 매니저)",
-        dualManagerDesc: "상단 메뉴 바에 파란 퍼즐 버튼을 표시하여 언제든 익숙한 구형 클래식 매니저 창을 바로 실행합니다."
+        dualManagerDesc: "상단 메뉴 바에 파란 퍼즐 버튼을 표시하여 언제든 익숙한 구형 클래식 매니저 창을 바로 실행합니다.",
+
+        detectiveName: "🕵️ 미싱 노드 탐정 & 깃허브 자동 검색기",
+        detectiveDesc: "미설치된 미싱 노드(빨간 X)에 원클릭 탐정 단추와 우클릭 메뉴를 제공하여, 진짜 노드 클래스명과 깃허브 저장소를 1초 만에 찾아줍니다."
     }
 };
 
@@ -199,6 +205,14 @@ const BADA_UNIFIED_SETTINGS = {
         name: "🧩 Classic Manager Quick Launcher",
         type: "boolean",
         sortOrder: 100,
+        defaultValue: true
+    },
+    missingDetective: {
+        id: "BadaUtils.MissingNodeDetective",
+        category: ["Bada Utils", "MissingDetective"],
+        name: "🕵️ Missing Node Detective",
+        type: "boolean",
+        sortOrder: 150,
         defaultValue: true
     }
 };
@@ -884,6 +898,16 @@ app.registerExtension({
                 const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
                 updateDualManagerVisibility(target);
             }
+        });
+
+        // ⑨ Missing Node Detective (Real Name & GitHub Finder)
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.missingDetective.id,
+            category: [texts.category, "MissingDetective"],
+            name: texts.detectiveName,
+            type: BADA_UNIFIED_SETTINGS.missingDetective.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.missingDetective.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.missingDetective.defaultValue
         });
 
         // Initialize Dual Manager Launcher
