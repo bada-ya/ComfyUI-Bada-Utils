@@ -488,7 +488,7 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
             <span>⚡ 자주 쓰는 호환성 패치 (Quick Fix)</span>
         </div>
         <select class="bada-term-select bada-quickfix-select" id="badaQuickFixSelect">
-            <option value="" disabled selected>⚡ 호환성 패치 선택 (클릭하여 펼치기)...</option>
+            <option value="" selected>⚡ 호환성 패치 선택 (클릭하여 펼치기)...</option>
             ${QUICK_FIX_OPTIONS.map(opt => `<option value="${opt.id}">${opt.label}</option>`).join("")}
         </select>
     `;

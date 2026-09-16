@@ -39,6 +39,7 @@ button:has(.bada-tab-icon-terminal):hover .bada-tab-icon-terminal {
     user-select: none;
     overflow: hidden !important;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+    color-scheme: dark !important;
 }
 
 /* --- Top Header & Environment Badge --- */
@@ -117,15 +118,16 @@ button:has(.bada-tab-icon-terminal):hover .bada-tab-icon-terminal {
 /* Base Select & Input: Full width when standalone in a field */
 .bada-term-select, .bada-term-input {
     width: 100% !important;
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    color: #e6edf3;
-    font-size: 11.5px;
-    padding: 5px 7px;
-    outline: none;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    background: #161b22 !important;
+    border: 1px solid #30363d !important;
+    border-radius: 6px !important;
+    color: #e6edf3 !important;
+    font-size: 11.5px !important;
+    padding: 5px 7px !important;
+    outline: none !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
     box-sizing: border-box !important;
+    color-scheme: dark !important;
 }
 
 /* Scoped flex behavior only when inside a multi-item row */
@@ -361,27 +363,46 @@ button:has(.bada-tab-icon-terminal):hover .bada-tab-icon-terminal {
 }
 
 .bada-quickfix-field .bada-term-label span {
-    color: #e3b341;
-    font-weight: 700;
+    color: #8b949e;
+    font-weight: 600;
 }
 
 .bada-quickfix-select {
-    border-color: rgba(227, 179, 65, 0.4) !important;
-    background: linear-gradient(135deg, rgba(22, 27, 34, 0.95) 0%, rgba(33, 38, 45, 0.9) 100%) !important;
-    color: #f0f6fc !important;
-    font-weight: 600 !important;
+    width: 100% !important;
+    background: #161b22 !important;
+    border: 1px solid #30363d !important;
+    border-radius: 6px !important;
+    color: #e6edf3 !important;
+    font-size: 11.5px !important;
+    font-weight: 500 !important;
+    padding: 5px 7px !important;
+    outline: none !important;
     cursor: pointer !important;
-    transition: all 0.2s ease !important;
+    transition: border-color 0.2s, box-shadow 0.2s !important;
+    box-sizing: border-box !important;
+    color-scheme: dark !important;
 }
 
 .bada-quickfix-select:hover {
-    border-color: #e3b341 !important;
-    box-shadow: 0 0 8px rgba(227, 179, 65, 0.3) !important;
+    border-color: #58a6ff !important;
 }
 
 .bada-quickfix-select:focus {
-    border-color: #f2cc60 !important;
-    box-shadow: 0 0 0 2px rgba(227, 179, 65, 0.35) !important;
+    border-color: #58a6ff !important;
+    box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2) !important;
+}
+
+.bada-term-select option,
+.bada-quickfix-select option {
+    background-color: #161b22 !important;
+    color: #e6edf3 !important;
+    padding: 6px 10px !important;
+}
+
+.bada-term-select option:disabled,
+.bada-quickfix-select option:disabled {
+    color: #8b949e !important;
+    background-color: #161b22 !important;
 }
 
 /* --- Quick Fix Confirm Modal --- */
