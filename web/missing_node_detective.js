@@ -139,6 +139,125 @@ function showToast(msg) {
 }
 
 /**
+ * Opens ComfyUI Manager Window (supporting both Modern v4 New Manager and Legacy UI)
+ * and automatically sets the search keyword.
+ */
+function openComfyUiManager(searchTerm = "") {
+    let opened = false;
+
+    // 0. Direct dialog instances (if available)
+    try {
+        if (window.manager_instance?.show) {
+            window.manager_instance.show();
+            opened = true;
+        } else if (window.CustomNodesManager?.instance?.show) {
+            window.CustomNodesManager.instance.show();
+            opened = true;
+        }
+    } catch (_) {}
+
+    // 1. Modern ComfyUI: Pinia Command Store execution
+    try {
+        const pinia = window.__PINIA__ 
+            || document.querySelector("#app")?.__vue_app__?.config?.globalProperties?.$pinia;
+        const cmdStore = pinia?._s?.get?.("command");
+        if (cmdStore?.execute) {
+            cmdStore.execute("Comfy.OpenManagerDialog");
+            opened = true;
+        }
+    } catch (e) {
+        console.debug("[Bada-Detective] Pinia command open failed:", e);
+    }
+
+    // 2. Modern ComfyUI: Click sidebar / menu Manager / Manage Extensions button
+    if (!opened) {
+        const modernSelectors = [
+            'button:has(i[class*="extensions-blocks"])',
+            'button:has(i[class*="puzzle"])',
+            'button[aria-label*="manageExtensions" i]',
+            'button[aria-label*="Extensions" i]',
+            'button[aria-label*="Manager" i]',
+            'button[aria-label*="매니저"]',
+            'button[aria-label*="확장"]',
+            '.comfyui-manager-button',
+            '#comfyui-manager-button'
+        ];
+
+        for (const sel of modernSelectors) {
+            try {
+                const el = document.querySelector(sel);
+                if (el) {
+                    el.click();
+                    opened = true;
+                    break;
+                }
+            } catch (_) {}
+        }
+    }
+
+    // 3. Fallback: Search all DOM buttons for manager keywords
+    if (!opened) {
+        const allBtns = Array.from(document.querySelectorAll("button, div.comfyui-button"));
+        const targetBtn = allBtns.find(b => {
+            const txt = (b.textContent || "").trim();
+            const aria = (b.getAttribute("aria-label") || "").toLowerCase();
+            const title = (b.getAttribute("title") || "").toLowerCase();
+            return (
+                aria.includes("extension") || aria.includes("manager") || aria.includes("매니저") ||
+                title.includes("extension") || title.includes("manager") || title.includes("매니저") ||
+                txt === "Manager" || txt === "매니저" || txt === "Manage Extensions" || txt === "확장 기능 관리"
+            );
+        });
+        if (targetBtn) {
+            targetBtn.click();
+            opened = true;
+        }
+    }
+
+    // 4. Fallback: Legacy ManagerMenu extension commands
+    if (!opened && window.app?.extensions) {
+        const mgrExt = window.app.extensions.find(e => 
+            e.name === "Comfy.Legacy.ManagerMenu" || 
+            e.name?.toLowerCase().includes("managermenu") ||
+            e.name?.toLowerCase().includes("customnodesmanager")
+        );
+        const cmd = mgrExt?.commands?.find(c => 
+            c.id === "Comfy.Manager.CustomNodesManager.ToggleVisibility" || 
+            c.id === "Comfy.Manager.Menu.ToggleVisibility"
+        );
+        if (cmd?.function) {
+            try {
+                cmd.function();
+                opened = true;
+            } catch (e) {
+                console.warn("[Bada-Detective] Manager command trigger failed:", e);
+            }
+        }
+    }
+
+    // 5. Search query auto-copy and input focus
+    if (searchTerm) {
+        copyToClipboard(searchTerm, BadaI18n.lang === "ko" 
+            ? `📋 신형 매니저 검색을 위해 노드 이름 '${searchTerm}'이(가) 복사되었습니다!` 
+            : `'${searchTerm}' copied for Manager search!`);
+        
+        setTimeout(() => {
+            const inputs = document.querySelectorAll(".cn-manager-filter-input, input[placeholder*='Search' i], input[placeholder*='검색'], input[type='search']");
+            for (const input of inputs) {
+                if (input && input.offsetParent !== null) {
+                    input.value = searchTerm;
+                    input.dispatchEvent(new Event("input", { bubbles: true }));
+                    input.focus();
+                    break;
+                }
+            }
+        }, 400);
+    }
+
+    return opened;
+}
+
+/**
  * Shows the Missing Node Detective Modal with deep inspection and lookup.
  */
 export async function showMissingNodeModal(node) {
@@ -265,72 +384,6 @@ export async function showMissingNodeModal(node) {
     modal.querySelector("#bada-det-copy-type").addEventListener("click", () => {
         copyToClipboard(realType, isKo ? "진짜 노드 이름(Type)이 복사되었습니다!" : "Real node class type copied!");
     });
-
-/**
- * Opens ComfyUI Manager Window and auto-filters the search keyword.
- */
-function openComfyUiManager(searchTerm = "") {
-    let opened = false;
-
-    // 1. Try modern or classic DOM Manager button
-    const managerBtn = document.getElementById("comfyui-manager-button") 
-        || document.querySelector(".comfyui-manager-button")
-        || Array.from(document.querySelectorAll("button, div.comfyui-button")).find(b => {
-            const txt = b.textContent?.trim() || "";
-            const aria = b.getAttribute("aria-label") || "";
-            const title = b.getAttribute("title") || "";
-            return txt === "Manager" || aria.toLowerCase().includes("manager") || title.toLowerCase().includes("manager");
-        });
-
-    if (managerBtn) {
-        try {
-            managerBtn.click();
-            opened = true;
-        } catch (e) {}
-    }
-
-    // 2. Try registered ComfyUI Manager commands
-    if (!opened && window.app?.extensions) {
-        const mgrExt = window.app.extensions.find(e => 
-            e.name === "Comfy.Legacy.ManagerMenu" || 
-            e.name?.toLowerCase().includes("managermenu") ||
-            e.name?.toLowerCase().includes("customnodesmanager")
-        );
-        const cmd = mgrExt?.commands?.find(c => 
-            c.id === "Comfy.Manager.CustomNodesManager.ToggleVisibility" || 
-            c.id === "Comfy.Manager.Menu.ToggleVisibility"
-        );
-        if (cmd?.function) {
-            try {
-                cmd.function();
-                opened = true;
-            } catch (e) {
-                console.warn("[Bada-Detective] Manager command trigger failed:", e);
-            }
-        }
-    }
-
-    // 3. Search query copy & auto-focus
-    if (searchTerm) {
-        copyToClipboard(searchTerm, BadaI18n.lang === "ko" 
-            ? `📋 매니저 검색을 위해 노드 이름 '${searchTerm}'이(가) 복사되었습니다!` 
-            : `'${searchTerm}' copied for Manager search!`);
-        
-        setTimeout(() => {
-            const inputs = document.querySelectorAll(".cn-manager-filter-input, input[placeholder*='Search'], input[placeholder*='검색']");
-            for (const input of inputs) {
-                if (input && input.offsetParent !== null) {
-                    input.value = searchTerm;
-                    input.dispatchEvent(new Event("input", { bubbles: true }));
-                    input.focus();
-                    break;
-                }
-            }
-        }, 350);
-    }
-
-    return opened;
-}
 
     // 2. Perform Backend Lookup
     try {
@@ -573,6 +626,7 @@ function openComfyUiManager(searchTerm = "") {
  */
 function findDetectiveBadgeAtScreenPos(clientX, clientY) {
     if (!isDetectiveEnabled()) return null;
+    if (document.querySelector(".bada-detective-overlay")) return null;
     const canvas = app.canvas;
     const graph = app.graph;
     if (!canvas || !graph || !graph._nodes) return null;
@@ -685,6 +739,8 @@ app.registerExtension({
 
         window.addEventListener("pointerdown", (e) => {
             if (!isDetectiveEnabled()) return;
+            if (e.target?.closest?.(".bada-detective-overlay, .bada-detective-modal")) return;
+            if (document.querySelector(".bada-detective-overlay")) return;
             if (e.button === 0) { // Left-click
                 const node = findDetectiveBadgeAtScreenPos(e.clientX, e.clientY);
                 if (node) {
