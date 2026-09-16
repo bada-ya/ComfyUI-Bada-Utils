@@ -355,6 +355,90 @@ button:has(.bada-tab-icon-terminal):hover .bada-tab-icon-terminal {
     box-shadow: 0 2px 8px rgba(218, 54, 51, 0.4) !important;
 }
 
+/* --- Quick Compatibility Fixes (자주 쓰는 호환성 패치 단추) --- */
+.bada-term-quick-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 6px 8px;
+    background: rgba(13, 17, 23, 0.85);
+    border: 1px solid rgba(0, 229, 255, 0.2);
+    border-radius: 8px;
+    box-sizing: border-box !important;
+}
+
+.bada-term-quick-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10.5px;
+    font-weight: 700;
+    color: #8b949e;
+    letter-spacing: 0.3px;
+}
+
+.bada-term-quick-header span {
+    color: #e3b341;
+}
+
+.bada-term-quick-btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    width: 100% !important;
+}
+
+.bada-quick-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    user-select: none;
+    outline: none;
+    box-sizing: border-box !important;
+}
+
+.bada-quick-btn.numpy {
+    background: linear-gradient(135deg, rgba(31, 111, 235, 0.15) 0%, rgba(56, 139, 253, 0.25) 100%);
+    border: 1px solid rgba(88, 166, 255, 0.4);
+    color: #79c0ff;
+}
+
+.bada-quick-btn.numpy:hover {
+    background: linear-gradient(135deg, rgba(31, 111, 235, 0.35) 0%, rgba(56, 139, 253, 0.5) 100%);
+    border-color: #58a6ff;
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(56, 139, 253, 0.4);
+    transform: translateY(-1px);
+}
+
+.bada-quick-btn.kornia {
+    background: linear-gradient(135deg, rgba(137, 87, 229, 0.15) 0%, rgba(163, 113, 247, 0.25) 100%);
+    border: 1px solid rgba(187, 128, 255, 0.4);
+    color: #d2a8ff;
+}
+
+.bada-quick-btn.kornia:hover {
+    background: linear-gradient(135deg, rgba(137, 87, 229, 0.35) 0%, rgba(163, 113, 247, 0.5) 100%);
+    border-color: #bc8cff;
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(163, 113, 247, 0.4);
+    transform: translateY(-1px);
+}
+
+.bada-quick-btn:active {
+    transform: translateY(0);
+}
+
 /* --- Terminal Console Section (5) --- */
 .bada-term-console-wrap {
     flex: 1 1 0px !important;

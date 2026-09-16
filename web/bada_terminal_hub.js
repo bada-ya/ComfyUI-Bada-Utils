@@ -54,9 +54,25 @@ const COMMAND_PRESETS = [
         needArg: false
     },
     {
+        id: "pip_numpy_fix",
+        name: "🔢 pip install \"numpy<=2.4\" (WAS / Nunchaku)",
+        template: '{PYTHON} -m pip install "numpy<=2.4"',
+        placeholder: "No arguments needed (Downgrades numpy for WAS Node & Nunchaku compatibility)",
+        defaultTarget: "comfyui_root",
+        needArg: false
+    },
+    {
+        id: "pip_kornia_fix",
+        name: "🎥 pip install kornia==0.7.3 (LTX-Video)",
+        template: "{PYTHON} -m pip install kornia==0.7.3",
+        placeholder: "No arguments needed (Downgrades kornia for LTX-Video compatibility)",
+        defaultTarget: "comfyui_root",
+        needArg: false
+    },
+    {
         id: "pip_req",
         name: "📦 pip install -r requirements.txt",
-        template: "python -m pip install -r requirements.txt",
+        template: "{PYTHON} -m pip install -r requirements.txt",
         placeholder: "No arguments needed (installs requirements.txt if present)",
         defaultTarget: "selected_node",
         needArg: false
@@ -64,7 +80,7 @@ const COMMAND_PRESETS = [
     {
         id: "pip_pkg",
         name: "⚡ pip install <Package>",
-        template: "python -m pip install {ARG}",
+        template: "{PYTHON} -m pip install {ARG}",
         placeholder: "Enter package name(s) (e.g. opencv-python onnxruntime)",
         defaultTarget: "comfyui_root",
         needArg: true
@@ -400,6 +416,24 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
     execBtn.innerHTML = `<span>⚡</span> Execute Command`;
     controls.appendChild(execBtn);
 
+    // Quick Compatibility Fixes (자주 쓰는 호환성 패치 단추)
+    const quickBar = document.createElement("div");
+    quickBar.className = "bada-term-quick-bar";
+    quickBar.innerHTML = `
+        <div class="bada-term-quick-header">
+            <span>⚡ 자주 쓰는 호환성 패치 (Quick Fix)</span>
+        </div>
+        <div class="bada-term-quick-btns">
+            <button type="button" class="bada-quick-btn numpy" id="badaQuickNumpy" title='WAS 노드, 눈차쿠(Nunchaku) 호환용 Numpy 다운그레이드&#10;실행: "{python}" -m pip install "numpy<=2.4"'>
+                <span>🔢</span> Numpy ≤ 2.4 (와스/눈차쿠)
+            </button>
+            <button type="button" class="bada-quick-btn kornia" id="badaQuickKornia" title='LTX 비디오 노드 호환용 Kornia 다운그레이드&#10;실행: "{python}" -m pip install kornia==0.7.3'>
+                <span>🎥</span> Kornia 0.7.3 (LTX 비디오)
+            </button>
+        </div>
+    `;
+    controls.appendChild(quickBar);
+
     root.appendChild(controls);
 
     // 3. Live Terminal Console
@@ -446,6 +480,8 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
     const btnCopy = consoleToolbar.querySelector("#badaBtnCopy");
     const btnClear = consoleToolbar.querySelector("#badaBtnClear");
     const btnRestart = consoleToolbar.querySelector("#badaBtnRestart");
+    const btnQuickNumpy = quickBar.querySelector("#badaQuickNumpy");
+    const btnQuickKornia = quickBar.querySelector("#badaQuickKornia");
 
     function appendLog(text, type = "stdout") {
         const span = document.createElement("span");
@@ -475,6 +511,13 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
         if (currentPreset.needArg) {
             fullCmd = fullCmd.replace("{ARG}", rawArg || "<ARG>");
         }
+        let pyExec = envData?.python_executable || "python";
+        if (navigator.platform?.toLowerCase().includes("win") || navigator.userAgent?.includes("Windows")) {
+            pyExec = pyExec.replace(/\//g, "\\");
+        }
+        const pyQuoted = pyExec === "python" ? "python" : `"${pyExec}"`;
+        fullCmd = fullCmd.replace(/{PYTHON}/g, pyQuoted);
+
         const dirName = currentPath ? currentPath.split("/").pop() || currentPath : "default";
         previewBar.textContent = `> cd "${dirName}" && ${fullCmd}`;
         previewBar.title = `Full directory: ${currentPath}\nCommand: ${fullCmd}`;
@@ -565,7 +608,7 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
         }
     });
 
-    async function executeAction(customCmd = null) {
+    async function executeAction(customCmd = null, customCwd = null) {
         if (isRunning && !customCmd) {
             if (currentTaskId) {
                 try {
@@ -595,13 +638,22 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
             cmdToRun = currentPreset.template.replace("{ARG}", rawArg);
         }
 
+        let pyExec = envData?.python_executable || "python";
+        if (navigator.platform?.toLowerCase().includes("win") || navigator.userAgent?.includes("Windows")) {
+            pyExec = pyExec.replace(/\//g, "\\");
+        }
+        const pyQuoted = pyExec === "python" ? "python" : `"${pyExec}"`;
+        cmdToRun = cmdToRun.replace(/{PYTHON}/g, pyQuoted);
+
         if (!cmdToRun) return;
+
+        const effectiveCwd = customCwd || currentPath || envData?.comfyui_root || "";
 
         currentTaskId = `bada_${Date.now()}`;
         setStatus("running", "Running...");
         appendLog(`\r\n------------------------------------------------------------\r\n`, "system");
         appendLog(`[Exec] $ ${cmdToRun}\r\n`, "system");
-        appendLog(`[CWD]  ${currentPath}\r\n`, "system");
+        appendLog(`[CWD]  ${effectiveCwd}\r\n`, "system");
         appendLog(`------------------------------------------------------------\r\n`, "system");
 
         try {
@@ -611,7 +663,7 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
                 body: JSON.stringify({
                     task_id: currentTaskId,
                     command: cmdToRun,
-                    cwd: currentPath
+                    cwd: effectiveCwd
                 })
             });
             const json = await res.json();
@@ -624,6 +676,62 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
             setStatus("error", "Error");
         }
     }
+
+    async function runQuickFix(type) {
+        if (isRunning) {
+            appendLog(`\r\n[Warning] 작업이 이미 실행 중입니다. 기존 작업이 완료되거나 중지된 후 실행해주세요.\r\n`, "stderr");
+            return;
+        }
+
+        if (!envData) {
+            appendLog(`\r\n[System] ComfyUI 파이썬 환경 정보 확인 중...\r\n`, "system");
+            await loadEnvironment();
+        }
+
+        let pyExec = envData?.python_executable || "python";
+        if (navigator.platform?.toLowerCase().includes("win") || navigator.userAgent?.includes("Windows")) {
+            pyExec = pyExec.replace(/\//g, "\\");
+        }
+
+        let presetId = "";
+        let cmdToRun = "";
+        let patchName = "";
+
+        if (type === "numpy") {
+            presetId = "pip_numpy_fix";
+            cmdToRun = `"${pyExec}" -m pip install "numpy<=2.4"`;
+            patchName = "Numpy ≤ 2.4 패치 (WAS Node & 눈차쿠 호환)";
+        } else if (type === "kornia") {
+            presetId = "pip_kornia_fix";
+            cmdToRun = `"${pyExec}" -m pip install kornia==0.7.3`;
+            patchName = "Kornia 0.7.3 패치 (LTX-Video 노드 호환)";
+        }
+
+        if (!cmdToRun) return;
+
+        // Synchronize UI dropdowns & preview
+        if (envData?.comfyui_root) {
+            currentPath = envData.comfyui_root;
+            searchInput.value = getSelectedLabel();
+        }
+        const pFound = COMMAND_PRESETS.find(p => p.id === presetId);
+        if (pFound) {
+            currentPreset = pFound;
+            cmdSelect.value = presetId;
+            argInput.value = "";
+            argInput.placeholder = pFound.placeholder;
+        }
+        updatePreview();
+
+        appendLog(`\r\n⚡ [호환성 원클릭 패치 실행]: ${patchName}\r\n`, "system");
+        appendLog(`[자동 감지된 Python]: ${pyExec}\r\n`, "system");
+
+        const targetCwd = envData?.comfyui_root || currentPath || "";
+        executeAction(cmdToRun, targetCwd);
+    }
+
+    btnQuickNumpy.addEventListener("click", () => runQuickFix("numpy"));
+    btnQuickKornia.addEventListener("click", () => runQuickFix("kornia"));
 
     execBtn.addEventListener("click", () => executeAction());
 
@@ -926,6 +1034,7 @@ function createTerminalHubComponent({ isSidebar = false, node = null } = {}) {
         if (data && data.task_id === currentTaskId) {
             if (data.code === 0) {
                 appendLog(`\r\n[Task completed successfully (code 0)]\r\n`, "success");
+                appendLog(`💡 [안내] 패키지 변경 사항 적용을 위해 상단의 [Restart ComfyUI] 버튼을 누르거나 서버를 재시작하세요.\r\n`, "system");
                 setStatus("success", "Completed");
             } else {
                 appendLog(`\r\n[Task exited with code ${data.code}]\r\n`, "stderr");
