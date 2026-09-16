@@ -293,6 +293,127 @@
     transform: translateY(-1px);
 }
 
+/* 1순위: ComfyUI 매니저 메인 설치 버튼 */
+.bada-btn-manager {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #ffffff;
+    border: 1px solid #34d399;
+    padding: 10px 18px;
+    border-radius: 9px;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+    transition: all 0.18s ease;
+    text-decoration: none;
+}
+
+.bada-btn-manager:hover {
+    background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+    box-shadow: 0 6px 20px rgba(52, 211, 153, 0.55);
+    transform: translateY(-1.5px);
+    color: #064e3b;
+}
+
+.bada-btn-manager:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* 매니저 창 열기 버튼 */
+.bada-btn-manager-open {
+    background: #1e293b;
+    color: #38bdf8;
+    border: 1px solid #38bdf8;
+    padding: 9px 14px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+    text-decoration: none;
+}
+
+.bada-btn-manager-open:hover {
+    background: #0284c7;
+    color: #ffffff;
+    border-color: #38bdf8;
+    transform: translateY(-1px);
+}
+
+/* 재시작 버튼 */
+.bada-btn-restart {
+    background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);
+    color: #ffffff;
+    border: 1px solid #f472b6;
+    padding: 9px 16px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 4px 15px rgba(236, 72, 153, 0.4);
+    transition: all 0.18s ease;
+}
+
+.bada-btn-restart:hover {
+    box-shadow: 0 6px 22px rgba(236, 72, 153, 0.6);
+    transform: translateY(-1.5px);
+}
+
+/* 우선순위 태그 뱃지 */
+.bada-priority-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+}
+
+.bada-priority-badge.p1 {
+    background: rgba(16, 185, 129, 0.2);
+    border: 1px solid rgba(16, 185, 129, 0.5);
+    color: #34d399;
+}
+
+.bada-priority-badge.p2 {
+    background: rgba(56, 189, 248, 0.2);
+    border: 1px solid rgba(56, 189, 248, 0.5);
+    color: #38bdf8;
+}
+
+.bada-priority-badge.p3 {
+    background: rgba(245, 158, 11, 0.2);
+    border: 1px solid rgba(245, 158, 11, 0.5);
+    color: #fbbf24;
+}
+
+/* 설치 진행/결과 카드 */
+.bada-install-card {
+    background: #0f131d;
+    border: 1px solid #1e2538;
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 12.5px;
+}
+
 /* Sockets Inspection Table */
 .bada-detective-slots-summary {
     display: flex;

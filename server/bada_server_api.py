@@ -560,6 +560,60 @@ def lookup_node_repo(node_type, node_title=None):
     return None
 
 
+def install_custom_node_pack(repo_url, pack_title=None):
+    """
+    Safely installs a custom node repository into ComfyUI custom_nodes,
+    and automatically executes pip install for requirements.txt if present.
+    """
+    if not repo_url or not repo_url.startswith("http"):
+        return {"success": False, "error": "Invalid repository URL"}
+
+    env_info = detect_comfyui_environment()
+    custom_nodes_root = env_info["custom_nodes_root"]
+    py_exec = sys.executable
+
+    raw_name = repo_url.rstrip("/").split("/")[-1]
+    if raw_name.endswith(".git"):
+        raw_name = raw_name[:-4]
+
+    target_dir = os.path.join(custom_nodes_root, raw_name)
+    if os.path.exists(target_dir):
+        return {
+            "success": True,
+            "already_installed": True,
+            "target": raw_name,
+            "message": f"'{raw_name}' is already installed in custom_nodes folder."
+        }
+
+    # 1. Run git clone
+    clone_cmd = ["git", "clone", repo_url, target_dir]
+    logger.info(f"[Bada-Installer] Cloning {repo_url} into {target_dir}...")
+    res = subprocess.run(clone_cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        logger.error(f"[Bada-Installer] Git clone failed: {res.stderr}")
+        return {"success": False, "error": f"Git clone failed: {res.stderr or res.stdout}"}
+
+    # 2. Check requirements.txt
+    req_file = os.path.join(target_dir, "requirements.txt")
+    req_installed = False
+    if os.path.isfile(req_file):
+        logger.info(f"[Bada-Installer] Installing dependencies from {req_file}...")
+        pip_cmd = [py_exec, "-s", "-m", "pip", "install", "-r", req_file]
+        pip_res = subprocess.run(pip_cmd, capture_output=True, text=True)
+        if pip_res.returncode == 0:
+            req_installed = True
+        else:
+            logger.warning(f"[Bada-Installer] pip install warnings/errors: {pip_res.stderr}")
+
+    return {
+        "success": True,
+        "installed": True,
+        "target": raw_name,
+        "requirements_installed": req_installed,
+        "message": f"'{raw_name}' successfully installed!"
+    }
+
+
 # =========================================================================
 # 4. Master Route Registration
 # =========================================================================
@@ -967,6 +1021,23 @@ def register_bada_api_routes():
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
         routes.get("/api/bada/missing-node/lookup")(missing_node_lookup_handler)
+
+        async def customnode_install_handler(request):
+            try:
+                body = await request.json()
+                repo = (body.get("repo") or "").strip()
+                title = (body.get("title") or "").strip()
+                if not repo:
+                    return web.json_response({"success": False, "error": "Repo URL is required"}, status=400)
+
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(None, install_custom_node_pack, repo, title)
+                return web.json_response(result)
+            except Exception as e:
+                logger.error(f"[Bada-Installer] Install error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        routes.post("/api/bada/customnode/install")(customnode_install_handler)
 
         # Legacy routes for QoL
         routes.get("/api/qol/workflows/folders")(list_folders_handler)
