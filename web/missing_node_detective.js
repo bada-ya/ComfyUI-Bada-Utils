@@ -151,7 +151,8 @@ function openComfyUiManager(searchTerm = "") {
             window.manager_instance.show();
             opened = true;
         } else if (window.CustomNodesManager?.instance?.show) {
-            window.CustomNodesManager.instance.show();
+            const mode = window.CustomNodesManager.ShowMode?.NORMAL ?? 0;
+            window.CustomNodesManager.instance.show(mode);
             opened = true;
         }
     } catch (_) {}
@@ -623,11 +624,28 @@ export async function showMissingNodeModal(node) {
 }
 
 /**
+ * Checks if any modal, popup dialog, or overlay is currently active.
+ * When a dialog/modal is open, canvas badge interactions must be 100% disabled.
+ */
+function isAnyModalOrDialogOpen() {
+    try {
+        if (document.querySelector(".bada-detective-overlay")) return true;
+        if (document.querySelector(".comfy-modal, .cm-modal, .litegraph-dialog")) return true;
+        if (document.querySelector("dialog[open]")) return true;
+        if (document.querySelector(".p-dialog:not([style*='display: none'])")) return true;
+        if (document.querySelector(".p-dialog-mask:not([style*='display: none'])")) return true;
+        const cmDialog = document.querySelector("#comfy-manager-dialog, .comfyui-manager-dialog");
+        if (cmDialog && cmDialog.offsetParent !== null) return true;
+    } catch (_) {}
+    return false;
+}
+
+/**
  * Screen Space Hit Testing for Floating Detective Badge
  */
 function findDetectiveBadgeAtScreenPos(clientX, clientY) {
     if (!isDetectiveEnabled()) return null;
-    if (document.querySelector(".bada-detective-overlay")) return null;
+    if (isAnyModalOrDialogOpen()) return null;
     const canvas = app.canvas;
     const graph = app.graph;
     if (!canvas || !graph || !graph._nodes) return null;
@@ -729,28 +747,72 @@ app.registerExtension({
     async setup() {
         console.log("[ComfyUI-Bada-Utils] 🕵️ Missing Node Detective (미싱 노드 탐정) Active!");
 
-        // Window-level Pointer Event Listeners for Hover & Click on Detective Badges
-        window.addEventListener("pointermove", (e) => {
-            if (!isDetectiveEnabled()) return;
-            const node = findDetectiveBadgeAtScreenPos(e.clientX, e.clientY);
-            if (node && app.canvas?.canvas) {
-                app.canvas.canvas.style.cursor = "pointer";
-            }
-        }, { passive: true });
+        let pointerDownPos = null;
 
-        window.addEventListener("pointerdown", (e) => {
-            if (!isDetectiveEnabled()) return;
-            if (e.target?.closest?.(".bada-detective-overlay, .bada-detective-modal")) return;
-            if (document.querySelector(".bada-detective-overlay")) return;
-            if (e.button === 0) { // Left-click
-                const node = findDetectiveBadgeAtScreenPos(e.clientX, e.clientY);
-                if (node) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    showMissingNodeModal(node);
+        const handleCanvasPointerMove = (e) => {
+            if (!isDetectiveEnabled() || isAnyModalOrDialogOpen()) return;
+            const canvasEl = app.canvas?.canvas || document.querySelector("canvas");
+            if (!canvasEl || e.target !== canvasEl) return;
+
+            const node = findDetectiveBadgeAtScreenPos(e.clientX, e.clientY);
+            if (node) {
+                canvasEl.style.cursor = "pointer";
+            } else if (canvasEl.style.cursor === "pointer") {
+                canvasEl.style.cursor = "default";
+            }
+        };
+
+        const handleCanvasPointerDown = (e) => {
+            if (!isDetectiveEnabled() || isAnyModalOrDialogOpen()) return;
+            const canvasEl = app.canvas?.canvas || document.querySelector("canvas");
+            if (!canvasEl || e.target !== canvasEl) return;
+
+            if (e.button === 0) { // Left click start
+                pointerDownPos = { x: e.clientX, y: e.clientY };
+            }
+        };
+
+        const handleCanvasClick = (e) => {
+            if (!isDetectiveEnabled() || isAnyModalOrDialogOpen()) return;
+            const canvasEl = app.canvas?.canvas || document.querySelector("canvas");
+            if (!canvasEl || e.target !== canvasEl) return;
+
+            if (e.button === 0 && pointerDownPos) {
+                const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+                pointerDownPos = null;
+
+                // Pure click on badge without dragging canvas
+                if (dist < 6) {
+                    const node = findDetectiveBadgeAtScreenPos(e.clientX, e.clientY);
+                    if (node) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        showMissingNodeModal(node);
+                    }
                 }
             }
-        }, { capture: true });
+        };
+
+        // Attach listeners directly to canvas element with retries
+        const bindCanvasEvents = () => {
+            const canvasEl = app.canvas?.canvas || document.querySelector("canvas");
+            if (canvasEl) {
+                canvasEl.removeEventListener("pointermove", handleCanvasPointerMove);
+                canvasEl.removeEventListener("pointerdown", handleCanvasPointerDown);
+                canvasEl.removeEventListener("click", handleCanvasClick);
+
+                canvasEl.addEventListener("pointermove", handleCanvasPointerMove, { passive: true });
+                canvasEl.addEventListener("pointerdown", handleCanvasPointerDown, { passive: true });
+                canvasEl.addEventListener("click", handleCanvasClick);
+                return true;
+            }
+            return false;
+        };
+
+        if (!bindCanvasEvents()) {
+            setTimeout(bindCanvasEvents, 600);
+            setTimeout(bindCanvasEvents, 1800);
+        }
     },
 
     /**
