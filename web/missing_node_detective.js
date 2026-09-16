@@ -470,7 +470,8 @@ export async function showMissingNodeModal(node) {
                 // Manager GUI Open button
                 repoSection.querySelector("#bada-det-open-mgr").addEventListener("click", () => {
                     closeModal();
-                    openComfyUiManager(packTitle);
+                    const mgrSearchTerm = data.search_term || packTitle;
+                    openComfyUiManager(mgrSearchTerm);
                 });
 
                 // 1순위: ComfyUI 매니저 연동 설치

@@ -416,146 +416,376 @@ def kill_terminal_task(task_id):
 
 
 # =========================================================================
-# 3.5. Missing Node Detective & Repository Lookup Engine
+# 3.5. Missing Node Detective & Multi-Tier Repository Lookup Engine
 # =========================================================================
 
-CACHED_INVERTED_NODE_MAP = None
+CACHED_DETECTIVE_DB = None
 
-def get_inverted_node_map():
-    global CACHED_INVERTED_NODE_MAP
+def clean_node_key(s):
+    """Normalizes string to alphanumeric lowercase (e.g. 'Power Lora Loader (rgthree)' -> 'powerloraloaderrgthree')"""
+    if not s:
+        return ""
+    return re.sub(r"[^a-z0-9]", "", str(s).lower())
+
+def get_detective_database():
+    """
+    Builds and caches a unified multi-tier custom node database from:
+    1. *_extension-node-map.json (Exact node-to-repo classes: 40,000+ nodes)
+    2. *_nodes.json (Modern ComfyUI Nodes 2.0 DB: 5,600+ packages with descriptions and downloads)
+    3. *_custom-node-list.json (Manager channel list with nodename_pattern regex)
+    """
+    global CACHED_DETECTIVE_DB
     import glob
 
-    candidates = []
-    user_dir = None
-
-    # 1. Discover via ComfyUI folder_paths (100% reliable across symlinks/junctions)
+    # Collect search directories
+    search_dirs = []
     try:
-        import folder_paths
         user_dir = folder_paths.get_user_directory()
         if user_dir:
-            cache_dir = os.path.join(user_dir, "__manager", "cache")
-            if os.path.isdir(cache_dir):
-                candidates.extend(glob.glob(os.path.join(cache_dir, "*_extension-node-map.json")))
-
-        base_dir = getattr(folder_paths, "base_path", None)
-        if base_dir:
-            mgr_cache = os.path.join(base_dir, "user", "__manager", "cache")
-            if os.path.isdir(mgr_cache):
-                candidates.extend(glob.glob(os.path.join(mgr_cache, "*_extension-node-map.json")))
-            mgr_dir = os.path.join(base_dir, "custom_nodes", "ComfyUI-Manager")
-            if os.path.isdir(mgr_dir):
-                p = os.path.join(mgr_dir, "extension-node-map.json")
-                if os.path.exists(p):
-                    candidates.append(p)
-    except Exception as e:
-        logger.debug(f"[Bada-Detective] folder_paths discovery notice: {e}")
-
-    # 2. Site-packages if installed via pip / embedded
-    try:
-        import comfyui_manager
-        if hasattr(comfyui_manager, "__file__") and comfyui_manager.__file__:
-            p = os.path.join(os.path.dirname(comfyui_manager.__file__), "extension-node-map.json")
-            if os.path.exists(p):
-                candidates.append(p)
+            search_dirs.append(os.path.join(user_dir, "__manager", "cache"))
     except Exception:
         pass
 
-    if not candidates:
-        return {}
-
     try:
-        latest_file = max(candidates, key=os.path.getmtime)
-        latest_mtime = os.path.getmtime(latest_file)
+        base_dir = getattr(folder_paths, "base_path", None)
+        if base_dir:
+            search_dirs.append(os.path.join(base_dir, "user", "__manager", "cache"))
+            search_dirs.append(os.path.join(base_dir, "custom_nodes", "ComfyUI-Manager"))
+    except Exception:
+        pass
 
-        if CACHED_INVERTED_NODE_MAP and CACHED_INVERTED_NODE_MAP[0] == latest_mtime:
-            return CACHED_INVERTED_NODE_MAP[1]
+    # StabilityMatrix packages discovery
+    try:
+        sm_packages_root = r"D:\StabilityMatrix\Data\Packages"
+        if os.path.isdir(sm_packages_root):
+            for pkg in os.listdir(sm_packages_root):
+                cache_cand = os.path.join(sm_packages_root, pkg, "user", "__manager", "cache")
+                if os.path.isdir(cache_cand) and cache_cand not in search_dirs:
+                    search_dirs.append(cache_cand)
+    except Exception:
+        pass
 
-        # Enrich with custom-node-list metadata if available
-        custom_node_info = {}
+    # Site-packages
+    try:
+        import comfyui_manager
+        if hasattr(comfyui_manager, "__file__") and comfyui_manager.__file__:
+            pkg_dir = os.path.dirname(comfyui_manager.__file__)
+            if pkg_dir not in search_dirs:
+                search_dirs.append(pkg_dir)
+    except Exception:
+        pass
+
+    # Discover candidate files
+    ext_map_files = []
+    nodes_json_files = []
+    cn_list_files = []
+    stats_files = []
+
+    for d in search_dirs:
+        if not os.path.isdir(d):
+            continue
+        ext_map_files.extend(glob.glob(os.path.join(d, "*_extension-node-map.json")))
+        ext_map_files.extend(glob.glob(os.path.join(d, "extension-node-map.json")))
+        nodes_json_files.extend(glob.glob(os.path.join(d, "*_nodes.json")))
+        cn_list_files.extend(glob.glob(os.path.join(d, "*_custom-node-list.json")))
+        cn_list_files.extend(glob.glob(os.path.join(d, "custom-node-list.json")))
+        stats_files.extend(glob.glob(os.path.join(d, "*_github-stats.json")))
+
+    if not ext_map_files and not nodes_json_files and not cn_list_files:
+        return None
+
+    # Check latest mtime for cache invalidation
+    all_files = ext_map_files + nodes_json_files + cn_list_files + stats_files
+    latest_mtime = max(os.path.getmtime(f) for f in all_files) if all_files else 0
+
+    if CACHED_DETECTIVE_DB and CACHED_DETECTIVE_DB[0] == latest_mtime:
+        return CACHED_DETECTIVE_DB[1]
+
+    logger.info("[Bada-Detective] Indexing comprehensive custom node database from manager caches...")
+
+    exact_map = {}
+    clean_map = {}
+    tokens_map = {}
+    patterns_list = []
+    repo_meta = {}
+    github_stars_map = {}
+
+    # 0. Parse github-stats.json (stars & popularity metrics)
+    if stats_files:
         try:
-            cn_files = []
-            if user_dir:
-                cache_dir = os.path.join(user_dir, "__manager", "cache")
-                if os.path.isdir(cache_dir):
-                    cn_files.extend(glob.glob(os.path.join(cache_dir, "*_custom-node-list.json")))
-            if cn_files:
-                latest_cn = max(cn_files, key=os.path.getmtime)
-                with open(latest_cn, "r", encoding="utf-8") as f:
-                    cn_data = json.load(f)
-                    for item in cn_data.get("custom_nodes", []):
-                        ref = item.get("reference", "").strip().rstrip("/")
-                        if ref:
-                            custom_node_info[ref.lower()] = item
-        except Exception as cn_err:
-            logger.debug(f"[Bada-Detective] custom-node-list parse notice: {cn_err}")
+            latest_stats = max(stats_files, key=os.path.getmtime)
+            with open(latest_stats, "r", encoding="utf-8", errors="replace") as f:
+                stats_data = json.load(f)
+                for repo_url, s_val in stats_data.items():
+                    c_ref = repo_url.strip().rstrip("/").lower()
+                    st = s_val.get("stars", 0) if isinstance(s_val, dict) else 0
+                    github_stars_map[c_ref] = st
+        except Exception as e:
+            logger.debug(f"[Bada-Detective] github-stats parse note: {e}")
 
-        with open(latest_file, "r", encoding="utf-8") as f:
-            raw_map = json.load(f)
+    # 1. Parse custom-node-list.json (metadata & nodename_pattern regex)
+    if cn_list_files:
+        try:
+            latest_cn = max(cn_list_files, key=os.path.getmtime)
+            with open(latest_cn, "r", encoding="utf-8", errors="replace") as f:
+                cn_data = json.load(f)
+                for item in cn_data.get("custom_nodes", []):
+                    ref = item.get("reference", "").strip().rstrip("/")
+                    if not ref:
+                        continue
+                    clean_ref = ref.lower()
+                    stars = github_stars_map.get(clean_ref, 0)
+                    repo_meta[clean_ref] = {
+                        "title": item.get("title", ""),
+                        "author": item.get("author", ""),
+                        "description": item.get("description", ""),
+                        "search_term": item.get("title", "") or os.path.basename(ref),
+                        "repo": ref,
+                        "stars": stars,
+                        "downloads": 0,
+                        "score": stars * 10
+                    }
+                    pat = item.get("nodename_pattern")
+                    if pat:
+                        try:
+                            patterns_list.append((re.compile(pat, re.I), repo_meta[clean_ref]))
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.debug(f"[Bada-Detective] custom-node-list parse note: {e}")
 
-        inverted = {}
-        for repo, info in raw_map.items():
-            if not isinstance(info, list) or len(info) == 0:
-                continue
-            nodes_list = info[0] if isinstance(info[0], list) else []
-            meta = info[1] if len(info) > 1 and isinstance(info[1], dict) else {}
-            title_aux = meta.get("title_aux") or meta.get("title") or os.path.basename(repo)
+    # 2. Parse nodes.json (Modern ComfyUI Nodes 2.0 DB: 5,600+ packages)
+    if nodes_json_files:
+        try:
+            latest_nj = max(nodes_json_files, key=os.path.getmtime)
+            with open(latest_nj, "r", encoding="utf-8", errors="replace") as f:
+                nj_data = json.load(f)
+                for item in nj_data.get("nodes", []):
+                    repo = item.get("repository", "").strip()
+                    if not repo:
+                        continue
+                    clean_ref = repo.rstrip("/").lower()
+                    pkg_id = item.get("id", "").strip()
+                    pkg_name = item.get("name", "").strip()
+                    author = item.get("author") or (item.get("publisher") or {}).get("name", "")
+                    desc = item.get("description", "")
+                    title = pkg_name or pkg_id or os.path.basename(repo)
+                    search_term = pkg_name or pkg_id or title
+                    stars = item.get("github_stars", 0) or github_stars_map.get(clean_ref, 0)
+                    downloads = item.get("downloads", 0)
+                    score = downloads + stars * 10
 
-            clean_repo = repo.strip().rstrip("/").lower()
-            extra_meta = custom_node_info.get(clean_repo, {})
-            author = extra_meta.get("author", "")
-            desc = extra_meta.get("description", "")
-            title = extra_meta.get("title") or title_aux
-
-            for n in nodes_list:
-                norm = str(n).strip().lower()
-                if norm and norm not in inverted:
-                    inverted[norm] = {
+                    pack_entry = {
                         "repo": repo,
                         "title": title,
                         "author": author,
                         "description": desc,
-                        "node_name": str(n)
+                        "search_term": search_term,
+                        "stars": stars,
+                        "downloads": downloads,
+                        "score": score,
+                        "source": "nodes.json"
                     }
 
-        CACHED_INVERTED_NODE_MAP = (latest_mtime, inverted)
-        return inverted
-    except Exception as e:
-        logger.warning(f"[Bada-Detective] Failed to parse node map: {e}")
-        return {}
+                    if clean_ref not in repo_meta or not repo_meta[clean_ref].get("description"):
+                        repo_meta[clean_ref] = pack_entry
+
+                    # Index pkg id and name (with score comparison)
+                    for k in [pkg_id, pkg_name]:
+                        ck = clean_node_key(k)
+                        if ck:
+                            if ck not in clean_map or score > clean_map[ck].get("score", 0):
+                                clean_map[ck] = pack_entry
+
+                    # Tokenize description: extracts mentioned nodes like 'Nodes: PoseNode, PainterNode, DeepTranslatorTextNode'
+                    desc_tokens = re.findall(r"\b[A-Za-z0-9_]{3,}\b", desc)
+                    for tok in desc_tokens:
+                        c_tok = clean_node_key(tok)
+                        if len(c_tok) > 3:
+                            if c_tok not in tokens_map or score > tokens_map[c_tok].get("score", 0):
+                                tokens_map[c_tok] = pack_entry
+        except Exception as e:
+            logger.debug(f"[Bada-Detective] nodes.json parse note: {e}")
+
+    # 3. Parse extension-node-map.json (Class level mapping: 40,000+ nodes)
+    if ext_map_files:
+        try:
+            latest_ext = max(ext_map_files, key=os.path.getmtime)
+            with open(latest_ext, "r", encoding="utf-8", errors="replace") as f:
+                ext_data = json.load(f)
+                for repo, info in ext_data.items():
+                    if not isinstance(info, list) or len(info) == 0:
+                        continue
+                    nodes_list = info[0] if isinstance(info[0], list) else []
+                    meta = info[1] if len(info) > 1 and isinstance(info[1], dict) else {}
+                    title_aux = meta.get("title_aux") or meta.get("title") or os.path.basename(repo)
+
+                    clean_ref = repo.strip().rstrip("/").lower()
+                    parent_meta = repo_meta.get(clean_ref, {})
+                    title = parent_meta.get("title") or title_aux
+                    author = parent_meta.get("author", "")
+                    desc = parent_meta.get("description", "")
+                    search_term = parent_meta.get("search_term") or os.path.basename(repo) or title
+                    stars = parent_meta.get("stars", 0) or github_stars_map.get(clean_ref, 0)
+                    downloads = parent_meta.get("downloads", 0)
+                    score = downloads + stars * 10
+
+                    pack_info = {
+                        "repo": repo,
+                        "title": title,
+                        "author": author,
+                        "description": desc,
+                        "search_term": search_term,
+                        "stars": stars,
+                        "downloads": downloads,
+                        "score": score,
+                        "source": "extension-node-map"
+                    }
+
+                    for n in nodes_list:
+                        n_str = str(n).strip()
+                        if not n_str:
+                            continue
+                        exact_key = n_str.lower()
+                        clean_k = clean_node_key(n_str)
+                        entry = dict(pack_info, node_name=n_str)
+
+                        # Prefer package with higher popularity score
+                        if exact_key not in exact_map or score > exact_map[exact_key].get("score", 0):
+                            exact_map[exact_key] = entry
+                        if clean_k not in clean_map or score > clean_map[clean_k].get("score", 0):
+                            clean_map[clean_k] = entry
+        except Exception as e:
+            logger.warning(f"[Bada-Detective] Failed to parse extension-node-map: {e}")
+
+    db = {
+        "exact_map": exact_map,
+        "clean_map": clean_map,
+        "tokens_map": tokens_map,
+        "patterns": patterns_list,
+        "repo_meta": repo_meta
+    }
+
+    logger.info(f"[Bada-Detective] Database successfully built: {len(exact_map)} exact classes, {len(clean_map)} clean keys, {len(tokens_map)} description tokens, {len(patterns_list)} patterns.")
+    CACHED_DETECTIVE_DB = (latest_mtime, db)
+    return db
 
 
 def lookup_node_repo(node_type, node_title=None):
-    inv_map = get_inverted_node_map()
-    if not inv_map:
+    """
+    Intelligently resolves any missing ComfyUI node to its official Manager registered repository.
+    Supports:
+    - Tier 1: Exact lowercase match
+    - Tier 2: Clean alphanumeric match (removes spaces, symbols, underscores)
+    - Tier 3: Parentheses/namespace extraction (e.g. 'Power Lora Loader (rgthree)' -> 'RgthreePowerLoraLoader')
+    - Tier 4: Prefix & suffix stripping (e.g. 'Rgthree', 'was_', 'comfyui_', 'cui_', etc.)
+    - Tier 5: Modern Nodes 2.0 DB description tokens (e.g. 'DeepTranslatorTextNode')
+    - Tier 6: nodename_pattern regex matching
+    """
+    db = get_detective_database()
+    if not db:
         return None
+
+    exact_map = db["exact_map"]
+    clean_map = db["clean_map"]
+    tokens_map = db["tokens_map"]
+    patterns = db["patterns"]
 
     candidates = []
     if node_type:
         candidates.append(str(node_type).strip())
-    if node_title:
+    if node_title and str(node_title).strip() != str(node_type).strip():
         candidates.append(str(node_title).strip())
 
-    for cand in candidates:
-        if not cand:
+    for raw in candidates:
+        if not raw:
             continue
-        norm = cand.lower()
-        if norm in inv_map:
-            return inv_map[norm]
+        norm = raw.lower()
+        c_key = clean_node_key(raw)
 
-        # Try replacing underscore with space
-        if "_" in norm:
-            spaced = norm.replace("_", " ")
-            if spaced in inv_map:
-                return inv_map[spaced]
+        # ─── Tier 1: Exact lowercase match ───
+        if norm in exact_map:
+            return exact_map[norm]
 
-        # Try stripping common prefixes
-        for prefix in ["was_", "comfyui_", "comfy_", "cui_", "c_"]:
-            if norm.startswith(prefix):
-                stripped = norm[len(prefix):]
-                if stripped in inv_map:
-                    return inv_map[stripped]
-                if "_" in stripped and stripped.replace("_", " ") in inv_map:
-                    return inv_map[stripped.replace("_", " ")]
+        # ─── Tier 2: Clean alphanumeric match ───
+        if c_key in clean_map:
+            return clean_map[c_key]
+
+        # ─── Tier 3: Parentheses / Namespace decomposition ───
+        # e.g. 'Power Lora Loader (rgthree)' -> base='Power Lora Loader', ns='rgthree'
+        m = re.match(r"^(.*?)\s*[\(\[]([^\)\]]+)[\)\]]\s*$", raw)
+        if m:
+            base_str = m.group(1).strip()
+            ns_str = m.group(2).strip()
+            c_base = clean_node_key(base_str)
+            c_ns = clean_node_key(ns_str)
+
+            # Try combo 1: ns + base (e.g. rgthreepowerloraloader == RgthreePowerLoraLoader)
+            combo_ns_base = clean_node_key(ns_str + base_str)
+            if combo_ns_base in clean_map:
+                return clean_map[combo_ns_base]
+
+            # Try combo 2: base + ns (e.g. powerloraloaderrgthree)
+            combo_base_ns = clean_node_key(base_str + ns_str)
+            if combo_base_ns in clean_map:
+                return clean_map[combo_base_ns]
+
+            # Try pattern matching on raw string (e.g. 'KSampler (Inspire)' matches 'Inspire$' pattern)
+            for regex, item in patterns:
+                if regex.search(raw):
+                    return {
+                        "repo": item.get("repo") or item.get("reference", ""),
+                        "title": item.get("title", ""),
+                        "author": item.get("author", ""),
+                        "description": item.get("description", ""),
+                        "search_term": item.get("search_term") or item.get("title", ""),
+                        "source": "nodename_pattern"
+                    }
+
+            # Try ns alone if ns refers to a known package (e.g. rgthree, inspire, was)
+            if c_ns in clean_map and len(c_ns) >= 3:
+                return clean_map[c_ns]
+
+            # Try base alone (fallback if base is a unique custom node)
+            if c_base in clean_map:
+                return clean_map[c_base]
+            if c_base in tokens_map:
+                return tokens_map[c_base]
+
+        # ─── Tier 4: Prefix & suffix stripping ───
+        for prefix in ["rgthree", "was_", "was", "comfyui_", "comfyui", "comfy_", "cui_", "kj_", "kj", "impact_", "impact"]:
+            clean_pref = clean_node_key(prefix)
+            if c_key.startswith(clean_pref) and len(c_key) > len(clean_pref) + 2:
+                sub = c_key[len(clean_pref):]
+                if sub in clean_map:
+                    return clean_map[sub]
+                if sub in tokens_map:
+                    return tokens_map[sub]
+
+        for suffix in ["_node", "node", "_text", "text"]:
+            clean_suf = clean_node_key(suffix)
+            if c_key.endswith(clean_suf) and len(c_key) > len(clean_suf) + 3:
+                sub = c_key[:-len(clean_suf)]
+                if sub in clean_map:
+                    return clean_map[sub]
+                if sub in tokens_map:
+                    return tokens_map[sub]
+
+        # ─── Tier 5: Nodes 2.0 DB description tokens ───
+        if c_key in tokens_map:
+            return tokens_map[c_key]
+
+        # ─── Tier 6: Manager regex nodename_pattern ───
+        for regex, item in patterns:
+            if regex.search(raw):
+                return {
+                    "repo": item.get("repo") or item.get("reference", ""),
+                    "title": item.get("title", ""),
+                    "author": item.get("author", ""),
+                    "description": item.get("description", ""),
+                    "search_term": item.get("search_term") or item.get("title", ""),
+                    "source": "nodename_pattern"
+                }
 
     return None
 
@@ -1007,7 +1237,8 @@ def register_bada_api_routes():
                         "author": match.get("author", ""),
                         "description": match.get("description", ""),
                         "node_name": match.get("node_name", node_type),
-                        "type": node_type
+                        "type": node_type,
+                        "search_term": match.get("search_term") or match.get("title", "")
                     })
                 else:
                     return web.json_response({
