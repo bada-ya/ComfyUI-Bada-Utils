@@ -14,7 +14,6 @@ import json
 import logging
 import aiohttp
 from aiohttp import web
-from server import PromptServer
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 

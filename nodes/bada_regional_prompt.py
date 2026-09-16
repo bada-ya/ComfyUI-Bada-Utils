@@ -479,6 +479,7 @@ class BadaRegionalPrompt:
         final_prompt = ""
         has_parsed_areas = False
         white_bg = False
+        char_profile = ""
 
         if grid_data and grid_data.strip() and grid_data.strip() != "{}":
             try:

@@ -67,11 +67,3 @@ class BadaAsyncGeminiStudio:
         # Always propagate updated text to downstream nodes
         return generated_prompt or ""
 
-NODE_CLASS_MAPPINGS = {
-    "BadaAsyncGeminiStudio": BadaAsyncGeminiStudio,
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "BadaAsyncGeminiStudio": "⚓ Bada Async Gemini Studio",
-}
-

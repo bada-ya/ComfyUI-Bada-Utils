@@ -18,7 +18,6 @@ WEB_DIRECTORY = "./web"
 try:
     import sys
     import os
-    import nodes
     from server import PromptServer
     from aiohttp import web
 
