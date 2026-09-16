@@ -710,6 +710,18 @@ function findDetectiveBadgeAtPos(eOrX, maybeY) {
     const graph = app.graph;
     if (!canvas || !graph || !graph._nodes) return null;
 
+    // Fast check: If no nodes in graph are missing, exit immediately (0 CPU overhead)
+    const nodes = graph._nodes;
+    if (!nodes || nodes.length === 0) return null;
+    let hasMissing = false;
+    for (let i = 0; i < nodes.length; i++) {
+        if (isMissingNode(nodes[i])) {
+            hasMissing = true;
+            break;
+        }
+    }
+    if (!hasMissing) return null;
+
     const canvasEl = canvas.canvas || document.querySelector("canvas#graph-canvas, canvas");
     if (!canvasEl) return null;
 
@@ -984,17 +996,24 @@ app.registerExtension({
             app.graph?.setDirtyCanvas?.(true, true);
         } catch (_) {}
 
+        let _moveRaf = 0;
         const handleCanvasPointerMove = (e) => {
             if (!isDetectiveEnabled()) return;
-            const canvasEl = app.canvas?.canvas || document.querySelector("canvas#graph-canvas, canvas");
-            if (!canvasEl) return;
+            if (_moveRaf) return;
+            const clientX = e.clientX;
+            const clientY = e.clientY;
+            _moveRaf = requestAnimationFrame(() => {
+                _moveRaf = 0;
+                const canvasEl = app.canvas?.canvas || document.querySelector("canvas#graph-canvas, canvas");
+                if (!canvasEl) return;
 
-            const node = findDetectiveBadgeAtPos(e);
-            if (node) {
-                canvasEl.style.cursor = "pointer";
-            } else if (canvasEl.style.cursor === "pointer") {
-                canvasEl.style.cursor = "default";
-            }
+                const node = findDetectiveBadgeAtPos(clientX, clientY);
+                if (node) {
+                    canvasEl.style.cursor = "pointer";
+                } else if (canvasEl.style.cursor === "pointer") {
+                    canvasEl.style.cursor = "default";
+                }
+            });
         };
 
         const handleCanvasPointerDown = (e) => {

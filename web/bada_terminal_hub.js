@@ -1197,8 +1197,34 @@ function reorderTerminalSidebarTab() {
     updateTerminalSidebarVisibility();
 }
 
-// Ensure strict single DOM button and keep at bottom of sidebar
-setInterval(() => {
+// Ensure strict single DOM button and keep at bottom of sidebar using MutationObserver
+let _sidebarObserver = null;
+function initSidebarTabWatcher() {
+    const termBtn = document.querySelector('button:has(.bada-tab-icon-terminal), [data-testid="bada-terminal-hub-tab-button"]');
+    if (termBtn && termBtn.parentElement) {
+        const container = termBtn.parentElement;
+        if (!_sidebarObserver) {
+            _sidebarObserver = new MutationObserver(() => {
+                const buttons = container.querySelectorAll('button:has(.bada-tab-icon-terminal), [data-testid="bada-terminal-hub-tab-button"]');
+                if (buttons.length > 1) {
+                    for (let i = 1; i < buttons.length; i++) {
+                        buttons[i].remove();
+                    }
+                }
+                if (container.lastElementChild !== buttons[0]) {
+                    container.appendChild(buttons[0]);
+                }
+            });
+            _sidebarObserver.observe(container, { childList: true });
+        }
+        return true;
+    }
+    return false;
+}
+
+let _settleAttempts = 0;
+const _settleInterval = setInterval(() => {
+    _settleAttempts++;
     const buttons = document.querySelectorAll('button:has(.bada-tab-icon-terminal), [data-testid="bada-terminal-hub-tab-button"]');
     if (buttons.length > 1) {
         for (let i = 1; i < buttons.length; i++) {
@@ -1206,7 +1232,10 @@ setInterval(() => {
         }
     }
     reorderTerminalSidebarTab();
-}, 400);
+    if (initSidebarTabWatcher() || _settleAttempts >= 10) {
+        clearInterval(_settleInterval);
+    }
+}, 500);
 
 // Global modal launcher
 window.showBadaTerminalModal = function () {
@@ -1264,10 +1293,15 @@ app.registerExtension({
                 hideOnZoom: false
             });
 
+            let lastW = 0;
+            let lastH = 0;
             function syncContainerSize() {
                 if (!root || !node || !node.size) return;
                 const w = Math.max(480, node.size[0] - 20);
                 const h = Math.max(420, node.size[1] - 46);
+                if (w === lastW && h === lastH) return;
+                lastW = w;
+                lastH = h;
                 root.style.width = w + "px";
                 root.style.maxWidth = w + "px";
                 root.style.height = h + "px";
