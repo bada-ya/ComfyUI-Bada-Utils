@@ -624,60 +624,98 @@ export async function showMissingNodeModal(node) {
 }
 
 /**
- * Checks if any modal, popup dialog, or overlay is currently active.
- * When a dialog/modal is open, canvas badge interactions must be 100% disabled.
+ * Resolves whether the mouse / pointer is directly over the detective badge of a missing node.
+ * Uses LiteGraph's native coordinate system for 100% zoom/pan accuracy, and verifies
+ * that no modal, dialog, or UI panel is covering the canvas at this screen coordinate.
  */
-function isAnyModalOrDialogOpen() {
-    try {
-        if (document.querySelector(".bada-detective-overlay")) return true;
-        if (document.querySelector(".comfy-modal, .cm-modal, .litegraph-dialog")) return true;
-        if (document.querySelector("dialog[open]")) return true;
-        if (document.querySelector(".p-dialog:not([style*='display: none'])")) return true;
-        if (document.querySelector(".p-dialog-mask:not([style*='display: none'])")) return true;
-        const cmDialog = document.querySelector("#comfy-manager-dialog, .comfyui-manager-dialog");
-        if (cmDialog && cmDialog.offsetParent !== null) return true;
-    } catch (_) {}
-    return false;
-}
-
-/**
- * Screen Space Hit Testing for Floating Detective Badge
- */
-function findDetectiveBadgeAtScreenPos(clientX, clientY) {
+function findDetectiveBadgeAtPos(eOrX, maybeY) {
     if (!isDetectiveEnabled()) return null;
-    if (isAnyModalOrDialogOpen()) return null;
+    if (document.querySelector(".bada-detective-overlay")) return null;
+
     const canvas = app.canvas;
     const graph = app.graph;
     if (!canvas || !graph || !graph._nodes) return null;
 
-    const canvasEl = canvas.canvas || document.querySelector("canvas");
+    const canvasEl = canvas.canvas || document.querySelector("canvas#graph-canvas, canvas");
     if (!canvasEl) return null;
 
+    let clientX, clientY, eventObj;
+    if (typeof eOrX === "number") {
+        clientX = eOrX;
+        clientY = maybeY;
+        eventObj = { clientX, clientY };
+    } else if (eOrX && typeof eOrX === "object") {
+        clientX = eOrX.clientX;
+        clientY = eOrX.clientY;
+        eventObj = eOrX;
+    } else {
+        return null;
+    }
+
+    if (clientX == null || clientY == null) return null;
+
+    // 1. Boundary check on canvas element bounding client rect
     const rect = canvasEl.getBoundingClientRect();
     if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
         return null;
     }
 
-    const scale = Number(canvas.ds?.scale || 1);
-    const offset = canvas.ds?.offset || [0, 0];
+    // 2. Crucial check: Is the canvas element ACTUALLY the topmost element under the cursor?
+    // If ANY modal (Manager, Settings, etc.), menu, dialog, or backdrop covers this point,
+    // document.elementFromPoint will return that element, NOT canvasEl.
+    try {
+        const topEl = document.elementFromPoint(clientX, clientY);
+        if (topEl && topEl !== canvasEl && !canvasEl.contains(topEl)) {
+            return null; // A modal, dialog, button, or menu is on top!
+        }
+    } catch (_) {}
 
-    for (const n of graph._nodes) {
+    // 3. Convert screen coordinates to Graph coordinates (Graph Space)
+    let gx, gy;
+    try {
+        if (typeof canvas.convertEventToCanvasOffset === "function") {
+            const pt = canvas.convertEventToCanvasOffset(eventObj);
+            gx = pt[0];
+            gy = pt[1];
+        } else {
+            const scale = Number(canvas.ds?.scale || 1);
+            const offset = canvas.ds?.offset || [0, 0];
+            gx = (clientX - rect.left) / scale - offset[0];
+            gy = (clientY - rect.top) / scale - offset[1];
+        }
+    } catch (_) {
+        const scale = Number(canvas.ds?.scale || 1);
+        const offset = canvas.ds?.offset || [0, 0];
+        gx = (clientX - rect.left) / scale - offset[0];
+        gy = (clientY - rect.top) / scale - offset[1];
+    }
+
+    if (!Number.isFinite(gx) || !Number.isFinite(gy)) return null;
+
+    // 4. Hit-test missing node badges in reverse order (top-most rendered node first)
+    const nodes = graph._nodes;
+    for (let i = nodes.length - 1; i >= 0; i--) {
+        const n = nodes[i];
         if (!isMissingNode(n)) continue;
         const b = getDetectiveBadgeRect(n);
         if (!b) continue;
 
-        const sx = (n.pos[0] + b.x + offset[0]) * scale + rect.left;
-        const sy = (n.pos[1] + b.y + offset[1]) * scale + rect.top;
-        const sw = b.w * scale;
-        const sh = b.h * scale;
+        const bx1 = n.pos[0] + b.x;
+        const bx2 = bx1 + b.w;
+        const by1 = n.pos[1] + b.y;
+        const by2 = by1 + b.h;
 
-        if (clientX >= sx - 4 && clientX <= sx + sw + 4 && clientY >= sy - 4 && clientY <= sy + sh + 4) {
+        // Generous hit box (+4px margin)
+        if (gx >= bx1 - 4 && gx <= bx2 + 4 && gy >= by1 - 4 && gy <= by2 + 4) {
             return n;
         }
     }
 
     return null;
 }
+
+// Backward-compatible alias
+const findDetectiveBadgeAtScreenPos = findDetectiveBadgeAtPos;
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  Canvas Badge Renderer (LGraphNode Prototype Hook)
@@ -747,14 +785,12 @@ app.registerExtension({
     async setup() {
         console.log("[ComfyUI-Bada-Utils] 🕵️ Missing Node Detective (미싱 노드 탐정) Active!");
 
-        let pointerDownPos = null;
-
         const handleCanvasPointerMove = (e) => {
-            if (!isDetectiveEnabled() || isAnyModalOrDialogOpen()) return;
-            const canvasEl = app.canvas?.canvas || document.querySelector("canvas");
-            if (!canvasEl || e.target !== canvasEl) return;
+            if (!isDetectiveEnabled()) return;
+            const canvasEl = app.canvas?.canvas || document.querySelector("canvas#graph-canvas, canvas");
+            if (!canvasEl) return;
 
-            const node = findDetectiveBadgeAtScreenPos(e.clientX, e.clientY);
+            const node = findDetectiveBadgeAtPos(e);
             if (node) {
                 canvasEl.style.cursor = "pointer";
             } else if (canvasEl.style.cursor === "pointer") {
@@ -763,55 +799,47 @@ app.registerExtension({
         };
 
         const handleCanvasPointerDown = (e) => {
-            if (!isDetectiveEnabled() || isAnyModalOrDialogOpen()) return;
-            const canvasEl = app.canvas?.canvas || document.querySelector("canvas");
-            if (!canvasEl || e.target !== canvasEl) return;
+            if (e.button !== 0) return; // Left-click only
+            if (!isDetectiveEnabled()) return;
 
-            if (e.button === 0) { // Left click start
-                pointerDownPos = { x: e.clientX, y: e.clientY };
+            const node = findDetectiveBadgeAtPos(e);
+            if (node) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+                const canvasEl = app.canvas?.canvas || document.querySelector("canvas#graph-canvas, canvas");
+                if (canvasEl) canvasEl.style.cursor = "default";
+                showMissingNodeModal(node);
             }
         };
 
         const handleCanvasClick = (e) => {
-            if (!isDetectiveEnabled() || isAnyModalOrDialogOpen()) return;
-            const canvasEl = app.canvas?.canvas || document.querySelector("canvas");
-            if (!canvasEl || e.target !== canvasEl) return;
-
-            if (e.button === 0 && pointerDownPos) {
-                const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
-                pointerDownPos = null;
-
-                // Pure click on badge without dragging canvas
-                if (dist < 6) {
-                    const node = findDetectiveBadgeAtScreenPos(e.clientX, e.clientY);
-                    if (node) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        showMissingNodeModal(node);
-                    }
-                }
+            if (e.button !== 0) return;
+            if (findDetectiveBadgeAtPos(e)) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (e.stopImmediatePropagation) e.stopImmediatePropagation();
             }
         };
 
-        // Attach listeners directly to canvas element with retries
+        // Attach listeners directly to canvas element ONLY (No window interception!)
         const bindCanvasEvents = () => {
-            const canvasEl = app.canvas?.canvas || document.querySelector("canvas");
-            if (canvasEl) {
-                canvasEl.removeEventListener("pointermove", handleCanvasPointerMove);
-                canvasEl.removeEventListener("pointerdown", handleCanvasPointerDown);
-                canvasEl.removeEventListener("click", handleCanvasClick);
+            const canvasEl = app.canvas?.canvas || document.querySelector("canvas#graph-canvas, canvas");
+            if (!canvasEl) return false;
 
-                canvasEl.addEventListener("pointermove", handleCanvasPointerMove, { passive: true });
-                canvasEl.addEventListener("pointerdown", handleCanvasPointerDown, { passive: true });
-                canvasEl.addEventListener("click", handleCanvasClick);
-                return true;
-            }
-            return false;
+            if (canvasEl._badaDetectiveBound) return true;
+            canvasEl._badaDetectiveBound = true;
+
+            canvasEl.addEventListener("pointermove", handleCanvasPointerMove, { passive: true });
+            canvasEl.addEventListener("pointerdown", handleCanvasPointerDown, { capture: true });
+            canvasEl.addEventListener("click", handleCanvasClick, { capture: true });
+            return true;
         };
 
         if (!bindCanvasEvents()) {
-            setTimeout(bindCanvasEvents, 600);
-            setTimeout(bindCanvasEvents, 1800);
+            setTimeout(bindCanvasEvents, 300);
+            setTimeout(bindCanvasEvents, 800);
+            setTimeout(bindCanvasEvents, 2000);
         }
     },
 
