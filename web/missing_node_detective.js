@@ -40,13 +40,17 @@ function isDetectiveEnabled() {
  * Checks if a node on the canvas is missing/uninstalled.
  */
 export function isMissingNode(node) {
-    if (!node || !node.type) return false;
-    // Missing in LiteGraph:
-    // 1. Not in LiteGraph.registered_node_types
-    // 2. Or flagged with is_missing
-    if (!window.LiteGraph?.registered_node_types?.[node.type]) return true;
-    if (node.is_missing) return true;
-    if (node.flags && node.flags.missing) return true;
+    if (!node) return false;
+    if (node.is_missing || (node.flags && node.flags.missing)) return true;
+
+    const reg = window.LiteGraph?.registered_node_types;
+    if (reg) {
+        const type = node.type || node.last_serialization?.type;
+        if (type && !reg[type]) return true;
+    }
+
+    if (node.has_errors && node.last_serialization) return true;
+    if (node.has_errors && (!node.type || (reg && !reg[node.type]))) return true;
     return false;
 }
 
@@ -896,87 +900,110 @@ export function hookLGraphNodePrototypes() {
             if (origOnDrawForeground) {
                 origOnDrawForeground.apply(this, arguments);
             }
-
-            if (!isDetectiveEnabled() || !isMissingNode(this)) return;
-
-            // If missing Label (rgthree), render its label text gracefully with author's font settings
-            if (this.type === "Label (rgthree)") {
-                const fontSize = Number(this.properties?.fontSize) || 28;
-                const fontFamily = this.properties?.fontFamily || "Arial";
-                const fontColor = this.properties?.fontColor || "#ffffff";
-                const textAlign = this.properties?.textAlign || "left";
-                const angleDeg = parseInt(String(this.properties?.angle || 0)) || 0;
-                const padding = Number(this.properties?.padding) || 0;
-
-                ctx.save();
-                if (angleDeg) {
-                    const cx = this.size[0] / 2;
-                    const cy = this.size[1] / 2;
-                    ctx.translate(cx, cy);
-                    ctx.rotate((angleDeg * Math.PI) / 180);
-                    ctx.translate(-cx, -cy);
-                }
-
-                ctx.font = `${Math.max(fontSize, 12)}px ${fontFamily}, sans-serif`;
-                ctx.fillStyle = fontColor;
-                ctx.textAlign = textAlign;
-                ctx.textBaseline = "top";
-                ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
-                ctx.shadowBlur = 4;
-
-                let textX = padding;
-                if (textAlign === "center") textX = this.size[0] / 2;
-                else if (textAlign === "right") textX = this.size[0] - padding;
-
-                const text = (this.title || "").replace(/\\n/g, "\n").replace(/\n*$/, "");
-                const lines = text.split("\n");
-                let currentY = padding;
-                for (let i = 0; i < lines.length; i++) {
-                    ctx.fillText(lines[i] || " ", textX, currentY);
-                    currentY += fontSize;
-                }
-                ctx.restore();
-            }
-
-            const b = getDetectiveBadgeRect(this);
-            if (!b) return;
-
-            ctx.save();
-            ctx.beginPath();
-            if (ctx.roundRect) {
-                ctx.roundRect(b.x, b.y, b.w, b.h, 6);
-            } else {
-                ctx.rect(b.x, b.y, b.w, b.h);
-            }
-
-            // High-visibility glowing neon gradient (Pink-Red to Indigo to Electric Cyan)
-            const grad = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h);
-            grad.addColorStop(0, "#f43f5e");
-            grad.addColorStop(0.5, "#8b5cf6");
-            grad.addColorStop(1, "#06b6d4");
-            ctx.fillStyle = grad;
-
-            ctx.shadowColor = "rgba(0, 240, 255, 0.85)";
-            ctx.shadowBlur = 10;
-            ctx.fill();
-
-            // Crisp outline
-            ctx.lineWidth = 1.3;
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-            ctx.stroke();
-
-            // Centered Bold White Text
-            ctx.shadowBlur = 0;
-            ctx.fillStyle = "#ffffff";
-            ctx.font = "bold 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            const label = BadaI18n.lang === "ko" ? "🕵️ [바다] 깃허브/노드 찾기" : "🕵️ [Bada] Find Node Repo";
-            ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2);
-
-            ctx.restore();
+            drawDetectiveBadge(this, ctx);
         };
     }
+
+    // 4. Hook LGraphCanvas.prototype.drawNode (Guaranteed to draw even if instance onDrawForeground was shadowed or clipped)
+    const CanvasClass = window.LGraphCanvas || window.LiteGraph?.LGraphCanvas || app.canvas?.constructor;
+    if (CanvasClass && CanvasClass.prototype && !CanvasClass.prototype._badaDetectiveDrawNodeHooked) {
+        CanvasClass.prototype._badaDetectiveDrawNodeHooked = true;
+        const origDrawNode = CanvasClass.prototype.drawNode;
+        CanvasClass.prototype.drawNode = function (node, ctx) {
+            const res = origDrawNode.apply(this, arguments);
+            try {
+                drawDetectiveBadge(node, ctx);
+            } catch (_) {}
+            return res;
+        };
+    }
+}
+
+export function drawDetectiveBadge(node, ctx) {
+    if (!ctx || !node || !isDetectiveEnabled() || !isMissingNode(node)) return;
+
+    // Per-frame draw guard (ensure drawn only once per node per render pass)
+    const frameId = app.canvas?.frame || Date.now();
+    if (node._lastDetectiveFrame === frameId) return;
+    node._lastDetectiveFrame = frameId;
+
+    // If missing Label (rgthree), render its label text gracefully with author's font settings
+    const isRgthreeLabel = (node.type === "Label (rgthree)" || node.last_serialization?.type === "Label (rgthree)");
+    if (isRgthreeLabel) {
+        const fontSize = Number(node.properties?.fontSize) || 28;
+        const fontFamily = node.properties?.fontFamily || "Arial";
+        const fontColor = node.properties?.fontColor || "#ffffff";
+        const textAlign = node.properties?.textAlign || "left";
+        const angleDeg = parseInt(String(node.properties?.angle || 0)) || 0;
+        const padding = Number(node.properties?.padding) || 0;
+
+        ctx.save();
+        if (angleDeg) {
+            const cx = node.size[0] / 2;
+            const cy = node.size[1] / 2;
+            ctx.translate(cx, cy);
+            ctx.rotate((angleDeg * Math.PI) / 180);
+            ctx.translate(-cx, -cy);
+        }
+
+        ctx.font = `${Math.max(fontSize, 12)}px ${fontFamily}, sans-serif`;
+        ctx.fillStyle = fontColor;
+        ctx.textAlign = textAlign;
+        ctx.textBaseline = "top";
+        ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
+        ctx.shadowBlur = 4;
+
+        let textX = padding;
+        if (textAlign === "center") textX = node.size[0] / 2;
+        else if (textAlign === "right") textX = node.size[0] - padding;
+
+        const text = (node.title || "").replace(/\\n/g, "\n").replace(/\n*$/, "");
+        const lines = text.split("\n");
+        let currentY = padding;
+        for (let i = 0; i < lines.length; i++) {
+            ctx.fillText(lines[i] || " ", textX, currentY);
+            currentY += fontSize;
+        }
+        ctx.restore();
+    }
+
+    const b = getDetectiveBadgeRect(node);
+    if (!b) return;
+
+    ctx.save();
+    ctx.beginPath();
+    if (ctx.roundRect) {
+        ctx.roundRect(b.x, b.y, b.w, b.h, 6);
+    } else {
+        ctx.rect(b.x, b.y, b.w, b.h);
+    }
+
+    // High-visibility glowing neon gradient (Pink-Red to Indigo to Electric Cyan)
+    const grad = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h);
+    grad.addColorStop(0, "#f43f5e");
+    grad.addColorStop(0.5, "#8b5cf6");
+    grad.addColorStop(1, "#06b6d4");
+    ctx.fillStyle = grad;
+
+    ctx.shadowColor = "rgba(0, 240, 255, 0.85)";
+    ctx.shadowBlur = 10;
+    ctx.fill();
+
+    // Crisp outline
+    ctx.lineWidth = 1.3;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+    ctx.stroke();
+
+    // Centered Bold White Text
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const label = BadaI18n.lang === "ko" ? "🕵️ [바다] 깃허브/노드 찾기" : "🕵️ [Bada] Find Node Repo";
+    ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2);
+
+    ctx.restore();
 }
 
 // Run immediately if LiteGraph is already loaded
@@ -1103,8 +1130,32 @@ app.registerExtension({
         options.unshift(...detectiveItems);
     },
 
+    async nodeCreated(node) {
+        if (node) {
+            const origFg = node.onDrawForeground;
+            node.onDrawForeground = function (ctx) {
+                const res = origFg?.apply(this, arguments);
+                drawDetectiveBadge(this, ctx);
+                return res;
+            };
+        }
+    },
+
     afterConfigureGraph() {
         hookLGraphNodePrototypes();
+        if (app.graph?._nodes) {
+            for (const n of app.graph._nodes) {
+                if (isMissingNode(n) && !n._badaDetectiveFgHooked) {
+                    n._badaDetectiveFgHooked = true;
+                    const origFg = n.onDrawForeground;
+                    n.onDrawForeground = function (ctx) {
+                        const res = origFg?.apply(this, arguments);
+                        drawDetectiveBadge(this, ctx);
+                        return res;
+                    };
+                }
+            }
+        }
         try {
             app.graph?.setDirtyCanvas?.(true, true);
         } catch (_) {}

@@ -606,6 +606,9 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.dualManager.id) {
                 targetTitle = texts.dualManagerName;
                 targetDesc = texts.dualManagerDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.missingDetective.id) {
+                targetTitle = texts.detectiveName;
+                targetDesc = texts.detectiveDesc;
             }
 
             if (!targetTitle) return;
