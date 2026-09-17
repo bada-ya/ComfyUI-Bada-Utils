@@ -10,7 +10,7 @@
 
 ### 💡 "A pragmatic collection of utilities crafted to fix small, annoying friction points discovered while building workflows in ComfyUI every single day."
 
-[English Documentation](#-9-flagship-tools-overview) •
+[English Documentation](#-8-flagship-tools-overview) •
 [🇰🇷 한국어 설명서 보기 (README_ko.md)](README_ko.md) •
 [⚙️ Settings & i18n](#-bada-unified-settings) •
 [🚀 Installation](#-installation)
@@ -23,22 +23,21 @@
 
 ---
 
-## 🧭 9 Flagship Tools Overview
+## 🧭 8 Flagship Tools Overview
 
 For quick evaluation, here is **what each tool does and when to use it**.  
 Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instructions, visual guides, and screenshots.
 
 ```
-⚓ ComfyUI-Bada-Utils (9 Flagship Modules)
+⚓ ComfyUI-Bada-Utils (8 Flagship Modules)
 ├── 1. 📐 Visual Grid Regional Prompt Pro (BadaRegionalPrompt)
 ├── 2. 🌟 Universal Smart Presets & Master Hub (BadaPresetHub & SmartPresets)
-├── 3. ⚡ Auto Model & LoRA Assigner (Auto Assigner)
+├── 3. 🩺 Node Smart Care (Auto Model Assigner & Missing Node Resolver)
 ├── 4. 📂 Next-Gen Smart Workflow Manager (Workflows+)
 ├── 5. ✨ Canvas & Clipboard QoL Master (Canvas & Image QoL)
 ├── 6. ⚓ Bada Async Gemini Studio (BadaAsyncGeminiStudio)
 ├── 7. 💻 Bada Terminal Hub (BadaTerminalConsole)
-├── 8. 🧩 Classic Manager Quick Launcher & Tooltip Bug Auto-Healer (Dual Manager & Tooltip Healer)
-└── 9. 🕵️ Missing Node Detective & GitHub Resolver (MissingNodeDetective)
+└── 8. 🧩 Classic Manager Quick Launcher & Tooltip Bug Auto-Healer (Dual Manager & Tooltip Healer)
 ```
 
 ---
@@ -138,34 +137,49 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 
 ---
 
-### 3. ⚡ Auto Model & LoRA Assigner (`Auto Assigner`)
-- **What it does**: Scans external workflows for missing models and automatically associates them with local files on your PC based on intelligent name similarity (%).
-- **When to use it**: When loading a downloaded workflow that halts with red missing model errors due to slight naming differences (`fp8`, `v2`, etc.) — resolve everything with 1 right-click.
+### 3. 🩺 Node Smart Care & Workflow Doctor (`Node Smart Care`)
+- **What it does**: 
+  - Unifies **missing custom node recovery** and **model/LoRA auto-assignment** into a single, clean right-click context menu: `🩺 [Bada] Node Smart Care`.
+  - Intelligently detects the user's action and automatically routes between 4 specialized scenarios:
+    1. **Right-click empty canvas**: Scans the entire workflow and opens a 3-tab modal (`📦 Models & LoRAs`, `🧩 Missing Nodes`, `🌐 All-in-One View`).
+    2. **Right-click missing node (red X)**: Runs a 6-tier search across 40,000+ manager mappings to find the GitHub repo, offering 1-click ComfyUI Manager installation and live "Already Installed" card sync.
+    3. **Right-click installed model node**: Opens the Windows Explorer-style local folder tree with similarity ranking (%) to auto-mount models/LoRAs and remove red error outlines.
+    4. **Right-click missing node with model slots**: Prioritizes custom node installation (Priority 1) so the node can be restored before assigning models.
+  - Fixes ComfyUI's core transparency bug where `#fff0` transparent text in `Label (rgthree)` turns into an opaque blinding white rectangle, rendering custom author fonts and styling gracefully on the canvas.
+  - Zero canvas clutter: Operates 100% on-demand from the context menu with **no intrusive badges** on your graph.
+- **When to use it**: When loading external workflows from Civitai or GitHub that contain uninstalled custom nodes (red X) or missing models/checkpoints, and you want to resolve both in seconds without switching tools.
 
 <details>
 <summary><b>📖 Detailed Guide & Settings (Click to expand) ▼</b></summary>
 
-| 1. Right-Click Blank Canvas (Batch Assign) | 2. All Models Batch Smart Match Modal |
-| :---: | :---: |
-| ![Canvas Right Click](docs/images/ama/01_canvas_menu.png) | ![All Models Modal](docs/images/ama/02_all_models_modal_v2.png) |
-| *Click `⚡ Auto-Assign All Models/LoRAs` at the bottom* | *Scans missing models with 100% path matching & similarity rankings* |
+#### 🎯 4-Case Intelligent Context Menu Routing (`🩺 [Bada] Node Smart Care`)
 
-| 3. Right-Click Specific Node (Single Node) | 4. Single Node Smart Match Modal |
-| :---: | :---: |
-| ![Node Right Click](docs/images/ama/03_single_node_menu.png) | ![Single Node Modal](docs/images/ama/04_single_node_modal_v2.png) |
-| *Click `⚡ Auto-Assign This Node`* | *Instantly inspect and swap models for the selected node* |
+| Scenario | Trigger | Action & Interface |
+| :--- | :--- | :--- |
+| **Case 1: Workflow-Wide Diagnosis** | Right-click blank canvas | Opens 3-tab Workflow Doctor (`📦 Auto-Assign Models`, `🧩 Missing Nodes`, `🌐 All-in-One View`). |
+| **Case 2: Specific Missing Node** | Right-click red 'X' missing node | Focuses solely on finding that missing package with 1-click install card. |
+| **Case 3: Specific Model Node** | Right-click installed model/LoRA node | Opens local directory folder tree and similarity matcher for immediate assignment. |
+| **Case 4: Missing Node with Model Slots** | Right-click missing node with model inputs | **Priority 1**: Prompts custom node installation first since models cannot attach to missing nodes. |
 
 #### 🌟 Key Features
-1. **🌲 Windows Explorer-Style Folder Tree Explorer**:
+1. **🧩 3-Tab Workflow Doctor (Scroll-Safe & Responsive)**:
+   * Instantly switch between `[📦 Models & LoRAs]`, `[🧩 Missing Nodes]`, and `[🌐 All-in-One View]`.
+   * Built-in `scrollTop = 0` guarantees the modal never unexpectedly jumps to the bottom.
+2. **🧠 6-Tier High-Speed Repository Matching Engine**:
+   * `Tier 1 (Exact Class Type Match)` ➔ `Tier 2 (Namespace Decomposition)` ➔ `Tier 3 (Core Keyword Tokenization)` ➔ `Tier 4 (Package Title Match)` ➔ `Tier 5 (Manager nodename_pattern Regex)` ➔ `Tier 6 (GitHub Stars Popularity Weighted Ranking)`.
+   * Features client-side dual-layer fallback querying ComfyUI Manager `/v2/customnode/getmappings` directly.
+3. **⚡ 1-Click Direct Installation & Real-Time "Already Installed" Multi-Card Sync**:
+   * **1-Click Direct Install**: Executes `git clone` and `pip install -r requirements.txt` in the background with live progress indicators.
+   * **Real-Time Sibling Sync**: When installing a package, all other cards in the workflow referencing the same repository automatically update to `[✅ Already Installed (Resolved Together)]` with neon status pills, preventing duplicate installation attempts.
+4. **🌲 Windows Explorer-Style Folder Tree Explorer & Fuzzy Matcher**:
    * Browse model directory hierarchies with auto-expand and instant highlighting for currently active model files.
-2. **🧩 Universal Slot Adapter for Third-Party Multi-LoRA Nodes**:
-   * Full support for `Power Lora Loader (rgthree)`, `DaSiWa LoRA Loader`, `Deno Multi LoRA Loader`, `Comfyroll`, `Efficiency Nodes`, and custom loader stacks.
-3. **🧠 Intelligent Fuzzy Matcher**:
    * Normalizes precision (`fp8`, `bf16`, `fp16`), version (`v1`, `v2`, `turbo`), and punctuation to recommend the best local match sorted by similarity (%).
-4. **🌐 1-Click Smart Web Search**:
-   * Cleaned model filenames with instant search links to `🔍 Google Search`, `🤗 HuggingFace`, and `💖 Civitai`.
-5. **🛡️ Automatic Red Error Border Removal**:
-   * Instantly removes red error outlines and refreshes canvas widgets once models are assigned.
+   * Full support for third-party multi-LoRA stacks (`Power Lora Loader (rgthree)`, `DaSiWa`, `Deno`, `Comfyroll`, `Efficiency Nodes`).
+5. **🎨 `Label (rgthree)` Transparency Healer & Graceful Typography**:
+   * Intercepts `LGraphNode.prototype` color getters to prevent ComfyUI's modern frontend from forcing `opacity: 0.95` on `#fff0` transparent text.
+   * Respects original author font size (e.g. 129px, 37px), alignment, and color for clean, beautiful workflow title rendering.
+6. **🚀 Zero-Overhead & Clean Canvas**:
+   * Zero permanent canvas badges or polling intervals — lightweight, event-driven, and completely out of your way until called.
 
 </details>
 
@@ -351,42 +365,6 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 
 ---
 
-### 9. 🕵️ Missing Node Detective & GitHub Resolver (`MissingNodeDetective`)
-- **What it does**: 
-  - Automatically identifies uninstalled/broken red 'X' **missing nodes** on your canvas and docks an eye-catching neon badge (`🕵️ [Bada] Find Node Repo`) directly onto the bottom-right corner of the node.
-  - Performs real-time **6-tier multi-database lookup** across 40,000+ ComfyUI Manager mappings and the modern Nodes 2.0 database to pinpoint the exact author GitHub repository in 0.001 seconds.
-  - Provides **1-click direct installation** (automatic `git clone` + `pip install -r requirements.txt`) and seamless auto-opening of the ComfyUI Manager window with search queries pre-filled.
-  - Fixes ComfyUI's core transparency bug where `#fff0` transparent text in `Label (rgthree)` turns into an opaque blinding white rectangle, rendering custom author fonts and styling gracefully on the canvas.
-- **When to use it**: 
-  - When opening a community workflow from Civitai or GitHub and encountering unfamiliar red missing nodes.
-  - When you want to resolve and install missing custom node packages in 1 click without manually scouring ComfyUI Manager or GitHub.
-  - When large text label nodes in downloaded workflows turn solid white and obstruct your graph.
-
-<details>
-<summary><b>📖 Detailed Guide & Settings (Click to expand) ▼</b></summary>
-
-#### 🌟 Key Features
-1. **🏷️ Docked Neon Detective Badge (`🕵️ [Bada] Find Node Repo`)**:
-   * Any missing node on the canvas receives a docked neon gradient badge in graph-space.
-   * Clicking the badge or right-clicking the node and selecting `🕵️ [Bada] Inspect & Find GitHub Repo...` opens the comprehensive detective modal.
-2. **🧠 6-Tier High-Speed Repository Matching Engine**:
-   * `Tier 1 (Exact Class Type Match)` ➔ `Tier 2 (Namespace Decomposition)` ➔ `Tier 3 (Core Keyword Tokenization)` ➔ `Tier 4 (Package Title Match)` ➔ `Tier 5 (Manager nodename_pattern Regex)` ➔ `Tier 6 (GitHub Stars Popularity Weighted Ranking)`.
-   * Equipped with a **client-side dual-layer fallback** that directly queries ComfyUI Manager's `/v2/customnode/getmappings` endpoint if the backend is restarting.
-3. **⚡ 1-Click Direct Installation & Manager Integration**:
-   * **1-Click Direct Install**: Executes `git clone` and `pip install -r requirements.txt` via backend REST API without leaving the canvas.
-   * **ComfyUI Manager Auto-Sync**: Opens the modern or legacy ComfyUI Manager dialog, automatically pastes the target node name into the search bar, and focuses the input.
-4. **🔍 Unindexed Node Search (Google & GitHub Code Search)**:
-   * For unindexed or brand-new packages, provides 1-click **Google Search** (primary recommendation) and **GitHub Exact Code Search** with helpful navigation tips.
-5. **🎨 `Label (rgthree)` Transparency Healer & Graceful Typography**:
-   * Intercepts `LGraphNode.prototype` color getters to prevent ComfyUI's modern frontend from forcing `opacity: 0.95` on `#fff0` transparent text.
-   * Respects original author font size (e.g. 129px, 37px), alignment, and color for clean, beautiful workflow title rendering.
-6. **🚀 Zero-Overhead Optimization (0% Idle CPU)**:
-   * Employs early-return guards when 0 nodes are missing and `requestAnimationFrame` throttled pointer tracking to ensure zero impact on canvas performance.
-
-</details>
-
----
-
 ## ⚙️ BADA Unified Settings (`⚙️ Settings -> 🌊 Bada Utils`)
 
 Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 Bada Utils`** tab to access the centralized bilingual control center:
@@ -408,7 +386,7 @@ Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 
 | **7. Presets** | **🗃️ Global Presets & Inline Overview Panel** | Display shortcut preset badges on node roofs and provides full-width interactive preset summary across all node types. |
 | **8. Image QoL** | **📋 Clipboard & LoadImage Auto-Error Fixer** | Automatically fixes red border and input validation errors caused by pasting clipboard images (`Ctrl+V`) or subfolder paths in LoadImage nodes. |
 | **9. Terminal** | **🖥️ Bada Terminal Hub** | Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar. |
-| **10. Missing Node Detective** | **🕵️ Missing Node Detective & GitHub Resolver** | Toggle the missing node detection badge and inspection modal. |
+| **10. Node Smart Care** | **🩺 Node Smart Care (Missing Node Resolver & Model Assigner)** | Enables the unified right-click context menu (`🩺 [Bada] Node Smart Care`) and 3-tab workflow diagnosis modal for missing custom nodes and models. |
 
 ---
 
