@@ -63,8 +63,8 @@ const BADA_SETTINGS_TEXTS = {
         dualManagerName: "🧩 Classic Manager Quick Launcher",
         dualManagerDesc: "Displays a blue puzzle button in the top menu bar to open classic ComfyUI-Manager anytime.",
 
-        detectiveName: "🕵️ Missing Node Detective (Real Name & GitHub Finder)",
-        detectiveDesc: "Automatically detects missing nodes (red X), provides on-node detective button & context menu, reveals original class type, and finds exact GitHub repo in 1 second."
+        detectiveName: "🩺 Workflow Doctor & Missing Node Resolver",
+        detectiveDesc: "Diagnose uninstalled missing nodes (red X) and missing models/LoRAs via right-click menu, providing one-click installation and smart auto-assignment."
     },
     ko: {
         category: "Bada Utils",
@@ -99,8 +99,8 @@ const BADA_SETTINGS_TEXTS = {
         dualManagerName: "🧩 클래식 매니저 퀵 런처 (듀얼 매니저)",
         dualManagerDesc: "상단 메뉴 바에 파란 퍼즐 버튼을 표시하여 언제든 익숙한 구형 클래식 매니저 창을 바로 실행합니다.",
 
-        detectiveName: "🕵️ 미싱 노드 탐정 & 깃허브 자동 검색기",
-        detectiveDesc: "미설치된 미싱 노드(빨간 X)에 원클릭 탐정 단추와 우클릭 메뉴를 제공하여, 진짜 노드 클래스명과 깃허브 저장소를 1초 만에 찾아줍니다."
+        detectiveName: "🩺 워크플로우 종합 진단 & 미싱 노드 해결사 (Workflow Doctor)",
+        detectiveDesc: "캔버스 빈 공간 또는 노드 우클릭 시 설치되지 않은 미싱 노드(빨간 X)와 누락된 모델/LoRA를 한눈에 종합 진단하고 원클릭으로 설치 및 자동 장착합니다."
     }
 };
 
@@ -210,7 +210,7 @@ const BADA_UNIFIED_SETTINGS = {
     missingDetective: {
         id: "BadaUtils.MissingNodeDetective",
         category: ["Bada Utils", "MissingDetective"],
-        name: "🕵️ Missing Node Detective",
+        name: "🩺 Workflow Doctor & Missing Node Resolver",
         type: "boolean",
         sortOrder: 150,
         defaultValue: true
@@ -638,7 +638,7 @@ function applyBilingualSettingsUI(targetLang) {
             if (!descEl && targetDesc) {
                 descEl = document.createElement("div");
                 descEl.className = "bada-setting-desc";
-                descEl.style.cssText = "font-size: 11px; color: #94a3b8; line-height: 1.4; font-weight: 400; margin-top: 1px;";
+                descEl.style.cssText = "font-size: 11px; color: #cbd5e1; line-height: 1.4; font-weight: 400; margin-top: 1px;";
                 formLabel.appendChild(descEl);
             }
             if (descEl && targetDesc && descEl.__badaDesc !== targetDesc) {

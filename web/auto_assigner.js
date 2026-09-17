@@ -7,7 +7,8 @@ import {
     installCustomNode,
     openComfyUiManager,
     copyToClipboard,
-    showMissingNodeModal
+    showMissingNodeModal,
+    isDetectiveEnabled
 } from "./missing_node_detective.js";
 
 // CSS 스타일시트 동적 로드
@@ -1449,6 +1450,90 @@ function escapeHtml(str) {
 app.registerExtension({
     name: "BadaUtils.AutoModelAssigner",
 
+    /**
+     * 🌐 Modern ComfyUI v0.3+ Vue Context Menu: Canvas Empty Space
+     */
+    getCanvasMenuItems(canvas) {
+        if (typeof isDetectiveEnabled === "function" && !isDetectiveEnabled()) return [];
+        const isKo = (BadaI18n.lang === "ko");
+        return [
+            null,
+            {
+                content: isKo
+                    ? "🩺 [바다] 워크플로우 종합 진단 & 자동 복구 (미싱 노드 + 모델/LoRA)"
+                    : "🩺 [Bada] Workflow Doctor & Auto-Assign (Missing Nodes + Models)",
+                isAutoModelAssigner: true,
+                callback: () => {
+                    AutoModelAssigner.runAutoAssign(null);
+                }
+            }
+        ];
+    },
+
+    /**
+     * 🌐 Modern ComfyUI v0.3+ Vue Context Menu: Individual Node
+     */
+    getNodeMenuItems(node) {
+        if (!node) return [];
+        const isKo = (BadaI18n.lang === "ko");
+        const items = [];
+
+        // 1. 미싱 노드(빨간 X) 우클릭 시: 탐정 및 해결사 액션 세트 제공
+        if (isMissingNode(node) && (typeof isDetectiveEnabled !== "function" || isDetectiveEnabled())) {
+            const realType = String(node.type || node.last_serialization?.type || node.comfyClass || "Unknown").trim();
+            const exactPhrase = `"${realType.replace(/"/g, '')}"`;
+
+            items.push(
+                null,
+                {
+                    content: isKo ? "🕵️ [바다 탐정] 미싱 노드 분석 & 깃허브 찾기..." : "🕵️ [Bada] Inspect & Find GitHub Repo...",
+                    callback: () => showMissingNodeModal(node)
+                },
+                {
+                    content: isKo ? `📋 [바다] 진짜 노드 이름 복사: ${realType}` : `📋 [Bada] Copy Real Type: ${realType}`,
+                    callback: () => copyToClipboard(realType, isKo ? "진짜 노드 이름이 복사되었습니다!" : "Real node class type copied!")
+                },
+                {
+                    content: isKo ? "🐙 [바다] GitHub에서 이 노드 코드 검색" : "🐙 [Bada] Search Node on GitHub",
+                    callback: () => {
+                        const ghUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}+language:Python&type=code`;
+                        window.open(ghUrl, "_blank");
+                    }
+                },
+                {
+                    content: isKo ? "🔍 [바다] Google에서 설치법 검색" : "🔍 [Bada] Search on Google",
+                    callback: () => {
+                        const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(exactPhrase + ' ComfyUI')}`;
+                        window.open(googleUrl, "_blank");
+                    }
+                },
+                {
+                    content: isKo
+                        ? "🩺 [바다] 워크플로우 종합 진단 열기 (미싱 노드 + 모델)"
+                        : "🩺 [Bada] Open Workflow Doctor (Missing Nodes + Models)",
+                    callback: () => AutoModelAssigner.runAutoAssign(null)
+                },
+                null
+            );
+        }
+
+        // 2. 모델/LoRA 관련 노드 우클릭 시: 단일 노드 모델 자동 장착
+        if (AutoModelAssigner.isModelNode(node)) {
+            items.push(
+                null,
+                {
+                    content: isKo ? "⚡ [바다] 이 노드 모델 자동 장착" : "⚡ [Bada] Auto-Assign Models for this Node",
+                    isAutoModelAssigner: true,
+                    callback: () => {
+                        AutoModelAssigner.runAutoAssign(node);
+                    }
+                }
+            );
+        }
+
+        return items;
+    },
+
     async setup() {
         if (window.__BADA_AUTO_ASSIGNER_LOADED__) {
             console.log("[AutoModelAssigner] AutoModelAssigner already active. Skipping duplicate setup.");
@@ -1458,42 +1543,95 @@ app.registerExtension({
 
         console.log("[AutoModelAssigner] Initializing Context Menus at absolute bottom position...");
 
-        // 1. 캔버스 빈 공간 우클릭 메뉴 훅
-        const origGetCanvasMenuOptions = LGraphCanvas.prototype.getCanvasMenuOptions;
-        LGraphCanvas.prototype.getCanvasMenuOptions = function () {
-            const options = origGetCanvasMenuOptions ? origGetCanvasMenuOptions.apply(this, arguments) : [];
-            
-            options.push(null); // 구분선
-            options.push({
-                content: BadaI18n.t("ctx_auto_assign_all"),
-                isAutoModelAssigner: true,
-                callback: () => {
-                    AutoModelAssigner.runAutoAssign(null);
+        // 1. 캔버스 빈 공간 우클릭 메뉴 훅 (Legacy Fallback)
+        if (typeof LGraphCanvas !== "undefined") {
+            const origGetCanvasMenuOptions = LGraphCanvas.prototype.getCanvasMenuOptions;
+            LGraphCanvas.prototype.getCanvasMenuOptions = function () {
+                const options = origGetCanvasMenuOptions ? origGetCanvasMenuOptions.apply(this, arguments) : [];
+                if (typeof isDetectiveEnabled === "function" && !isDetectiveEnabled()) return options;
+
+                const isKo = (BadaI18n.lang === "ko");
+                const label = isKo
+                    ? "🩺 [바다] 워크플로우 종합 진단 & 자동 복구 (미싱 노드 + 모델/LoRA)"
+                    : "🩺 [Bada] Workflow Doctor & Auto-Assign (Missing Nodes + Models)";
+
+                const exists = options.some(o => o && (o.isAutoModelAssigner || (typeof o.content === 'string' && (o.content.includes("종합 진단") || o.content.includes("Workflow Doctor")))));
+                if (!exists) {
+                    options.push(null);
+                    options.push({
+                        content: label,
+                        isAutoModelAssigner: true,
+                        callback: () => {
+                            AutoModelAssigner.runAutoAssign(null);
+                        }
+                    });
                 }
-            });
 
-            return options;
-        };
+                return options;
+            };
 
-        // 2. 개별 노드 우클릭 메뉴 훅
-        const origGetNodeMenuOptions = LGraphCanvas.prototype.getNodeMenuOptions;
-        LGraphCanvas.prototype.getNodeMenuOptions = function (node) {
-            const options = origGetNodeMenuOptions ? origGetNodeMenuOptions.apply(this, arguments) : [];
+            // 2. 개별 노드 우클릭 메뉴 훅 (Legacy Fallback)
+            const origGetNodeMenuOptions = LGraphCanvas.prototype.getNodeMenuOptions;
+            LGraphCanvas.prototype.getNodeMenuOptions = function (node) {
+                const options = origGetNodeMenuOptions ? origGetNodeMenuOptions.apply(this, arguments) : [];
+                const isKo = (BadaI18n.lang === "ko");
 
-            // 해당 노드가 모델 관련 위젯을 가지고 있는 경우에만 메뉴 추가
-            if (AutoModelAssigner.isModelNode(node)) {
-                options.push(null); // 구분선
-                options.push({
-                    content: BadaI18n.t("ctx_auto_assign_node"),
-                    isAutoModelAssigner: true,
-                    callback: () => {
-                        AutoModelAssigner.runAutoAssign(node);
+                // 미싱 노드인 경우
+                if (isMissingNode(node) && (typeof isDetectiveEnabled !== "function" || isDetectiveEnabled())) {
+                    const exists = options.some(o => o && typeof o.content === "string" && (o.content.includes("바다 탐정") || o.content.includes("Inspect & Find")));
+                    if (!exists) {
+                        const realType = String(node.type || node.last_serialization?.type || node.comfyClass || "Unknown").trim();
+                        const exactPhrase = `"${realType.replace(/"/g, '')}"`;
+                        options.push(null);
+                        options.push({
+                            content: isKo ? "🕵️ [바다 탐정] 미싱 노드 분석 & 깃허브 찾기..." : "🕵️ [Bada] Inspect & Find GitHub Repo...",
+                            callback: () => showMissingNodeModal(node)
+                        });
+                        options.push({
+                            content: isKo ? `📋 [바다] 진짜 노드 이름 복사: ${realType}` : `📋 [Bada] Copy Real Type: ${realType}`,
+                            callback: () => copyToClipboard(realType, isKo ? "진짜 노드 이름이 복사되었습니다!" : "Real node class type copied!")
+                        });
+                        options.push({
+                            content: isKo ? "🐙 [바다] GitHub에서 이 노드 코드 검색" : "🐙 [Bada] Search Node on GitHub",
+                            callback: () => {
+                                const ghUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}+language:Python&type=code`;
+                                window.open(ghUrl, "_blank");
+                            }
+                        });
+                        options.push({
+                            content: isKo ? "🔍 [바다] Google에서 설치법 검색" : "🔍 [Bada] Search on Google",
+                            callback: () => {
+                                const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(exactPhrase + ' ComfyUI')}`;
+                                window.open(googleUrl, "_blank");
+                            }
+                        });
+                        options.push({
+                            content: isKo
+                                ? "🩺 [바다] 워크플로우 종합 진단 열기 (미싱 노드 + 모델)"
+                                : "🩺 [Bada] Open Workflow Doctor (Missing Nodes + Models)",
+                            callback: () => AutoModelAssigner.runAutoAssign(null)
+                        });
                     }
-                });
-            }
+                }
 
-            return options;
-        };
+                // 해당 노드가 모델 관련 위젯을 가지고 있는 경우
+                if (AutoModelAssigner.isModelNode(node)) {
+                    const exists = options.some(o => o && (o.isAutoModelAssigner || (typeof o.content === 'string' && o.content.includes("자동 장착"))));
+                    if (!exists) {
+                        options.push(null);
+                        options.push({
+                            content: isKo ? "⚡ [바다] 이 노드 모델 자동 장착" : "⚡ [Bada] Auto-Assign Models for this Node",
+                            isAutoModelAssigner: true,
+                            callback: () => {
+                                AutoModelAssigner.runAutoAssign(node);
+                            }
+                        });
+                    }
+                }
+
+                return options;
+            };
+        }
 
         // 3. 🛡️ LiteGraph.ContextMenu 생성자 가로채기 (다른 노드들이 덧붙인 뒤에도 항상 무조건 맨 아래로 이동)
         if (typeof LiteGraph !== "undefined" && LiteGraph.ContextMenu) {
@@ -1506,7 +1644,9 @@ app.registerExtension({
                             v.isAutoModelAssigner === true || 
                             (typeof v.content === "string" && (
                                 v.content.includes("자동 장착") || 
-                                v.content.includes("Auto-Assign")
+                                v.content.includes("Auto-Assign") ||
+                                v.content.includes("종합 진단") ||
+                                v.content.includes("Workflow Doctor")
                             ))
                         )
                     );

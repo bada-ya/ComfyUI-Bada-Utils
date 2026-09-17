@@ -12,8 +12,8 @@
     "sidebar_organizer_desc": "왼쪽 워크플로우 사이드바에서 워크플로우를 다른 폴더로 드래그하여 이동하거나 새 폴더를 생성할 수 있습니다.",
     "load_image_fix": "클립보드 & 로드 이미지 인풋 에러 자동 해결기",
     "load_image_fix_desc": "로드 이미지 노드에 Ctrl+V로 클립보드 이미지를 붙여넣거나 하위 경로를 불러올 때 발생하는 빨간 테두리 및 인풋 에러를 무결점으로 자동 해결합니다.",
-    "missing_detective": "미싱 노드 탐정 & 깃허브 자동 검색기",
-    "missing_detective_desc": "미설치된 미싱 노드(빨간 X)에 원클릭 탐정 단추와 우클릭 메뉴를 제공하여, 진짜 노드 클래스명과 깃허브 저장소를 1초 만에 찾아줍니다."
+    "missing_detective": "🩺 워크플로우 종합 진단 & 미싱 노드 해결사 (Workflow Doctor)",
+    "missing_detective_desc": "캔버스 빈 공간 또는 노드 우클릭 시 설치되지 않은 미싱 노드(빨간 X)와 누락된 모델/LoRA를 한눈에 종합 진단하고 원클릭으로 설치 및 자동 장착합니다."
   },
   "presets": {
     "title": "Bada 프리셋 허브",

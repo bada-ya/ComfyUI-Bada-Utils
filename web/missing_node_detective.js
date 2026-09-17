@@ -50,21 +50,24 @@ export function isMissingNode(node) {
     if (!node) return false;
     if (node.is_missing || (node.flags && node.flags.missing)) return true;
 
+    const type = node.type || node.comfyClass || node.last_serialization?.type;
+    if (!type || type === "MissingNode" || node.constructor?.name === "MissingNode") return true;
+
     const reg = window.LiteGraph?.registered_node_types
         || window.LGraphCanvas?.registered_node_types
         || (typeof LiteGraph !== "undefined" ? LiteGraph.registered_node_types : null);
+    const nodeDefs = window.app?.nodeDefs;
 
-    const type = node.type || node.last_serialization?.type;
-
-    if (type && reg) {
-        if (!reg[type]) return true;
+    const hasRegistry = (reg && Object.keys(reg).length > 0) || (nodeDefs && Object.keys(nodeDefs).length > 0);
+    if (hasRegistry && type) {
+        const inReg = reg && !!reg[type];
+        const inDefs = nodeDefs && !!nodeDefs[type];
+        if (!inReg && !inDefs) return true;
     }
 
     if (node.has_errors) {
-        if (!type || !reg || !reg[type] || node.last_serialization) return true;
+        return true;
     }
-
-    if (type === "MissingNode" || node.constructor?.name === "MissingNode") return true;
 
     return false;
 }
@@ -975,48 +978,6 @@ app.registerExtension({
         try {
             app.graph?.setDirtyCanvas?.(true, true);
         } catch (_) {}
-    },
-
-    /**
-     * Context Menu Injection for Missing Nodes
-     */
-    async getNodeMenuOptions(node, options) {
-        if (!isDetectiveEnabled()) return;
-        if (!isMissingNode(node)) return;
-
-        const isKo = (BadaI18n.lang === "ko");
-        const realType = String(node.type || "Unknown").trim();
-        const exactPhrase = `"${realType.replace(/"/g, '')}"`;
-
-        const detectiveItems = [
-            null, // Separator
-            {
-                content: isKo ? "🕵️ [바다 탐정] 미싱 노드 분석 & 깃허브 찾기..." : "🕵️ [Bada] Inspect & Find GitHub Repo...",
-                callback: () => showMissingNodeModal(node)
-            },
-            {
-                content: isKo ? `📋 [바다] 진짜 노드 이름 복사: ${realType}` : `📋 [Bada] Copy Real Type: ${realType}`,
-                callback: () => copyToClipboard(realType, isKo ? "진짜 노드 이름이 복사되었습니다!" : "Real node class type copied!")
-            },
-            {
-                content: isKo ? "🐙 [바다] GitHub에서 이 노드 코드 검색" : "🐙 [Bada] Search Node on GitHub",
-                callback: () => {
-                    const ghUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}+language:Python&type=code`;
-                    window.open(ghUrl, "_blank");
-                }
-            },
-            {
-                content: isKo ? "🔍 [바다] Google에서 설치법 검색" : "🔍 [Bada] Search on Google",
-                callback: () => {
-                    const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(exactPhrase + ' ComfyUI')}`;
-                    window.open(googleUrl, "_blank");
-                }
-            },
-            null // Separator
-        ];
-
-        // Prepend to top of context menu
-        options.unshift(...detectiveItems);
     },
 
     afterConfigureGraph() {
