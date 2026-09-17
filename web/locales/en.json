@@ -12,8 +12,8 @@
     "sidebar_organizer_desc": "Enables drag-and-drop workflow folder moving and organization in the left sidebar.",
     "load_image_fix": "Clipboard & LoadImage Auto-Error Fixer",
     "load_image_fix_desc": "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes.",
-    "missing_detective": "🩺 Workflow Doctor & Missing Node Resolver",
-    "missing_detective_desc": "Diagnose uninstalled missing nodes (red X) and missing models/LoRAs via right-click menu, providing one-click installation and smart auto-assignment."
+    "missing_detective": "🩺 Node Smart Care (Missing Node Resolver & Model Assigner)",
+    "missing_detective_desc": "Smartly resolves uninstalled missing nodes (red X) and missing models/LoRAs via right-click menu, providing one-click installation and smart auto-assignment."
   },
   "presets": {
     "title": "Bada Preset Hub",

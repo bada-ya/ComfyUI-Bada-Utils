@@ -792,19 +792,19 @@ class AutoModelAssigner {
             if (isMissingNode(targetNode)) {
                 headerIcon = "🩺";
                 headerTitle = isKo 
-                    ? `미싱 노드 정밀 진단 &amp; 해결: #${targetNode.id} [${escapeHtml(nodeTitle)}]`
-                    : `Missing Node Doctor: #${targetNode.id} [${escapeHtml(nodeTitle)}]`;
+                    ? `노드 스마트 케어 (미싱 노드 복구): #${targetNode.id} [${escapeHtml(nodeTitle)}]`
+                    : `Node Smart Care (Missing Node): #${targetNode.id} [${escapeHtml(nodeTitle)}]`;
             } else {
                 headerIcon = "⚡";
                 headerTitle = isKo 
-                    ? `노드 모델 / LoRA 자동 장착: #${targetNode.id} [${escapeHtml(nodeTitle)}]`
-                    : `Auto-Assign Models &amp; LoRA: #${targetNode.id} [${escapeHtml(nodeTitle)}]`;
+                    ? `노드 스마트 케어 (모델 / LoRA 자동 장착): #${targetNode.id} [${escapeHtml(nodeTitle)}]`
+                    : `Node Smart Care (Model / LoRA Assigner): #${targetNode.id} [${escapeHtml(nodeTitle)}]`;
             }
         } else {
             headerIcon = hasMissingNodes ? "🩺" : "⚡";
-            headerTitle = hasMissingNodes
-                ? (isKo ? "워크플로우 종합 진단 &amp; 스마트 자동 복구 (미싱 노드 + 모델/LoRA)" : "Workflow Doctor &amp; Auto-Assigner (Missing Nodes + Models)")
-                : (isKo ? "모델 / LoRA 스마트 자동 장착 &amp; 폴더 탐색기" : "Smart Model &amp; LoRA Assigner &amp; Folder Browser");
+            headerTitle = isKo
+                ? "노드 스마트 케어 (미싱 노드 복구 &amp; 모델 자동 장착)"
+                : "Node Smart Care (Missing Node Resolver &amp; Model Assigner)";
         }
 
         header.innerHTML = `
@@ -873,22 +873,22 @@ class AutoModelAssigner {
             </div>
         `;
 
-        // 3. 탭 바 (미싱 노드와 모델 슬롯이 둘 다 존재하고 단일 노드가 아닐 때 탭 제공)
-        const showTabs = (!isSingleNode && hasMissingNodes && hasModelItems);
+        // 3. 탭 바 (빈 캔버스 우클릭 시 3개 탭 항상 제공: 모델 장착 탭, 미싱 노드 케어 탭, 전체 보기)
+        const showTabs = !isSingleNode;
         const tabsBar = document.createElement("div");
         tabsBar.className = "doctor-tabs-container";
 
         if (showTabs) {
             tabsBar.innerHTML = `
-                <button type="button" class="doctor-tab-btn active" data-tab="missing">
-                    <span class="tab-icon">🧩</span>
-                    <span class="tab-label">${isKo ? "미설치 미싱 노드" : "Missing Nodes"}</span>
-                    <span class="doctor-tab-badge">${missingNodes.length}</span>
-                </button>
                 <button type="button" class="doctor-tab-btn" data-tab="models">
                     <span class="tab-icon">📦</span>
                     <span class="tab-label">${isKo ? "모델 &amp; LoRA 자동 장착" : "Models &amp; LoRA"}</span>
                     <span class="doctor-tab-badge">${items.length}</span>
+                </button>
+                <button type="button" class="doctor-tab-btn" data-tab="missing">
+                    <span class="tab-icon">🧩</span>
+                    <span class="tab-label">${isKo ? "미설치 미싱 노드 케어" : "Missing Nodes"}</span>
+                    <span class="doctor-tab-badge">${missingNodes.length}</span>
                 </button>
                 <button type="button" class="doctor-tab-btn" data-tab="all">
                     <span class="tab-icon">🌐</span>
@@ -931,8 +931,8 @@ class AutoModelAssigner {
             tabsBar.querySelectorAll(".doctor-tab-btn").forEach(btn => {
                 btn.onclick = () => switchTab(btn.dataset.tab);
             });
-            // 초기 탭: 미설치 미싱 노드가 기본 활성화
-            switchTab("missing");
+            // 초기 탭: 미설치 미싱 노드가 있으면 미싱 노드 탭 우선, 없으면 모델 탭 활성화
+            switchTab(hasMissingNodes ? "missing" : "models");
         } else {
             sectionMissing.style.display = hasMissingNodes ? "flex" : "none";
             sectionModels.style.display = hasModelItems ? "flex" : "none";
@@ -1246,6 +1246,16 @@ class AutoModelAssigner {
 
                 sectionMissing.appendChild(card);
             });
+        } else if (showTabs) {
+            const emptyNotice = document.createElement("div");
+            emptyNotice.className = "doctor-empty-box";
+            emptyNotice.style.cssText = "padding: 48px 16px; text-align: center; color: #a1a1aa; width: 100%; box-sizing: border-box;";
+            emptyNotice.innerHTML = `
+                <div style="font-size: 40px; margin-bottom: 12px;">🎉</div>
+                <div style="font-weight: 700; font-size: 16px; color: #34d399; margin-bottom: 6px;">${isKo ? "미설치된 미싱 노드가 없습니다!" : "No Missing Nodes Found!"}</div>
+                <div style="font-size: 13px; color: #94a3b8;">${isKo ? "현재 워크플로우의 모든 커스텀 노드가 정상 설치되어 있습니다." : "All custom nodes in this workflow are installed and ready to run."}</div>
+            `;
+            sectionMissing.appendChild(emptyNotice);
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -1517,12 +1527,22 @@ class AutoModelAssigner {
 
             sectionModels.appendChild(card);
         });
+        } else if (showTabs) {
+            const emptyNotice = document.createElement("div");
+            emptyNotice.className = "doctor-empty-box";
+            emptyNotice.style.cssText = "padding: 48px 16px; text-align: center; color: #a1a1aa; width: 100%; box-sizing: border-box;";
+            emptyNotice.innerHTML = `
+                <div style="font-size: 40px; margin-bottom: 12px;">✨</div>
+                <div style="font-weight: 700; font-size: 16px; color: #38bdf8; margin-bottom: 6px;">${isKo ? "모든 모델이 정상 장착되어 있습니다!" : "All Models Loaded!"}</div>
+                <div style="font-size: 13px; color: #94a3b8;">${isKo ? "현재 워크플로우에 누락된 모델이나 LoRA 슬롯이 없습니다." : "No missing models or LoRA slots found."}</div>
+            `;
+            sectionModels.appendChild(emptyNotice);
         }
 
-        if (hasMissingNodes) {
+        if (showTabs || hasMissingNodes) {
             body.appendChild(sectionMissing);
         }
-        if (hasModelItems) {
+        if (showTabs || hasModelItems) {
             body.appendChild(sectionModels);
         }
 
@@ -1679,8 +1699,8 @@ app.registerExtension({
             null,
             {
                 content: isKo
-                    ? "🩺 [바다] 워크플로우 종합 진단 & 자동 복구 (미싱 노드 + 모델/LoRA)"
-                    : "🩺 [Bada] Workflow Doctor & Auto-Assign (Missing Nodes + Models)",
+                    ? "🩺 [바다] 노드 스마트 케어"
+                    : "🩺 [Bada] Node Smart Care",
                 isAutoModelAssigner: true,
                 callback: () => {
                     AutoModelAssigner.runAutoAssign(null);
@@ -1694,33 +1714,23 @@ app.registerExtension({
      */
     getNodeMenuItems(node) {
         if (!node) return [];
+        if (typeof isDetectiveEnabled === "function" && !isDetectiveEnabled()) return [];
         const isKo = (BadaI18n.lang === "ko");
         const items = [];
 
-        // 1. 미싱 노드(빨간 X) 우클릭 시: 단일 미싱 노드 진단 & 해결 1개만 깔끔하게 제공 (과도한 메뉴 제거)
-        if (isMissingNode(node) && (typeof isDetectiveEnabled !== "function" || isDetectiveEnabled())) {
+        // Case 2, 3, 4: 미싱 노드이거나 모델/LoRA 슬롯이 있는 경우 단 1개의 스마트 케어 메뉴만 깔끔하게 노출
+        const isMissing = isMissingNode(node);
+        const isModel = AutoModelAssigner.isModelNode(node);
+
+        if (isMissing || isModel) {
             items.push(
                 null,
                 {
                     content: isKo
-                        ? "🩺 [바다] 이 미싱 노드 진단 & 해결 (Workflow Doctor)"
-                        : "🩺 [Bada] Diagnose & Resolve this Missing Node",
+                        ? "🩺 [바다] 노드 스마트 케어"
+                        : "🩺 [Bada] Node Smart Care",
                     isAutoModelAssigner: true,
                     callback: () => AutoModelAssigner.runAutoAssign(node)
-                }
-            );
-        }
-
-        // 2. 모델/LoRA 관련 노드 우클릭 시: 단일 노드 모델 자동 장착
-        if (AutoModelAssigner.isModelNode(node)) {
-            items.push(
-                null,
-                {
-                    content: isKo ? "⚡ [바다] 이 노드 모델 자동 장착" : "⚡ [Bada] Auto-Assign Models for this Node",
-                    isAutoModelAssigner: true,
-                    callback: () => {
-                        AutoModelAssigner.runAutoAssign(node);
-                    }
                 }
             );
         }
@@ -1747,10 +1757,10 @@ app.registerExtension({
 
                 const isKo = (BadaI18n.lang === "ko");
                 const label = isKo
-                    ? "🩺 [바다] 워크플로우 종합 진단 & 자동 복구 (미싱 노드 + 모델/LoRA)"
-                    : "🩺 [Bada] Workflow Doctor & Auto-Assign (Missing Nodes + Models)";
+                    ? "🩺 [바다] 노드 스마트 케어"
+                    : "🩺 [Bada] Node Smart Care";
 
-                const exists = options.some(o => o && (o.isAutoModelAssigner || (typeof o.content === 'string' && (o.content.includes("종합 진단") || o.content.includes("Workflow Doctor")))));
+                const exists = options.some(o => o && (o.isAutoModelAssigner || (typeof o.content === 'string' && (o.content.includes("노드 스마트 케어") || o.content.includes("Node Smart Care") || o.content.includes("종합 진단")))));
                 if (!exists) {
                     options.push(null);
                     options.push({
@@ -1769,34 +1779,23 @@ app.registerExtension({
             const origGetNodeMenuOptions = LGraphCanvas.prototype.getNodeMenuOptions;
             LGraphCanvas.prototype.getNodeMenuOptions = function (node) {
                 const options = origGetNodeMenuOptions ? origGetNodeMenuOptions.apply(this, arguments) : [];
+                if (typeof isDetectiveEnabled === "function" && !isDetectiveEnabled()) return options;
                 const isKo = (BadaI18n.lang === "ko");
 
-                // 미싱 노드인 경우: 단일 미싱 노드 진단 & 해결 1개만 깔끔하게 추가
-                if (isMissingNode(node) && (typeof isDetectiveEnabled !== "function" || isDetectiveEnabled())) {
-                    const exists = options.some(o => o && (o.isAutoModelAssigner || (typeof o.content === "string" && (o.content.includes("이 미싱 노드") || o.content.includes("Workflow Doctor")))));
+                // Case 2, 3, 4: 미싱 노드이거나 모델 노드인 경우 단 1개의 메뉴만 추가
+                const isMissing = isMissingNode(node);
+                const isModel = AutoModelAssigner.isModelNode(node);
+
+                if (isMissing || isModel) {
+                    const exists = options.some(o => o && (o.isAutoModelAssigner || (typeof o.content === "string" && (o.content.includes("노드 스마트 케어") || o.content.includes("Node Smart Care")))));
                     if (!exists) {
                         options.push(null);
                         options.push({
                             content: isKo
-                                ? "🩺 [바다] 이 미싱 노드 진단 & 해결 (Workflow Doctor)"
-                                : "🩺 [Bada] Diagnose & Resolve this Missing Node",
+                                ? "🩺 [바다] 노드 스마트 케어"
+                                : "🩺 [Bada] Node Smart Care",
                             isAutoModelAssigner: true,
                             callback: () => AutoModelAssigner.runAutoAssign(node)
-                        });
-                    }
-                }
-
-                // 해당 노드가 모델 관련 위젯을 가지고 있는 경우
-                if (AutoModelAssigner.isModelNode(node)) {
-                    const exists = options.some(o => o && (o.isAutoModelAssigner || (typeof o.content === 'string' && o.content.includes("자동 장착"))));
-                    if (!exists) {
-                        options.push(null);
-                        options.push({
-                            content: isKo ? "⚡ [바다] 이 노드 모델 자동 장착" : "⚡ [Bada] Auto-Assign Models for this Node",
-                            isAutoModelAssigner: true,
-                            callback: () => {
-                                AutoModelAssigner.runAutoAssign(node);
-                            }
                         });
                     }
                 }
@@ -1815,10 +1814,12 @@ app.registerExtension({
                         v && (
                             v.isAutoModelAssigner === true || 
                             (typeof v.content === "string" && (
+                                v.content.includes("스마트 케어") || 
+                                v.content.includes("Smart Care") || 
                                 v.content.includes("자동 장착") || 
-                                v.content.includes("Auto-Assign") ||
-                                v.content.includes("종합 진단") ||
-                                v.content.includes("Workflow Doctor") ||
+                                v.content.includes("Auto-Assign") || 
+                                v.content.includes("종합 진단") || 
+                                v.content.includes("Workflow Doctor") || 
                                 v.content.includes("미싱 노드")
                             ))
                         )

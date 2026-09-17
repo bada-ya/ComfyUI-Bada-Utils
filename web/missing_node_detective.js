@@ -65,9 +65,8 @@ export function isMissingNode(node) {
         if (!inReg && !inDefs) return true;
     }
 
-    if (node.has_errors) {
-        return true;
-    }
+    // Note: Do NOT check node.has_errors here because installed nodes lacking model files
+    // (e.g. Load Diffusion Model) have node.has_errors=true, but they are NOT missing custom nodes.
 
     return false;
 }
