@@ -338,7 +338,7 @@ function setupAutoRecoveryObserver() {
         }
     };
 
-    // 1. MutationObserver watching DOM changes
+    // 1. Pure event-driven MutationObserver: Re-injects immediately when Vue re-renders or removes elements
     const observer = new MutationObserver(() => {
         if (debounceTimer) return;
         debounceTimer = requestAnimationFrame(() => {
@@ -349,12 +349,7 @@ function setupAutoRecoveryObserver() {
 
     observer.observe(document.body, { childList: true, subtree: true });
 
-    // 2. Resilient low-frequency heartbeat (every 2.5s)
-    setInterval(() => {
-        checkAndReinject();
-    }, 2500);
-
-    // 3. Listen to window focus/visibility changes
+    // 2. Lifecycle & UI event listeners (zero polling)
     window.addEventListener("focus", checkAndReinject);
     document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") checkAndReinject();
