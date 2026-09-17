@@ -488,7 +488,14 @@ class AutoModelAssigner {
      */
     static async runAutoAssign(targetNode = null) {
         const isKo = (BadaI18n.lang === "ko");
-        this.showToast(isKo ? "🔍 워크플로우 진단 중 (미싱 노드 & 모델)..." : "🔍 Scanning workflow (Missing Nodes & Models)...", "info");
+        const isSingleNode = !!targetNode;
+
+        if (isSingleNode) {
+            const nodeTitle = String(targetNode.title || targetNode.type || targetNode.comfyClass || `#${targetNode.id}`).trim();
+            this.showToast(isKo ? `🔍 노드 #${targetNode.id} [${nodeTitle}] 진단 중...` : `🔍 Scanning Node #${targetNode.id}...`, "info");
+        } else {
+            this.showToast(isKo ? "🔍 워크플로우 진단 중 (미싱 노드 & 모델)..." : "🔍 Scanning workflow (Missing Nodes & Models)...", "info");
+        }
 
         // 1. 대상 노드 목록 수집
         const nodesToScan = targetNode 
@@ -584,12 +591,16 @@ class AutoModelAssigner {
         }
 
         if (itemsToResolve.length === 0 && missingNodes.length === 0) {
-            this.showToast(isKo ? "캔버스에 해결할 미싱 노드나 모델/LoRA 슬롯이 없습니다." : "No missing nodes or model/LoRA slots found.", "info");
+            if (isSingleNode) {
+                this.showToast(isKo ? "선택한 노드에는 해결할 미싱 노드 문제나 모델/LoRA 슬롯이 없습니다." : "No missing node issues or model/LoRA slots found on this node.", "info");
+            } else {
+                this.showToast(isKo ? "캔버스에 해결할 미싱 노드나 모델/LoRA 슬롯이 없습니다." : "No missing nodes or model/LoRA slots found.", "info");
+            }
             return;
         }
 
         // 항상 모달 창을 띄워 사용자에게 미싱 노드와 모델 확인 및 제어권을 제공합니다.
-        this.showResolverModal(itemsToResolve, alreadyMatchedCount, missingCount, missingNodes);
+        this.showResolverModal(itemsToResolve, alreadyMatchedCount, missingCount, missingNodes, targetNode);
     }
 
     /**
@@ -735,7 +746,7 @@ class AutoModelAssigner {
     /**
      * 스마트 모델 매핑 모달 UI 렌더링
      */
-    static showResolverModal(items, alreadyMatchedCount, missingCount = 0, missingNodes = []) {
+    static showResolverModal(items, alreadyMatchedCount, missingCount = 0, missingNodes = [], targetNode = null) {
         // 기존 열린 모달 제거
         const existing = document.querySelector(".auto-assign-overlay");
         if (existing) existing.remove();
@@ -765,15 +776,36 @@ class AutoModelAssigner {
         modal.className = "auto-assign-modal";
 
         const isKo = BadaI18n.lang === "ko";
+        const isSingleNode = !!targetNode;
         const hasMissingNodes = (missingNodes && missingNodes.length > 0);
+        const hasModelItems = (items && items.length > 0);
 
-        // 1. 헤더
+        // 1. 헤더 (Header)
         const header = document.createElement("div");
         header.className = "auto-assign-header";
-        const headerIcon = hasMissingNodes ? "🩺" : "⚡";
-        const headerTitle = hasMissingNodes
-            ? (isKo ? "워크플로우 종합 진단 &amp; 스마트 자동 복구 (미싱 노드 + 모델/LoRA)" : "Workflow Doctor &amp; Auto-Assigner (Missing Nodes + Models)")
-            : (isKo ? "모델 / LoRA 스마트 자동 장착 &amp; 폴더 탐색기" : "Smart Model &amp; LoRA Assigner &amp; Folder Browser");
+
+        let headerIcon = "🩺";
+        let headerTitle = "";
+
+        if (isSingleNode) {
+            const nodeTitle = String(targetNode.title || targetNode.type || targetNode.comfyClass || `#${targetNode.id}`).trim();
+            if (isMissingNode(targetNode)) {
+                headerIcon = "🩺";
+                headerTitle = isKo 
+                    ? `미싱 노드 정밀 진단 &amp; 해결: #${targetNode.id} [${escapeHtml(nodeTitle)}]`
+                    : `Missing Node Doctor: #${targetNode.id} [${escapeHtml(nodeTitle)}]`;
+            } else {
+                headerIcon = "⚡";
+                headerTitle = isKo 
+                    ? `노드 모델 / LoRA 자동 장착: #${targetNode.id} [${escapeHtml(nodeTitle)}]`
+                    : `Auto-Assign Models &amp; LoRA: #${targetNode.id} [${escapeHtml(nodeTitle)}]`;
+            }
+        } else {
+            headerIcon = hasMissingNodes ? "🩺" : "⚡";
+            headerTitle = hasMissingNodes
+                ? (isKo ? "워크플로우 종합 진단 &amp; 스마트 자동 복구 (미싱 노드 + 모델/LoRA)" : "Workflow Doctor &amp; Auto-Assigner (Missing Nodes + Models)")
+                : (isKo ? "모델 / LoRA 스마트 자동 장착 &amp; 폴더 탐색기" : "Smart Model &amp; LoRA Assigner &amp; Folder Browser");
+        }
 
         header.innerHTML = `
             <div class="auto-assign-title">
@@ -806,10 +838,20 @@ class AutoModelAssigner {
         }
 
         let summaryText = "";
-        if (hasMissingNodes && missingCount > 0) {
+        if (isSingleNode) {
+            if (isMissingNode(targetNode)) {
+                summaryText = isKo
+                    ? `선택한 미싱 노드(#${targetNode.id})의 패키지 설치 정보 및 깃허브 저장소를 탐색하여 해결합니다.`
+                    : `Review package install info and GitHub repos to restore missing node #${targetNode.id}.`;
+            } else {
+                summaryText = isKo
+                    ? `선택한 노드(#${targetNode.id})의 모델 및 LoRA 위젯을 폴더 탐색기로 확인 및 자동 장착합니다.`
+                    : `Inspect and assign model / LoRA widgets for node #${targetNode.id}.`;
+            }
+        } else if (hasMissingNodes && missingCount > 0) {
             summaryText = isKo
-                ? "워크플로우에 미설치된 커스텀 노드와 누락된 모델이 모두 발견되었습니다. 아래에서 일괄 해결할 수 있습니다."
-                : "Uninstalled custom nodes and missing models detected. Resolve them in one place below.";
+                ? "워크플로우에 미설치된 커스텀 노드와 누락된 모델이 모두 발견되었습니다. 아래 탭에서 각각 확인 및 해결할 수 있습니다."
+                : "Uninstalled custom nodes and missing models detected. Review and resolve them via the tabs below.";
         } else if (hasMissingNodes) {
             summaryText = isKo
                 ? "설치되지 않은 커스텀 노드가 발견되었습니다. ComfyUI 매니저 원클릭 설치, 깃허브 검색 또는 상세 분석으로 해결하세요."
@@ -831,9 +873,70 @@ class AutoModelAssigner {
             </div>
         `;
 
-        // 3. 바디 리스트
+        // 3. 탭 바 (미싱 노드와 모델 슬롯이 둘 다 존재하고 단일 노드가 아닐 때 탭 제공)
+        const showTabs = (!isSingleNode && hasMissingNodes && hasModelItems);
+        const tabsBar = document.createElement("div");
+        tabsBar.className = "doctor-tabs-container";
+
+        if (showTabs) {
+            tabsBar.innerHTML = `
+                <button type="button" class="doctor-tab-btn active" data-tab="missing">
+                    <span class="tab-icon">🧩</span>
+                    <span class="tab-label">${isKo ? "미설치 미싱 노드" : "Missing Nodes"}</span>
+                    <span class="doctor-tab-badge">${missingNodes.length}</span>
+                </button>
+                <button type="button" class="doctor-tab-btn" data-tab="models">
+                    <span class="tab-icon">📦</span>
+                    <span class="tab-label">${isKo ? "모델 &amp; LoRA 자동 장착" : "Models &amp; LoRA"}</span>
+                    <span class="doctor-tab-badge">${items.length}</span>
+                </button>
+                <button type="button" class="doctor-tab-btn" data-tab="all">
+                    <span class="tab-icon">🌐</span>
+                    <span class="tab-label">${isKo ? "전체 보기" : "View All"}</span>
+                    <span class="doctor-tab-badge">${missingNodes.length + items.length}</span>
+                </button>
+            `;
+        }
+
+        // 4. 바디 및 탭별 섹션 컨테이너
         const body = document.createElement("div");
         body.className = "auto-assign-body";
+
+        const sectionMissing = document.createElement("div");
+        sectionMissing.className = "doctor-tab-section doctor-tab-section-missing";
+
+        const sectionModels = document.createElement("div");
+        sectionModels.className = "doctor-tab-section doctor-tab-section-models";
+
+        // 탭 전환 동작
+        const switchTab = (tabName) => {
+            tabsBar.querySelectorAll(".doctor-tab-btn").forEach(btn => {
+                btn.classList.toggle("active", btn.dataset.tab === tabName);
+            });
+
+            if (tabName === "missing") {
+                sectionMissing.style.display = "flex";
+                sectionModels.style.display = "none";
+            } else if (tabName === "models") {
+                sectionMissing.style.display = "none";
+                sectionModels.style.display = "flex";
+            } else { // "all"
+                sectionMissing.style.display = "flex";
+                sectionModels.style.display = "flex";
+            }
+            body.scrollTop = 0;
+        };
+
+        if (showTabs) {
+            tabsBar.querySelectorAll(".doctor-tab-btn").forEach(btn => {
+                btn.onclick = () => switchTab(btn.dataset.tab);
+            });
+            // 초기 탭: 미설치 미싱 노드가 기본 활성화
+            switchTab("missing");
+        } else {
+            sectionMissing.style.display = hasMissingNodes ? "flex" : "none";
+            sectionModels.style.display = hasModelItems ? "flex" : "none";
+        }
 
         // ══════════════════════════════════════════════════════════════
         // [A] 미설치 미싱 노드 해결사 섹션 (Missing Nodes Doctor)
@@ -850,7 +953,7 @@ class AutoModelAssigner {
                     ${isKo ? "현재 워크플로우에 설치되지 않은 커스텀 노드가 감지되었습니다. 6단계 통합 엔진을 통해 일치하는 ComfyUI 매니저 패키지 및 깃허브 저장소를 자동 탐색합니다." : "Detected uninstalled custom nodes. Our 6-tier engine searches ComfyUI Manager and GitHub to help you restore them."}
                 </div>
             `;
-            body.appendChild(banner);
+            sectionMissing.appendChild(banner);
 
             missingNodes.forEach((node) => {
                 const realType = String(node.type || node.last_serialization?.type || "Unknown").trim();
@@ -1040,7 +1143,7 @@ class AutoModelAssigner {
                     console.warn("[WorkflowDoctor] Lookup error for node", nodeId, err);
                 });
 
-                body.appendChild(card);
+                sectionMissing.appendChild(card);
             });
         }
 
@@ -1051,7 +1154,6 @@ class AutoModelAssigner {
             if (hasMissingNodes) {
                 const modelBanner = document.createElement("div");
                 modelBanner.className = "doctor-section-banner models-banner";
-                modelBanner.style.marginTop = "20px";
                 modelBanner.innerHTML = `
                     <div class="doctor-section-title">
                         <span class="icon">📦</span>
@@ -1061,7 +1163,7 @@ class AutoModelAssigner {
                         ${isKo ? "체크포인트, UNET, LoRA, VAE 등 누락된 모델을 내 PC 보유 파일과 비교하여 장착하거나 변경할 수 있습니다." : "Inspect and assign Checkpoints, UNETs, LoRAs, and VAEs with your local model folders."}
                     </div>
                 `;
-                body.appendChild(modelBanner);
+                sectionModels.appendChild(modelBanner);
             }
 
         items.forEach((item, index) => {
@@ -1223,8 +1325,9 @@ class AutoModelAssigner {
                             }
                             parent = parent.parentElement;
                         }
-                        // 스크롤 포커스 (중앙 정렬)
-                        row.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+                        // 스크롤 포커스 (중앙 정렬 - 모달 body 스크롤에 영향을 주지 않도록 트리 컨테이너 내부만 스크롤)
+                        const targetTop = row.offsetTop - (treeContainer.clientHeight / 2);
+                        treeContainer.scrollTo({ top: Math.max(0, targetTop), behavior: "smooth" });
                     }
                 });
 
@@ -1311,8 +1414,15 @@ class AutoModelAssigner {
                 card.classList.add("skipped");
             }
 
-            body.appendChild(card);
+            sectionModels.appendChild(card);
         });
+        }
+
+        if (hasMissingNodes) {
+            body.appendChild(sectionMissing);
+        }
+        if (hasModelItems) {
+            body.appendChild(sectionModels);
         }
 
         // 4. 푸터
@@ -1384,6 +1494,9 @@ class AutoModelAssigner {
 
         modal.appendChild(header);
         modal.appendChild(summary);
+        if (showTabs) {
+            modal.appendChild(tabsBar);
+        }
         modal.appendChild(body);
         modal.appendChild(footer);
         overlay.appendChild(modal);
@@ -1391,15 +1504,19 @@ class AutoModelAssigner {
 
         requestAnimationFrame(() => {
             overlay.classList.add("visible");
-            // 🌟 모달이 화면에 열리는 즉시 각 트리의 선택된 파일이 중앙에 보이도록 자동 스크롤
+            // 🌟 모달이 화면에 열릴 때 항상 맨 위(scrollTop = 0)로 강제 설정
+            body.scrollTop = 0;
+
             setTimeout(() => {
                 overlay.querySelectorAll(".auto-assign-tree-container").forEach(container => {
                     const selectedRow = container.querySelector(".tree-file-row.selected");
                     if (selectedRow) {
-                        selectedRow.scrollIntoView({ block: "center", inline: "nearest" });
+                        const targetTop = selectedRow.offsetTop - (container.clientHeight / 2);
+                        container.scrollTop = Math.max(0, targetTop);
                     }
                 });
-            }, 80);
+                body.scrollTop = 0;
+            }, 50);
         });
     }
 
@@ -1479,42 +1596,17 @@ app.registerExtension({
         const isKo = (BadaI18n.lang === "ko");
         const items = [];
 
-        // 1. 미싱 노드(빨간 X) 우클릭 시: 탐정 및 해결사 액션 세트 제공
+        // 1. 미싱 노드(빨간 X) 우클릭 시: 단일 미싱 노드 진단 & 해결 1개만 깔끔하게 제공 (과도한 메뉴 제거)
         if (isMissingNode(node) && (typeof isDetectiveEnabled !== "function" || isDetectiveEnabled())) {
-            const realType = String(node.type || node.last_serialization?.type || node.comfyClass || "Unknown").trim();
-            const exactPhrase = `"${realType.replace(/"/g, '')}"`;
-
             items.push(
                 null,
                 {
-                    content: isKo ? "🕵️ [바다 탐정] 미싱 노드 분석 & 깃허브 찾기..." : "🕵️ [Bada] Inspect & Find GitHub Repo...",
-                    callback: () => showMissingNodeModal(node)
-                },
-                {
-                    content: isKo ? `📋 [바다] 진짜 노드 이름 복사: ${realType}` : `📋 [Bada] Copy Real Type: ${realType}`,
-                    callback: () => copyToClipboard(realType, isKo ? "진짜 노드 이름이 복사되었습니다!" : "Real node class type copied!")
-                },
-                {
-                    content: isKo ? "🐙 [바다] GitHub에서 이 노드 코드 검색" : "🐙 [Bada] Search Node on GitHub",
-                    callback: () => {
-                        const ghUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}+language:Python&type=code`;
-                        window.open(ghUrl, "_blank");
-                    }
-                },
-                {
-                    content: isKo ? "🔍 [바다] Google에서 설치법 검색" : "🔍 [Bada] Search on Google",
-                    callback: () => {
-                        const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(exactPhrase + ' ComfyUI')}`;
-                        window.open(googleUrl, "_blank");
-                    }
-                },
-                {
                     content: isKo
-                        ? "🩺 [바다] 워크플로우 종합 진단 열기 (미싱 노드 + 모델)"
-                        : "🩺 [Bada] Open Workflow Doctor (Missing Nodes + Models)",
-                    callback: () => AutoModelAssigner.runAutoAssign(null)
-                },
-                null
+                        ? "🩺 [바다] 이 미싱 노드 진단 & 해결 (Workflow Doctor)"
+                        : "🩺 [Bada] Diagnose & Resolve this Missing Node",
+                    isAutoModelAssigner: true,
+                    callback: () => AutoModelAssigner.runAutoAssign(node)
+                }
             );
         }
 
@@ -1577,40 +1669,17 @@ app.registerExtension({
                 const options = origGetNodeMenuOptions ? origGetNodeMenuOptions.apply(this, arguments) : [];
                 const isKo = (BadaI18n.lang === "ko");
 
-                // 미싱 노드인 경우
+                // 미싱 노드인 경우: 단일 미싱 노드 진단 & 해결 1개만 깔끔하게 추가
                 if (isMissingNode(node) && (typeof isDetectiveEnabled !== "function" || isDetectiveEnabled())) {
-                    const exists = options.some(o => o && typeof o.content === "string" && (o.content.includes("바다 탐정") || o.content.includes("Inspect & Find")));
+                    const exists = options.some(o => o && (o.isAutoModelAssigner || (typeof o.content === "string" && (o.content.includes("이 미싱 노드") || o.content.includes("Workflow Doctor")))));
                     if (!exists) {
-                        const realType = String(node.type || node.last_serialization?.type || node.comfyClass || "Unknown").trim();
-                        const exactPhrase = `"${realType.replace(/"/g, '')}"`;
                         options.push(null);
                         options.push({
-                            content: isKo ? "🕵️ [바다 탐정] 미싱 노드 분석 & 깃허브 찾기..." : "🕵️ [Bada] Inspect & Find GitHub Repo...",
-                            callback: () => showMissingNodeModal(node)
-                        });
-                        options.push({
-                            content: isKo ? `📋 [바다] 진짜 노드 이름 복사: ${realType}` : `📋 [Bada] Copy Real Type: ${realType}`,
-                            callback: () => copyToClipboard(realType, isKo ? "진짜 노드 이름이 복사되었습니다!" : "Real node class type copied!")
-                        });
-                        options.push({
-                            content: isKo ? "🐙 [바다] GitHub에서 이 노드 코드 검색" : "🐙 [Bada] Search Node on GitHub",
-                            callback: () => {
-                                const ghUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}+language:Python&type=code`;
-                                window.open(ghUrl, "_blank");
-                            }
-                        });
-                        options.push({
-                            content: isKo ? "🔍 [바다] Google에서 설치법 검색" : "🔍 [Bada] Search on Google",
-                            callback: () => {
-                                const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(exactPhrase + ' ComfyUI')}`;
-                                window.open(googleUrl, "_blank");
-                            }
-                        });
-                        options.push({
                             content: isKo
-                                ? "🩺 [바다] 워크플로우 종합 진단 열기 (미싱 노드 + 모델)"
-                                : "🩺 [Bada] Open Workflow Doctor (Missing Nodes + Models)",
-                            callback: () => AutoModelAssigner.runAutoAssign(null)
+                                ? "🩺 [바다] 이 미싱 노드 진단 & 해결 (Workflow Doctor)"
+                                : "🩺 [Bada] Diagnose & Resolve this Missing Node",
+                            isAutoModelAssigner: true,
+                            callback: () => AutoModelAssigner.runAutoAssign(node)
                         });
                     }
                 }
@@ -1647,7 +1716,8 @@ app.registerExtension({
                                 v.content.includes("자동 장착") || 
                                 v.content.includes("Auto-Assign") ||
                                 v.content.includes("종합 진단") ||
-                                v.content.includes("Workflow Doctor")
+                                v.content.includes("Workflow Doctor") ||
+                                v.content.includes("미싱 노드")
                             ))
                         )
                     );
