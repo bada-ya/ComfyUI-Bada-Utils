@@ -338,8 +338,31 @@ function setupAutoRecoveryObserver() {
         }
     };
 
-    // 1. Pure event-driven MutationObserver: Re-injects immediately when Vue re-renders or removes elements
-    const observer = new MutationObserver(() => {
+    // 1. Pure event-driven MutationObserver with high-performance fast-path filter
+    // Ignores all canvas, node operations, logs, and queue events.
+    // Wakes up ONLY when our pill or the top-bar header is actually touched.
+    const observer = new MutationObserver((mutations) => {
+        let isRelevant = false;
+        for (let i = 0; i < mutations.length; i++) {
+            const m = mutations[i];
+            // Check if our pill was directly removed
+            if (m.target?.id === "bada-dual-manager-pill") {
+                isRelevant = true;
+                break;
+            }
+            // Check if removed nodes contain our pill or top-bar anchor
+            for (let j = 0; j < m.removedNodes.length; j++) {
+                const node = m.removedNodes[j];
+                if (node.id === "bada-dual-manager-pill" || (node.querySelector && (node.querySelector("#bada-dual-manager-pill") || node.querySelector('[data-testid*="extension"]')))) {
+                    isRelevant = true;
+                    break;
+                }
+            }
+            if (isRelevant) break;
+        }
+
+        if (!isRelevant) return;
+
         if (debounceTimer) return;
         debounceTimer = requestAnimationFrame(() => {
             debounceTimer = null;
