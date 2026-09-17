@@ -719,17 +719,19 @@ app.registerExtension({
                     BadaI18n.setLanguage(target, false);
                     applyBilingualSettingsUI(target);
                     app.graph?.setDirtyCanvas?.(true, true);
+                    updateDualManagerVisibility();
                 }
             }
         });
 
-        // Auto-refresh presets inline panel and settings DOM when language switches
+        // Auto-refresh presets inline panel, settings DOM, and dual manager when language switches
         BadaI18n.subscribe((lang) => {
             const existingPanel = document.getElementById("bada-inline-presets-panel");
             if (existingPanel) {
                 existingPanel.replaceWith(buildInlinePresetsPanel());
             }
             applyBilingualSettingsUI(lang);
+            updateDualManagerVisibility();
         });
 
         // ② Sidebar Workflow Folder Management
