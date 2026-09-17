@@ -26,11 +26,18 @@ document.head.appendChild(link);
 
 const SETTING_ID = "BadaUtils.MissingNodeDetective";
 
-function isDetectiveEnabled() {
+export function isDetectiveEnabled() {
     try {
         if (app?.ui?.settings) {
             const val = app.ui.settings.getSettingValue(SETTING_ID);
             if (typeof val === "boolean") return val;
+        }
+    } catch (_) {}
+    try {
+        const local = localStorage.getItem("Comfy.Settings.BadaUtils.MissingNodeDetective");
+        if (local !== null) {
+            const parsed = JSON.parse(local);
+            if (typeof parsed === "boolean") return parsed;
         }
     } catch (_) {}
     return true;
@@ -43,14 +50,22 @@ export function isMissingNode(node) {
     if (!node) return false;
     if (node.is_missing || (node.flags && node.flags.missing)) return true;
 
-    const reg = window.LiteGraph?.registered_node_types;
-    if (reg) {
-        const type = node.type || node.last_serialization?.type;
-        if (type && !reg[type]) return true;
+    const reg = window.LiteGraph?.registered_node_types
+        || window.LGraphCanvas?.registered_node_types
+        || (typeof LiteGraph !== "undefined" ? LiteGraph.registered_node_types : null);
+
+    const type = node.type || node.last_serialization?.type;
+
+    if (type && reg) {
+        if (!reg[type]) return true;
     }
 
-    if (node.has_errors && node.last_serialization) return true;
-    if (node.has_errors && (!node.type || (reg && !reg[node.type]))) return true;
+    if (node.has_errors) {
+        if (!type || !reg || !reg[type] || node.last_serialization) return true;
+    }
+
+    if (type === "MissingNode" || node.constructor?.name === "MissingNode") return true;
+
     return false;
 }
 
@@ -891,32 +906,6 @@ export function hookLGraphNodePrototypes() {
             enumerable: true
         });
     }
-
-    if (!window._badaDetectiveBadgeHooked) {
-        window._badaDetectiveBadgeHooked = true;
-
-        const origOnDrawForeground = NodeClass.prototype.onDrawForeground;
-        NodeClass.prototype.onDrawForeground = function (ctx) {
-            if (origOnDrawForeground) {
-                origOnDrawForeground.apply(this, arguments);
-            }
-            drawDetectiveBadge(this, ctx);
-        };
-    }
-
-    // 4. Hook LGraphCanvas.prototype.drawNode (Guaranteed to draw even if instance onDrawForeground was shadowed or clipped)
-    const CanvasClass = window.LGraphCanvas || window.LiteGraph?.LGraphCanvas || app.canvas?.constructor;
-    if (CanvasClass && CanvasClass.prototype && !CanvasClass.prototype._badaDetectiveDrawNodeHooked) {
-        CanvasClass.prototype._badaDetectiveDrawNodeHooked = true;
-        const origDrawNode = CanvasClass.prototype.drawNode;
-        CanvasClass.prototype.drawNode = function (node, ctx) {
-            const res = origDrawNode.apply(this, arguments);
-            try {
-                drawDetectiveBadge(node, ctx);
-            } catch (_) {}
-            return res;
-        };
-    }
 }
 
 export function drawDetectiveBadge(node, ctx) {
@@ -1009,12 +998,17 @@ export function drawDetectiveBadge(node, ctx) {
 // Run immediately if LiteGraph is already loaded
 hookLGraphNodePrototypes();
 
+// Global export for unified badge system & modals
+window.__BADA_SHOW_MISSING_MODAL__ = showMissingNodeModal;
+window.__BADA_IS_MISSING_NODE__ = isMissingNode;
+window.__BADA_IS_DETECTIVE_ENABLED__ = isDetectiveEnabled;
+
 // ══════════════════════════════════════════════════════════════════════════════
 //  Extension Registration
 // ══════════════════════════════════════════════════════════════════════════════
 
 app.registerExtension({
-    name: "BadaUtils.MissingNodeDetective",
+    name: "BadaUtils.Detective",
 
     async setup() {
         console.log("[ComfyUI-Bada-Utils] 🕵️ Missing Node Detective (미싱 노드 탐정) Active!");
@@ -1022,70 +1016,6 @@ app.registerExtension({
         try {
             app.graph?.setDirtyCanvas?.(true, true);
         } catch (_) {}
-
-        let _moveRaf = 0;
-        const handleCanvasPointerMove = (e) => {
-            if (!isDetectiveEnabled()) return;
-            if (_moveRaf) return;
-            const clientX = e.clientX;
-            const clientY = e.clientY;
-            _moveRaf = requestAnimationFrame(() => {
-                _moveRaf = 0;
-                const canvasEl = app.canvas?.canvas || document.querySelector("canvas#graph-canvas, canvas");
-                if (!canvasEl) return;
-
-                const node = findDetectiveBadgeAtPos(clientX, clientY);
-                if (node) {
-                    canvasEl.style.cursor = "pointer";
-                } else if (canvasEl.style.cursor === "pointer") {
-                    canvasEl.style.cursor = "default";
-                }
-            });
-        };
-
-        const handleCanvasPointerDown = (e) => {
-            if (e.button !== 0) return; // Left-click only
-            if (!isDetectiveEnabled()) return;
-
-            const node = findDetectiveBadgeAtPos(e);
-            if (node) {
-                e.preventDefault();
-                e.stopPropagation();
-                if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-                const canvasEl = app.canvas?.canvas || document.querySelector("canvas#graph-canvas, canvas");
-                if (canvasEl) canvasEl.style.cursor = "default";
-                showMissingNodeModal(node);
-            }
-        };
-
-        const handleCanvasClick = (e) => {
-            if (e.button !== 0) return;
-            if (findDetectiveBadgeAtPos(e)) {
-                e.preventDefault();
-                e.stopPropagation();
-                if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-            }
-        };
-
-        // Attach listeners directly to canvas element ONLY (No window interception!)
-        const bindCanvasEvents = () => {
-            const canvasEl = app.canvas?.canvas || document.querySelector("canvas#graph-canvas, canvas");
-            if (!canvasEl) return false;
-
-            if (canvasEl._badaDetectiveBound) return true;
-            canvasEl._badaDetectiveBound = true;
-
-            canvasEl.addEventListener("pointermove", handleCanvasPointerMove, { passive: true });
-            canvasEl.addEventListener("pointerdown", handleCanvasPointerDown, { capture: true });
-            canvasEl.addEventListener("click", handleCanvasClick, { capture: true });
-            return true;
-        };
-
-        if (!bindCanvasEvents()) {
-            setTimeout(bindCanvasEvents, 300);
-            setTimeout(bindCanvasEvents, 800);
-            setTimeout(bindCanvasEvents, 2000);
-        }
     },
 
     /**
@@ -1130,32 +1060,8 @@ app.registerExtension({
         options.unshift(...detectiveItems);
     },
 
-    async nodeCreated(node) {
-        if (node) {
-            const origFg = node.onDrawForeground;
-            node.onDrawForeground = function (ctx) {
-                const res = origFg?.apply(this, arguments);
-                drawDetectiveBadge(this, ctx);
-                return res;
-            };
-        }
-    },
-
     afterConfigureGraph() {
         hookLGraphNodePrototypes();
-        if (app.graph?._nodes) {
-            for (const n of app.graph._nodes) {
-                if (isMissingNode(n) && !n._badaDetectiveFgHooked) {
-                    n._badaDetectiveFgHooked = true;
-                    const origFg = n.onDrawForeground;
-                    n.onDrawForeground = function (ctx) {
-                        const res = origFg?.apply(this, arguments);
-                        drawDetectiveBadge(this, ctx);
-                        return res;
-                    };
-                }
-            }
-        }
         try {
             app.graph?.setDirtyCanvas?.(true, true);
         } catch (_) {}
