@@ -1,6 +1,14 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { BadaI18n } from "./bada_i18n.js";
+import {
+    isMissingNode,
+    lookupMissingNodeInfo,
+    installCustomNode,
+    openComfyUiManager,
+    copyToClipboard,
+    showMissingNodeModal
+} from "./missing_node_detective.js";
 
 // CSS 스타일시트 동적 로드
 const link = document.createElement("link");
@@ -475,18 +483,22 @@ class AutoModelAssigner {
     }
 
     /**
-     * 자동 장착 메인 실행 함수 (targetNode가 null이면 전체 워크플로우 대상)
+     * 자동 장착 및 워크플로우 진단 메인 실행 함수 (targetNode가 null이면 전체 워크플로우 대상)
      */
     static async runAutoAssign(targetNode = null) {
-        this.showToast("🔍 모델 및 LoRA 슬롯 분석 중...", "info");
+        const isKo = (BadaI18n.lang === "ko");
+        this.showToast(isKo ? "🔍 워크플로우 진단 중 (미싱 노드 & 모델)..." : "🔍 Scanning workflow (Missing Nodes & Models)...", "info");
 
-        // 1. 로컬 모델 목록 로드
-        let localModels = await this.fetchLocalModels();
-
-        // 2. 대상 노드 목록 수집
+        // 1. 대상 노드 목록 수집
         const nodesToScan = targetNode 
             ? [targetNode] 
             : (app.graph?._nodes || []);
+
+        // 2. 미설치 미싱 노드 수집
+        const missingNodes = nodesToScan.filter(n => isMissingNode(n));
+
+        // 3. 로컬 모델 목록 로드
+        let localModels = await this.fetchLocalModels();
 
         const itemsToResolve = [];
         let totalChecked = 0;
@@ -494,6 +506,9 @@ class AutoModelAssigner {
         let missingCount = 0;
 
         for (const node of nodesToScan) {
+            // 미싱 노드는 자체 커스텀 노드 카드로 표시하므로 위젯 분석에서 건너뜀
+            if (isMissingNode(node)) continue;
+
             const slots = this.extractModelSlots(node, localModels);
             totalChecked += slots.length;
 
@@ -567,13 +582,13 @@ class AutoModelAssigner {
             }
         }
 
-        if (totalChecked === 0 || itemsToResolve.length === 0) {
-            this.showToast("캔버스에 감지 가능한 모델 또는 LoRA 슬롯이 없습니다.", "warning");
+        if (itemsToResolve.length === 0 && missingNodes.length === 0) {
+            this.showToast(isKo ? "캔버스에 해결할 미싱 노드나 모델/LoRA 슬롯이 없습니다." : "No missing nodes or model/LoRA slots found.", "info");
             return;
         }
 
-        // 항상 모달 창을 띄워 사용자에게 모델 확인 및 재장착 제어권을 제공합니다.
-        this.showResolverModal(itemsToResolve, alreadyMatchedCount, missingCount);
+        // 항상 모달 창을 띄워 사용자에게 미싱 노드와 모델 확인 및 제어권을 제공합니다.
+        this.showResolverModal(itemsToResolve, alreadyMatchedCount, missingCount, missingNodes);
     }
 
     /**
@@ -719,7 +734,7 @@ class AutoModelAssigner {
     /**
      * 스마트 모델 매핑 모달 UI 렌더링
      */
-    static showResolverModal(items, alreadyMatchedCount, missingCount = 0) {
+    static showResolverModal(items, alreadyMatchedCount, missingCount = 0, missingNodes = []) {
         // 기존 열린 모달 제거
         const existing = document.querySelector(".auto-assign-overlay");
         if (existing) existing.remove();
@@ -749,14 +764,20 @@ class AutoModelAssigner {
         modal.className = "auto-assign-modal";
 
         const isKo = BadaI18n.lang === "ko";
+        const hasMissingNodes = (missingNodes && missingNodes.length > 0);
 
         // 1. 헤더
         const header = document.createElement("div");
         header.className = "auto-assign-header";
+        const headerIcon = hasMissingNodes ? "🩺" : "⚡";
+        const headerTitle = hasMissingNodes
+            ? (isKo ? "워크플로우 종합 진단 &amp; 스마트 자동 복구 (미싱 노드 + 모델/LoRA)" : "Workflow Doctor &amp; Auto-Assigner (Missing Nodes + Models)")
+            : (isKo ? "모델 / LoRA 스마트 자동 장착 &amp; 폴더 탐색기" : "Smart Model &amp; LoRA Assigner &amp; Folder Browser");
+
         header.innerHTML = `
             <div class="auto-assign-title">
-                <span class="icon">⚡</span>
-                <span>${isKo ? "모델 / LoRA 스마트 자동 장착 &amp; 폴더 탐색기" : "Smart Model &amp; LoRA Assigner &amp; Folder Browser"}</span>
+                <span class="icon">${headerIcon}</span>
+                <span>${headerTitle}</span>
             </div>
             <button class="auto-assign-close-btn" title="${isKo ? '닫기' : 'Close'}">✕</button>
         `;
@@ -766,32 +787,281 @@ class AutoModelAssigner {
         const summary = document.createElement("div");
         summary.className = "auto-assign-summary";
         
-        let summaryBadgeHtml = "";
-        let summaryText = "";
+        let summaryBadgesHtml = "";
+        if (hasMissingNodes) {
+            summaryBadgesHtml += isKo
+                ? `<span class="badge" style="background: rgba(244, 63, 94, 0.22); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.5);">🧩 미설치 미싱 노드 ${missingNodes.length}개 발견</span>`
+                : `<span class="badge" style="background: rgba(244, 63, 94, 0.22); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.5);">🧩 ${missingNodes.length} Missing Nodes Found</span>`;
+        }
+
         if (missingCount > 0) {
+            summaryBadgesHtml += isKo
+                ? `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);">⚠️ 모델 ${missingCount}개 누락됨 / 총 ${items.length}개 슬롯</span>`
+                : `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);">⚠️ ${missingCount} Models Missing / Total ${items.length} Slots</span>`;
+        } else if (items.length > 0) {
+            summaryBadgesHtml += isKo
+                ? `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4);">✅ 모델 ${items.length}개 정상</span>`
+                : `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4);">✅ All ${items.length} Models Loaded</span>`;
+        }
+
+        let summaryText = "";
+        if (hasMissingNodes && missingCount > 0) {
+            summaryText = isKo
+                ? "워크플로우에 미설치된 커스텀 노드와 누락된 모델이 모두 발견되었습니다. 아래에서 일괄 해결할 수 있습니다."
+                : "Uninstalled custom nodes and missing models detected. Resolve them in one place below.";
+        } else if (hasMissingNodes) {
+            summaryText = isKo
+                ? "설치되지 않은 커스텀 노드가 발견되었습니다. ComfyUI 매니저 원클릭 설치, 깃허브 검색 또는 상세 분석으로 해결하세요."
+                : "Uninstalled custom nodes detected. Install via Manager or search GitHub.";
+        } else if (missingCount > 0) {
             summaryText = isKo 
                 ? "누락된 모델을 내 PC 폴더 탐색기로 확인 및 장착하거나, 원하는 모델로 즉시 변경할 수 있습니다."
                 : "Review and assign missing models with local PC folder explorer, or switch to your desired model.";
-            summaryBadgeHtml = isKo
-                ? `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);">⚠️ ${missingCount}개 누락됨 / 총 ${items.length}개 노드</span>`
-                : `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);">⚠️ ${missingCount} Missing / Total ${items.length} Nodes</span>`;
         } else {
             summaryText = isKo
                 ? "모든 모델이 정상 장착되어 있습니다. 폴더 트리에서 모델을 확인하거나 다른 모델로 교체할 수 있습니다."
                 : "All models are properly loaded. You can browse or replace models from the folder tree.";
-            summaryBadgeHtml = isKo
-                ? `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4);">✅ 전체 ${items.length}개 정상 장착됨</span>`
-                : `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4);">✅ All ${items.length} Models Loaded</span>`;
         }
 
         summary.innerHTML = `
             <span>${summaryText}</span>
-            ${summaryBadgeHtml}
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                ${summaryBadgesHtml}
+            </div>
         `;
 
         // 3. 바디 리스트
         const body = document.createElement("div");
         body.className = "auto-assign-body";
+
+        // ══════════════════════════════════════════════════════════════
+        // [A] 미설치 미싱 노드 해결사 섹션 (Missing Nodes Doctor)
+        // ══════════════════════════════════════════════════════════════
+        if (hasMissingNodes) {
+            const banner = document.createElement("div");
+            banner.className = "doctor-section-banner missing-nodes-banner";
+            banner.innerHTML = `
+                <div class="doctor-section-title">
+                    <span class="icon">🧩</span>
+                    <span>${isKo ? "미설치 미싱 노드 해결사" : "Missing Nodes Doctor"} (${missingNodes.length})</span>
+                </div>
+                <div class="doctor-section-hint">
+                    ${isKo ? "현재 워크플로우에 설치되지 않은 커스텀 노드가 감지되었습니다. 6단계 통합 엔진을 통해 일치하는 ComfyUI 매니저 패키지 및 깃허브 저장소를 자동 탐색합니다." : "Detected uninstalled custom nodes. Our 6-tier engine searches ComfyUI Manager and GitHub to help you restore them."}
+                </div>
+            `;
+            body.appendChild(banner);
+
+            missingNodes.forEach((node) => {
+                const realType = String(node.type || node.last_serialization?.type || "Unknown").trim();
+                const displayTitle = String(node.title || realType).trim();
+                const nodeId = node.id != null ? String(node.id) : "?";
+
+                const card = document.createElement("div");
+                card.className = "auto-assign-missing-node-card";
+                card.innerHTML = `
+                    <div class="missing-node-header">
+                        <div class="missing-node-title-group">
+                            <span class="missing-node-title">#${nodeId} ${escapeHtml(displayTitle)}</span>
+                            <span class="missing-type-pill" title="Real Class Type">${escapeHtml(realType)}</span>
+                        </div>
+                        <button type="button" class="doctor-btn doctor-btn-copy" id="btn-copy-${nodeId}">📋 ${isKo ? "타입명 복사" : "Copy Type"}</button>
+                    </div>
+                    <div class="doctor-lookup-box" id="lookup-box-${nodeId}">
+                        <div class="doctor-lookup-loading">
+                            <span class="spin">⏳</span>
+                            <span>${isKo ? "매니저 공식 패키지 &amp; 깃허브 저장소 자동 탐색 중..." : "Searching ComfyUI Manager &amp; GitHub databases..."}</span>
+                        </div>
+                    </div>
+                `;
+
+                card.querySelector(`#btn-copy-${nodeId}`)?.addEventListener("click", () => {
+                    copyToClipboard(realType, isKo ? "진짜 노드 이름(Type)이 복사되었습니다!" : "Real node class type copied!");
+                });
+
+                // 비동기 매칭 조회
+                lookupMissingNodeInfo(realType, displayTitle).then((data) => {
+                    const lookupBox = card.querySelector(`#lookup-box-${nodeId}`);
+                    if (!lookupBox) return;
+
+                    if (data && data.found && data.repo) {
+                        const repoUrl = data.repo;
+                        const packTitle = data.title || realType;
+                        const authorStr = data.author ? `<span class="author">by ${escapeHtml(data.author)}</span>` : "";
+                        const descStr = data.description ? `<div class="doctor-repo-desc">${escapeHtml(data.description)}</div>` : "";
+
+                        lookupBox.innerHTML = `
+                            <div class="doctor-repo-card found">
+                                <div class="doctor-repo-header">
+                                    <span class="status-dot green">🟢</span>
+                                    <span class="status-text">${isKo ? "ComfyUI 매니저 공식 등록 노드 확인!" : "Registered ComfyUI Manager Node!"}</span>
+                                    <span class="doctor-priority-badge">${isKo ? "1순위: 매니저 설치 권장" : "Recommended: Manager"}</span>
+                                </div>
+                                <div class="doctor-repo-info">
+                                    <div class="doctor-repo-name">📦 ${escapeHtml(packTitle)} ${authorStr}</div>
+                                    <a href="${escapeHtml(repoUrl)}" target="_blank" rel="noopener noreferrer" class="doctor-repo-url">${escapeHtml(repoUrl)}</a>
+                                    ${descStr}
+                                </div>
+                                <div class="doctor-actions">
+                                    <button type="button" class="doctor-btn doctor-btn-install" id="btn-install-${nodeId}">
+                                        <span>📦</span>
+                                        <span>${isKo ? "ComfyUI 매니저로 설치 (원클릭)" : "Install via Manager"}</span>
+                                    </button>
+                                    <button type="button" class="doctor-btn doctor-btn-mgr" id="btn-mgr-${nodeId}">
+                                        <span>🔍</span>
+                                        <span>${isKo ? "매니저 창에서 보기" : "Open in Manager"}</span>
+                                    </button>
+                                    <a href="${escapeHtml(repoUrl)}" target="_blank" rel="noopener noreferrer" class="doctor-btn doctor-btn-gh">
+                                        <span>🐙</span>
+                                        <span>${isKo ? "GitHub 저장소" : "GitHub Repo"}</span>
+                                    </a>
+                                    <button type="button" class="doctor-btn doctor-btn-inspect" id="btn-inspect-${nodeId}">
+                                        <span>🕵️</span>
+                                        <span>${isKo ? "상세 분석" : "Deep Inspect"}</span>
+                                    </button>
+                                </div>
+                                <div class="doctor-install-status" id="install-status-${nodeId}" style="display: none;"></div>
+                            </div>
+                        `;
+
+                        // 1. 원클릭 설치 버튼
+                        const installBtn = lookupBox.querySelector(`#btn-install-${nodeId}`);
+                        const statusBox = lookupBox.querySelector(`#install-status-${nodeId}`);
+
+                        installBtn?.addEventListener("click", async () => {
+                            if (!confirm(isKo 
+                                ? `📦 [ComfyUI 매니저 연동 설치]\n\n'${packTitle}' 커스텀 노드를 ComfyUI에 설치하시겠습니까?\n\n저장소: ${repoUrl}` 
+                                : `Install '${packTitle}' into ComfyUI custom_nodes?\n\nRepo: ${repoUrl}`)) {
+                                return;
+                            }
+
+                            installBtn.disabled = true;
+                            installBtn.innerHTML = `<span>⏳</span><span>${isKo ? "설치 진행 중..." : "Installing..."}</span>`;
+
+                            statusBox.style.display = "flex";
+                            statusBox.innerHTML = `
+                                <div style="color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+                                    <span class="spin">⏳</span>
+                                    <span>${isKo ? "저장소를 다운로드하고 requirements.txt 패키지를 설치 중입니다..." : "Downloading repository and installing dependencies..."}</span>
+                                </div>
+                            `;
+
+                            try {
+                                const result = await installCustomNode(repoUrl, packTitle);
+                                if (result.success) {
+                                    installBtn.style.display = "none";
+                                    statusBox.innerHTML = `
+                                        <div style="color: #34d399; font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
+                                            <span>✅</span>
+                                            <span>${isKo ? `'${packTitle}' 설치 완료!` : `'${packTitle}' installed successfully!`}</span>
+                                        </div>
+                                        <div style="color: #cbd5e1; font-size: 0.82rem; line-height: 1.4;">
+                                            ${isKo ? "ComfyUI를 재시작하시면 이 노드가 즉시 활성화됩니다." : "Restart ComfyUI to load and use the newly installed node."}
+                                        </div>
+                                        <div style="margin-top: 4px;">
+                                            <button type="button" class="doctor-btn-restart" id="btn-restart-${nodeId}">
+                                                <span>🔄</span>
+                                                <span>${isKo ? "ComfyUI 지금 재시작" : "Restart ComfyUI Now"}</span>
+                                            </button>
+                                        </div>
+                                    `;
+
+                                    statusBox.querySelector(`#btn-restart-${nodeId}`)?.addEventListener("click", async () => {
+                                        this.showToast(isKo ? "🔄 ComfyUI 서버 재시작 중... 잠시 후 새로고침 됩니다." : "Restarting ComfyUI...", "info");
+                                        try {
+                                            await api.fetchApi("/api/bada/terminal/restart", { method: "POST" });
+                                        } catch (_) {}
+                                        setTimeout(() => window.location.reload(), 3500);
+                                    });
+                                } else {
+                                    installBtn.disabled = false;
+                                    installBtn.innerHTML = `<span>📦</span><span>${isKo ? "매니저로 다시 시도" : "Retry Install"}</span>`;
+                                    statusBox.innerHTML = `
+                                        <div style="color: #f87171; font-weight: 700;">❌ ${isKo ? "설치 실패" : "Installation Failed"}</div>
+                                        <div style="color: #94a3b8; font-size: 0.8rem; word-break: break-all;">${result.error || "Unknown error"}</div>
+                                    `;
+                                }
+                            } catch (err) {
+                                installBtn.disabled = false;
+                                installBtn.innerHTML = `<span>📦</span><span>${isKo ? "매니저로 다시 시도" : "Retry Install"}</span>`;
+                                statusBox.innerHTML = `<div style="color: #f87171;">❌ ${err.message}</div>`;
+                            }
+                        });
+
+                        // 2. 매니저 창에서 보기 버튼
+                        lookupBox.querySelector(`#btn-mgr-${nodeId}`)?.addEventListener("click", () => {
+                            const mgrSearchTerm = data.search_term || packTitle;
+                            openComfyUiManager(mgrSearchTerm);
+                        });
+
+                        // 3. 상세 분석 버튼
+                        lookupBox.querySelector(`#btn-inspect-${nodeId}`)?.addEventListener("click", () => {
+                            showMissingNodeModal(node);
+                        });
+                    } else {
+                        // ComfyUI 매니저 미등록 노드
+                        const exactPhrase = `"${realType.replace(/"/g, '')}"`;
+                        const ghCodeSearchUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}+language:Python&type=code`;
+                        const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(exactPhrase + ' ComfyUI')}`;
+                        const registrySearchUrl = `https://registry.comfy.org/search?q=${encodeURIComponent(realType)}`;
+
+                        lookupBox.innerHTML = `
+                            <div class="doctor-repo-card not-found">
+                                <div class="doctor-repo-header">
+                                    <span class="status-dot yellow">🟡</span>
+                                    <span class="status-text">${isKo ? "매니저 공식 미등록 노드 (깃허브 코드 &amp; 구글 검색)" : "Not in Manager Registry (Search GitHub / Google)"}</span>
+                                </div>
+                                <div class="doctor-actions">
+                                    <a href="${ghCodeSearchUrl}" target="_blank" rel="noopener noreferrer" class="doctor-btn doctor-btn-gh">
+                                        <span>🐙</span>
+                                        <span>${isKo ? "GitHub 코드 검색" : "Search Code on GitHub"}</span>
+                                    </a>
+                                    <a href="${googleSearchUrl}" target="_blank" rel="noopener noreferrer" class="doctor-btn doctor-btn-google">
+                                        <span>🔍</span>
+                                        <span>${isKo ? "Google 검색" : "Google Search"}</span>
+                                    </a>
+                                    <a href="${registrySearchUrl}" target="_blank" rel="noopener noreferrer" class="doctor-btn doctor-btn-registry">
+                                        <span>🌐</span>
+                                        <span>Comfy Registry</span>
+                                    </a>
+                                    <button type="button" class="doctor-btn doctor-btn-inspect" id="btn-inspect-${nodeId}">
+                                        <span>🕵️</span>
+                                        <span>${isKo ? "상세 분석" : "Deep Inspect"}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+
+                        lookupBox.querySelector(`#btn-inspect-${nodeId}`)?.addEventListener("click", () => {
+                            showMissingNodeModal(node);
+                        });
+                    }
+                }).catch((err) => {
+                    console.warn("[WorkflowDoctor] Lookup error for node", nodeId, err);
+                });
+
+                body.appendChild(card);
+            });
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // [B] 모델 및 LoRA 스마트 자동 장착 섹션
+        // ══════════════════════════════════════════════════════════════
+        if (items.length > 0) {
+            if (hasMissingNodes) {
+                const modelBanner = document.createElement("div");
+                modelBanner.className = "doctor-section-banner models-banner";
+                modelBanner.style.marginTop = "20px";
+                modelBanner.innerHTML = `
+                    <div class="doctor-section-title">
+                        <span class="icon">📦</span>
+                        <span>${isKo ? "모델 및 LoRA 스마트 자동 장착 &amp; 폴더 탐색기" : "Model &amp; LoRA Smart Assigner &amp; Folder Browser"} (${items.length})</span>
+                    </div>
+                    <div class="doctor-section-hint">
+                        ${isKo ? "체크포인트, UNET, LoRA, VAE 등 누락된 모델을 내 PC 보유 파일과 비교하여 장착하거나 변경할 수 있습니다." : "Inspect and assign Checkpoints, UNETs, LoRAs, and VAEs with your local model folders."}
+                    </div>
+                `;
+                body.appendChild(modelBanner);
+            }
 
         items.forEach((item, index) => {
             const card = document.createElement("div");
@@ -1055,6 +1325,15 @@ class AutoModelAssigner {
                 <button class="auto-assign-btn auto-assign-btn-primary" id="btn-apply">${isKo ? "⚡ 선택한 모델 장착 / 확인" : "⚡ Apply Selected Models"}</button>
             </div>
         `;
+
+        if (items.length === 0) {
+            const applyBtn = footer.querySelector("#btn-apply");
+            if (applyBtn) applyBtn.style.display = "none";
+            const footerLeft = footer.querySelector(".auto-assign-footer-left");
+            if (footerLeft) {
+                footerLeft.innerHTML = `<span>${isKo ? "※ 미설치 노드를 설치한 후 ComfyUI를 재시작해 주세요." : "※ Please restart ComfyUI after installing custom nodes."}</span>`;
+            }
+        }
 
         footer.querySelector("#btn-cancel").onclick = () => closeOverlay();
         footer.querySelector("#btn-apply").onclick = () => {

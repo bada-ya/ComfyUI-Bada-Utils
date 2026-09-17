@@ -806,3 +806,323 @@
         transform: translateY(0) scale(1);
     }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   🩺 Workflow Doctor - Missing Nodes Section Styles
+   ══════════════════════════════════════════════════════════════ */
+
+.doctor-section-banner {
+    padding: 12px 18px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.doctor-section-banner.missing-nodes-banner {
+    background: linear-gradient(135deg, rgba(244, 63, 94, 0.12) 0%, rgba(139, 92, 246, 0.08) 100%);
+    border: 1px solid rgba(244, 63, 94, 0.35);
+    box-shadow: 0 4px 20px rgba(244, 63, 94, 0.1);
+}
+
+.doctor-section-banner.models-banner {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(56, 189, 248, 0.08) 100%);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    box-shadow: 0 4px 20px rgba(99, 102, 241, 0.1);
+}
+
+.doctor-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: -0.02em;
+}
+
+.doctor-section-title .icon {
+    font-size: 1.3rem;
+}
+
+.doctor-section-hint {
+    font-size: 0.88rem;
+    color: #94a3b8;
+    line-height: 1.4;
+}
+
+/* 개별 미싱 노드 카드 */
+.auto-assign-missing-node-card {
+    background: #1a1d27;
+    border: 1.5px solid rgba(244, 63, 94, 0.4);
+    border-left: 5px solid #f43f5e;
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: all 0.2s ease;
+}
+
+.auto-assign-missing-node-card:hover {
+    border-color: rgba(244, 63, 94, 0.7);
+    box-shadow: 0 6px 20px rgba(244, 63, 94, 0.15);
+}
+
+.missing-node-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.missing-node-title-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.missing-node-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #f8fafc;
+}
+
+.missing-type-pill {
+    background: rgba(244, 63, 94, 0.18);
+    color: #fda4af;
+    border: 1px solid rgba(244, 63, 94, 0.4);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.85rem;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 600;
+}
+
+.doctor-lookup-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #38bdf8;
+    font-size: 0.88rem;
+    padding: 8px 12px;
+    background: rgba(56, 189, 248, 0.08);
+    border-radius: 8px;
+    border: 1px dashed rgba(56, 189, 248, 0.3);
+}
+
+.doctor-lookup-loading .spin {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.doctor-repo-card {
+    background: #14161f;
+    border: 1px solid #2e3440;
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.doctor-repo-card.found {
+    border-color: rgba(52, 211, 153, 0.4);
+    background: rgba(52, 211, 153, 0.04);
+}
+
+.doctor-repo-card.not-found {
+    border-color: rgba(251, 191, 36, 0.35);
+    background: rgba(251, 191, 36, 0.04);
+}
+
+.doctor-repo-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.92rem;
+    font-weight: 700;
+}
+
+.doctor-repo-header .status-text {
+    color: #f1f5f9;
+}
+
+.doctor-priority-badge {
+    margin-left: auto;
+    font-size: 0.76rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    background: rgba(52, 211, 153, 0.18);
+    color: #6ee7b7;
+    border: 1px solid rgba(52, 211, 153, 0.4);
+}
+
+.doctor-repo-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.doctor-repo-name {
+    font-size: 0.98rem;
+    font-weight: 700;
+    color: #38bdf8;
+}
+
+.doctor-repo-name .author {
+    color: #34d399;
+    font-size: 0.85rem;
+    font-weight: normal;
+    margin-left: 6px;
+}
+
+.doctor-repo-url {
+    font-size: 0.84rem;
+    color: #a5b4fc;
+    text-decoration: none;
+    word-break: break-all;
+}
+
+.doctor-repo-url:hover {
+    color: #818cf8;
+    text-decoration: underline;
+}
+
+.doctor-repo-desc {
+    font-size: 0.82rem;
+    color: #94a3b8;
+    line-height: 1.35;
+}
+
+.doctor-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
+.doctor-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 0.84rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+}
+
+.doctor-btn-install {
+    background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+    border-color: #34d399;
+}
+
+.doctor-btn-install:hover {
+    background: linear-gradient(135deg, #047857 0%, #059669 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(16, 185, 129, 0.5);
+}
+
+.doctor-btn-mgr,
+.doctor-btn-gh {
+    background: #252a37;
+    color: #cbd5e1;
+    border-color: #3e4758;
+}
+
+.doctor-btn-mgr:hover,
+.doctor-btn-gh:hover {
+    background: #33394a;
+    color: #ffffff;
+    border-color: #6366f1;
+    transform: translateY(-1px);
+}
+
+.doctor-btn-google,
+.doctor-btn-registry {
+    background: #202430;
+    color: #94a3b8;
+    border-color: #333a4a;
+}
+
+.doctor-btn-google:hover,
+.doctor-btn-registry:hover {
+    background: #2a3040;
+    color: #e2e8f0;
+    border-color: #38bdf8;
+}
+
+.doctor-btn-inspect {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(56, 189, 248, 0.2) 100%);
+    color: #c4b5fd;
+    border-color: rgba(139, 92, 246, 0.5);
+}
+
+.doctor-btn-inspect:hover {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.4) 0%, rgba(56, 189, 248, 0.35) 100%);
+    color: #ffffff;
+    border-color: #a78bfa;
+    transform: translateY(-1px);
+}
+
+.doctor-btn-copy {
+    background: #272c3a;
+    color: #cbd5e1;
+    border: 1px solid #3e4758;
+    padding: 3px 10px;
+    font-size: 0.78rem;
+}
+
+.doctor-btn-copy:hover {
+    background: #3a4256;
+    color: #ffffff;
+    border-color: #38bdf8;
+}
+
+.doctor-install-status {
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid #3b4252;
+    font-size: 0.84rem;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.doctor-btn-restart {
+    background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+    color: #ffffff;
+    border: 1px solid #60a5fa;
+    padding: 6px 16px;
+    border-radius: 8px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+}
+
+.doctor-btn-restart:hover {
+    background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+    transform: translateY(-1px);
+}
+

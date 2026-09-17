@@ -70,25 +70,107 @@ export function isMissingNode(node) {
 }
 
 /**
- * Badge Dimensions & Placement (Bottom-Right Dock under Node)
+ * Resolves a missing node's exact GitHub repo and package metadata
+ * using Bada's 6-Tier lookup backend + client-side ComfyUI Manager mappings fallback.
  */
-const BADGE_WIDTH = 175;
-const BADGE_HEIGHT = 24;
+export async function lookupMissingNodeInfo(realType, displayTitle = "") {
+    let data = null;
 
-export function getDetectiveBadgeRect(node) {
-    if (!node || !node.size) return null;
-    return {
-        x: Math.max(10, node.size[0] - BADGE_WIDTH - 8),
-        y: node.size[1] + 6,
-        w: BADGE_WIDTH,
-        h: BADGE_HEIGHT
-    };
+    // Step 1: Query Bada Backend 6-Tier Lookup Engine
+    try {
+        const queryUrl = `/api/bada/missing-node/lookup?type=${encodeURIComponent(realType)}&title=${encodeURIComponent(displayTitle)}`;
+        const resp = await api.fetchApi(queryUrl);
+        if (resp.ok) {
+            const resJson = await resp.json();
+            if (resJson.found && resJson.repo) {
+                data = resJson;
+            }
+        }
+    } catch (e) {
+        console.debug("[Bada-Detective] Backend lookup exception:", e);
+    }
+
+    // Step 2: Client-Side Dual-Layer Fallback (Direct ComfyUI Manager Mappings)
+    if (!data) {
+        try {
+            if (!window._badaManagerMappingsPromise) {
+                window._badaManagerMappingsPromise = api.fetchApi("/v2/customnode/getmappings?mode=local")
+                    .then(r => r.ok ? r.json() : null)
+                    .catch(() => null);
+            }
+            const mappings = await window._badaManagerMappingsPromise;
+            if (mappings) {
+                const clean = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+                const targetClean = clean(realType);
+                const targetCleanTitle = clean(displayTitle);
+
+                for (const repoKey in mappings) {
+                    const packInfo = mappings[repoKey];
+                    const nodeList = packInfo[0] || [];
+                    const meta = packInfo[1] || {};
+
+                    const isHit = nodeList.some(n => {
+                        const c = clean(n);
+                        return c === targetClean || (targetCleanTitle && c === targetCleanTitle);
+                    });
+
+                    if (isHit) {
+                        let finalRepo = repoKey;
+                        if (!finalRepo.startsWith("http")) {
+                            const cn = window.CustomNodesManager?.instance?.custom_nodes;
+                            if (cn) {
+                                for (const k in cn) {
+                                    if (cn[k].title === meta.title_aux || k === repoKey || cn[k].reference === repoKey) {
+                                        finalRepo = cn[k].files?.[0] || cn[k].repository || finalRepo;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (!finalRepo.startsWith("http")) {
+                            finalRepo = `https://github.com/${repoKey}`;
+                        }
+
+                        data = {
+                            found: true,
+                            repo: finalRepo,
+                            title: meta.title_aux || repoKey.split("/").pop(),
+                            author: meta.author || "",
+                            description: meta.description || "",
+                            search_term: meta.title_aux || repoKey.split("/").pop()
+                        };
+                        break;
+                    }
+                }
+            }
+        } catch (err) {
+            console.debug("[Bada-Detective] Client manager mapping fallback exception:", err);
+        }
+    }
+
+    return data;
+}
+
+/**
+ * Installs a custom node via Bada Terminal Hub / ComfyUI Manager backend.
+ */
+export async function installCustomNode(repoUrl, packTitle) {
+    try {
+        const resp = await api.fetchApi("/api/bada/customnode/install", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ repo: repoUrl, title: packTitle })
+        });
+        return await resp.json();
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
 }
 
 /**
  * Copies text to system clipboard with visual feedback.
  */
-function copyToClipboard(text, successMsg = "클립보드에 복사되었습니다!") {
+export function copyToClipboard(text, successMsg = "클립보드에 복사되었습니다!") {
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(() => {
             showToast(`📋 ${successMsg}`);
@@ -161,7 +243,7 @@ function showToast(msg) {
  * Opens ComfyUI Manager Window (supporting both Modern v4 New Manager and Legacy UI)
  * and automatically sets the search keyword.
  */
-function openComfyUiManager(searchTerm = "") {
+export function openComfyUiManager(searchTerm = "") {
     let opened = false;
 
     // 0. Direct dialog instances (if available)
@@ -408,79 +490,7 @@ export async function showMissingNodeModal(node) {
     // 2. Perform Deep Lookup (1. Bada Multi-Tier Engine -> 2. Client-side Manager Mapping Fallback)
     try {
         const repoSection = modal.querySelector("#bada-det-repo-section");
-        let data = null;
-
-        // Step 1: Query Bada Backend 6-Tier Lookup Engine
-        try {
-            const queryUrl = `/api/bada/missing-node/lookup?type=${encodeURIComponent(realType)}&title=${encodeURIComponent(displayTitle)}`;
-            const resp = await api.fetchApi(queryUrl);
-            if (resp.ok) {
-                const resJson = await resp.json();
-                if (resJson.found && resJson.repo) {
-                    data = resJson;
-                }
-            }
-        } catch (e) {
-            console.debug("[Bada-Detective] Backend lookup exception:", e);
-        }
-
-        // Step 2: Client-Side Dual-Layer Fallback (Direct ComfyUI Manager Mappings)
-        if (!data) {
-            try {
-                if (!window._badaManagerMappingsPromise) {
-                    window._badaManagerMappingsPromise = api.fetchApi("/v2/customnode/getmappings?mode=local")
-                        .then(r => r.ok ? r.json() : null)
-                        .catch(() => null);
-                }
-                const mappings = await window._badaManagerMappingsPromise;
-                if (mappings) {
-                    const clean = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-                    const targetClean = clean(realType);
-                    const targetCleanTitle = clean(displayTitle);
-
-                    for (const repoKey in mappings) {
-                        const packInfo = mappings[repoKey];
-                        const nodeList = packInfo[0] || [];
-                        const meta = packInfo[1] || {};
-
-                        const isHit = nodeList.some(n => {
-                            const c = clean(n);
-                            return c === targetClean || (targetCleanTitle && c === targetCleanTitle);
-                        });
-
-                        if (isHit) {
-                            let finalRepo = repoKey;
-                            if (!finalRepo.startsWith("http")) {
-                                const cn = window.CustomNodesManager?.instance?.custom_nodes;
-                                if (cn) {
-                                    for (const k in cn) {
-                                        if (cn[k].title === meta.title_aux || k === repoKey || cn[k].reference === repoKey) {
-                                            finalRepo = cn[k].files?.[0] || cn[k].repository || finalRepo;
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                            if (!finalRepo.startsWith("http")) {
-                                finalRepo = `https://github.com/${repoKey}`;
-                            }
-
-                            data = {
-                                found: true,
-                                repo: finalRepo,
-                                title: meta.title_aux || repoKey.split("/").pop(),
-                                author: meta.author || "",
-                                description: meta.description || "",
-                                search_term: meta.title_aux || repoKey.split("/").pop()
-                            };
-                            break;
-                        }
-                    }
-                }
-            } catch (err) {
-                console.debug("[Bada-Detective] Client manager mapping fallback exception:", err);
-            }
-        }
+        const data = await lookupMissingNodeInfo(realType, displayTitle);
 
         // ══════════════════════════════════════════════════════════════
         //  1순위: ComfyUI 매니저 공식 등록 노드 발견!
@@ -587,12 +597,7 @@ export async function showMissingNodeModal(node) {
                 `;
 
                 try {
-                    const resp = await api.fetchApi("/api/bada/customnode/install", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ repo: repoUrl, title: packTitle })
-                    });
-                    const result = await resp.json();
+                    const result = await installCustomNode(repoUrl, packTitle);
 
                     if (result.success) {
                         installBtn.style.display = "none";
@@ -904,94 +909,49 @@ export function hookLGraphNodePrototypes() {
             configurable: true,
             enumerable: true
         });
+        // 4. For missing Label (rgthree), render its label text gracefully without any badges
+        const origDrawFg = NodeClass.prototype.onDrawForeground;
+        NodeClass.prototype.onDrawForeground = function (ctx) {
+            if (origDrawFg) origDrawFg.apply(this, arguments);
+            if (isMissingNode(this) && (this.type === "Label (rgthree)" || this.last_serialization?.type === "Label (rgthree)")) {
+                const fontSize = Number(this.properties?.fontSize) || 28;
+                const fontFamily = this.properties?.fontFamily || "Arial";
+                const fontColor = this.properties?.fontColor || "#ffffff";
+                const textAlign = this.properties?.textAlign || "left";
+                const angleDeg = parseInt(String(this.properties?.angle || 0)) || 0;
+                const padding = Number(this.properties?.padding) || 0;
+
+                ctx.save();
+                if (angleDeg) {
+                    const cx = this.size[0] / 2;
+                    const cy = this.size[1] / 2;
+                    ctx.translate(cx, cy);
+                    ctx.rotate((angleDeg * Math.PI) / 180);
+                    ctx.translate(-cx, -cy);
+                }
+
+                ctx.font = `${Math.max(fontSize, 12)}px ${fontFamily}, sans-serif`;
+                ctx.fillStyle = fontColor;
+                ctx.textAlign = textAlign;
+                ctx.textBaseline = "top";
+                ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
+                ctx.shadowBlur = 4;
+
+                let textX = padding;
+                if (textAlign === "center") textX = this.size[0] / 2;
+                else if (textAlign === "right") textX = this.size[0] - padding;
+
+                const text = (this.title || "").replace(/\\n/g, "\n").replace(/\n*$/, "");
+                const lines = text.split("\n");
+                let currentY = padding;
+                for (let i = 0; i < lines.length; i++) {
+                    ctx.fillText(lines[i] || " ", textX, currentY);
+                    currentY += fontSize;
+                }
+                ctx.restore();
+            }
+        };
     }
-}
-
-export function drawDetectiveBadge(node, ctx) {
-    if (!ctx || !node || !isDetectiveEnabled() || !isMissingNode(node)) return;
-
-    // Per-frame draw guard (ensure drawn only once per node per render pass)
-    const frameId = app.canvas?.frame || Date.now();
-    if (node._lastDetectiveFrame === frameId) return;
-    node._lastDetectiveFrame = frameId;
-
-    // If missing Label (rgthree), render its label text gracefully with author's font settings
-    const isRgthreeLabel = (node.type === "Label (rgthree)" || node.last_serialization?.type === "Label (rgthree)");
-    if (isRgthreeLabel) {
-        const fontSize = Number(node.properties?.fontSize) || 28;
-        const fontFamily = node.properties?.fontFamily || "Arial";
-        const fontColor = node.properties?.fontColor || "#ffffff";
-        const textAlign = node.properties?.textAlign || "left";
-        const angleDeg = parseInt(String(node.properties?.angle || 0)) || 0;
-        const padding = Number(node.properties?.padding) || 0;
-
-        ctx.save();
-        if (angleDeg) {
-            const cx = node.size[0] / 2;
-            const cy = node.size[1] / 2;
-            ctx.translate(cx, cy);
-            ctx.rotate((angleDeg * Math.PI) / 180);
-            ctx.translate(-cx, -cy);
-        }
-
-        ctx.font = `${Math.max(fontSize, 12)}px ${fontFamily}, sans-serif`;
-        ctx.fillStyle = fontColor;
-        ctx.textAlign = textAlign;
-        ctx.textBaseline = "top";
-        ctx.shadowColor = "rgba(0, 0, 0, 0.85)";
-        ctx.shadowBlur = 4;
-
-        let textX = padding;
-        if (textAlign === "center") textX = node.size[0] / 2;
-        else if (textAlign === "right") textX = node.size[0] - padding;
-
-        const text = (node.title || "").replace(/\\n/g, "\n").replace(/\n*$/, "");
-        const lines = text.split("\n");
-        let currentY = padding;
-        for (let i = 0; i < lines.length; i++) {
-            ctx.fillText(lines[i] || " ", textX, currentY);
-            currentY += fontSize;
-        }
-        ctx.restore();
-    }
-
-    const b = getDetectiveBadgeRect(node);
-    if (!b) return;
-
-    ctx.save();
-    ctx.beginPath();
-    if (ctx.roundRect) {
-        ctx.roundRect(b.x, b.y, b.w, b.h, 6);
-    } else {
-        ctx.rect(b.x, b.y, b.w, b.h);
-    }
-
-    // High-visibility glowing neon gradient (Pink-Red to Indigo to Electric Cyan)
-    const grad = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h);
-    grad.addColorStop(0, "#f43f5e");
-    grad.addColorStop(0.5, "#8b5cf6");
-    grad.addColorStop(1, "#06b6d4");
-    ctx.fillStyle = grad;
-
-    ctx.shadowColor = "rgba(0, 240, 255, 0.85)";
-    ctx.shadowBlur = 10;
-    ctx.fill();
-
-    // Crisp outline
-    ctx.lineWidth = 1.3;
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-    ctx.stroke();
-
-    // Centered Bold White Text
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 11px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const label = BadaI18n.lang === "ko" ? "🕵️ [바다] 깃허브/노드 찾기" : "🕵️ [Bada] Find Node Repo";
-    ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2);
-
-    ctx.restore();
 }
 
 // Run immediately if LiteGraph is already loaded

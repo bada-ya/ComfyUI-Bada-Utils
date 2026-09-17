@@ -14,7 +14,6 @@ import { initModal, showPresetModal, closeModal, showToast } from "./presets_mod
 import { hubPresetsStore } from "./hub_node.js";
 import { showHubManageModal } from "./hub_modal.js";
 import { BadaI18n } from "./bada_i18n.js";
-import { isMissingNode, isDetectiveEnabled, showMissingNodeModal } from "./missing_node_detective.js";
 
 const STORAGE_KEY = "ComfyUI_Universal_Smart_Presets_v1";
 
@@ -292,44 +291,40 @@ export function getBadgesForNode(node) {
         return null;
     }
 
-    const missing = isMissingNode(node);
-    const detectiveActive = missing && isDetectiveEnabled();
-    const presetsActive = arePresetBadgesEnabled();
+    if (!arePresetBadgesEnabled()) return null;
 
     let globalCount = 0;
     let hubCount = 0;
     let targetHubNode = null;
 
-    if (!missing && presetsActive) {
-        const presets = getPresetsForNode(node);
-        globalCount = Object.keys(presets).length;
+    const presets = getPresetsForNode(node);
+    globalCount = Object.keys(presets).length;
 
-        // Calculate how many Unique Universal Presets on the current canvas contain this specific node
-        const hubNodes = (app.graph?._nodes || []).filter(
-            (n) => n.type === "UniversalPresetHub" || n.comfyClass === "UniversalPresetHub" || n.type === "BadaPresetHub" || n.comfyClass === "BadaPresetHub"
-        );
+    // Calculate how many Unique Universal Presets on the current canvas contain this specific node
+    const hubNodes = (app.graph?._nodes || []).filter(
+        (n) => n.type === "UniversalPresetHub" || n.comfyClass === "UniversalPresetHub" || n.type === "BadaPresetHub" || n.comfyClass === "BadaPresetHub"
+    );
 
-        if (hubNodes.length > 0) {
-            const uniquePresets = {};
-            for (const hNode of hubNodes) {
-                const hubPresets = hNode.properties?.hub_presets || {};
-                for (const [pName, pData] of Object.entries(hubPresets)) {
-                    if (!uniquePresets[pName] && pData) {
-                        uniquePresets[pName] = pData;
-                    }
+    if (hubNodes.length > 0) {
+        const uniquePresets = {};
+        for (const hNode of hubNodes) {
+            const hubPresets = hNode.properties?.hub_presets || {};
+            for (const [pName, pData] of Object.entries(hubPresets)) {
+                if (!uniquePresets[pName] && pData) {
+                    uniquePresets[pName] = pData;
                 }
-                if (!targetHubNode) targetHubNode = hNode;
             }
+            if (!targetHubNode) targetHubNode = hNode;
+        }
 
-            for (const p of Object.values(uniquePresets)) {
-                if ((p.targets || []).some((t) => t.id === node.id)) {
-                    hubCount++;
-                }
+        for (const p of Object.values(uniquePresets)) {
+            if ((p.targets || []).some((t) => t.id === node.id)) {
+                hubCount++;
             }
         }
     }
 
-    if (!detectiveActive && globalCount === 0 && hubCount === 0) return null;
+    if (globalCount === 0 && hubCount === 0) return null;
 
     const titleH = (typeof LiteGraph !== "undefined" && LiteGraph.NODE_TITLE_HEIGHT) ? LiteGraph.NODE_TITLE_HEIGHT : 30;
     const tabHeight = 18;
@@ -350,14 +345,6 @@ export function getBadgesForNode(node) {
 
     let curX = 10;
     const result = {};
-
-    // 1. Missing Node Detective Badge (Roof Dock for Maximum Visibility)
-    if (detectiveActive) {
-        const w = BadaI18n.lang === "ko" ? 168 : 152;
-        const detY = (posSetting === "bottom_inside") ? (nodeH - tabHeight - 4) : (-titleH - 18);
-        result.detective = { x: curX, y: detY, w: w, h: tabHeight + 2, node: node };
-        curX += w + 6;
-    }
 
     // 2. Global Presets Badge
     if (globalCount > 0) {
@@ -419,40 +406,7 @@ function drawRoofBadges(node, ctx) {
 
     ctx.save();
 
-    // 1. Missing Node Detective Badge (Glowing Neon Gradient)
-    if (badges.detective) {
-        const b = badges.detective;
-        ctx.beginPath();
-        if (ctx.roundRect) {
-            ctx.roundRect(b.x, b.y, b.w, b.h, 5);
-        } else {
-            ctx.rect(b.x, b.y, b.w, b.h);
-        }
-
-        const grad = ctx.createLinearGradient(b.x, b.y, b.x + b.w, b.y + b.h);
-        grad.addColorStop(0, "#f43f5e");
-        grad.addColorStop(0.5, "#8b5cf6");
-        grad.addColorStop(1, "#06b6d4");
-        ctx.fillStyle = grad;
-
-        ctx.shadowColor = "rgba(0, 240, 255, 0.85)";
-        ctx.shadowBlur = 8;
-        ctx.fill();
-
-        ctx.lineWidth = 1.3;
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-        ctx.stroke();
-
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 10.5px sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        const label = BadaI18n.lang === "ko" ? "🕵️ [바다] 깃허브/노드 찾기" : "🕵️ [Bada] Find Node Repo";
-        ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2);
-    }
-
-    // 2. Global Badge (Purple)
+    // 1. Global Badge (Purple)
     if (badges.global && arePresetBadgesEnabled()) {
         const b = badges.global;
         ctx.beginPath();
@@ -567,22 +521,6 @@ function findBadgeAtScreenPos(clientX, clientY) {
         const badges = getBadgesForNode(n);
         if (!badges) continue;
 
-        // Check detective badge
-        if (badges.detective) {
-            const b = badges.detective;
-            const sx = (n.pos[0] + b.x + offset[0]) * scale + rect.left;
-            const sy = (n.pos[1] + b.y + offset[1]) * scale + rect.top;
-            const sw = b.w * scale;
-            const sh = b.h * scale;
-
-            if (clientX >= sx - 6 && clientX <= sx + sw + 6 && clientY >= sy - 6 && clientY <= sy + sh + 6) {
-                return {
-                    type: "detective",
-                    node: n,
-                };
-            }
-        }
-
         // Check global badge
         if (badges.global && arePresetBadgesEnabled()) {
             const b = badges.global;
@@ -628,18 +566,7 @@ function handleCanvasPointerMove(e) {
         if (app.canvas?.canvas) {
             app.canvas.canvas.style.cursor = "pointer";
         }
-        if (badgeInfo.type === "detective") {
-            const realType = String(badgeInfo.node.type || badgeInfo.node.last_serialization?.type || "Unknown").trim();
-            const isKo = (BadaI18n.lang === "ko");
-            showTooltip(
-                e.clientX + 14,
-                e.clientY + 14,
-                isKo ? "🕵️ 미싱 노드 탐정 & 깃허브 찾기" : "🕵️ Missing Node Detective",
-                isKo ? `진짜 노드: <b style='color:#38bdf8;'>${escapeHtml(realType)}</b><br>원클릭 깃허브 저장소 검색 & 복구` : `Real Type: <b style='color:#38bdf8;'>${escapeHtml(realType)}</b><br>Search & install repo`,
-                isKo ? "클릭하여 탐정 실행" : "Click to inspect & install",
-                "purple"
-            );
-        } else if (badgeInfo.type === "global") {
+        if (badgeInfo.type === "global") {
             const title = badgeInfo.node.title || badgeInfo.node.type;
             showTooltip(
                 e.clientX + 14,
@@ -677,10 +604,7 @@ function handleCanvasPointerDown(e) {
         if (e.stopImmediatePropagation) e.stopImmediatePropagation();
         hideTooltip();
 
-        if (badgeInfo.type === "detective") {
-            showMissingNodeModal(badgeInfo.node);
-            return false;
-        } else if (badgeInfo.type === "global") {
+        if (badgeInfo.type === "global") {
             showPresetModal(badgeInfo.node);
         } else {
             const hubNode = badgeInfo.hubNode || (app.graph?._nodes || []).find(n => n.type === "UniversalPresetHub" || n.comfyClass === "UniversalPresetHub" || n.type === "BadaPresetHub" || n.comfyClass === "BadaPresetHub");
@@ -802,45 +726,6 @@ app.registerExtension({
                 const options = origGetNodeMenuOptions ? origGetNodeMenuOptions.apply(this, arguments) : [];
                 if (!node || node.type === "UniversalPresetHub" || node.comfyClass === "UniversalPresetHub" || node.type === "BadaPresetHub" || node.comfyClass === "BadaPresetHub") return options;
 
-                if (isMissingNode(node) && isDetectiveEnabled()) {
-                    const isKo = (BadaI18n.lang === "ko");
-                    const realType = String(node.type || node.last_serialization?.type || "Unknown").trim();
-                    const exactPhrase = `"${realType.replace(/"/g, '')}"`;
-
-                    const detectiveItems = [
-                        null,
-                        {
-                            content: isKo ? "🕵️ [바다 탐정] 미싱 노드 분석 & 깃허브 찾기..." : "🕵️ [Bada] Inspect & Find GitHub Repo...",
-                            callback: () => showMissingNodeModal(node)
-                        },
-                        {
-                            content: isKo ? `📋 [바다] 진짜 노드 이름 복사: ${realType}` : `📋 [Bada] Copy Real Type: ${realType}`,
-                            callback: () => {
-                                if (navigator.clipboard?.writeText) {
-                                    navigator.clipboard.writeText(realType);
-                                }
-                                showToast(isKo ? "진짜 노드 이름이 복사되었습니다!" : "Real node class type copied!", "info");
-                            }
-                        },
-                        {
-                            content: isKo ? "🐙 [바다] GitHub에서 이 노드 코드 검색" : "🐙 [Bada] Search Node on GitHub",
-                            callback: () => {
-                                const ghUrl = `https://github.com/search?q=${encodeURIComponent(exactPhrase)}+language:Python&type=code`;
-                                window.open(ghUrl, "_blank");
-                            }
-                        },
-                        {
-                            content: isKo ? "🔍 [바다] Google에서 설치법 검색" : "🔍 [Bada] Search on Google",
-                            callback: () => {
-                                const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(exactPhrase + ' ComfyUI')}`;
-                                window.open(googleUrl, "_blank");
-                            }
-                        },
-                        null
-                    ];
-                    options.unshift(...detectiveItems);
-                    return options;
-                }
 
                 const nodeType = getNodeType(node);
                 const presets = getPresetsForNode(node);
