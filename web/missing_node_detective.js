@@ -798,7 +798,6 @@ function findDetectiveBadgeAtPos(eOrX, maybeY) {
     if (!Number.isFinite(gx) || !Number.isFinite(gy)) return null;
 
     // 4. Hit-test missing node badges in reverse order (top-most rendered node first)
-    const nodes = graph._nodes;
     for (let i = nodes.length - 1; i >= 0; i--) {
         const n = nodes[i];
         if (!isMissingNode(n)) continue;

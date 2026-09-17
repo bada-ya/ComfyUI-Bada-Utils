@@ -407,6 +407,13 @@ export function arePresetBadgesEnabled() {
 }
 
 function drawRoofBadges(node, ctx) {
+    if (!node || !ctx) return;
+    if (node.type === "BadaPresetHub" || node.comfyClass === "BadaPresetHub") return;
+
+    const frameId = app.canvas?.frame || Date.now();
+    if (node._lastRoofFrame === frameId) return;
+    node._lastRoofFrame = frameId;
+
     const badges = getBadgesForNode(node);
     if (!badges) return;
 
@@ -896,9 +903,24 @@ app.registerExtension({
                 return res;
             };
         }
+
+        // 3. Hook LGraphCanvas.prototype.drawNode (Guaranteed to draw even if onDrawForeground was bypassed)
+        const CanvasClass = window.LGraphCanvas || window.LiteGraph?.LGraphCanvas || app.canvas?.constructor;
+        if (CanvasClass && CanvasClass.prototype && !CanvasClass.prototype._badaRoofDrawNodeHooked) {
+            CanvasClass.prototype._badaRoofDrawNodeHooked = true;
+            const origDrawNode = CanvasClass.prototype.drawNode;
+            CanvasClass.prototype.drawNode = function (node, ctx) {
+                const res = origDrawNode.apply(this, arguments);
+                try {
+                    drawRoofBadges(node, ctx);
+                } catch (_) {}
+                return res;
+            };
+        }
     },
 
     async nodeCreated(node) {
+        if (!node || node.type === "BadaPresetHub" || node.comfyClass === "BadaPresetHub") return;
         const origOnDrawForeground = node.onDrawForeground;
         node.onDrawForeground = function (ctx, canvas) {
             const res = origOnDrawForeground?.apply(this, arguments);
@@ -906,6 +928,26 @@ app.registerExtension({
             return res;
         };
     },
+
+    afterConfigureGraph() {
+        if (app.graph?._nodes) {
+            for (const n of app.graph._nodes) {
+                if (n.type === "BadaPresetHub" || n.comfyClass === "BadaPresetHub") continue;
+                if (!n._badaRoofFgHooked) {
+                    n._badaRoofFgHooked = true;
+                    const origFg = n.onDrawForeground;
+                    n.onDrawForeground = function (ctx, canvas) {
+                        const res = origFg?.apply(this, arguments);
+                        drawRoofBadges(this, ctx);
+                        return res;
+                    };
+                }
+            }
+        }
+        try {
+            app.graph?.setDirtyCanvas?.(true, true);
+        } catch (_) {}
+    }
 });
 
 function escapeHtml(str) {

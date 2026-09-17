@@ -334,6 +334,20 @@ app.registerExtension({
             computeHubNodeSize(node);
             updateHubPresetButton(node);
         }
+    },
+
+    afterConfigureGraph() {
+        if (app.graph?._nodes) {
+            for (const node of app.graph._nodes) {
+                if (node.comfyClass === "BadaPresetHub" || node.type === "BadaPresetHub") {
+                    node.title = BadaI18n.t("hub_node_title");
+                    getHubPresets(node);
+                    setupHubNodeWidgets(node);
+                    computeHubNodeSize(node);
+                }
+            }
+            updateAllHubNodes();
+        }
     }
 });
 
