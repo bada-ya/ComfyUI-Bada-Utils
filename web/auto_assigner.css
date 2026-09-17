@@ -1125,6 +1125,31 @@
     box-shadow: 0 6px 18px rgba(16, 185, 129, 0.5);
 }
 
+.doctor-btn-already-installed {
+    background: rgba(16, 185, 129, 0.16) !important;
+    border: 1px solid rgba(16, 185, 129, 0.5) !important;
+    color: #6ee7b7 !important;
+    cursor: default !important;
+    opacity: 0.95 !important;
+    font-weight: 700 !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+.doctor-btn-already-installed:hover {
+    background: rgba(16, 185, 129, 0.22) !important;
+    transform: none !important;
+}
+
+.doctor-btn-sync-installing {
+    background: rgba(56, 189, 248, 0.16) !important;
+    border: 1px solid rgba(56, 189, 248, 0.45) !important;
+    color: #38bdf8 !important;
+    cursor: wait !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
 .doctor-btn-mgr,
 .doctor-btn-gh {
     background: #252a37;

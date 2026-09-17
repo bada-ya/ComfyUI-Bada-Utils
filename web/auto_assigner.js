@@ -990,8 +990,29 @@ class AutoModelAssigner {
                     if (data && data.found && data.repo) {
                         const repoUrl = data.repo;
                         const packTitle = data.title || realType;
+                        const normRepo = repoUrl.toLowerCase().trim();
+                        card.dataset.repoUrl = normRepo;
+                        card.dataset.packTitle = packTitle;
+
+                        window.__BADA_INSTALLED_REPOS__ = window.__BADA_INSTALLED_REPOS__ || new Set();
+                        const isAlreadyInstalled = window.__BADA_INSTALLED_REPOS__.has(normRepo);
+
                         const authorStr = data.author ? `<span class="author">by ${escapeHtml(data.author)}</span>` : "";
                         const descStr = data.description ? `<div class="doctor-repo-desc">${escapeHtml(data.description)}</div>` : "";
+
+                        const installBtnHtml = isAlreadyInstalled
+                            ? `
+                                <button type="button" class="doctor-btn doctor-btn-already-installed" id="btn-install-${nodeId}" disabled title="${isKo ? `'${packTitle}' 패키지가 이미 설치되었습니다. ComfyUI를 재시작하면 활성화됩니다.` : `Package '${packTitle}' already installed. Restart ComfyUI to activate.`}">
+                                    <span>✅</span>
+                                    <span>${isKo ? "이미 설치한 노드입니다 (동시 해결)" : "Already Installed (Resolved)"}</span>
+                                </button>
+                            `
+                            : `
+                                <button type="button" class="doctor-btn doctor-btn-install" id="btn-install-${nodeId}">
+                                    <span>📦</span>
+                                    <span>${isKo ? "ComfyUI 매니저로 설치 (원클릭)" : "Install via Manager"}</span>
+                                </button>
+                            `;
 
                         lookupBox.innerHTML = `
                             <div class="doctor-repo-card found">
@@ -1006,10 +1027,7 @@ class AutoModelAssigner {
                                     ${descStr}
                                 </div>
                                 <div class="doctor-actions">
-                                    <button type="button" class="doctor-btn doctor-btn-install" id="btn-install-${nodeId}">
-                                        <span>📦</span>
-                                        <span>${isKo ? "ComfyUI 매니저로 설치 (원클릭)" : "Install via Manager"}</span>
-                                    </button>
+                                    ${installBtnHtml}
                                     <button type="button" class="doctor-btn doctor-btn-mgr" id="btn-mgr-${nodeId}">
                                         <span>🔍</span>
                                         <span>${isKo ? "매니저 창에서 보기" : "Open in Manager"}</span>
@@ -1027,19 +1045,51 @@ class AutoModelAssigner {
                             </div>
                         `;
 
+                        if (isAlreadyInstalled) {
+                            const headerGroup = card.querySelector(".missing-node-title-group");
+                            if (headerGroup && !headerGroup.querySelector(".badge-resolved-together")) {
+                                const badge = document.createElement("span");
+                                badge.className = "missing-type-pill badge-resolved-together";
+                                badge.style.background = "rgba(52, 211, 153, 0.2)";
+                                badge.style.color = "#6ee7b7";
+                                badge.style.border = "1px solid rgba(52, 211, 153, 0.4)";
+                                badge.textContent = isKo ? "✅ 동시 해결됨" : "✅ Resolved";
+                                headerGroup.appendChild(badge);
+                            }
+                        }
+
                         // 1. 원클릭 설치 버튼
                         const installBtn = lookupBox.querySelector(`#btn-install-${nodeId}`);
                         const statusBox = lookupBox.querySelector(`#install-status-${nodeId}`);
 
                         installBtn?.addEventListener("click", async () => {
+                            if (installBtn.disabled || isAlreadyInstalled) return;
+
                             if (!confirm(isKo 
                                 ? `📦 [ComfyUI 매니저 연동 설치]\n\n'${packTitle}' 커스텀 노드를 ComfyUI에 설치하시겠습니까?\n\n저장소: ${repoUrl}` 
                                 : `Install '${packTitle}' into ComfyUI custom_nodes?\n\nRepo: ${repoUrl}`)) {
                                 return;
                             }
 
+                            // 동일 저장소를 참조하는 모든 미싱 노드 카드 검색
+                            const allSameCards = Array.from(overlay.querySelectorAll(".auto-assign-missing-node-card")).filter(c => {
+                                const r = (c.dataset.repoUrl || "").toLowerCase().trim();
+                                return r === normRepo;
+                            });
+
+                            // 1. 클릭한 카드 및 동일 저장소를 공유하는 모든 카드의 버튼을 동기화하여 로딩 상태로 전환
                             installBtn.disabled = true;
                             installBtn.innerHTML = `<span>⏳</span><span>${isKo ? "설치 진행 중..." : "Installing..."}</span>`;
+
+                            allSameCards.forEach(otherCard => {
+                                if (otherCard === card) return;
+                                const otherBtn = otherCard.querySelector(".doctor-btn-install, .doctor-btn-already-installed");
+                                if (otherBtn) {
+                                    otherBtn.disabled = true;
+                                    otherBtn.className = "doctor-btn doctor-btn-sync-installing";
+                                    otherBtn.innerHTML = `<span>⏳</span><span>${isKo ? "함께 설치 진행 중..." : "Installing together..."}</span>`;
+                                }
+                            });
 
                             statusBox.style.display = "flex";
                             statusBox.innerHTML = `
@@ -1052,6 +1102,9 @@ class AutoModelAssigner {
                             try {
                                 const result = await installCustomNode(repoUrl, packTitle);
                                 if (result.success) {
+                                    window.__BADA_INSTALLED_REPOS__.add(normRepo);
+
+                                    // 클릭한 카드: 설치 완료 메시지 및 ComfyUI 재시작 버튼 노출
                                     installBtn.style.display = "none";
                                     statusBox.innerHTML = `
                                         <div style="color: #34d399; font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
@@ -1059,7 +1112,7 @@ class AutoModelAssigner {
                                             <span>${isKo ? `'${packTitle}' 설치 완료!` : `'${packTitle}' installed successfully!`}</span>
                                         </div>
                                         <div style="color: #cbd5e1; font-size: 0.82rem; line-height: 1.4;">
-                                            ${isKo ? "ComfyUI를 재시작하시면 이 노드가 즉시 활성화됩니다." : "Restart ComfyUI to load and use the newly installed node."}
+                                            ${isKo ? "ComfyUI를 재시작하시면 워크플로우 내 관련 노드가 모두 즉시 활성화됩니다." : "Restart ComfyUI to activate all related nodes in this workflow."}
                                         </div>
                                         <div style="margin-top: 4px;">
                                             <button type="button" class="doctor-btn-restart" id="btn-restart-${nodeId}">
@@ -1070,12 +1123,40 @@ class AutoModelAssigner {
                                     `;
 
                                     statusBox.querySelector(`#btn-restart-${nodeId}`)?.addEventListener("click", async () => {
-                                        this.showToast(isKo ? "🔄 ComfyUI 서버 재시작 중... 잠시 후 새로고침 됩니다." : "Restarting ComfyUI...", "info");
+                                        AutoModelAssigner.showToast(isKo ? "🔄 ComfyUI 서버 재시작 중... 잠시 후 새로고침 됩니다." : "Restarting ComfyUI...", "info");
                                         try {
                                             await api.fetchApi("/api/bada/terminal/restart", { method: "POST" });
                                         } catch (_) {}
                                         setTimeout(() => window.location.reload(), 3500);
                                     });
+
+                                    // 🌟 핵심: 동일 저장소를 공유하는 다른 모든 카드의 설치 버튼을 [✅ 이미 설치한 노드입니다 (동시 해결)]로 일괄 변경!
+                                    allSameCards.forEach(otherCard => {
+                                        if (otherCard === card) return;
+                                        const otherBtn = otherCard.querySelector(".doctor-btn-install, .doctor-btn-sync-installing, .doctor-btn-already-installed");
+                                        if (otherBtn) {
+                                            otherBtn.disabled = true;
+                                            otherBtn.className = "doctor-btn doctor-btn-already-installed";
+                                            otherBtn.innerHTML = `<span>✅</span><span>${isKo ? "이미 설치한 노드입니다 (동시 해결)" : "Already Installed (Resolved)"}</span>`;
+                                            otherBtn.title = isKo 
+                                                ? `'${packTitle}' 패키지 설치로 함께 해결되었습니다. ComfyUI를 재시작하면 활성화됩니다.`
+                                                : `Resolved by installing '${packTitle}'. Restart ComfyUI to activate.`;
+                                        }
+
+                                        const otherHeader = otherCard.querySelector(".missing-node-title-group");
+                                        if (otherHeader && !otherHeader.querySelector(".badge-resolved-together")) {
+                                            const badge = document.createElement("span");
+                                            badge.className = "missing-type-pill badge-resolved-together";
+                                            badge.style.background = "rgba(52, 211, 153, 0.2)";
+                                            badge.style.color = "#6ee7b7";
+                                            badge.style.border = "1px solid rgba(52, 211, 153, 0.4)";
+                                            badge.textContent = isKo ? "✅ 동시 해결됨" : "✅ Resolved";
+                                            otherHeader.appendChild(badge);
+                                        }
+                                    });
+
+                                    AutoModelAssigner.showToast(isKo ? `🎉 '${packTitle}' 설치 완료! 관련 ${allSameCards.length}개 노드가 동시 해결되었습니다.` : `Installed '${packTitle}'! Resolved ${allSameCards.length} related nodes.`, "success");
+
                                 } else {
                                     installBtn.disabled = false;
                                     installBtn.innerHTML = `<span>📦</span><span>${isKo ? "매니저로 다시 시도" : "Retry Install"}</span>`;
@@ -1083,11 +1164,31 @@ class AutoModelAssigner {
                                         <div style="color: #f87171; font-weight: 700;">❌ ${isKo ? "설치 실패" : "Installation Failed"}</div>
                                         <div style="color: #94a3b8; font-size: 0.8rem; word-break: break-all;">${result.error || "Unknown error"}</div>
                                     `;
+
+                                    allSameCards.forEach(otherCard => {
+                                        if (otherCard === card) return;
+                                        const otherBtn = otherCard.querySelector(".doctor-btn-sync-installing");
+                                        if (otherBtn) {
+                                            otherBtn.disabled = false;
+                                            otherBtn.className = "doctor-btn doctor-btn-install";
+                                            otherBtn.innerHTML = `<span>📦</span><span>${isKo ? "ComfyUI 매니저로 설치 (원클릭)" : "Install via Manager"}</span>`;
+                                        }
+                                    });
                                 }
                             } catch (err) {
                                 installBtn.disabled = false;
                                 installBtn.innerHTML = `<span>📦</span><span>${isKo ? "매니저로 다시 시도" : "Retry Install"}</span>`;
                                 statusBox.innerHTML = `<div style="color: #f87171;">❌ ${err.message}</div>`;
+
+                                allSameCards.forEach(otherCard => {
+                                    if (otherCard === card) return;
+                                    const otherBtn = otherCard.querySelector(".doctor-btn-sync-installing");
+                                    if (otherBtn) {
+                                        otherBtn.disabled = false;
+                                        otherBtn.className = "doctor-btn doctor-btn-install";
+                                        otherBtn.innerHTML = `<span>📦</span><span>${isKo ? "ComfyUI 매니저로 설치 (원클릭)" : "Install via Manager"}</span>`;
+                                    }
+                                });
                             }
                         });
 
