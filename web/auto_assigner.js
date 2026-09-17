@@ -1313,6 +1313,7 @@ class AutoModelAssigner {
 
             body.appendChild(card);
         });
+        }
 
         // 4. 푸터
         const footer = document.createElement("div");
