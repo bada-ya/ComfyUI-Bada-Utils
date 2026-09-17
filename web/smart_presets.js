@@ -619,6 +619,60 @@ function handleCanvasPointerDown(e) {
 app.registerExtension({
     name: "BadaUtils.UniversalSmartPresets",
 
+    getNodeMenuItems(node) {
+        if (!node || node.type === "UniversalPresetHub" || node.comfyClass === "UniversalPresetHub" || node.type === "BadaPresetHub" || node.comfyClass === "BadaPresetHub") return [];
+
+        const nodeType = getNodeType(node);
+        const presets = getPresetsForNode(node);
+        const presetNames = Object.keys(presets);
+
+        const submenu = [];
+
+        submenu.push({
+            content: BadaI18n.t("ctx_save_current"),
+            callback: () => {
+                showPresetModal(node, {
+                    focusSave: true,
+                    defaultName: `${node.title || nodeType} #${presetNames.length + 1}`,
+                });
+            },
+        });
+
+        submenu.push({
+            content: BadaI18n.t("ctx_open_manager"),
+            callback: () => {
+                showPresetModal(node);
+            },
+        });
+
+        if (presetNames.length > 0) {
+            submenu.push(null);
+
+            for (const name of presetNames) {
+                const presetData = presets[name];
+                const badgeInfo = presetData._isLoraStack ? `[${presetData.loras?.length || 0} LoRAs]` : "";
+                submenu.push({
+                    content: `▶ ${name} ${badgeInfo}`,
+                    callback: () => {
+                        applyNodeState(node, presetData);
+                        showToast(BadaI18n.lang === "ko" ? `✨ [${name}] 프리셋 적용 완료!` : `✨ Applied [${name}] preset!`, "success");
+                    },
+                });
+            }
+        }
+
+        return [
+            null,
+            {
+                content: BadaI18n.t("ctx_global_presets", { count: presetNames.length }),
+                has_submenu: true,
+                submenu: {
+                    options: submenu,
+                },
+            }
+        ];
+    },
+
     async setup() {
         if (window.__BADA_SMART_PRESETS_LOADED__) {
             console.log("[Smart Presets] Smart Presets already active. Skipping duplicate setup.");
@@ -719,8 +773,9 @@ app.registerExtension({
             },
         });
 
-        // 1. Context Menu Hook (No browser prompts, opens custom modal directly)
-        if (typeof LGraphCanvas !== "undefined") {
+        // 1. Context Menu Hook (Legacy Fallback - 모던 메뉴 아닐 때만 후킹)
+        const isModernMenu = typeof app.getNodeMenuItems === "function" || !!app.extensionManager;
+        if (typeof LGraphCanvas !== "undefined" && !isModernMenu) {
             const origGetNodeMenuOptions = LGraphCanvas.prototype.getNodeMenuOptions;
             LGraphCanvas.prototype.getNodeMenuOptions = function (node) {
                 const options = origGetNodeMenuOptions ? origGetNodeMenuOptions.apply(this, arguments) : [];

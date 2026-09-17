@@ -1737,8 +1737,9 @@ app.registerExtension({
 
         console.log("[AutoModelAssigner] Initializing Context Menus at absolute bottom position...");
 
-        // 1. 캔버스 빈 공간 우클릭 메뉴 훅 (Legacy Fallback)
-        if (typeof LGraphCanvas !== "undefined") {
+        // 1. 캔버스 & 노드 우클릭 메뉴 훅 (Legacy Fallback - 모던 프론트엔드가 아닐 때만 적용하여 Deprecation 경고 제거)
+        const isModernMenu = typeof app.getCanvasMenuItems === "function" || !!app.extensionManager;
+        if (typeof LGraphCanvas !== "undefined" && !isModernMenu) {
             const origGetCanvasMenuOptions = LGraphCanvas.prototype.getCanvasMenuOptions;
             LGraphCanvas.prototype.getCanvasMenuOptions = function () {
                 const options = origGetCanvasMenuOptions ? origGetCanvasMenuOptions.apply(this, arguments) : [];

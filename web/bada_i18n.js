@@ -527,3 +527,6 @@ export const BadaI18n = {
     } catch (e) {}
 })();
 
+window.BadaI18n = BadaI18n;
+
+
