@@ -135,30 +135,93 @@ class AutoModelAssigner {
         if (!localModels) return [];
         let list = localModels[category];
         if (!list || list.length === 0) {
-            if (category === "diffusion_models") list = localModels["unet"];
-            else if (category === "unet") list = localModels["diffusion_models"];
-            else if (category === "clip") list = localModels["text_encoders"];
-            else if (category === "text_encoders") list = localModels["clip"];
-            else if (category === "loras") list = localModels["lora"];
-            else if (category === "checkpoints") list = localModels["checkpoint"];
+            const catLower = (category || "").toLowerCase();
+            // 대소문자 무시 직접 매칭 탐색
+            for (const [k, v] of Object.entries(localModels)) {
+                if (k.toLowerCase() === catLower && Array.isArray(v) && v.length > 0) {
+                    return v;
+                }
+            }
+            if (catLower === "diffusion_models" || catLower === "dit") list = localModels["unet"] || localModels["diffusion_models"];
+            else if (catLower === "unet") list = localModels["diffusion_models"] || localModels["unet"];
+            else if (catLower === "clip") list = localModels["text_encoders"] || localModels["clip"];
+            else if (catLower === "text_encoders") list = localModels["clip"] || localModels["text_encoders"];
+            else if (catLower === "loras" || catLower === "lora") list = localModels["loras"] || localModels["lora"];
+            else if (catLower === "checkpoints" || catLower === "checkpoint") list = localModels["checkpoints"] || localModels["checkpoint"];
+            else if (catLower === "flashvsr" || catLower === "toobusy_flashvsr") list = localModels["toobusy_flashvsr"] || localModels["flashvsr"];
+            else if (catLower === "seedvr2") list = localModels["seedvr2"] || localModels["SEEDVR2"];
+            else if (catLower === "latent_upscale_models" || catLower === "latent_upscale") list = localModels["latent_upscale_models"];
+            else if (catLower === "sams" || catLower === "sam") list = localModels["sams"];
+            else if (catLower === "ultralytics" || catLower === "yolo") list = localModels["ultralytics"];
+            else if (catLower === "llm") list = localModels["llm"] || localModels["LLM"];
         }
         return Array.isArray(list) ? list : [];
     }
 
     /**
-     * 위젯 및 노드 유형으로부터 모델 카테고리 추론
+     * 위젯 및 노드 유형으로부터 모델 카테고리 추론 (localModels 역추적 및 특수 커스텀 노드 전수 지원)
      */
-    static detectCategory(widgetOrName, node) {
+    static detectCategory(widgetOrName, node, localModels) {
         const wName = typeof widgetOrName === "string" ? widgetOrName.toLowerCase() : ((widgetOrName?.name || "").toLowerCase());
         const nType = (node?.type || "").toLowerCase();
+        const currentVal = typeof widgetOrName?.value === "string" ? widgetOrName.value : "";
+        const widgetOptions = Array.isArray(widgetOrName?.options?.values) ? widgetOrName.options.values : [];
 
+        // 1. 위젯 값 또는 options.values 기반 localModels 역추적 (가장 정확한 1순위)
+        if (localModels) {
+            const probeValues = [currentVal, ...widgetOptions.slice(0, 5)].filter(v => typeof v === "string" && v.trim().length > 0 && v !== "None" && v !== "__none__");
+            if (probeValues.length > 0) {
+                for (const [catName, fileList] of Object.entries(localModels)) {
+                    if (!Array.isArray(fileList) || fileList.length === 0) continue;
+                    for (const pVal of probeValues) {
+                        const cleanP = pVal.replace(/\\/g, "/").toLowerCase();
+                        const pName = cleanP.split("/").pop();
+                        const matched = fileList.some(f => {
+                            const cleanF = String(f).replace(/\\/g, "/").toLowerCase();
+                            const fName = cleanF.split("/").pop();
+                            return cleanF === cleanP || cleanF.endsWith("/" + cleanP) || (pName && fName === pName);
+                        });
+                        if (matched) {
+                            return catName;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. 특수 커스텀 노드 및 최신 파이프라인 전용 패턴 매칭
+        if (nType.includes("seedvr2") || wName.includes("seedvr2")) return "seedvr2";
+        if (nType.includes("flashvsr") || wName.includes("flashvsr") || nType.includes("toobusy")) {
+            return (localModels && localModels["toobusy_flashvsr"]) ? "toobusy_flashvsr" : "flashvsr";
+        }
+        if (nType.includes("latent_upscale") || wName.includes("latent_upscale")) return "latent_upscale_models";
+        if (nType.includes("llm") || wName.includes("llm")) return "llm";
+        if (nType.includes("sams") || nType.includes("sam_") || wName.includes("sam_model") || wName === "sam") return "sams";
+        if (nType.includes("ultralytics") || nType.includes("yolo") || wName.includes("yolo") || wName.includes("bbox") || wName.includes("segm")) return "ultralytics";
+        if (nType.includes("ipadapter") || wName.includes("ipadapter")) return "ipadapter";
+        if (nType.includes("pulid") || wName.includes("pulid")) return "pulid";
+        if (nType.includes("facerestore") || nType.includes("face_restore")) return "facerestore_models";
+        if (nType.includes("mmaudio") || wName.includes("mmaudio")) return "mmaudio";
+
+        // 3. 표준 모델 카테고리 매칭
         if (wName.includes("ckpt") || nType.includes("checkpoint")) return "checkpoints";
-        if (wName.includes("unet") || nType.includes("unet") || nType.includes("diffusion") || nType.includes("transformer")) return "diffusion_models";
+        if (wName.includes("unet") || nType.includes("unet") || nType.includes("diffusion") || nType.includes("transformer") || nType.includes("dit") || wName.includes("dit")) return "diffusion_models";
         if (wName.includes("lora") || nType.includes("lora") || nType.includes("dasiwa") || nType.includes("deno") || nType.includes("rgthree")) return "loras";
-        if (wName.includes("vae") || nType.includes("vae")) return "vae";
+        if (wName.includes("vae") || nType.includes("vae")) {
+            if (nType.includes("approx") || wName.includes("approx")) return "vae_approx";
+            return "vae";
+        }
         if (wName.includes("clip") || nType.includes("clip") || nType.includes("text_encoder")) return "clip";
         if (wName.includes("control_net") || nType.includes("controlnet")) return "controlnet";
         if (wName.includes("upscale") || nType.includes("upscale")) return "upscale_models";
+        if (nType.includes("patch") || wName.includes("patch")) return "model_patches";
+        if (nType.includes("detection") || wName.includes("detection")) return "detection";
+
+        // 위젯에 options.values가 있다면 최소한 위젯 이름을 카테고리 힌트로 활용
+        if (widgetOptions.length > 0 && wName && wName !== "model") {
+            return wName;
+        }
+
         return "checkpoints";
     }
 
@@ -290,10 +353,24 @@ class AutoModelAssigner {
                     return;
                 }
 
-                const category = this.detectCategory(widget, node);
+                const widgetValues = (widget.options && Array.isArray(widget.options.values))
+                    ? widget.options.values.filter(f => typeof f === "string" && f.trim() !== "" && f !== "__none__" && f !== "None")
+                    : [];
+
+                const category = this.detectCategory(widget, node, localModels);
                 let availableList = this.getAvailableModelsForCategory(category, localModels);
-                if (availableList.length === 0 && widget.options && Array.isArray(widget.options.values)) {
-                    availableList = widget.options.values;
+
+                // 위젯 자체 options.values가 존재할 때 최우선 반영
+                if (widgetValues.length > 0) {
+                    if (widgetValues.includes(currentValue) || availableList.length === 0) {
+                        availableList = widgetValues;
+                    } else {
+                        const combined = [...widgetValues];
+                        for (const item of availableList) {
+                            if (!combined.includes(item)) combined.push(item);
+                        }
+                        availableList = combined;
+                    }
                 }
                 availableList = availableList.filter(f => typeof f === "string" && f.trim() !== "" && f !== "__none__" && f !== "None");
 
@@ -537,7 +614,12 @@ class AutoModelAssigner {
                     continue;
                 }
 
-                const isAlreadyValid = availableList.includes(currentValue);
+                const widgetOptions = Array.isArray(slot.widget?.options?.values) ? slot.widget.options.values : [];
+                const isAlreadyValid = availableList.includes(currentValue) || widgetOptions.includes(currentValue);
+
+                if (isAlreadyValid && !availableList.includes(currentValue)) {
+                    availableList.unshift(currentValue);
+                }
 
                 if (isAlreadyValid) {
                     alreadyMatchedCount++;

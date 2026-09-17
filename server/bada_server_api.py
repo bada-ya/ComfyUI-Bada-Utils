@@ -159,6 +159,8 @@ def build_workflow_tree(root_dir):
 def get_all_available_models():
     """
     ComfyUI folder_paths를 활용하여 각 카테고리별 로컬 보유 모델 목록을 안전하게 수집합니다.
+    표준 카테고리뿐 아니라 시스템 및 서드파티 노드가 등록한 모든 모델 폴더(seedvr2, latent_upscale_models,
+    toobusy_flashvsr, llm, sams, ultralytics 등)와 models 디렉토리 내의 실제 서브폴더들까지 동적으로 완전 수집합니다.
     """
     model_categories = {
         "checkpoints": "checkpoints",
@@ -170,20 +172,66 @@ def get_all_available_models():
         "loras": "loras",
         "controlnet": "controlnet",
         "upscale_models": "upscale_models",
+        "latent_upscale_models": "latent_upscale_models",
         "clip_vision": "clip_vision",
         "style_models": "style_models",
         "embeddings": "embeddings",
         "gligen": "gligen",
         "photomaker": "photomaker",
+        "vae_approx": "vae_approx",
+        "model_patches": "model_patches",
+        "detection": "detection",
+        "sams": "sams",
+        "ultralytics": "ultralytics",
+        "ipadapter": "ipadapter",
+        "seedvr2": "seedvr2",
+        "toobusy_flashvsr": "toobusy_flashvsr",
+        "flashvsr": "flashvsr",
+        "llm": "llm",
     }
     
+    # 1. ComfyUI에 등록된 모든 folder_type 동적 수집
+    if hasattr(folder_paths, "folder_names_and_paths"):
+        for folder_type in folder_paths.folder_names_and_paths.keys():
+            k_lower = str(folder_type).lower()
+            if k_lower not in model_categories:
+                model_categories[k_lower] = folder_type
+
     result = {}
     for key, folder_type in model_categories.items():
         try:
             files = folder_paths.get_filename_list(folder_type)
-            result[key] = list(files) if files else []
+            if files:
+                result[key] = list(files)
+            elif key not in result:
+                result[key] = []
         except Exception:
-            result[key] = []
+            if key not in result:
+                result[key] = []
+
+    # 2. models_dir 하위의 실제 서브폴더 직접 보완 스캔 (정션 및 서드파티 폴더 포함)
+    try:
+        model_extensions = {".safetensors", ".ckpt", ".pt", ".bin", ".pth", ".gguf", ".onnx"}
+        models_base = getattr(folder_paths, "models_dir", None)
+        if models_base and os.path.exists(models_base):
+            for entry in os.listdir(models_base):
+                sub_path = os.path.join(models_base, entry)
+                if os.path.isdir(sub_path) and not entry.startswith((".", "_")):
+                    entry_lower = entry.lower()
+                    if not result.get(entry_lower):
+                        scanned_files = []
+                        for root, _, filenames in os.walk(sub_path):
+                            for fname in filenames:
+                                ext = os.path.splitext(fname)[1].lower()
+                                if ext in model_extensions:
+                                    rel = os.path.relpath(os.path.join(root, fname), sub_path)
+                                    scanned_files.append(rel.replace("/", "\\"))
+                        if scanned_files:
+                            result[entry_lower] = scanned_files
+                            if entry != entry_lower:
+                                result[entry] = scanned_files
+    except Exception as e:
+        logger.warning(f"[Bada Server] Error scanning models_dir subfolders: {e}")
             
     # diffusion_models & unet 통합
     if not result.get("diffusion_models") and result.get("unet"):
