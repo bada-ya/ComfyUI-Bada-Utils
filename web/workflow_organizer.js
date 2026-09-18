@@ -2508,6 +2508,7 @@ class WorkflowsPlusManager {
                     fileRow.appendChild(name);
 
                     // Harmonious badges & favorite star
+                    const isFav = this.isFavorited(file.path);
                     fileRow.appendChild(this.buildFileBadges(file, isActive, isFav));
 
                     // Hover preview
