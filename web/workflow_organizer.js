@@ -455,6 +455,7 @@ class WorkflowsPlusManager {
             }
             .qol-file-name {
                 flex: 1;
+                min-width: 0;
                 font-size: var(--qol-font-size);
                 color: #e4e4e7;
                 white-space: normal;
@@ -463,6 +464,18 @@ class WorkflowsPlusManager {
                 line-height: 1.35;
                 letter-spacing: -0.2px;
                 pointer-events: none;
+                margin-right: 6px;
+            }
+
+            /* Badges Container: Align all status and metadata chips on single horizontal baseline */
+            .qol-file-badges {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                margin-left: auto;
+                flex-shrink: 0;
+                align-self: flex-start;
+                margin-top: 1px;
             }
 
             /* Active Workflow Highlight */
@@ -487,18 +500,44 @@ class WorkflowsPlusManager {
             .qol-active-tag {
                 font-size: 10px;
                 font-weight: 600;
-                padding: 1px 5px;
-                border-radius: 3px;
-                background: #4f46e5;
+                height: 18px;
+                padding: 0 6px;
+                border-radius: 4px;
+                background: rgba(79, 70, 229, 0.4);
                 color: #e0e7ff;
-                border: 1px solid rgba(165, 180, 252, 0.5);
-                margin-left: 4px;
-                line-height: 15px;
-                flex-shrink: 0;
-                align-self: flex-start;
-                margin-top: 2px;
-                pointer-events: none;
+                border: 1px solid rgba(129, 140, 248, 0.55);
+                display: inline-flex;
+                align-items: center;
+                line-height: 18px;
+                box-sizing: border-box;
                 white-space: nowrap;
+                pointer-events: none;
+                flex-shrink: 0;
+            }
+
+            .qol-badge-chip {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 20px;
+                height: 18px;
+                padding: 0 4px;
+                border-radius: 4px;
+                background: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.14);
+                font-size: 11px;
+                line-height: 1;
+                color: #e4e4e7;
+                cursor: pointer;
+                transition: all 0.12s ease;
+                user-select: none;
+                box-sizing: border-box;
+                flex-shrink: 0;
+            }
+            .qol-badge-chip:hover {
+                background: rgba(99, 102, 241, 0.35);
+                border-color: #818cf8;
+                transform: scale(1.1);
             }
 
             /* Success Pulse */
@@ -579,28 +618,28 @@ class WorkflowsPlusManager {
             }
 
             .qol-fav-star {
-                display: flex;
+                display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                font-size: 13px;
+                width: 20px;
+                height: 18px;
+                font-size: 12.5px;
+                line-height: 1;
                 color: #71717a;
                 cursor: pointer;
-                padding: 1px 3px;
-                border-radius: 3px;
+                border-radius: 4px;
                 transition: all 0.12s ease;
                 opacity: 0;
                 flex-shrink: 0;
-                margin-left: auto;
-                align-self: flex-start;
-                margin-top: 2px;
                 pointer-events: auto !important;
                 user-select: none;
+                box-sizing: border-box;
             }
             .qol-file-row:hover .qol-fav-star {
                 opacity: 0.75;
             }
             .qol-fav-star:hover {
-                transform: scale(1.25);
+                transform: scale(1.2);
                 color: #fbbf24 !important;
                 opacity: 1 !important;
             }
@@ -643,6 +682,14 @@ class WorkflowsPlusManager {
                 cursor: pointer;
                 transition: background 0.1s ease;
                 user-select: none;
+            }
+            .qol-menu-icon {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                width: 18px;
+                font-size: 14px;
+                flex-shrink: 0;
             }
             .qol-menu-item:hover {
                 background: #4f46e5;
@@ -2151,6 +2198,56 @@ class WorkflowsPlusManager {
         });
     }
 
+    buildFileBadges(file, isActive, isFav) {
+        const badgesContainer = document.createElement("div");
+        badgesContainer.className = "qol-file-badges";
+
+        if (isActive) {
+            const activeTag = document.createElement("span");
+            activeTag.className = "qol-active-tag";
+            activeTag.textContent = BadaI18n.t("wf_active_tag");
+            badgesContainer.appendChild(activeTag);
+        }
+
+        if (file.has_thumbnail || file.thumbnail) {
+            const tBadge = document.createElement("span");
+            tBadge.className = "qol-badge-chip qol-thumb-badge";
+            tBadge.textContent = "🖼️";
+            tBadge.title = BadaI18n.lang === "ko" ? "대표 썸네일 등록됨 (클릭하여 수정)" : "Thumbnail attached (Click to edit)";
+            tBadge.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.openWorkflowInfoModal(file);
+            });
+            badgesContainer.appendChild(tBadge);
+        }
+
+        if (file.has_notes || (file.notes && file.notes.trim())) {
+            const nBadge = document.createElement("span");
+            nBadge.className = "qol-badge-chip qol-notes-badge";
+            nBadge.textContent = "📝";
+            nBadge.title = BadaI18n.lang === "ko" ? "주석 및 메모 등록됨 (클릭하여 수정)" : "Notes attached (Click to edit)";
+            nBadge.addEventListener("click", (e) => {
+                e.stopPropagation();
+                this.openWorkflowInfoModal(file);
+            });
+            badgesContainer.appendChild(nBadge);
+        }
+
+        const starBtn = document.createElement("span");
+        starBtn.className = `qol-fav-star ${isFav ? "is-fav" : ""}`;
+        starBtn.textContent = isFav ? "★" : "☆";
+        starBtn.title = isFav 
+            ? BadaI18n.t("wf_ctx_fav_remove")
+            : BadaI18n.t("wf_ctx_fav_add");
+        starBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.toggleFavorite(file.path);
+        });
+        badgesContainer.appendChild(starBtn);
+
+        return badgesContainer;
+    }
+
     renderPlusTree() {
         const treeScroll = this.plusPanel?.querySelector("#qol-tree-scroll") || document.querySelector("#qol-tree-scroll");
         if (!treeScroll || !this.treeData) return;
@@ -2188,7 +2285,8 @@ class WorkflowsPlusManager {
                 if (file && !seenPaths.has(file.path)) {
                     seenPaths.add(file.path);
                     const displayName = file.path.includes("/") ? file.path.replace(/\.json$/i, "") : file.name;
-                    if (!query || displayName.toLowerCase().includes(query) || file.name.toLowerCase().includes(query) || file.filename.toLowerCase().includes(query)) {
+                    const notesMatch = file.notes && file.notes.toLowerCase().includes(query);
+                    if (!query || displayName.toLowerCase().includes(query) || file.name.toLowerCase().includes(query) || file.filename.toLowerCase().includes(query) || notesMatch) {
                         favFiles.push({
                             ...file,
                             displayName: displayName
@@ -2233,38 +2331,8 @@ class WorkflowsPlusManager {
                 fileRow.appendChild(icon);
                 fileRow.appendChild(name);
 
-                if (isActive) {
-                    const activeTag = document.createElement("span");
-                    activeTag.className = "qol-active-tag";
-                    activeTag.textContent = BadaI18n.t("wf_active_tag");
-                    fileRow.appendChild(activeTag);
-                }
-
-                // Thumbnail & Notes Badges
-                if (file.has_thumbnail || file.thumbnail) {
-                    const tBadge = document.createElement("span");
-                    tBadge.className = "qol-file-badge-indicator";
-                    tBadge.textContent = "🖼️";
-                    tBadge.title = BadaI18n.lang === "ko" ? "썸네일 등록됨" : "Thumbnail attached";
-                    fileRow.appendChild(tBadge);
-                }
-                if (file.has_notes || (file.notes && file.notes.trim())) {
-                    const nBadge = document.createElement("span");
-                    nBadge.className = "qol-file-badge-indicator";
-                    nBadge.textContent = "📝";
-                    nBadge.title = BadaI18n.lang === "ko" ? "주석(메모) 등록됨" : "Notes attached";
-                    fileRow.appendChild(nBadge);
-                }
-
-                const starBtn = document.createElement("span");
-                starBtn.className = "qol-fav-star is-fav";
-                starBtn.textContent = "★";
-                starBtn.title = BadaI18n.t("wf_ctx_fav_remove");
-                starBtn.addEventListener("click", (e) => {
-                    e.stopPropagation();
-                    this.toggleFavorite(file.path);
-                });
-                fileRow.appendChild(starBtn);
+                // Harmonious badges & favorite star
+                fileRow.appendChild(this.buildFileBadges(file, isActive, true));
 
                 // Hover preview
                 fileRow.addEventListener("mouseenter", () => {
@@ -2439,41 +2507,8 @@ class WorkflowsPlusManager {
                     fileRow.appendChild(icon);
                     fileRow.appendChild(name);
 
-                    if (isActive) {
-                        const activeTag = document.createElement("span");
-                        activeTag.className = "qol-active-tag";
-                        activeTag.textContent = BadaI18n.lang === "ko" ? "● 작업중" : "● Active";
-                        fileRow.appendChild(activeTag);
-                    }
-
-                    // Thumbnail & Notes Badges
-                    if (file.has_thumbnail || file.thumbnail) {
-                        const tBadge = document.createElement("span");
-                        tBadge.className = "qol-file-badge-indicator";
-                        tBadge.textContent = "🖼️";
-                        tBadge.title = BadaI18n.lang === "ko" ? "썸네일 등록됨" : "Thumbnail attached";
-                        fileRow.appendChild(tBadge);
-                    }
-                    if (file.has_notes || (file.notes && file.notes.trim())) {
-                        const nBadge = document.createElement("span");
-                        nBadge.className = "qol-file-badge-indicator";
-                        nBadge.textContent = "📝";
-                        nBadge.title = BadaI18n.lang === "ko" ? "주석(메모) 등록됨" : "Notes attached";
-                        fileRow.appendChild(nBadge);
-                    }
-
-                    const starBtn = document.createElement("span");
-                    const isFav = this.isFavorited(file.path);
-                    starBtn.className = `qol-fav-star ${isFav ? "is-fav" : ""}`;
-                    starBtn.textContent = isFav ? "★" : "☆";
-                    starBtn.title = isFav 
-                        ? (BadaI18n.lang === "ko" ? "즐겨찾기에서 제거" : "Remove from bookmarks")
-                        : (BadaI18n.lang === "ko" ? "즐겨찾기에 추가" : "Add to bookmarks");
-                    starBtn.addEventListener("click", (e) => {
-                        e.stopPropagation();
-                        this.toggleFavorite(file.path);
-                    });
-                    fileRow.appendChild(starBtn);
+                    // Harmonious badges & favorite star
+                    fileRow.appendChild(this.buildFileBadges(file, isActive, isFav));
 
                     // Hover preview
                     fileRow.addEventListener("mouseenter", () => {
@@ -2538,26 +2573,26 @@ class WorkflowsPlusManager {
         menu.className = "qol-context-menu";
         menu.innerHTML = `
             <div class="qol-menu-item" id="qol-m-load">
-                <span>⚡</span> <span>${BadaI18n.t("wf_ctx_load")}</span>
+                <span class="qol-menu-icon">⚡</span> <span>${BadaI18n.t("wf_ctx_load")}</span>
             </div>
             <div class="qol-menu-item" id="qol-m-fav">
-                <span id="qol-m-fav-icon">⭐</span> <span id="qol-m-fav-text">${BadaI18n.t("wf_ctx_fav_add")}</span>
+                <span class="qol-menu-icon" id="qol-m-fav-icon">⭐</span> <span id="qol-m-fav-text">${BadaI18n.t("wf_ctx_fav_add")}</span>
             </div>
             <div class="qol-menu-item" id="qol-m-edit-info">
-                <span>📝</span> <span>${BadaI18n.t("wf_ctx_edit_info")}</span>
+                <span class="qol-menu-icon">📝</span> <span>${BadaI18n.t("wf_ctx_edit_info")}</span>
             </div>
             <div class="qol-menu-item" id="qol-m-move">
-                <span>📁</span> <span>${BadaI18n.t("wf_ctx_move")}</span>
+                <span class="qol-menu-icon">📁</span> <span>${BadaI18n.t("wf_ctx_move")}</span>
             </div>
             <div class="qol-menu-item" id="qol-m-new-subfolder">
-                <span>➕</span> <span>${BadaI18n.t("wf_ctx_new_subfolder")}</span>
+                <span class="qol-menu-icon">➕</span> <span>${BadaI18n.t("wf_ctx_new_subfolder")}</span>
             </div>
             <div class="qol-menu-separator"></div>
             <div class="qol-menu-item" id="qol-m-rename">
-                <span>✏️</span> <span>${BadaI18n.t("wf_ctx_rename")}</span>
+                <span class="qol-menu-icon">✏️</span> <span>${BadaI18n.t("wf_ctx_rename")}</span>
             </div>
             <div class="qol-menu-item danger" id="qol-m-delete">
-                <span>🗑️</span> <span>${BadaI18n.t("wf_ctx_delete")}</span>
+                <span class="qol-menu-icon">🗑️</span> <span>${BadaI18n.t("wf_ctx_delete")}</span>
             </div>
         `;
         document.body.appendChild(menu);
@@ -2630,7 +2665,7 @@ class WorkflowsPlusManager {
                 favItem.style.display = "flex";
                 const isFav = this.favorites.has(targetInfo.path);
                 if (favIcon) favIcon.textContent = isFav ? "★" : "⭐";
-                if (favText) favText.textContent = isFav ? "즐겨찾기에서 제거" : "즐겨찾기에 추가";
+                if (favText) favText.textContent = isFav ? BadaI18n.t("wf_ctx_fav_remove") : BadaI18n.t("wf_ctx_fav_add");
             }
         } else if (targetInfo.type === "folder") {
             loadItem.style.display = "none";
@@ -2953,8 +2988,9 @@ class WorkflowsPlusManager {
         const hasThumb = Boolean(file.thumbnail);
         const hasNotes = Boolean(file.notes && file.notes.trim());
 
+        const vParam = file.thumbVersion || Date.now();
         const thumbHtml = hasThumb
-            ? `<div class="qol-preview-thumb-box"><img class="qol-preview-thumb-img" src="/api/bada/workflows/thumbnail?path=${encodeURIComponent(file.thumbnail)}" alt="Thumbnail" /></div>`
+            ? `<div class="qol-preview-thumb-box"><img class="qol-preview-thumb-img" src="/api/bada/workflows/thumbnail?path=${encodeURIComponent(file.thumbnail)}&v=${vParam}" alt="Thumbnail" /></div>`
             : `<div class="qol-preview-thumb-box"><div class="qol-preview-thumb-empty"><span style="font-size: 22px;">🖼️</span><span>${BadaI18n.t("wf_no_info_hint")}</span></div></div>`;
 
         const notesHtml = hasNotes
@@ -3066,11 +3102,14 @@ class WorkflowsPlusManager {
                             <input type="file" id="qol-thumb-file-input" accept="image/*" style="display: none;" />
                         </div>
 
-                        <div style="display: flex; gap: 8px; margin-top: 8px;">
-                            <button class="qol-btn qol-btn-primary" id="qol-thumb-canvas-btn" style="flex: 1; font-size: 12px; padding: 6px 10px; background: linear-gradient(135deg, #0284c7, #0369a1); border: 1px solid #38bdf8;">
+                        <div style="display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;">
+                            <button class="qol-btn qol-btn-primary" id="qol-thumb-canvas-btn" style="flex: 1; min-width: 140px; font-size: 11.5px; padding: 6px 8px; background: linear-gradient(135deg, #0284c7, #0369a1); border: 1px solid #38bdf8;">
                                 ${BadaI18n.t("wf_thumb_canvas_btn")}
                             </button>
-                            <button class="qol-btn" id="qol-thumb-upload-btn" style="font-size: 12px; padding: 6px 12px; background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7;">
+                            <button class="qol-btn" id="qol-thumb-paste-btn" style="flex: 1; min-width: 130px; font-size: 11.5px; padding: 6px 8px; background: #27272a; border: 1px solid #6366f1; color: #e0e7ff;">
+                                ${BadaI18n.t("wf_thumb_paste_btn")}
+                            </button>
+                            <button class="qol-btn" id="qol-thumb-upload-btn" style="font-size: 11.5px; padding: 6px 10px; background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7;">
                                 ${BadaI18n.t("wf_thumb_upload_btn")}
                             </button>
                         </div>
@@ -3090,10 +3129,6 @@ class WorkflowsPlusManager {
 
         document.body.appendChild(overlay);
 
-        const close = () => overlay.remove();
-        overlay.querySelector("#qol-info-close").onclick = close;
-        overlay.querySelector("#qol-info-cancel").onclick = close;
-
         const thumbContainer = overlay.querySelector("#qol-thumb-preview-container");
         const imgPreview = overlay.querySelector("#qol-thumb-img-preview");
         const placeholder = overlay.querySelector("#qol-thumb-placeholder");
@@ -3101,6 +3136,7 @@ class WorkflowsPlusManager {
         const removeBtn = overlay.querySelector("#qol-thumb-remove-btn");
         const uploadBtn = overlay.querySelector("#qol-thumb-upload-btn");
         const canvasBtn = overlay.querySelector("#qol-thumb-canvas-btn");
+        const pasteBtn = overlay.querySelector("#qol-thumb-paste-btn");
         const notesInput = overlay.querySelector("#qol-notes-input");
 
         const updatePreviewUI = (dataUrl) => {
@@ -3120,6 +3156,67 @@ class WorkflowsPlusManager {
             }
         };
 
+        const loadThumbnailBlob = (blob) => {
+            if (!blob) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                pendingImageBase64 = e.target.result;
+                updatePreviewUI(pendingImageBase64);
+                this.showToast(BadaI18n.t("wf_thumb_pasted_toast"));
+            };
+            reader.readAsDataURL(blob);
+        };
+
+        // Clipboard Paste handler (Ctrl+V anywhere while modal is open)
+        const handlePaste = (e) => {
+            const items = (e.clipboardData || window.clipboardData)?.items;
+            if (!items) return;
+            for (let i = 0; i < items.length; i++) {
+                if (items[i].type && items[i].type.indexOf("image") !== -1) {
+                    const file = items[i].getAsFile();
+                    if (file) {
+                        loadThumbnailBlob(file);
+                        e.preventDefault();
+                        e.stopPropagation();
+                        break;
+                    }
+                }
+            }
+        };
+        window.addEventListener("paste", handlePaste, true);
+
+        // Fallback Ctrl+C trigger if user thinks "컨트롤씨로 등록"
+        const handleKeyDown = async (e) => {
+            if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "C")) {
+                const activeTag = document.activeElement?.tagName;
+                if (activeTag === "TEXTAREA" || activeTag === "INPUT") return;
+                if (navigator.clipboard && navigator.clipboard.read) {
+                    try {
+                        const items = await navigator.clipboard.read();
+                        for (const item of items) {
+                            const imgType = item.types.find(t => t.startsWith("image/"));
+                            if (imgType) {
+                                const blob = await item.getType(imgType);
+                                loadThumbnailBlob(blob);
+                                e.preventDefault();
+                                break;
+                            }
+                        }
+                    } catch (err) {}
+                }
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown, true);
+
+        const close = () => {
+            window.removeEventListener("paste", handlePaste, true);
+            window.removeEventListener("keydown", handleKeyDown, true);
+            overlay.remove();
+        };
+
+        overlay.querySelector("#qol-info-close").onclick = close;
+        overlay.querySelector("#qol-info-cancel").onclick = close;
+
         uploadBtn.onclick = () => fileInput.click();
         thumbContainer.onclick = (e) => {
             if (e.target !== removeBtn) fileInput.click();
@@ -3128,12 +3225,7 @@ class WorkflowsPlusManager {
         fileInput.onchange = () => {
             const file = fileInput.files?.[0];
             if (file) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    pendingImageBase64 = e.target.result;
-                    updatePreviewUI(pendingImageBase64);
-                };
-                reader.readAsDataURL(file);
+                loadThumbnailBlob(file);
             }
         };
 
@@ -3152,12 +3244,7 @@ class WorkflowsPlusManager {
             thumbContainer.style.background = "#09090b";
             const file = e.dataTransfer?.files?.[0];
             if (file && file.type.startsWith("image/")) {
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    pendingImageBase64 = ev.target.result;
-                    updatePreviewUI(pendingImageBase64);
-                };
-                reader.readAsDataURL(file);
+                loadThumbnailBlob(file);
             }
         };
 
@@ -3165,6 +3252,34 @@ class WorkflowsPlusManager {
             e.stopPropagation();
             updatePreviewUI(null);
         };
+
+        if (pasteBtn) {
+            pasteBtn.onclick = async () => {
+                try {
+                    if (!navigator.clipboard || !navigator.clipboard.read) {
+                        alert(BadaI18n.lang === "ko" ? "브라우저 보안으로 인해 직접 붙여넣기를 호출할 수 없습니다. 키보드 단축키 Ctrl+V 를 눌러 붙여넣어 주세요!" : "Please press Ctrl+V to paste the image.");
+                        return;
+                    }
+                    const items = await navigator.clipboard.read();
+                    let found = false;
+                    for (const item of items) {
+                        const imgType = item.types.find(t => t.startsWith("image/"));
+                        if (imgType) {
+                            const blob = await item.getType(imgType);
+                            loadThumbnailBlob(blob);
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        alert(BadaI18n.lang === "ko" ? "클립보드에 복사된 이미지가 없습니다. 이미지를 복사한 후 Ctrl+V 또는 이 버튼을 눌러주세요." : "No image found in clipboard.");
+                    }
+                } catch (err) {
+                    console.warn("Clipboard paste button error:", err);
+                    alert(BadaI18n.lang === "ko" ? "클립보드 읽기 권한이 허용되지 않았습니다. 키보드로 Ctrl+V 를 눌러 붙여넣어 주세요!" : "Please press Ctrl+V directly to paste the image.");
+                }
+            };
+        }
 
         canvasBtn.onclick = async () => {
             try {
@@ -3284,15 +3399,24 @@ class WorkflowsPlusManager {
                     body: JSON.stringify({
                         path: filePath,
                         notes: notesVal,
-                        thumbnail: finalThumbPath
+                        thumbnail: finalThumbPath,
+                        delete_thumbnail: isThumbRemoved
                     })
                 });
+
+                const now = Date.now();
+                targetInfo.notes = notesVal;
+                targetInfo.thumbnail = finalThumbPath;
+                targetInfo.has_notes = Boolean(notesVal);
+                targetInfo.has_thumbnail = Boolean(finalThumbPath);
+                targetInfo.thumbVersion = now;
 
                 this.updateFileInTreeData(this.treeData, filePath, {
                     notes: notesVal,
                     thumbnail: finalThumbPath,
                     has_notes: Boolean(notesVal),
-                    has_thumbnail: Boolean(finalThumbPath)
+                    has_thumbnail: Boolean(finalThumbPath),
+                    thumbVersion: now
                 });
 
                 close();

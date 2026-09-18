@@ -133,6 +133,28 @@ def save_workflow_metadata(root_dir, meta_data):
         return False
 
 
+def remove_companion_thumbnail(root_dir, rel_wf_path):
+    """Safely delete companion thumbnail file associated with a workflow."""
+    try:
+        wf_full = find_file_in_workflows(root_dir, rel_wf_path)
+        if not wf_full:
+            clean_rel = rel_wf_path.replace("\\", "/").lstrip("/\\")
+            wf_full = os.path.realpath(os.path.abspath(os.path.join(root_dir, clean_rel)))
+        if wf_full and os.path.exists(wf_full):
+            target_dir = os.path.dirname(wf_full)
+            base_no_ext = os.path.splitext(os.path.basename(wf_full))[0]
+            for ext in [".thumb.png", ".thumb.webp", ".thumb.jpg", ".thumb.jpeg"]:
+                thumb_cand = os.path.join(target_dir, f"{base_no_ext}{ext}")
+                if os.path.isfile(thumb_cand) and is_safe_path(root_dir, thumb_cand):
+                    try:
+                        os.remove(thumb_cand)
+                        logger.info(f"[Bada-Utils] Removed companion thumbnail: {thumb_cand}")
+                    except Exception as fe:
+                        logger.warning(f"[Bada-Utils] Could not remove thumbnail {thumb_cand}: {fe}")
+    except Exception as e:
+        logger.warning(f"[Bada-Utils] remove_companion_thumbnail error for {rel_wf_path}: {e}")
+
+
 def build_workflow_tree(root_dir):
     """
     Recursively scans the user workflows directory and builds a nested tree representation.
@@ -186,16 +208,18 @@ def build_workflow_tree(root_dir):
 
                     item_meta = meta_data.get(norm_key) or meta_data.get(file_rel_path) or {}
                     notes = item_meta.get("notes", "")
-                    thumbnail = item_meta.get("thumbnail", "")
+                    thumbnail = item_meta.get("thumbnail", None)
 
-                    # Auto-detect companion thumbnail if not explicitly in metadata
-                    if not thumbnail:
+                    # Auto-detect companion thumbnail ONLY if not explicitly specified in metadata
+                    if thumbnail is None:
                         for ext in [".thumb.png", ".thumb.webp", ".thumb.jpg", ".png", ".jpg", ".webp"]:
                             cand = clean_name + ext
                             if cand.lower() in file_names_set:
                                 cand_rel = os.path.join(rel_path, cand) if rel_path else cand
                                 thumbnail = cand_rel.replace("\\", "/")
                                 break
+                    if thumbnail is None:
+                        thumbnail = ""
 
                     node["files"].append({
                         "name": clean_name,
@@ -1282,7 +1306,14 @@ def register_bada_api_routes():
                 if "notes" in body:
                     current_entry["notes"] = str(body.get("notes") or "").strip()
                 if "thumbnail" in body:
-                    current_entry["thumbnail"] = str(body.get("thumbnail") or "").strip()
+                    thumb_val = str(body.get("thumbnail") or "").strip()
+                    current_entry["thumbnail"] = thumb_val
+                    if not thumb_val or body.get("delete_thumbnail") is True:
+                        remove_companion_thumbnail(root_dir, raw_path)
+                elif body.get("delete_thumbnail") is True:
+                    current_entry["thumbnail"] = ""
+                    remove_companion_thumbnail(root_dir, raw_path)
+
                 current_entry["updated_at"] = time.time()
 
                 meta_data[raw_path] = current_entry
@@ -1391,7 +1422,9 @@ def register_bada_api_routes():
 
                 return web.FileResponse(full_path, headers={
                     "Content-Type": content_type,
-                    "Cache-Control": "public, max-age=3600"
+                    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
                 })
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=500)
