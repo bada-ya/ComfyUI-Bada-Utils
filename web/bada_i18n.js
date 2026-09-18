@@ -48,9 +48,9 @@ export const BadaI18n = {
             "hub_switch_off": "OFF",
 
             // --- Smart Presets Context Menu & Roof Badges ---
-            "ctx_global_presets": "🌐 Global Presets ({count})",
+            "ctx_global_presets": "⚓ Global Presets ({count})",
             "ctx_save_current": "💾 Save Current Settings as Global Preset...",
-            "ctx_auto_assign_all": "🩺 [Bada] Workflow Doctor & Auto-Assign (Missing Nodes + Models)",
+            "ctx_auto_assign_all": "⚓ [Bada] Node Smart Care",
             "ctx_auto_assign_node": "⚡ [Bada] Auto-Assign Node Models",
             "badge_global_title": "🌐 Global Presets ({count})",
             "badge_global_desc": "Stored in ComfyUI globally across all workflows for <b>{name}</b>.",
@@ -280,9 +280,9 @@ export const BadaI18n = {
             "hub_switch_off": "OFF",
 
             // --- Smart Presets Context Menu & Roof Badges ---
-            "ctx_global_presets": "🌐 글로벌 프리셋 ({count})",
+            "ctx_global_presets": "⚓ 글로벌 프리셋 ({count})",
             "ctx_save_current": "💾 현재 세팅 글로벌 프리셋으로 저장...",
-            "ctx_auto_assign_all": "🩺 [바다] 워크플로우 종합 진단 & 자동 복구 (미싱 노드 + 모델/LoRA)",
+            "ctx_auto_assign_all": "⚓ [바다] 노드 스마트 케어",
             "ctx_auto_assign_node": "⚡ [바다] 이 노드 모델 자동 장착",
             "badge_global_title": "🌐 글로벌 프리셋 ({count}개)",
             "badge_global_desc": "<b>{name}</b> 노드에 저장된 전역 프리셋입니다.",

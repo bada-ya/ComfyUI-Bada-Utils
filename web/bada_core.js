@@ -63,7 +63,7 @@ const BADA_SETTINGS_TEXTS = {
         dualManagerName: "🧩 Classic Manager Quick Launcher",
         dualManagerDesc: "Displays a blue puzzle button in the top menu bar to open classic ComfyUI-Manager anytime.",
 
-        detectiveName: "🩺 Node Smart Care (Missing Node Resolver & Model Assigner)",
+        detectiveName: "⚓ Node Smart Care (Missing Node Resolver & Model Assigner)",
         detectiveDesc: "Smartly resolves uninstalled missing nodes (red X) and missing models/LoRAs via right-click menu, providing one-click installation and smart auto-assignment."
     },
     ko: {
@@ -99,7 +99,7 @@ const BADA_SETTINGS_TEXTS = {
         dualManagerName: "🧩 클래식 매니저 퀵 런처 (듀얼 매니저)",
         dualManagerDesc: "상단 메뉴 바에 파란 퍼즐 버튼을 표시하여 언제든 익숙한 구형 클래식 매니저 창을 바로 실행합니다.",
 
-        detectiveName: "🩺 노드 스마트 케어 (미싱 노드 복구 & 모델 자동 장착)",
+        detectiveName: "⚓ 노드 스마트 케어 (미싱 노드 복구 & 모델 자동 장착)",
         detectiveDesc: "캔버스 빈 공간 또는 노드 우클릭 시, 미설치 미싱 노드(빨간 X) 탐색/설치 및 누락된 모델/LoRA를 탭별로 한눈에 케어하고 스마트 자동 장착합니다."
     }
 };

@@ -1781,8 +1781,8 @@ app.registerExtension({
             null,
             {
                 content: isKo
-                    ? "🩺 [바다] 노드 스마트 케어"
-                    : "🩺 [Bada] Node Smart Care",
+                    ? "⚓ [바다] 노드 스마트 케어"
+                    : "⚓ [Bada] Node Smart Care",
                 isAutoModelAssigner: true,
                 callback: () => {
                     AutoModelAssigner.runAutoAssign(null);
@@ -1809,8 +1809,8 @@ app.registerExtension({
                 null,
                 {
                     content: isKo
-                        ? "🩺 [바다] 노드 스마트 케어"
-                        : "🩺 [Bada] Node Smart Care",
+                        ? "⚓ [바다] 노드 스마트 케어"
+                        : "⚓ [Bada] Node Smart Care",
                     isAutoModelAssigner: true,
                     callback: () => AutoModelAssigner.runAutoAssign(node)
                 }
@@ -1839,8 +1839,8 @@ app.registerExtension({
 
                 const isKo = (BadaI18n.lang === "ko");
                 const label = isKo
-                    ? "🩺 [바다] 노드 스마트 케어"
-                    : "🩺 [Bada] Node Smart Care";
+                    ? "⚓ [바다] 노드 스마트 케어"
+                    : "⚓ [Bada] Node Smart Care";
 
                 const exists = options.some(o => o && (o.isAutoModelAssigner || (typeof o.content === 'string' && (o.content.includes("노드 스마트 케어") || o.content.includes("Node Smart Care") || o.content.includes("종합 진단")))));
                 if (!exists) {
@@ -1874,8 +1874,8 @@ app.registerExtension({
                         options.push(null);
                         options.push({
                             content: isKo
-                                ? "🩺 [바다] 노드 스마트 케어"
-                                : "🩺 [Bada] Node Smart Care",
+                                ? "⚓ [바다] 노드 스마트 케어"
+                                : "⚓ [Bada] Node Smart Care",
                             isAutoModelAssigner: true,
                             callback: () => AutoModelAssigner.runAutoAssign(node)
                         });

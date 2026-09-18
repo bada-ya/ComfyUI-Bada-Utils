@@ -378,6 +378,10 @@ async def run_terminal_command(task_id, command, cwd=None):
     # Environment PATH injection so 'pip' and 'python' point to ComfyUI's python
     sub_env = os.environ.copy()
     sub_env["PYTHONUNBUFFERED"] = "1"
+    # Prevent interactive Git GUI dialogs / CredentialHelperSelector popups on Windows
+    sub_env["GIT_TERMINAL_PROMPT"] = "0"
+    sub_env["GCM_INTERACTIVE"] = "never"
+    sub_env["GIT_ASKPASS"] = ""
     py_dir = os.path.dirname(sys.executable)
     scripts_dir = os.path.join(py_dir, "Scripts")
     existing_path = sub_env.get("PATH", "")
@@ -867,7 +871,11 @@ def install_custom_node_pack(repo_url, pack_title=None):
     # 1. Run git clone
     clone_cmd = ["git", "clone", repo_url, target_dir]
     logger.info(f"[Bada-Installer] Cloning {repo_url} into {target_dir}...")
-    res = subprocess.run(clone_cmd, capture_output=True, text=True)
+    git_env = os.environ.copy()
+    git_env["GIT_TERMINAL_PROMPT"] = "0"
+    git_env["GCM_INTERACTIVE"] = "never"
+    git_env["GIT_ASKPASS"] = ""
+    res = subprocess.run(clone_cmd, capture_output=True, text=True, env=git_env)
     if res.returncode != 0:
         logger.error(f"[Bada-Installer] Git clone failed: {res.stderr}")
         return {"success": False, "error": f"Git clone failed: {res.stderr or res.stdout}"}
