@@ -15,6 +15,8 @@ import asyncio
 import subprocess
 import time
 import threading
+import base64
+import urllib.parse
 from aiohttp import web
 from server import PromptServer
 import folder_paths
@@ -105,10 +107,39 @@ def find_file_in_workflows(root_dir, search_rel):
     return None
 
 
+def get_workflows_meta_file(root_dir):
+    return os.path.join(root_dir, ".bada_meta.json")
+
+
+def load_workflow_metadata(root_dir):
+    meta_path = get_workflows_meta_file(root_dir)
+    if os.path.isfile(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"[Bada-Utils] Failed to load workflow metadata: {e}")
+    return {}
+
+
+def save_workflow_metadata(root_dir, meta_data):
+    meta_path = get_workflows_meta_file(root_dir)
+    try:
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta_data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        logger.error(f"[Bada-Utils] Failed to save workflow metadata: {e}")
+        return False
+
+
 def build_workflow_tree(root_dir):
     """
     Recursively scans the user workflows directory and builds a nested tree representation.
+    Includes metadata (notes, thumbnail) for instant hover preview.
     """
+    meta_data = load_workflow_metadata(root_dir)
+
     def scan_dir(current_dir, rel_path=""):
         folder_name = "Root" if not rel_path else os.path.basename(current_dir)
         display_path = "/" if not rel_path else rel_path.replace("\\", "/")
@@ -127,9 +158,11 @@ def build_workflow_tree(root_dir):
             logger.warning(f"[Bada-Utils] Failed to scan dir {current_dir}: {e}")
             return node
 
+        file_names_set = {e.name.lower() for e in entries if e.is_file()}
+
         for entry in entries:
             if entry.name.startswith("."):
-                continue  # Skip hidden files like .index.json
+                continue  # Skip hidden files like .index.json, .bada_meta.json
             entry_rel = os.path.join(rel_path, entry.name) if rel_path else entry.name
 
             if entry.is_dir():
@@ -137,13 +170,41 @@ def build_workflow_tree(root_dir):
                 node["folders"].append(sub_node)
                 node["count"] += sub_node["count"]
             elif entry.is_file():
-                if entry.name.lower().endswith((".json", ".png")):
+                lower_name = entry.name.lower()
+                # Skip companion thumbnail files from standalone workflow listing
+                if lower_name.endswith((".thumb.png", ".thumb.jpg", ".thumb.webp", ".thumb.jpeg")):
+                    continue
+
+                if lower_name.endswith((".json", ".png")):
                     clean_name = os.path.splitext(entry.name)[0]
+                    # If this is foo.png and foo.json exists in same folder, treat foo.png as companion image
+                    if lower_name.endswith(".png") and (clean_name.lower() + ".json") in file_names_set:
+                        continue
+
                     file_rel_path = entry_rel.replace("\\", "/")
+                    norm_key = file_rel_path.lstrip("/")
+
+                    item_meta = meta_data.get(norm_key) or meta_data.get(file_rel_path) or {}
+                    notes = item_meta.get("notes", "")
+                    thumbnail = item_meta.get("thumbnail", "")
+
+                    # Auto-detect companion thumbnail if not explicitly in metadata
+                    if not thumbnail:
+                        for ext in [".thumb.png", ".thumb.webp", ".thumb.jpg", ".png", ".jpg", ".webp"]:
+                            cand = clean_name + ext
+                            if cand.lower() in file_names_set:
+                                cand_rel = os.path.join(rel_path, cand) if rel_path else cand
+                                thumbnail = cand_rel.replace("\\", "/")
+                                break
+
                     node["files"].append({
                         "name": clean_name,
                         "filename": entry.name,
-                        "path": file_rel_path
+                        "path": file_rel_path,
+                        "notes": notes,
+                        "thumbnail": thumbnail,
+                        "has_notes": bool(notes),
+                        "has_thumbnail": bool(thumbnail)
                     })
                     node["count"] += 1
 
@@ -1053,6 +1114,30 @@ def register_bada_api_routes():
                 shutil.move(src_full, dest_full)
                 new_rel_path = "/" + os.path.relpath(dest_full, root_dir).replace("\\", "/")
 
+                # Companion thumbnail and metadata migration
+                try:
+                    src_base = os.path.splitext(src_full)[0]
+                    dest_base = os.path.splitext(dest_full)[0]
+                    for thumb_ext in [".thumb.png", ".thumb.webp", ".thumb.jpg"]:
+                        src_thumb = src_base + thumb_ext
+                        if os.path.isfile(src_thumb):
+                            dest_thumb = dest_base + thumb_ext
+                            shutil.move(src_thumb, dest_thumb)
+
+                    src_rel_key = os.path.relpath(src_full, root_dir).replace("\\", "/").lstrip("/")
+                    dest_rel_key = os.path.relpath(dest_full, root_dir).replace("\\", "/").lstrip("/")
+                    meta = load_workflow_metadata(root_dir)
+                    if src_rel_key in meta:
+                        entry = meta.pop(src_rel_key)
+                        if entry.get("thumbnail"):
+                            for thumb_ext in [".thumb.png", ".thumb.webp", ".thumb.jpg"]:
+                                if entry["thumbnail"].endswith(thumb_ext):
+                                    entry["thumbnail"] = os.path.splitext(dest_rel_key)[0] + thumb_ext
+                        meta[dest_rel_key] = entry
+                        save_workflow_metadata(root_dir, meta)
+                except Exception as meta_e:
+                    logger.warning(f"[Bada-Utils] Metadata migration warning on move: {meta_e}")
+
                 return web.json_response({
                     "success": True,
                     "message": f"Successfully moved '{file_name}' to '{target_folder_rel or '/'}'",
@@ -1108,16 +1193,32 @@ def register_bada_api_routes():
                 if not is_safe_path(root_dir, target_full):
                     return web.json_response({"success": False, "error": "Invalid path"}, status=403)
 
+                def cleanup_companion_and_meta(file_path):
+                    try:
+                        base = os.path.splitext(file_path)[0]
+                        for thumb_ext in [".thumb.png", ".thumb.webp", ".thumb.jpg"]:
+                            thumb_cand = base + thumb_ext
+                            if os.path.isfile(thumb_cand):
+                                os.remove(thumb_cand)
+                        clean_k = os.path.relpath(file_path, root_dir).replace("\\", "/").lstrip("/")
+                        meta = load_workflow_metadata(root_dir)
+                        if clean_k in meta:
+                            meta.pop(clean_k, None)
+                            save_workflow_metadata(root_dir, meta)
+                    except Exception as me:
+                        logger.warning(f"[Bada-Utils] Metadata delete cleanup error: {me}")
+
                 if os.path.isdir(target_full):
                     shutil.rmtree(target_full)
                     return web.json_response({"success": True, "message": f"Folder '{clean_rel}' deleted"})
                 elif os.path.isfile(target_full):
+                    cleanup_companion_and_meta(target_full)
                     os.remove(target_full)
                     return web.json_response({"success": True, "message": f"File '{clean_rel}' deleted"})
                 else:
-                    # Try find_file_in_workflows
                     found = find_file_in_workflows(root_dir, clean_rel)
                     if found and os.path.isfile(found) and is_safe_path(root_dir, found):
+                        cleanup_companion_and_meta(found)
                         os.remove(found)
                         return web.json_response({"success": True, "message": f"File deleted"})
                     return web.json_response({"success": False, "error": "File or folder not found"}, status=404)
@@ -1141,6 +1242,160 @@ def register_bada_api_routes():
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
+        # --- Workflow Metadata & Thumbnail Handlers ---
+        async def get_workflow_metadata_handler(request):
+            try:
+                root_dir = get_workflows_root_dir()
+                meta_data = load_workflow_metadata(root_dir)
+                target_path = request.query.get("path", "").strip().replace("\\", "/").lstrip("/")
+                if target_path:
+                    item_meta = meta_data.get(target_path, {})
+                    if not item_meta.get("thumbnail"):
+                        full_file = find_file_in_workflows(root_dir, target_path)
+                        if full_file:
+                            base_no_ext = os.path.splitext(full_file)[0]
+                            for ext in [".thumb.png", ".thumb.webp", ".thumb.jpg", ".png", ".jpg", ".webp"]:
+                                cand = base_no_ext + ext
+                                if os.path.isfile(cand) and cand != full_file:
+                                    rel = os.path.relpath(cand, root_dir).replace("\\", "/")
+                                    item_meta["thumbnail"] = rel
+                                    break
+                    return web.json_response({"success": True, "path": target_path, "data": item_meta})
+                return web.json_response({"success": True, "metadata": meta_data})
+            except Exception as e:
+                logger.error(f"[Bada-Utils] get_workflow_metadata_handler error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def save_workflow_metadata_handler(request):
+            try:
+                body = await request.json()
+                raw_path = (body.get("path") or "").strip().replace("\\", "/").lstrip("/")
+                if not raw_path:
+                    return web.json_response({"success": False, "error": "Workflow path is required"}, status=400)
+                if ".." in raw_path:
+                    return web.json_response({"success": False, "error": "Path traversal forbidden"}, status=400)
+
+                root_dir = get_workflows_root_dir()
+                meta_data = load_workflow_metadata(root_dir)
+
+                current_entry = meta_data.get(raw_path, {})
+                if "notes" in body:
+                    current_entry["notes"] = str(body.get("notes") or "").strip()
+                if "thumbnail" in body:
+                    current_entry["thumbnail"] = str(body.get("thumbnail") or "").strip()
+                current_entry["updated_at"] = time.time()
+
+                meta_data[raw_path] = current_entry
+                save_workflow_metadata(root_dir, meta_data)
+
+                return web.json_response({"success": True, "data": current_entry})
+            except Exception as e:
+                logger.error(f"[Bada-Utils] save_workflow_metadata_handler error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def upload_thumbnail_handler(request):
+            try:
+                root_dir = get_workflows_root_dir()
+                raw_path = ""
+                image_bytes = None
+
+                if request.content_type.startswith("multipart/"):
+                    reader = await request.multipart()
+                    while True:
+                        part = await reader.next()
+                        if part is None:
+                            break
+                        if part.name == "path":
+                            raw_path = (await part.text()).strip()
+                        elif part.name in ["file", "image"]:
+                            image_bytes = await part.read()
+                else:
+                    body = await request.json()
+                    raw_path = (body.get("path") or "").strip()
+                    img_data = body.get("image_base64") or body.get("image") or ""
+                    if img_data:
+                        if "," in img_data:
+                            img_data = img_data.split(",", 1)[1]
+                        image_bytes = base64.b64decode(img_data)
+
+                raw_path = raw_path.replace("\\", "/").lstrip("/")
+                if not raw_path:
+                    return web.json_response({"success": False, "error": "Workflow path is required"}, status=400)
+                if ".." in raw_path:
+                    return web.json_response({"success": False, "error": "Path traversal forbidden"}, status=400)
+                if not image_bytes:
+                    return web.json_response({"success": False, "error": "No image data provided"}, status=400)
+
+                wf_full = find_file_in_workflows(root_dir, raw_path)
+                if not wf_full or not os.path.isfile(wf_full):
+                    wf_full = os.path.realpath(os.path.abspath(os.path.join(root_dir, raw_path)))
+                    if not is_safe_path(root_dir, wf_full):
+                        return web.json_response({"success": False, "error": "Invalid workflow path"}, status=400)
+
+                target_dir = os.path.dirname(wf_full)
+                base_no_ext = os.path.splitext(os.path.basename(wf_full))[0]
+                thumb_filename = f"{base_no_ext}.thumb.png"
+                thumb_full = os.path.join(target_dir, thumb_filename)
+
+                if not is_safe_path(root_dir, thumb_full):
+                    return web.json_response({"success": False, "error": "Invalid thumbnail destination"}, status=403)
+
+                with open(thumb_full, "wb") as f:
+                    f.write(image_bytes)
+
+                thumb_rel = os.path.relpath(thumb_full, root_dir).replace("\\", "/")
+
+                # Auto-update metadata
+                meta_data = load_workflow_metadata(root_dir)
+                entry = meta_data.get(raw_path, {})
+                entry["thumbnail"] = thumb_rel
+                entry["updated_at"] = time.time()
+                meta_data[raw_path] = entry
+                save_workflow_metadata(root_dir, meta_data)
+
+                thumb_url = f"/api/bada/workflows/thumbnail?path={urllib.parse.quote(thumb_rel)}&t={int(time.time())}"
+                return web.json_response({
+                    "success": True,
+                    "thumbnail": thumb_rel,
+                    "thumbnail_url": thumb_url
+                })
+            except Exception as e:
+                logger.error(f"[Bada-Utils] upload_thumbnail_handler error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def get_thumbnail_handler(request):
+            try:
+                target_path = request.query.get("path", "").strip()
+                if not target_path:
+                    return web.json_response({"success": False, "error": "Path parameter required"}, status=400)
+                if ".." in target_path:
+                    return web.json_response({"success": False, "error": "Path traversal forbidden"}, status=400)
+
+                root_dir = get_workflows_root_dir()
+                full_path = find_file_in_workflows(root_dir, target_path)
+                if not full_path or not os.path.isfile(full_path):
+                    clean_rel = target_path.replace("\\", "/").lstrip("/\\")
+                    cand = os.path.realpath(os.path.abspath(os.path.join(root_dir, clean_rel)))
+                    if os.path.isfile(cand) and is_safe_path(root_dir, cand):
+                        full_path = cand
+
+                if not full_path or not os.path.isfile(full_path) or not is_safe_path(root_dir, full_path):
+                    return web.json_response({"success": False, "error": "Thumbnail file not found"}, status=404)
+
+                ext = os.path.splitext(full_path)[1].lower()
+                content_type = "image/png"
+                if ext in [".jpg", ".jpeg"]:
+                    content_type = "image/jpeg"
+                elif ext == ".webp":
+                    content_type = "image/webp"
+
+                return web.FileResponse(full_path, headers={
+                    "Content-Type": content_type,
+                    "Cache-Control": "public, max-age=3600"
+                })
+            except Exception as e:
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
         routes.get("/api/bada/workflows/folders")(list_folders_handler)
         routes.post("/api/bada/workflows/move")(move_workflow_handler)
         routes.post("/api/bada/workflows/mkdir")(create_folder_handler)
@@ -1148,6 +1403,16 @@ def register_bada_api_routes():
         routes.post("/api/bada/workflows/delete")(delete_workflow_handler)
         routes.get("/api/bada/workflows/favorites")(favorites_handler)
         routes.post("/api/bada/workflows/favorites")(favorites_handler)
+
+        routes.get("/api/bada/workflows/metadata")(get_workflow_metadata_handler)
+        routes.post("/api/bada/workflows/metadata")(save_workflow_metadata_handler)
+        routes.post("/api/bada/workflows/thumbnail/upload")(upload_thumbnail_handler)
+        routes.get("/api/bada/workflows/thumbnail")(get_thumbnail_handler)
+
+        routes.get("/api/qol/workflows/metadata")(get_workflow_metadata_handler)
+        routes.post("/api/qol/workflows/metadata")(save_workflow_metadata_handler)
+        routes.post("/api/qol/workflows/thumbnail/upload")(upload_thumbnail_handler)
+        routes.get("/api/qol/workflows/thumbnail")(get_thumbnail_handler)
 
         # --- D. Terminal Hub API ---
         async def terminal_env_handler(request):

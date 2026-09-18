@@ -67,6 +67,11 @@ class WorkflowsPlusManager {
         this.hoverExpandTimer = null;
         this.hoveredFolder = null;
 
+        // Floating hover preview state
+        this.hoverCardEl = null;
+        this.hoverTimer = null;
+        this.hoverTargetFile = null;
+
         window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__ = this;
         window.__BADA_SYNC_SIDEBAR_STATE__ = (val) => {
             this.syncSidebarStateWithSetting(val);
@@ -76,6 +81,7 @@ class WorkflowsPlusManager {
     async init() {
         this.injectStyles();
         this.setupContextMenu();
+        this.setupHoverPreviewCard();
         this.registerSidebarTab();
         this.cleanNativeTooltipsAndKeybindings();
         this.setupAutoSyncOnSave();
@@ -772,6 +778,133 @@ class WorkflowsPlusManager {
                 display: flex;
                 align-items: center;
                 gap: 6px;
+            }
+
+            /* Floating Glassmorphism Workflow Hover Preview Card */
+            .qol-workflow-hover-preview {
+                position: fixed;
+                z-index: 999999;
+                width: 320px;
+                max-width: 90vw;
+                background: rgba(18, 18, 22, 0.96);
+                backdrop-filter: blur(16px);
+                -webkit-backdrop-filter: blur(16px);
+                border: 1px solid rgba(0, 240, 255, 0.4);
+                box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7), 0 0 18px rgba(0, 240, 255, 0.2);
+                border-radius: 12px;
+                padding: 12px;
+                display: none;
+                flex-direction: column;
+                gap: 10px;
+                pointer-events: none;
+                opacity: 0;
+                transform: translateY(4px) scale(0.98);
+                transition: opacity 0.16s ease-out, transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                color: #e4e4e7;
+            }
+
+            .qol-workflow-hover-preview.visible {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+
+            .qol-preview-thumb-box {
+                width: 100%;
+                max-height: 200px;
+                min-height: 110px;
+                background: #09090b;
+                border-radius: 8px;
+                overflow: hidden;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+            }
+
+            .qol-preview-thumb-img {
+                max-width: 100%;
+                max-height: 200px;
+                object-fit: contain;
+                border-radius: 6px;
+                display: block;
+            }
+
+            .qol-preview-thumb-empty {
+                color: #71717a;
+                font-size: 11px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 6px;
+                padding: 14px;
+                text-align: center;
+            }
+
+            .qol-preview-title-row {
+                display: flex;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 6px;
+            }
+
+            .qol-preview-title {
+                font-weight: 700;
+                font-size: 13.5px;
+                color: #f4f4f5;
+                word-break: break-all;
+                line-height: 1.35;
+            }
+
+            .qol-preview-path {
+                font-size: 11px;
+                color: #38bdf8;
+                background: rgba(56, 189, 248, 0.12);
+                padding: 2px 6px;
+                border-radius: 4px;
+                border: 1px solid rgba(56, 189, 248, 0.25);
+                margin-top: 3px;
+                word-break: break-all;
+            }
+
+            .qol-preview-notes-box {
+                background: rgba(24, 24, 27, 0.8);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+                padding: 8px 10px;
+                max-height: 140px;
+                overflow-y: auto;
+                font-size: 12px;
+                line-height: 1.45;
+                color: #d4d4d8;
+                white-space: pre-wrap;
+                word-break: break-word;
+            }
+
+            .qol-preview-notes-empty {
+                font-style: italic;
+                color: #71717a;
+                font-size: 11px;
+            }
+
+            .qol-preview-footer {
+                font-size: 10.5px;
+                color: #71717a;
+                text-align: right;
+                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                padding-top: 6px;
+                margin-top: -2px;
+            }
+
+            .qol-file-badge-indicator {
+                font-size: 11.5px;
+                opacity: 0.85;
+                margin-left: 4px;
+                margin-right: 2px;
+                flex-shrink: 0;
+                display: inline-flex;
+                align-items: center;
+                user-select: none;
             }
         `;
     }
@@ -2107,6 +2240,22 @@ class WorkflowsPlusManager {
                     fileRow.appendChild(activeTag);
                 }
 
+                // Thumbnail & Notes Badges
+                if (file.has_thumbnail || file.thumbnail) {
+                    const tBadge = document.createElement("span");
+                    tBadge.className = "qol-file-badge-indicator";
+                    tBadge.textContent = "🖼️";
+                    tBadge.title = BadaI18n.lang === "ko" ? "썸네일 등록됨" : "Thumbnail attached";
+                    fileRow.appendChild(tBadge);
+                }
+                if (file.has_notes || (file.notes && file.notes.trim())) {
+                    const nBadge = document.createElement("span");
+                    nBadge.className = "qol-file-badge-indicator";
+                    nBadge.textContent = "📝";
+                    nBadge.title = BadaI18n.lang === "ko" ? "주석(메모) 등록됨" : "Notes attached";
+                    fileRow.appendChild(nBadge);
+                }
+
                 const starBtn = document.createElement("span");
                 starBtn.className = "qol-fav-star is-fav";
                 starBtn.textContent = "★";
@@ -2116,6 +2265,14 @@ class WorkflowsPlusManager {
                     this.toggleFavorite(file.path);
                 });
                 fileRow.appendChild(starBtn);
+
+                // Hover preview
+                fileRow.addEventListener("mouseenter", () => {
+                    this.scheduleHoverPreview(file, fileRow);
+                });
+                fileRow.addEventListener("mouseleave", () => {
+                    this.cancelHoverPreview();
+                });
 
                 // Click to load
                 fileRow.addEventListener("click", (e) => {
@@ -2128,11 +2285,14 @@ class WorkflowsPlusManager {
                 fileRow.addEventListener("contextmenu", (e) => {
                     e.preventDefault();
                     e.stopPropagation();
+                    this.cancelHoverPreview();
                     this.showContextMenu(e, {
                         type: "file",
                         path: file.path,
                         name: file.name,
-                        filename: file.filename
+                        filename: file.filename,
+                        notes: file.notes,
+                        thumbnail: file.thumbnail
                     });
                 });
 
@@ -2160,10 +2320,17 @@ class WorkflowsPlusManager {
             let filteredFiles = folderNode.files || [];
             let filteredFolders = folderNode.folders || [];
             if (query) {
-                filteredFiles = filteredFiles.filter(f => f.name.toLowerCase().includes(query) || f.filename.toLowerCase().includes(query));
+                filteredFiles = filteredFiles.filter(f => 
+                    f.name.toLowerCase().includes(query) || 
+                    f.filename.toLowerCase().includes(query) ||
+                    (f.notes && f.notes.toLowerCase().includes(query))
+                );
                 filteredFolders = filteredFolders.filter(f => {
                     const matchSelf = f.name.toLowerCase().includes(query);
-                    const matchChildren = f.files.some(cf => cf.name.toLowerCase().includes(query));
+                    const matchChildren = f.files.some(cf => 
+                        cf.name.toLowerCase().includes(query) || 
+                        (cf.notes && cf.notes.toLowerCase().includes(query))
+                    );
                     return matchSelf || matchChildren;
                 });
                 if (!filteredFiles.length && !filteredFolders.length && !folderNode.name.toLowerCase().includes(query)) {
@@ -2279,6 +2446,22 @@ class WorkflowsPlusManager {
                         fileRow.appendChild(activeTag);
                     }
 
+                    // Thumbnail & Notes Badges
+                    if (file.has_thumbnail || file.thumbnail) {
+                        const tBadge = document.createElement("span");
+                        tBadge.className = "qol-file-badge-indicator";
+                        tBadge.textContent = "🖼️";
+                        tBadge.title = BadaI18n.lang === "ko" ? "썸네일 등록됨" : "Thumbnail attached";
+                        fileRow.appendChild(tBadge);
+                    }
+                    if (file.has_notes || (file.notes && file.notes.trim())) {
+                        const nBadge = document.createElement("span");
+                        nBadge.className = "qol-file-badge-indicator";
+                        nBadge.textContent = "📝";
+                        nBadge.title = BadaI18n.lang === "ko" ? "주석(메모) 등록됨" : "Notes attached";
+                        fileRow.appendChild(nBadge);
+                    }
+
                     const starBtn = document.createElement("span");
                     const isFav = this.isFavorited(file.path);
                     starBtn.className = `qol-fav-star ${isFav ? "is-fav" : ""}`;
@@ -2291,6 +2474,14 @@ class WorkflowsPlusManager {
                         this.toggleFavorite(file.path);
                     });
                     fileRow.appendChild(starBtn);
+
+                    // Hover preview
+                    fileRow.addEventListener("mouseenter", () => {
+                        this.scheduleHoverPreview(file, fileRow);
+                    });
+                    fileRow.addEventListener("mouseleave", () => {
+                        this.cancelHoverPreview();
+                    });
 
                     // Drag & drop
                     this.attachFileDragEvents(fileRow, file);
@@ -2306,11 +2497,14 @@ class WorkflowsPlusManager {
                     fileRow.addEventListener("contextmenu", (e) => {
                         e.preventDefault();
                         e.stopPropagation();
+                        this.cancelHoverPreview();
                         this.showContextMenu(e, {
                             type: "file",
                             path: file.path,
                             name: file.name,
-                            filename: file.filename
+                            filename: file.filename,
+                            notes: file.notes,
+                            thumbnail: file.thumbnail
                         });
                     });
 
@@ -2349,6 +2543,9 @@ class WorkflowsPlusManager {
             <div class="qol-menu-item" id="qol-m-fav">
                 <span id="qol-m-fav-icon">⭐</span> <span id="qol-m-fav-text">${BadaI18n.t("wf_ctx_fav_add")}</span>
             </div>
+            <div class="qol-menu-item" id="qol-m-edit-info">
+                <span>📝</span> <span>${BadaI18n.t("wf_ctx_edit_info")}</span>
+            </div>
             <div class="qol-menu-item" id="qol-m-move">
                 <span>📁</span> <span>${BadaI18n.t("wf_ctx_move")}</span>
             </div>
@@ -2379,6 +2576,12 @@ class WorkflowsPlusManager {
         menu.querySelector("#qol-m-fav").addEventListener("click", () => {
             if (this.contextTarget?.type === "file") {
                 this.toggleFavorite(this.contextTarget.path);
+            }
+        });
+
+        menu.querySelector("#qol-m-edit-info").addEventListener("click", () => {
+            if (this.contextTarget?.type === "file") {
+                this.openWorkflowInfoModal(this.contextTarget);
             }
         });
 
@@ -2414,11 +2617,13 @@ class WorkflowsPlusManager {
         const favItem = menu.querySelector("#qol-m-fav");
         const favIcon = menu.querySelector("#qol-m-fav-icon");
         const favText = menu.querySelector("#qol-m-fav-text");
+        const editInfoItem = menu.querySelector("#qol-m-edit-info");
         const moveItem = menu.querySelector("#qol-m-move");
         const newSubItem = menu.querySelector("#qol-m-new-subfolder");
 
         if (targetInfo.type === "file") {
             loadItem.style.display = "flex";
+            if (editInfoItem) editInfoItem.style.display = "flex";
             moveItem.style.display = "flex";
             newSubItem.style.display = "none";
             if (favItem) {
@@ -2429,6 +2634,7 @@ class WorkflowsPlusManager {
             }
         } else if (targetInfo.type === "folder") {
             loadItem.style.display = "none";
+            if (editInfoItem) editInfoItem.style.display = "none";
             moveItem.style.display = "none";
             newSubItem.style.display = "flex";
             if (favItem) favItem.style.display = "none";
@@ -2694,6 +2900,409 @@ class WorkflowsPlusManager {
                 }
             } catch (e) {
                 this.showToast(`Error: ${e.message}`, true);
+            }
+        };
+    }
+
+    escapeHtml(str) {
+        if (!str) return "";
+        return String(str)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    setupHoverPreviewCard() {
+        if (document.getElementById("qol-workflow-hover-preview")) return;
+        const card = document.createElement("div");
+        card.id = "qol-workflow-hover-preview";
+        card.className = "qol-workflow-hover-preview";
+        document.body.appendChild(card);
+        this.hoverCardEl = card;
+    }
+
+    scheduleHoverPreview(file, rowEl) {
+        if (this.isCustomDragging || this.justFinishedDrag) return;
+        this.cancelHoverPreview();
+        this.hoverTimer = setTimeout(() => {
+            this.showHoverPreview(file, rowEl);
+        }, 180);
+    }
+
+    cancelHoverPreview() {
+        if (this.hoverTimer) {
+            clearTimeout(this.hoverTimer);
+            this.hoverTimer = null;
+        }
+        if (this.hoverCardEl) {
+            this.hoverCardEl.classList.remove("visible");
+            this.hoverCardEl.style.display = "none";
+        }
+        this.hoverTargetFile = null;
+    }
+
+    showHoverPreview(file, rowEl) {
+        if (!this.hoverCardEl || !rowEl || this.isCustomDragging) return;
+        this.hoverTargetFile = file;
+
+        const rect = rowEl.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+
+        const hasThumb = Boolean(file.thumbnail);
+        const hasNotes = Boolean(file.notes && file.notes.trim());
+
+        const thumbHtml = hasThumb
+            ? `<div class="qol-preview-thumb-box"><img class="qol-preview-thumb-img" src="/api/bada/workflows/thumbnail?path=${encodeURIComponent(file.thumbnail)}" alt="Thumbnail" /></div>`
+            : `<div class="qol-preview-thumb-box"><div class="qol-preview-thumb-empty"><span style="font-size: 22px;">🖼️</span><span>${BadaI18n.t("wf_no_info_hint")}</span></div></div>`;
+
+        const notesHtml = hasNotes
+            ? `<div class="qol-preview-notes-box">${this.escapeHtml(file.notes)}</div>`
+            : `<div class="qol-preview-notes-box qol-preview-notes-empty">${BadaI18n.t("wf_no_info_hint")}</div>`;
+
+        this.hoverCardEl.innerHTML = `
+            ${thumbHtml}
+            <div>
+                <div class="qol-preview-title-row">
+                    <span class="qol-preview-title">📄 ${this.escapeHtml(file.name || file.filename)}</span>
+                </div>
+                <div class="qol-preview-path">📁 ${this.escapeHtml(file.path)}</div>
+            </div>
+            ${notesHtml}
+            <div class="qol-preview-footer">💡 ${BadaI18n.lang === "ko" ? "우클릭하여 정보 및 썸네일 수정" : "Right-click to edit info & thumbnail"}</div>
+        `;
+
+        this.hoverCardEl.style.display = "flex";
+
+        const cardWidth = 320;
+        let left = rect.right + 12;
+        if (left + cardWidth > window.innerWidth - 10) {
+            left = Math.max(10, rect.left - cardWidth - 12);
+        }
+
+        const estimatedHeight = 360;
+        let top = rect.top - 10;
+        if (top + estimatedHeight > window.innerHeight - 10) {
+            top = Math.max(10, window.innerHeight - estimatedHeight - 10);
+        }
+
+        this.hoverCardEl.style.left = `${left}px`;
+        this.hoverCardEl.style.top = `${top}px`;
+
+        requestAnimationFrame(() => {
+            if (this.hoverTargetFile === file) {
+                this.hoverCardEl.classList.add("visible");
+            }
+        });
+    }
+
+    updateFileInTreeData(node, filePath, data) {
+        if (!node) return false;
+        const normTarget = this.normalizePath(filePath).toLowerCase();
+        if (node.files) {
+            for (const f of node.files) {
+                const fNorm = this.normalizePath(f.path).toLowerCase();
+                if (fNorm === normTarget || fNorm === normTarget + ".json" || fNorm + ".json" === normTarget) {
+                    Object.assign(f, data);
+                    return true;
+                }
+            }
+        }
+        if (node.folders) {
+            for (const sub of node.folders) {
+                if (this.updateFileInTreeData(sub, filePath, data)) return true;
+            }
+        }
+        return false;
+    }
+
+    async openWorkflowInfoModal(targetInfo) {
+        const filePath = targetInfo.path;
+        let currentNotes = targetInfo.notes || "";
+        let currentThumb = targetInfo.thumbnail || "";
+
+        try {
+            const res = await fetch(`/api/bada/workflows/metadata?path=${encodeURIComponent(filePath)}`);
+            if (res.ok) {
+                const json = await res.json();
+                if (json.success && json.data) {
+                    if (json.data.notes !== undefined) currentNotes = json.data.notes;
+                    if (json.data.thumbnail !== undefined) currentThumb = json.data.thumbnail;
+                }
+            }
+        } catch (e) {}
+
+        let pendingImageBase64 = null;
+        let isThumbRemoved = false;
+
+        const overlay = document.createElement("div");
+        overlay.className = "qol-modal-overlay";
+
+        overlay.innerHTML = `
+            <div class="qol-modal-dialog" style="max-width: 480px; width: 92%;">
+                <div class="qol-modal-header">
+                    <span>${BadaI18n.t("wf_info_modal_title")}</span>
+                    <span style="cursor:pointer;" id="qol-info-close">&times;</span>
+                </div>
+                <div class="qol-modal-body" style="gap: 12px; display: flex; flex-direction: column;">
+                    <div style="font-size: 12px; color: #38bdf8; background: #18181b; padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.25); word-break: break-all;">
+                        📄 <strong>${this.escapeHtml(targetInfo.name || targetInfo.filename)}</strong>
+                        <div style="font-size: 11px; color: #a1a1aa; margin-top: 2px;">📁 ${this.escapeHtml(filePath)}</div>
+                    </div>
+
+                    <div>
+                        <div class="qol-form-label" style="margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+                            <span>🖼️ ${BadaI18n.t("wf_thumb_label")}</span>
+                            <button class="qol-btn" id="qol-thumb-remove-btn" style="padding: 2px 8px; font-size: 11px; background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); display: ${currentThumb ? 'inline-flex' : 'none'};">${BadaI18n.t("wf_thumb_remove_btn")}</button>
+                        </div>
+
+                        <div id="qol-thumb-preview-container" style="width: 100%; height: 160px; background: #09090b; border: 2px dashed rgba(255, 255, 255, 0.15); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; cursor: pointer;">
+                            <img id="qol-thumb-img-preview" src="${currentThumb ? `/api/bada/workflows/thumbnail?path=${encodeURIComponent(currentThumb)}&t=${Date.now()}` : ''}" style="max-width: 100%; max-height: 100%; object-fit: contain; display: ${currentThumb ? 'block' : 'none'}; border-radius: 6px;" />
+                            <div id="qol-thumb-placeholder" style="color: #71717a; font-size: 12px; text-align: center; display: ${currentThumb ? 'none' : 'flex'}; flex-direction: column; align-items: center; gap: 6px;">
+                                <span style="font-size: 24px;">🖼️</span>
+                                <span>${BadaI18n.t("wf_thumb_drop_hint")}</span>
+                            </div>
+                            <input type="file" id="qol-thumb-file-input" accept="image/*" style="display: none;" />
+                        </div>
+
+                        <div style="display: flex; gap: 8px; margin-top: 8px;">
+                            <button class="qol-btn qol-btn-primary" id="qol-thumb-canvas-btn" style="flex: 1; font-size: 12px; padding: 6px 10px; background: linear-gradient(135deg, #0284c7, #0369a1); border: 1px solid #38bdf8;">
+                                ${BadaI18n.t("wf_thumb_canvas_btn")}
+                            </button>
+                            <button class="qol-btn" id="qol-thumb-upload-btn" style="font-size: 12px; padding: 6px 12px; background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7;">
+                                ${BadaI18n.t("wf_thumb_upload_btn")}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="qol-form-label" style="margin-bottom: 6px;">📝 ${BadaI18n.t("wf_notes_label")}</div>
+                        <textarea class="qol-textarea" id="qol-notes-input" rows="4" placeholder="${BadaI18n.t("wf_notes_placeholder")}" style="width: 100%; box-sizing: border-box; background: #18181b; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 6px; padding: 8px; font-size: 12.5px; line-height: 1.4; resize: vertical; min-height: 80px; max-height: 200px; font-family: inherit;">${this.escapeHtml(currentNotes)}</textarea>
+                    </div>
+                </div>
+                <div class="qol-modal-footer">
+                    <button class="qol-btn qol-btn-cancel" id="qol-info-cancel">${BadaI18n.t("wf_cancel_btn")}</button>
+                    <button class="qol-btn qol-btn-primary" id="qol-info-save">${BadaI18n.t("wf_save_btn")}</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        const close = () => overlay.remove();
+        overlay.querySelector("#qol-info-close").onclick = close;
+        overlay.querySelector("#qol-info-cancel").onclick = close;
+
+        const thumbContainer = overlay.querySelector("#qol-thumb-preview-container");
+        const imgPreview = overlay.querySelector("#qol-thumb-img-preview");
+        const placeholder = overlay.querySelector("#qol-thumb-placeholder");
+        const fileInput = overlay.querySelector("#qol-thumb-file-input");
+        const removeBtn = overlay.querySelector("#qol-thumb-remove-btn");
+        const uploadBtn = overlay.querySelector("#qol-thumb-upload-btn");
+        const canvasBtn = overlay.querySelector("#qol-thumb-canvas-btn");
+        const notesInput = overlay.querySelector("#qol-notes-input");
+
+        const updatePreviewUI = (dataUrl) => {
+            if (dataUrl) {
+                imgPreview.src = dataUrl;
+                imgPreview.style.display = "block";
+                placeholder.style.display = "none";
+                removeBtn.style.display = "inline-flex";
+                isThumbRemoved = false;
+            } else {
+                imgPreview.src = "";
+                imgPreview.style.display = "none";
+                placeholder.style.display = "flex";
+                removeBtn.style.display = "none";
+                isThumbRemoved = true;
+                pendingImageBase64 = null;
+            }
+        };
+
+        uploadBtn.onclick = () => fileInput.click();
+        thumbContainer.onclick = (e) => {
+            if (e.target !== removeBtn) fileInput.click();
+        };
+
+        fileInput.onchange = () => {
+            const file = fileInput.files?.[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    pendingImageBase64 = e.target.result;
+                    updatePreviewUI(pendingImageBase64);
+                };
+                reader.readAsDataURL(file);
+            }
+        };
+
+        thumbContainer.ondragover = (e) => {
+            e.preventDefault();
+            thumbContainer.style.borderColor = "#00f0ff";
+            thumbContainer.style.background = "rgba(0, 240, 255, 0.05)";
+        };
+        thumbContainer.ondragleave = () => {
+            thumbContainer.style.borderColor = "rgba(255, 255, 255, 0.15)";
+            thumbContainer.style.background = "#09090b";
+        };
+        thumbContainer.ondrop = (e) => {
+            e.preventDefault();
+            thumbContainer.style.borderColor = "rgba(255, 255, 255, 0.15)";
+            thumbContainer.style.background = "#09090b";
+            const file = e.dataTransfer?.files?.[0];
+            if (file && file.type.startsWith("image/")) {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    pendingImageBase64 = ev.target.result;
+                    updatePreviewUI(pendingImageBase64);
+                };
+                reader.readAsDataURL(file);
+            }
+        };
+
+        removeBtn.onclick = (e) => {
+            e.stopPropagation();
+            updatePreviewUI(null);
+        };
+
+        canvasBtn.onclick = async () => {
+            try {
+                canvasBtn.textContent = "⏳ 찾는 중...";
+                canvasBtn.disabled = true;
+
+                let latestImgSrc = null;
+
+                if (app.graph && Array.isArray(app.graph._nodes)) {
+                    for (let i = app.graph._nodes.length - 1; i >= 0; i--) {
+                        const node = app.graph._nodes[i];
+                        if (node.imgs && node.imgs.length > 0) {
+                            const lastImg = node.imgs[node.imgs.length - 1];
+                            if (lastImg && lastImg.src) {
+                                latestImgSrc = lastImg.src;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!latestImgSrc) {
+                    try {
+                        const hRes = await fetch("/history?max_items=1");
+                        if (hRes.ok) {
+                            const hData = await hRes.json();
+                            const firstPromptId = Object.keys(hData)[0];
+                            if (firstPromptId && hData[firstPromptId].outputs) {
+                                const outs = hData[firstPromptId].outputs;
+                                for (const nodeId of Object.keys(outs)) {
+                                    if (outs[nodeId].images && outs[nodeId].images.length > 0) {
+                                        const imgInfo = outs[nodeId].images[outs[nodeId].images.length - 1];
+                                        latestImgSrc = `/view?filename=${encodeURIComponent(imgInfo.filename)}&subfolder=${encodeURIComponent(imgInfo.subfolder || "")}&type=${encodeURIComponent(imgInfo.type || "output")}`;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    } catch (he) {}
+                }
+
+                if (latestImgSrc) {
+                    const img = new Image();
+                    img.crossOrigin = "anonymous";
+                    img.onload = () => {
+                        const canvas = document.createElement("canvas");
+                        const maxDim = 640;
+                        let w = img.width;
+                        let h = img.height;
+                        if (w > maxDim || h > maxDim) {
+                            if (w > h) {
+                                h = Math.round((h * maxDim) / w);
+                                w = maxDim;
+                            } else {
+                                w = Math.round((w * maxDim) / h);
+                                h = maxDim;
+                            }
+                        }
+                        canvas.width = w;
+                        canvas.height = h;
+                        const ctx = canvas.getContext("2d");
+                        ctx.drawImage(img, 0, 0, w, h);
+                        pendingImageBase64 = canvas.toDataURL("image/png", 0.9);
+                        updatePreviewUI(pendingImageBase64);
+                        canvasBtn.textContent = BadaI18n.t("wf_thumb_canvas_btn");
+                        canvasBtn.disabled = false;
+                    };
+                    img.onerror = () => {
+                        alert(BadaI18n.lang === "ko" ? "캔버스 이미지를 불러오지 못했습니다." : "Could not load canvas image.");
+                        canvasBtn.textContent = BadaI18n.t("wf_thumb_canvas_btn");
+                        canvasBtn.disabled = false;
+                    };
+                    img.src = latestImgSrc;
+                } else {
+                    alert(BadaI18n.lang === "ko" ? "캔버스 또는 히스토리에 최근 생성된 이미지가 없습니다." : "No recently generated image found on canvas or history.");
+                    canvasBtn.textContent = BadaI18n.t("wf_thumb_canvas_btn");
+                    canvasBtn.disabled = false;
+                }
+            } catch (err) {
+                console.error("[BadaUtils] Canvas thumbnail extract error:", err);
+                canvasBtn.textContent = BadaI18n.t("wf_thumb_canvas_btn");
+                canvasBtn.disabled = false;
+            }
+        };
+
+        const saveBtn = overlay.querySelector("#qol-info-save");
+        saveBtn.onclick = async () => {
+            saveBtn.textContent = "⏳ 저장 중...";
+            saveBtn.disabled = true;
+
+            const notesVal = notesInput.value.trim();
+            let finalThumbPath = currentThumb;
+
+            try {
+                if (pendingImageBase64) {
+                    const upRes = await fetch("/api/bada/workflows/thumbnail/upload", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            path: filePath,
+                            image_base64: pendingImageBase64
+                        })
+                    });
+                    if (upRes.ok) {
+                        const upJson = await upRes.json();
+                        if (upJson.success && upJson.thumbnail) {
+                            finalThumbPath = upJson.thumbnail;
+                        }
+                    }
+                } else if (isThumbRemoved) {
+                    finalThumbPath = "";
+                }
+
+                await fetch("/api/bada/workflows/metadata", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        path: filePath,
+                        notes: notesVal,
+                        thumbnail: finalThumbPath
+                    })
+                });
+
+                this.updateFileInTreeData(this.treeData, filePath, {
+                    notes: notesVal,
+                    thumbnail: finalThumbPath,
+                    has_notes: Boolean(notesVal),
+                    has_thumbnail: Boolean(finalThumbPath)
+                });
+
+                close();
+                this.renderPlusTree();
+                this.showToast(BadaI18n.t("wf_info_saved_toast"));
+            } catch (err) {
+                console.error("[BadaUtils] Failed to save workflow info:", err);
+                alert("Failed to save workflow info: " + err.message);
+                saveBtn.textContent = BadaI18n.t("wf_save_btn");
+                saveBtn.disabled = false;
             }
         };
     }
