@@ -100,7 +100,7 @@ export const BadaI18n = {
 
             // --- Workflows+ Sidebar ---
             "wf_tab_native": "Workflows",
-            "wf_tab_plus": "Workflows+",
+            "wf_tab_plus": "⚓ Workflows+",
             "wf_search_placeholder": "Search workflows...",
             "wf_btn_focus": "Locate currently active workflow",
             "wf_btn_font_size": "Font Size (Click: Cycle / Right-click: Menu)",
@@ -332,7 +332,7 @@ export const BadaI18n = {
 
             // --- Workflows+ Sidebar ---
             "wf_tab_native": "Workflows",
-            "wf_tab_plus": "Workflows+",
+            "wf_tab_plus": "⚓ 워크플로우+",
             "wf_search_placeholder": "워크플로우 검색...",
             "wf_btn_focus": "현재 작업 중인 워크플로우 위치로 이동",
             "wf_btn_font_size": "글자 크기 조절 (좌클릭: 순환 변경 / 우클릭: 메뉴)",

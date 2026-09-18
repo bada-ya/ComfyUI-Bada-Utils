@@ -1038,23 +1038,54 @@ class WorkflowsPlusManager {
         } catch (e) {}
     }
 
+    getTabLabel() {
+        const isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+        return isKo ? "⚓ 워크플로우+" : "⚓ Workflows+";
+    }
+
+    updateTabLabel() {
+        try {
+            const label = this.getTabLabel();
+            const tab = app.extensionManager?.sidebarTab?.sidebarTabs?.find(t => t.id === "bada-workflows-plus");
+            if (tab) {
+                tab.title = label;
+                tab.tooltip = label;
+            }
+            const btn = document.querySelector('[data-testid="bada-workflows-plus-tab-button"]');
+            if (btn) {
+                btn.setAttribute("aria-label", label);
+                btn.setAttribute("title", label);
+                const labelSpan = btn.querySelector(".side-bar-button-label");
+                if (labelSpan) labelSpan.textContent = label;
+            }
+        } catch (e) {}
+    }
+
     registerSidebarTab() {
         if (!app.extensionManager || !app.extensionManager.registerSidebarTab) {
             console.warn("[BadaUtils] app.extensionManager.registerSidebarTab not available.");
             return;
         }
 
+        const tabTitle = this.getTabLabel();
+
         app.extensionManager.registerSidebarTab({
             id: "bada-workflows-plus",
             icon: "bada-tab-icon-workflow",
-            title: "Workflows",
-            tooltip: "Workflows",
+            title: tabTitle,
+            tooltip: tabTitle,
             type: "custom",
             render: (el) => {
                 this.mountToContainer(el);
             }
         });
-        console.log("[BadaUtils] Bada Workflows sidebar tab registered via extensionManager.");
+        console.log("[BadaUtils] Bada Workflows sidebar tab registered via extensionManager with title:", tabTitle);
+
+        if (typeof BadaI18n !== "undefined" && BadaI18n.subscribe) {
+            BadaI18n.subscribe(() => {
+                this.updateTabLabel();
+            });
+        }
 
         this.syncSidebarStateWithSetting();
         this.reorderSidebarTab();
@@ -1065,6 +1096,7 @@ class WorkflowsPlusManager {
 
     reorderSidebarTab() {
         try {
+            this.updateTabLabel();
             const tabs = app.extensionManager?.sidebarTab?.sidebarTabs;
             if (!tabs || !Array.isArray(tabs)) return;
             const plusIdx = tabs.findIndex(t => t.id === "bada-workflows-plus");
