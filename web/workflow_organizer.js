@@ -3157,15 +3157,73 @@ class WorkflowsPlusManager {
             }
         };
 
-        const loadThumbnailBlob = (blob) => {
+        // Client-side auto-resizer to 640px (lightweight ~100KB thumbnail)
+        const resizeToThumbnailBase64 = (source, maxDim = 640) => {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                let objectUrl = null;
+                if (source instanceof Blob) {
+                    objectUrl = URL.createObjectURL(source);
+                    img.src = objectUrl;
+                } else if (typeof source === "string") {
+                    img.src = source;
+                    if (source.startsWith("http") || source.startsWith("/")) {
+                        img.crossOrigin = "anonymous";
+                    }
+                } else {
+                    return reject(new Error("Invalid image source"));
+                }
+
+                img.onload = () => {
+                    if (objectUrl) URL.revokeObjectURL(objectUrl);
+                    let w = img.naturalWidth || img.width;
+                    let h = img.naturalHeight || img.height;
+                    if (w <= 0 || h <= 0) {
+                        return reject(new Error("Image has zero dimensions"));
+                    }
+                    if (w > maxDim || h > maxDim) {
+                        if (w > h) {
+                            h = Math.round((h * maxDim) / w);
+                            w = maxDim;
+                        } else {
+                            w = Math.round((w * maxDim) / h);
+                            h = maxDim;
+                        }
+                    }
+                    const canvas = document.createElement("canvas");
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext("2d");
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = "high";
+                    ctx.drawImage(img, 0, 0, w, h);
+                    const dataUrl = canvas.toDataURL("image/png");
+                    resolve(dataUrl);
+                };
+                img.onerror = (err) => {
+                    if (objectUrl) URL.revokeObjectURL(objectUrl);
+                    reject(err);
+                };
+            });
+        };
+
+        const loadThumbnailBlob = async (blob) => {
             if (!blob) return;
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                pendingImageBase64 = e.target.result;
+            try {
+                const resizedDataUrl = await resizeToThumbnailBase64(blob, 640);
+                pendingImageBase64 = resizedDataUrl;
                 updatePreviewUI(pendingImageBase64);
                 this.showToast(BadaI18n.t("wf_thumb_pasted_toast"));
-            };
-            reader.readAsDataURL(blob);
+            } catch (err) {
+                console.error("[BadaUtils] Thumbnail resize error, falling back to raw reader:", err);
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    pendingImageBase64 = e.target.result;
+                    updatePreviewUI(pendingImageBase64);
+                    this.showToast(BadaI18n.t("wf_thumb_pasted_toast"));
+                };
+                reader.readAsDataURL(blob);
+            }
         };
 
         // Clipboard Paste handler (Ctrl+V anywhere while modal is open)
@@ -3323,37 +3381,17 @@ class WorkflowsPlusManager {
                 }
 
                 if (latestImgSrc) {
-                    const img = new Image();
-                    img.crossOrigin = "anonymous";
-                    img.onload = () => {
-                        const canvas = document.createElement("canvas");
-                        const maxDim = 640;
-                        let w = img.width;
-                        let h = img.height;
-                        if (w > maxDim || h > maxDim) {
-                            if (w > h) {
-                                h = Math.round((h * maxDim) / w);
-                                w = maxDim;
-                            } else {
-                                w = Math.round((w * maxDim) / h);
-                                h = maxDim;
-                            }
-                        }
-                        canvas.width = w;
-                        canvas.height = h;
-                        const ctx = canvas.getContext("2d");
-                        ctx.drawImage(img, 0, 0, w, h);
-                        pendingImageBase64 = canvas.toDataURL("image/png", 0.9);
+                    try {
+                        const resizedDataUrl = await resizeToThumbnailBase64(latestImgSrc, 640);
+                        pendingImageBase64 = resizedDataUrl;
                         updatePreviewUI(pendingImageBase64);
-                        canvasBtn.textContent = BadaI18n.t("wf_thumb_canvas_btn");
-                        canvasBtn.disabled = false;
-                    };
-                    img.onerror = () => {
+                    } catch (imgErr) {
+                        console.error("[BadaUtils] Canvas thumbnail extract error:", imgErr);
                         alert(BadaI18n.lang === "ko" ? "캔버스 이미지를 불러오지 못했습니다." : "Could not load canvas image.");
+                    } finally {
                         canvasBtn.textContent = BadaI18n.t("wf_thumb_canvas_btn");
                         canvasBtn.disabled = false;
-                    };
-                    img.src = latestImgSrc;
+                    }
                 } else {
                     alert(BadaI18n.lang === "ko" ? "캔버스 또는 히스토리에 최근 생성된 이미지가 없습니다." : "No recently generated image found on canvas or history.");
                     canvasBtn.textContent = BadaI18n.t("wf_thumb_canvas_btn");

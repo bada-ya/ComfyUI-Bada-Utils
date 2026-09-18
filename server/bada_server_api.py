@@ -1371,6 +1371,24 @@ def register_bada_api_routes():
                 if not is_safe_path(root_dir, thumb_full):
                     return web.json_response({"success": False, "error": "Invalid thumbnail destination"}, status=403)
 
+                # Ensure thumbnail is resized to max 640px and optimized to ~100KB
+                try:
+                    from PIL import Image
+                    import io
+                    im = Image.open(io.BytesIO(image_bytes))
+                    max_dim = 640
+                    if im.width > max_dim or im.height > max_dim:
+                        im.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+                    out_buf = io.BytesIO()
+                    has_alpha = im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info)
+                    if has_alpha:
+                        im.save(out_buf, format="PNG", optimize=True)
+                    else:
+                        im.convert("RGB").save(out_buf, format="PNG", optimize=True)
+                    image_bytes = out_buf.getvalue()
+                except Exception as opt_err:
+                    logger.warning(f"[Bada-Utils] Thumbnail optimization warning: {opt_err}")
+
                 with open(thumb_full, "wb") as f:
                     f.write(image_bytes)
 
