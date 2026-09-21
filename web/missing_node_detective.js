@@ -47,28 +47,32 @@ export function isDetectiveEnabled() {
  * Checks if a node on the canvas is missing/uninstalled.
  */
 export function isMissingNode(node) {
-    if (!node) return false;
-    if (node.is_missing || (node.flags && node.flags.missing)) return true;
+    if (!node || typeof node !== "object") return false;
+    try {
+        if (node.is_missing || node.flags?.missing || node.flags?.isMissing) return true;
 
-    const type = node.type || node.comfyClass || node.last_serialization?.type;
-    if (!type || type === "MissingNode" || node.constructor?.name === "MissingNode") return true;
+        const type = node.type || node.comfyClass || node.last_serialization?.type;
+        if (!type || type === "MissingNode" || node.constructor?.name === "MissingNode") return true;
 
-    const reg = window.LiteGraph?.registered_node_types
-        || window.LGraphCanvas?.registered_node_types
-        || (typeof LiteGraph !== "undefined" ? LiteGraph.registered_node_types : null);
-    const nodeDefs = window.app?.nodeDefs;
+        const reg = window.LiteGraph?.registered_node_types
+            || window.LGraphCanvas?.registered_node_types
+            || (typeof LiteGraph !== "undefined" ? LiteGraph.registered_node_types : null);
+        const nodeDefs = window.app?.nodeDefs;
 
-    const hasRegistry = (reg && Object.keys(reg).length > 0) || (nodeDefs && Object.keys(nodeDefs).length > 0);
-    if (hasRegistry && type) {
-        const inReg = reg && !!reg[type];
-        const inDefs = nodeDefs && !!nodeDefs[type];
-        if (!inReg && !inDefs) return true;
+        const hasRegistry = (reg && Object.keys(reg).length > 0) || (nodeDefs && Object.keys(nodeDefs).length > 0);
+        if (hasRegistry && type) {
+            const inReg = reg && !!reg[type];
+            const inDefs = nodeDefs && !!nodeDefs[type];
+            if (!inReg && !inDefs) return true;
+        }
+
+        // Note: Do NOT check node.has_errors here because installed nodes lacking model files
+        // (e.g. Load Diffusion Model) have node.has_errors=true, but they are NOT missing custom nodes.
+
+        return false;
+    } catch (_) {
+        return false;
     }
-
-    // Note: Do NOT check node.has_errors here because installed nodes lacking model files
-    // (e.g. Load Diffusion Model) have node.has_errors=true, but they are NOT missing custom nodes.
-
-    return false;
 }
 
 /**
@@ -856,6 +860,15 @@ export function hookLGraphNodePrototypes() {
     const NodeClass = window.LGraphNode || window.LiteGraph?.LGraphNode;
     if (!NodeClass || !NodeClass.prototype) return;
 
+    // Guard for ComfyUI v0.37+ (New Vue/TS Frontend):
+    // LGraphNode is a modern class using NodeShellState and getters (flags, title, etc.).
+    // Monkey-patching its prototype breaks createNode / new LGraphNode constructors,
+    // causing all nodes to fail instantiation and turn into MissingNode.
+    const flagsDesc = Object.getOwnPropertyDescriptor(NodeClass.prototype, "flags");
+    if (flagsDesc?.get) {
+        return;
+    }
+
     if (!window._badaLGraphColorHooked) {
         window._badaLGraphColorHooked = true;
 
@@ -864,13 +877,15 @@ export function hookLGraphNodePrototypes() {
         const origBgGet = origBgDesc?.get;
         Object.defineProperty(NodeClass.prototype, "renderingBgColor", {
             get() {
-                if (isTransparentColor(this.bgcolor) || (isMissingNode(this) && this.type === "Label (rgthree)")) {
-                    return "transparent";
-                }
+                try {
+                    if (this && (isTransparentColor(this.bgcolor) || (isMissingNode(this) && this.type === "Label (rgthree)"))) {
+                        return "transparent";
+                    }
+                } catch (_) {}
                 if (origBgGet) {
-                    return origBgGet.call(this);
+                    try { return origBgGet.call(this); } catch (_) {}
                 }
-                return this.bgcolor || window.LiteGraph?.NODE_DEFAULT_BGCOLOR || "#353535";
+                return this?.bgcolor || window.LiteGraph?.NODE_DEFAULT_BGCOLOR || "#353535";
             },
             configurable: true,
             enumerable: true
@@ -881,13 +896,15 @@ export function hookLGraphNodePrototypes() {
         const origColorGet = origColorDesc?.get;
         Object.defineProperty(NodeClass.prototype, "renderingColor", {
             get() {
-                if (isTransparentColor(this.color) || (isMissingNode(this) && this.type === "Label (rgthree)")) {
-                    return "transparent";
-                }
+                try {
+                    if (this && (isTransparentColor(this.color) || (isMissingNode(this) && this.type === "Label (rgthree)"))) {
+                        return "transparent";
+                    }
+                } catch (_) {}
                 if (origColorGet) {
-                    return origColorGet.call(this);
+                    try { return origColorGet.call(this); } catch (_) {}
                 }
-                return this.color || window.LiteGraph?.NODE_DEFAULT_COLOR || "#464646";
+                return this?.color || window.LiteGraph?.NODE_DEFAULT_COLOR || "#464646";
             },
             configurable: true,
             enumerable: true
@@ -898,12 +915,17 @@ export function hookLGraphNodePrototypes() {
         const origTitleModeGet = origTitleModeDesc?.get;
         Object.defineProperty(NodeClass.prototype, "title_mode", {
             get() {
-                if (this._custom_title_mode !== undefined) return this._custom_title_mode;
-                if (isMissingNode(this) && this.type === "Label (rgthree)") {
-                    return window.LiteGraph?.NO_TITLE ?? 1;
+                try {
+                    if (!this) return window.LiteGraph?.NORMAL_TITLE ?? 0;
+                    if (this._custom_title_mode !== undefined) return this._custom_title_mode;
+                    if (isMissingNode(this) && this.type === "Label (rgthree)") {
+                        return window.LiteGraph?.NO_TITLE ?? 1;
+                    }
+                } catch (_) {}
+                if (origTitleModeGet) {
+                    try { return origTitleModeGet.call(this); } catch (_) {}
                 }
-                if (origTitleModeGet) return origTitleModeGet.call(this);
-                return this.constructor?.title_mode ?? window.LiteGraph?.NORMAL_TITLE ?? 0;
+                return this?.constructor?.title_mode ?? window.LiteGraph?.NORMAL_TITLE ?? 0;
             },
             set(v) {
                 this._custom_title_mode = v;
@@ -914,8 +936,11 @@ export function hookLGraphNodePrototypes() {
         // 4. For missing Label (rgthree), render its label text gracefully without any badges
         const origDrawFg = NodeClass.prototype.onDrawForeground;
         NodeClass.prototype.onDrawForeground = function (ctx) {
-            if (origDrawFg) origDrawFg.apply(this, arguments);
-            if (isMissingNode(this) && (this.type === "Label (rgthree)" || this.last_serialization?.type === "Label (rgthree)")) {
+            if (origDrawFg) {
+                try { origDrawFg.apply(this, arguments); } catch (_) {}
+            }
+            try {
+                if (this && isMissingNode(this) && (this.type === "Label (rgthree)" || this.last_serialization?.type === "Label (rgthree)")) {
                 const fontSize = Number(this.properties?.fontSize) || 28;
                 const fontFamily = this.properties?.fontFamily || "Arial";
                 const fontColor = this.properties?.fontColor || "#ffffff";
@@ -952,8 +977,9 @@ export function hookLGraphNodePrototypes() {
                 }
                 ctx.restore();
             }
-        };
-    }
+        } catch (_) {}
+    };
+}
 }
 
 // Run immediately if LiteGraph is already loaded
