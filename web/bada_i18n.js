@@ -221,7 +221,15 @@ export const BadaI18n = {
             "rp_apply_btn": "Apply (Ctrl+Enter)",
             "rp_copy_btn": "Copy Prompt",
             "rp_reset_btn": "Reset",
-            "rp_final_preview": "Final Prompt Preview"
+            "rp_final_preview": "Final Prompt Preview",
+
+            // --- Bada Google Translator ---
+            "trans_node_title": "⚓ Bada Google Translator",
+            "trans_label_text": "text",
+            "trans_label_from": "from_lang",
+            "trans_label_to": "to_lang",
+            "trans_label_quotes": "preserve_quotes",
+            "trans_tip_quotes": "When true, text inside double quotes (\" \") is preserved without translation."
         },
 
         ko: {
@@ -416,7 +424,15 @@ export const BadaI18n = {
             "rp_apply_btn": "적용 (Ctrl+Enter)",
             "rp_copy_btn": "복사 (Copy)",
             "rp_reset_btn": "초기화",
-            "rp_final_preview": "최종 프롬프트 미리보기"
+            "rp_final_preview": "최종 프롬프트 미리보기",
+
+            // --- Bada Google Translator ---
+            "trans_node_title": "⚓ Bada Google Translator",
+            "trans_label_text": "번역할 원문 텍스트",
+            "trans_label_from": "출발 언어 (from_lang)",
+            "trans_label_to": "도착 언어 (to_lang)",
+            "trans_label_quotes": "따옴표 원문 보존 (preserve_quotes)",
+            "trans_tip_quotes": "True 시 큰따옴표(\" \") 안의 내용은 번역하지 않고 원문 그대로 유지합니다."
         }
     },
 
