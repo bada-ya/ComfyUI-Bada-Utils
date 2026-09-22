@@ -36,7 +36,7 @@
 ├── 4. 📂 차세대 스마트 워크플로우 매니저 (Workflows+)
 ├── 5. ✨ 캔버스 & 클립보드 편의성(QoL) 해결사 (Canvas & Image QoL)
 ├── 6. ⚓ 비동기 제미나이 스튜디오 (BadaAsyncGeminiStudio)
-├── 7. 💻 바다 터미널 허브 (BadaTerminalConsole)
+├── 7. 🌐 바다 구글 번역기 (BadaGoogleTranslator)
 └── 8. 🧩 클래식 매니저 퀵 런처 & 툴팁 버그 자동 치료기 (Dual Manager & Tooltip Healer)
 ```
 
@@ -298,37 +298,22 @@
 
 ---
 
-### 7. 💻 바다 터미널 허브 (`BadaTerminalConsole`)
-- **무슨 기능인가요?**: ComfyUI 화면을 벗어나지 않고 사이드바에서 실시간 터미널 명령(`git pull`, `pip install` 등)을 실행하고, 내 커스텀 노드 목록을 검색해 곧바로 독립 Windows CMD 창을 띄웁니다.
-- **이럴 때 쓰면 편합니다**: 노드 업데이트나 종속 라이브러리 설치를 위해 매번 CMD 창을 열고 `cd ...` 경로를 복사-붙여넣기 하던 번거로움을 완전히 없애고 싶을 때 사용합니다.
+### 7. 🌐 바다 구글 번역기 (`BadaGoogleTranslator`)
+- **무슨 기능인가요?**: 외부 패키지 없이 ComfyUI 내에서 직접 429 속도 제한 우회, 자동 4단계 페일오버, 따옴표 보존(`preserve_quotes`) 기능을 갖춘 빠른 구글 번역을 제공합니다.
+- **이럴 때 쓰면 편합니다**: 한국어, 일본어, 중국어 등 모국어로 프롬프트를 작성한 뒤 `requests`, `deep-translator` 같은 무거운 외부 패키지 설치 없이 바로 영어 프롬프트로 번역하고 싶을 때 사용합니다.
 
 <details>
 <summary><b>📖 자세한 설명 및 설정 방법 (클릭하여 펼치기) ▼</b></summary>
 
-#### 🚀 2가지 편리한 실행 방식
-| 1. 좌측 사이드바 툴바 고정 콘솔 | 2. 캔버스 독립 커스텀 노드 |
-| :---: | :---: |
-| <img src="docs/images/terminal/terminal_sidebar.png" alt="좌측 사이드바 터미널 허브" width="380"> | <img src="docs/images/terminal/terminal_canvas_node.png" alt="캔버스 독립 터미널 노드" width="500"> |
-| *좌측 사이드바 툴바에서 `>_` 단추를 눌러 즉시 호출* | *캔버스에 `⚓ Bada Terminal Hub` 노드를 꺼내어 작업* |
-
 #### 🌟 핵심 세부 기능
-1. **🖥️ 사이드바 툴바 고정 콘솔**:
-   * ComfyUI 왼쪽 사이드 툴바 최하단에 상시 상주하여 작업 흐름을 끊지 않고 언제든 즉시 호출할 수 있습니다.
-2. **🔍 실시간 검색 디렉토리 콤보박스 (Searchable Path Combobox)**:
-   * 내 PC에 설치된 37개 이상의 커스텀 노드와 ComfyUI 루트 디렉토리를 알파벳/한글 타이핑 즉시 실시간 필터링합니다.
-   * 키보드 상/하 화살표 선택, Enter 확정, 네온 시안 하이라이트를 지원합니다.
-3. **💻 네이티브 Windows 콘솔 연동 (`[ 💻 CMD ]` 버튼)**:
-   * 클릭 한 번으로 선택된 폴더 경로를 `cwd`로 하는 실제 독립된 Windows 명령 프롬프트(`cmd.exe`) 창을 팝업으로 즉시 실행합니다.
-4. **⚡ 원클릭 유지보수 액션 (Quick Actions)**:
-   * `Git Status`, `Git Pull Origin Main`, `Pip Install Requirements`, `ComfyUI Restart` 등 자주 쓰는 명령어를 드롭다운에서 선택해 원클릭 실행합니다.
-5. **⚡ 자주 쓰는 호환성 패치 (Quick Fix) & 사이버 확인 대화상자**:
-   * 드롭다운 클릭 시 아래로 부드럽게 펼쳐지는 전용 호환성 패치 메뉴 제공:
-     - `🔢 Numpy ≤ 2.4 (WAS 노드 / 눈차쿠 호환 패치)`: WAS Node Suite 및 Nunchaku 등의 넘파이 2.x 버전 충돌 해결
-     - `🎥 Kornia 0.7.3 (LTX-Video 노드 호환 패치)`: LTX-Video 노드의 최신 Kornia 버전 호환성 오류 해결
-   * 사용자의 ComfyUI 가상환경 Python 경로(`envData.python_executable`)를 100% 자동 감지하여 글로벌 파이썬 오염 없이 안전하게 설치.
-   * 실수로 설치되는 일이 없도록 패치 선택 시 `~~~~을 하겠냐`를 묻는 사이버네틱 확인 모달을 띄워 승인 시에만 안전 설치 진행.
-6. **📡 실시간 웹소켓 터미널 스트리밍**:
-   * 실행 중인 명령어의 표준 출력(stdout/stderr)을 ANSI 컬러 파싱과 함께 실시간으로 감상할 수 있습니다.
+1. **⚡ 외부 의존성 완전 제로(Zero Dependency)**:
+   * Python 표준 라이브러리(`urllib.request`, `urllib.parse`, `json`, `re`, `html`)만 사용. 외부 pip 패키지가 전혀 필요하지 않습니다.
+2. **🛡️ 429 Too Many Requests 우회**:
+   * 공식 Chrome 확장 클라이언트 요청 및 헤더(`client="dict-chrome-ex"`, Chrome 124 헤더)를 에뮬레이트하고 4단계 엔드포인트 페일오버(`translate.googleapis.com` & `clients5.google.com`)를 지원합니다.
+3. **💬 따옴표 보존(`preserve_quotes`)**:
+   * 큰따옴표(`"..."`)로 감싸진 아티스트 이름, 트리거 워드, 특수 태그는 번역하지 않고, 그 주변의 설명 텍스트만 번역합니다.
+4. **🌐 실시간 이중 언어 UI**:
+   * UI 언어 전환 시 노드 위젯 라벨이 즉각 반응하는 동적 다국어 노드 UI를 지원합니다.
 
 </details>
 
@@ -386,8 +371,7 @@ ComfyUI 우측 상단 톱니바퀴(**`⚙️ Settings`**) 메뉴에서 **`🌊 B
 | **6. 시작 환경** | **🧼 시작 시 클린 빈 캔버스로 열기** | ComfyUI 최초 실행 및 새 탭 오픈 시 기본 모델 누락 오류("2 errors found")를 방지하고 깨끗한 빈 캔버스로 기동하도록 설정합니다. |
 | **7. 프리셋 관리** | **🗃️ 글로벌 프리셋 & 인라인 요약 패널** | 노드 상단 지붕에 바로가기 뱃지 표시 및 워크플로우 간 전역 공유되는 노드별 프리셋을 한눈에 파악하고 백업/복원할 수 있는 통합 패널을 제공합니다. |
 | **8. 이미지 편의성** | **📋 클립보드 & LoadImage 자동 에러 해결사** | 클립보드 이미지(`Ctrl+V`)를 붙여넣거나 하위 경로 로드 시 발생하는 빨간 테두리 에러를 자동으로 치료합니다. |
-| **9. 터미널 허브** | **🖥️ 바다 터미널 허브** | 좌측 사이드바 하단에 Bada Terminal Hub 바로가기 탭 아이콘 표시 여부를 설정합니다. |
-| **10. 노드 스마트 케어** | **🩺 노드 스마트 케어 (미싱 노드 복구 & 모델 자동 장착)** | 캔버스 빈 공간 또는 노드 우클릭 시 설치되지 않은 미싱 노드(빨간 X)와 누락된 모델/LoRA를 3단 탭 및 4가지 상황별 스마트 라우팅으로 진단하여 원클릭 설치 및 자동 장착합니다. |
+| **9. 노드 스마트 케어** | **🩺 노드 스마트 케어 (미싱 노드 복구 & 모델 자동 장착)** | 캔버스 빈 공간 또는 노드 우클릭 시 설치되지 않은 미싱 노드(빨간 X)와 누락된 모델/LoRA를 3단 탭 및 4가지 상황별 스마트 라우팅으로 진단하여 원클릭 설치 및 자동 장착합니다. |
 
 ---
 
@@ -400,7 +384,7 @@ ComfyUI 우측 상단 톱니바퀴(**`⚙️ Settings`**) 메뉴에서 **`🌊 B
 
 ## 📂 기본 제공 예제 워크플로우
 
-저장소의 [`workflows/bada_utils_workflow.json`](workflows/bada_utils_workflow.json) 파일을 ComfyUI 화면으로 **드래그 & 드롭**하시면 ComfyUI-Bada-Utils의 4대 핵심 노드(`BadaPresetHub`, `BadaTerminalHub`, `BadaRegionalPrompt`, `BadaAsyncGeminiStudio`)가 모두 배치된 올인원 통합 워크플로우를 즉시 테스트하실 수 있습니다.
+저장소의 [`workflows/bada_utils_workflow.json`](workflows/bada_utils_workflow.json) 파일을 ComfyUI 화면으로 **드래그 & 드롭**하시면 ComfyUI-Bada-Utils의 4대 핵심 노드(`BadaPresetHub`, `BadaGoogleTranslator`, `BadaRegionalPrompt`, `BadaAsyncGeminiStudio`)가 모두 배치된 올인원 통합 워크플로우를 즉시 테스트하실 수 있습니다.
 
 ---
 

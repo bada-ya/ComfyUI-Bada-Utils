@@ -36,7 +36,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 ├── 4. 📂 Next-Gen Smart Workflow Manager (Workflows+)
 ├── 5. ✨ Canvas & Clipboard QoL Master (Canvas & Image QoL)
 ├── 6. ⚓ Bada Async Gemini Studio (BadaAsyncGeminiStudio)
-├── 7. 💻 Bada Terminal Hub (BadaTerminalConsole)
+├── 7. 🌐 Bada Google Translator (BadaGoogleTranslator)
 └── 8. 🧩 Classic Manager Quick Launcher & Tooltip Bug Auto-Healer (Dual Manager & Tooltip Healer)
 ```
 
@@ -297,37 +297,22 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 
 ---
 
-### 7. 💻 Bada Terminal Hub (`BadaTerminalConsole`)
-- **What it does**: Execute real-time terminal commands (`git pull`, `pip install`, etc.) directly inside the ComfyUI sidebar, search all 37+ installed custom node folders, and launch native Windows CMD console windows with 1 click.
-- **When to use it**: When updating custom nodes or installing dependencies without opening separate terminals or copying complex directory paths.
+### 7. 🌐 Bada Google Translator (`BadaGoogleTranslator`)
+- **What it does**: Zero-dependency, blazing-fast Google translation directly in ComfyUI with 429 rate limit bypass, automatic 4-tier failover, and quotes preservation (`preserve_quotes`).
+- **When to use it**: When prompting in your native language (Korean, Japanese, Chinese, etc.) and translating directly into English prompts without installing heavy external packages (`requests`, `deep-translator`, etc.).
 
 <details>
 <summary><b>📖 Detailed Guide & Settings (Click to expand) ▼</b></summary>
 
-#### 🚀 2 Convenient Ways to Use
-| 1. Docked Sidebar Console (Left Panel) | 2. On-Canvas Custom Node |
-| :---: | :---: |
-| <img src="docs/images/terminal/terminal_sidebar.png" alt="Docked Sidebar Terminal" width="380"> | <img src="docs/images/terminal/terminal_canvas_node.png" alt="On-Canvas Terminal Node" width="500"> |
-| *Click the `>_` terminal tab on the left sidebar anytime* | *Spawn `⚓ Bada Terminal Hub` node directly on canvas* |
-
 #### 🌟 Key Features
-1. **🖥️ Docked Sidebar Console**:
-   * Stays integrated at the bottom of the ComfyUI left sidebar for instant access anytime.
-2. **🔍 Searchable Path Combobox**:
-   * Filter and locate all 37+ installed custom node folders or ComfyUI root in real time with fuzzy typing.
-   * Full keyboard arrow navigation, Enter confirmation, and neon cyan matching highlights.
-3. **💻 Native Windows Console Launcher (`[ 💻 CMD ]` Button)**:
-   * Launches an independent Windows command prompt (`cmd.exe`) window positioned at the selected directory with 1 click.
-4. **⚡ 1-Click Quick Actions**:
-   * `Git Status`, `Git Pull Origin Main`, `Pip Install Requirements`, `ComfyUI Restart` readily accessible via dropdown.
-5. **⚡ Compatibility Quick Fixes & Interactive Confirmation Dialog**:
-   * Dedicated dropdown menu expanding downwards for instant dependency fixes:
-     - `🔢 Numpy ≤ 2.4`: Resolves numpy 2.x version conflicts with WAS Node Suite, Nunchaku, and legacy custom nodes.
-     - `🎥 Kornia 0.7.3`: Resolves kornia attribute and compatibility errors in LTX-Video custom nodes.
-   * Automatically detects your exact ComfyUI virtual environment Python path (`envData.python_executable`), preventing global Python pollution.
-   * Displays an interactive cyber confirmation modal asking for user approval with full command inspection before execution.
-6. **📡 Real-Time WebSocket Terminal Streaming**:
-   * Streams stdout and stderr with full ANSI terminal color parsing live in your browser.
+1. **⚡ Zero External Dependencies**:
+   * Uses only Python standard libraries (`urllib.request`, `urllib.parse`, `json`, `re`, `html`). No external pip packages required.
+2. **🛡️ 429 Too Many Requests Bypass**:
+   * Emulates official Chrome extension client requests and headers (`client="dict-chrome-ex"`, Chrome 124 headers) with 4-tier endpoint failover (`translate.googleapis.com` & `clients5.google.com`).
+3. **💬 Quotes Preservation (`preserve_quotes`)**:
+   * Preserves artist names, trigger words, and specialized tags enclosed in double quotes (`"..."`), translating only descriptive surrounding text.
+4. **🌐 Real-Time Bilingual UI**:
+   * Dynamic node widget labels that react instantaneously to UI language switching.
 
 </details>
 
@@ -385,8 +370,7 @@ Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 
 | **6. Startup** | **🧼 Clean Blank Canvas Startup** | Starts ComfyUI and new tabs with a clean blank canvas, completely preventing annoying missing-model startup errors (`2 errors found`). |
 | **7. Presets** | **🗃️ Global Presets & Inline Overview Panel** | Display shortcut preset badges on node roofs and provides full-width interactive preset summary across all node types. |
 | **8. Image QoL** | **📋 Clipboard & LoadImage Auto-Error Fixer** | Automatically fixes red border and input validation errors caused by pasting clipboard images (`Ctrl+V`) or subfolder paths in LoadImage nodes. |
-| **9. Terminal** | **🖥️ Bada Terminal Hub** | Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar. |
-| **10. Node Smart Care** | **🩺 Node Smart Care (Missing Node Resolver & Model Assigner)** | Enables the unified right-click context menu (`🩺 [Bada] Node Smart Care`) and 3-tab workflow diagnosis modal for missing custom nodes and models. |
+| **9. Node Smart Care** | **🩺 Node Smart Care (Missing Node Resolver & Model Assigner)** | Enables the unified right-click context menu (`🩺 [Bada] Node Smart Care`) and 3-tab workflow diagnosis modal for missing custom nodes and models. |
 
 ---
 
@@ -399,7 +383,7 @@ Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 
 
 ## 📂 Included Example Workflow
 
-Drag and drop [`workflows/bada_utils_workflow.json`](workflows/bada_utils_workflow.json) directly onto your ComfyUI canvas to immediately test the full ComfyUI-Bada-Utils all-in-one flagship suite (`BadaPresetHub`, `BadaTerminalHub`, `BadaRegionalPrompt`, and `BadaAsyncGeminiStudio`).
+Drag and drop [`workflows/bada_utils_workflow.json`](workflows/bada_utils_workflow.json) directly onto your ComfyUI canvas to immediately test the full ComfyUI-Bada-Utils all-in-one flagship suite (`BadaPresetHub`, `BadaGoogleTranslator`, `BadaRegionalPrompt`, and `BadaAsyncGeminiStudio`).
 
 ---
 

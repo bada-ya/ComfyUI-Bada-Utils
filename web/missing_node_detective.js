@@ -158,16 +158,32 @@ export async function lookupMissingNodeInfo(realType, displayTitle = "") {
 }
 
 /**
- * Installs a custom node via Bada Terminal Hub / ComfyUI Manager backend.
+ * Installs a custom node via ComfyUI Manager backend or assisted clipboard workflow.
  */
 export async function installCustomNode(repoUrl, packTitle) {
     try {
-        const resp = await api.fetchApi("/api/bada/customnode/install", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ repo: repoUrl, title: packTitle })
-        });
-        return await resp.json();
+        // Attempt native ComfyUI-Manager install if available
+        try {
+            const mgrResp = await api.fetchApi("/customnode/install/git_url", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url: repoUrl })
+            });
+            if (mgrResp.ok) {
+                const data = await mgrResp.json();
+                return { success: true, ...data };
+            }
+        } catch (_) {}
+
+        // Fallback: Copy clone command & open Manager
+        const cmd = `git clone ${repoUrl}`;
+        copyToClipboard(cmd, `git clone 명령어가 복사되었습니다: ${cmd}`);
+        openComfyUiManager(packTitle || "");
+        return {
+            success: true,
+            assisted: true,
+            message: "ComfyUI Manager opened and git clone command copied to clipboard."
+        };
     } catch (err) {
         return { success: false, error: err.message };
     }
@@ -626,8 +642,8 @@ export async function showMissingNodeModal(node) {
                         statusBox.querySelector("#bada-det-restart-btn")?.addEventListener("click", async () => {
                             showToast(isKo ? "🔄 ComfyUI 서버 재시작 중... 잠시 후 새로고침 됩니다." : "Restarting ComfyUI...");
                             try {
-                                await api.fetchApi("/api/bada/terminal/restart", { method: "POST" });
-                            } catch (e) {}
+                                await api.fetchApi("/manager/reboot", { method: "POST" });
+                            } catch (_) {}
                             setTimeout(() => window.location.reload(), 3500);
                         });
                     } else {

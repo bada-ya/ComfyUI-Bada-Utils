@@ -191,14 +191,7 @@ const BADA_UNIFIED_SETTINGS = {
         sortOrder: 300,
         defaultValue: true
     },
-    terminalHub: {
-        id: "BadaUtils.TerminalHubSidebar",
-        category: ["Bada Utils", "TerminalHub"],
-        name: "Bada Terminal Hub",
-        type: "boolean",
-        sortOrder: 200,
-        defaultValue: true
-    },
+
     dualManager: {
         id: "BadaUtils.DualManager",
         category: ["Bada Utils", "DualManager"],
@@ -875,21 +868,7 @@ app.registerExtension({
             }
         });
 
-        // ⑦ Bada Terminal Hub Sidebar Tab
-        safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.terminalHub.id,
-            category: [texts.category, "TerminalHub"],
-            name: texts.terminalHubPlain || "Bada Terminal Hub",
-            type: BADA_UNIFIED_SETTINGS.terminalHub.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.terminalHub.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.terminalHub.defaultValue,
-            onChange: (newVal) => {
-                const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
-                if (window.__BADA_SYNC_TERMINAL_SIDEBAR__) {
-                    window.__BADA_SYNC_TERMINAL_SIDEBAR__(target);
-                }
-            }
-        });
+
 
         // ⑧ Classic Manager Quick Launcher (Dual Manager)
         safeAddSetting({

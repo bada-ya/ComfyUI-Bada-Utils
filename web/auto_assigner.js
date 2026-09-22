@@ -1207,7 +1207,7 @@ class AutoModelAssigner {
                                     statusBox.querySelector(`#btn-restart-${nodeId}`)?.addEventListener("click", async () => {
                                         AutoModelAssigner.showToast(isKo ? "🔄 ComfyUI 서버 재시작 중... 잠시 후 새로고침 됩니다." : "Restarting ComfyUI...", "info");
                                         try {
-                                            await api.fetchApi("/api/bada/terminal/restart", { method: "POST" });
+                                            await api.fetchApi("/manager/reboot", { method: "POST" });
                                         } catch (_) {}
                                         setTimeout(() => window.location.reload(), 3500);
                                     });

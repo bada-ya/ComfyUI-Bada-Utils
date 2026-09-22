@@ -7,7 +7,6 @@ Only 2 clean, powerful master nodes:
 from .bada_preset_hub import BadaPresetHub
 from .bada_regional_prompt import BadaRegionalPrompt
 from .bada_async_gemini import BadaAsyncGeminiStudio
-from .bada_terminal_console import BadaTerminalHub
 from .bada_google_translator import BadaGoogleTranslator
 
 NODE_CLASS_MAPPINGS = {
@@ -15,7 +14,6 @@ NODE_CLASS_MAPPINGS = {
     "BadaRegionalPrompt": BadaRegionalPrompt,
     "VisualGridPromptNode": BadaRegionalPrompt,
     "BadaAsyncGeminiStudio": BadaAsyncGeminiStudio,
-    "BadaTerminalHub": BadaTerminalHub,
     "BadaGoogleTranslator": BadaGoogleTranslator,
 }
 
@@ -24,7 +22,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "BadaRegionalPrompt": "⚓ Bada Visual Regional Prompt",
     "VisualGridPromptNode": "📐 Visual Grid Regional Prompt (Legacy)",
     "BadaAsyncGeminiStudio": "⚓ Bada Async Gemini Studio",
-    "BadaTerminalHub": "⚓ Bada Terminal Hub",
     "BadaGoogleTranslator": "⚓ Bada Google Translator",
 }
 
@@ -34,6 +31,5 @@ __all__ = [
     "BadaPresetHub",
     "BadaRegionalPrompt",
     "BadaAsyncGeminiStudio",
-    "BadaTerminalHub",
     "BadaGoogleTranslator",
 ]
