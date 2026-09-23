@@ -389,7 +389,7 @@ def register_gemini_api_routes():
                 if not api_key:
                     return web.json_response({
                         "success": False,
-                        "error": "Gemini API 키가 필요합니다. 상단 API Key 입력칸 또는 환경변수(GEMINI_API_KEY)에 입력해 주세요."
+                        "error": "Gemini API key is required. Please enter it in the top API Key field or set the GEMINI_API_KEY environment variable."
                     }, status=400)
 
                 primary_model = body.get("model") or cfg.get("default_model") or "gemini-3.6-flash"
@@ -407,7 +407,7 @@ def register_gemini_api_routes():
                 if not instruction and not images:
                     return web.json_response({
                         "success": False,
-                        "error": "프롬프트 지시사항 또는 참고 이미지를 하나 이상 입력해 주세요."
+                        "error": "Please enter at least one prompt instruction or reference image."
                     }, status=400)
 
                 # Models Cascade (Starting with requested model, fallback through all robust variants)
@@ -579,7 +579,7 @@ def register_gemini_api_routes():
                 if not raw_result_text:
                     return web.json_response({
                         "success": False,
-                        "error": "Gemini API의 모든 모델이 할당량 초과이거나 정책에 의해 응답을 거절했습니다. API 키 상태를 확인해 주세요."
+                        "error": "All Gemini API models exceeded quota or refused the request. Please check your API key status."
                     }, status=429)
 
                 # Check if storyboard JSON response
@@ -685,7 +685,7 @@ def register_gemini_api_routes():
                         models_to_try.append(m)
 
                 client_timeout = aiohttp.ClientTimeout(total=45)
-                last_err = "응답 없음"
+                last_err = "No response"
                 reply_text = None
                 successful_model = None
                 grounding_sources = []
@@ -735,12 +735,12 @@ def register_gemini_api_routes():
                 else:
                     return web.json_response({
                         "success": False,
-                        "error": f"채팅 응답 실패: {last_err}"
+                        "error": f"Chat response failed: {last_err}"
                     }, status=400)
 
             except Exception as e:
                 logger.error(f"[bada-AsyncGemini] Chat exception: {e}", exc_info=True)
-                return web.json_response({"success": False, "error": f"서버 오류: {str(e)}"}, status=500)
+                return web.json_response({"success": False, "error": f"Server error: {str(e)}"}, status=500)
 
         logger.info("[ComfyUI-Bada-Utils: Gemini] 4-Engine Multi-Pass REST API ready ⚡")
     except Exception as e:

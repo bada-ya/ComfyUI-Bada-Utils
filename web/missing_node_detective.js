@@ -192,7 +192,7 @@ export async function installCustomNode(repoUrl, packTitle) {
 /**
  * Copies text to system clipboard with visual feedback.
  */
-export function copyToClipboard(text, successMsg = "클립보드에 복사되었습니다!") {
+export function copyToClipboard(text, successMsg = "Copied to clipboard!") {
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(() => {
             showToast(`📋 ${successMsg}`);
@@ -215,7 +215,7 @@ function fallbackCopy(text, successMsg) {
         document.execCommand("copy");
         showToast(`📋 ${successMsg}`);
     } catch (e) {
-        prompt("복사할 텍스트:", text);
+        prompt("Text to copy:", text);
     }
     document.body.removeChild(ta);
 }

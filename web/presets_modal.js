@@ -440,9 +440,9 @@ function createPresetCard(presetName, presetData, index, totalCount) {
     card.innerHTML = `
         <div class="usp-card-top">
             <div class="usp-preset-name-box">
-                <span class="usp-drag-handle" title="드래그하여 순서 변경">⠿</span>
+                <span class="usp-drag-handle" title="Drag to reorder">⠿</span>
                 <span class="usp-preset-icon">🔖</span>
-                <span class="usp-preset-name-text" title="클릭하여 이름 수정">${escapeHtml(presetName)}</span>
+                <span class="usp-preset-name-text" title="Click to rename">${escapeHtml(presetName)}</span>
                 ${loraBadge}
             </div>
             <div class="usp-card-actions">

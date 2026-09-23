@@ -422,14 +422,14 @@ function handleSaveMaster() {
 
     const selectedNodes = getSelectedNodes(currentHubNode);
     if (selectedNodes.length === 0) {
-        showToast("⚠️ 캔버스에서 먼저 노드들을 마우스로 선택(Ctrl+클릭 / 드래그)해 주세요!", "warning");
+        showToast("⚠️ Please select nodes on the canvas (Ctrl+Click / Drag) first!", "warning");
         return;
     }
 
     const input = document.getElementById("usp-hub-name-input");
     const name = input.value.trim();
     if (!name) {
-        showToast("⚠️ 유니버셜 프리셋 이름을 입력해 주세요!", "warning");
+        showToast("⚠️ Please enter a Universal Preset name!", "warning");
         input.focus();
         return;
     }
@@ -439,7 +439,7 @@ function handleSaveMaster() {
         input.value = "";
         renderHubPresetList();
         renderSelectedNodesPreview(currentHubNode);
-        showToast(`💾 [${name}] 유니버셜 프리셋이 저장되었습니다! (총 ${selectedNodes.length}개 노드)`, "gold");
+        showToast(`💾 [${name}] Universal Preset saved! (${selectedNodes.length} nodes total)`, "gold");
     }
 }
 
