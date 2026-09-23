@@ -177,39 +177,6 @@ function createManagerPillElement() {
             return;
         }
 
-        // 2. On-demand lazy load from /bada_dual/mgr_assets
-        if (!window._badaLegacyManagerLoaded) {
-            window._badaLegacyManagerLoaded = true;
-            console.log("[ComfyUI-Bada-Utils] 🧩 Lazy-loading Classic Manager assets on demand...");
-
-            const origQS = Document.prototype.querySelector;
-            let tempSink = null;
-            if (!document.querySelector(".comfy-menu")) {
-                tempSink = document.createElement("div");
-                tempSink.className = "bada-temp-menu-sink";
-                Document.prototype.querySelector = function (selector) {
-                    if (selector === ".comfy-menu") return tempSink;
-                    return origQS.call(this, selector);
-                };
-            }
-
-            try {
-                await import("/bada_dual/mgr_assets/comfyui-manager.js");
-            } catch (err) {
-                console.warn("[ComfyUI-Bada-Utils] Lazy loading legacy manager failed:", err);
-            } finally {
-                if (tempSink) {
-                    Document.prototype.querySelector = origQS;
-                }
-            }
-        }
-
-        // 3. Trigger manager dialog after load
-        if (window.manager_instance && typeof window.manager_instance.show === "function") {
-            window.manager_instance.show();
-            return;
-        }
-
         // 4. Extension registry lookup
         try {
             const legacyExt = app.extensions?.find(x => x.name === "Comfy.Legacy.ManagerMenu" || x.name === "Comfy.Manager" || x.name === "ComfyUI-Manager");
