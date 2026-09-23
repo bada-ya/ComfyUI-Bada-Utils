@@ -221,13 +221,31 @@ function createManagerPillElement() {
             }
         } catch (err) {}
 
-        const oldBtn = Array.from(document.querySelectorAll("button")).find(b => 
-            b !== btn && 
-            !b.id.includes("bada") && 
-            (b.textContent?.trim() === "Manager" || b.innerText?.trim() === "Manager")
-        );
-        if (oldBtn) {
-            oldBtn.click();
+        // 5. Modern ComfyUI: Pinia Command Store execution
+        try {
+            const pinia = window.__PINIA__ 
+                || document.querySelector("#app")?.__vue_app__?.config?.globalProperties?.$pinia;
+            const cmdStore = pinia?._s?.get?.("command");
+            if (cmdStore?.execute) {
+                cmdStore.execute("Comfy.OpenManagerDialog");
+                return;
+            }
+        } catch (_) {}
+
+        // 6. Modern ComfyUI: Click native Manager / Extensions button
+        const modernBtn = Array.from(document.querySelectorAll("button, div.comfyui-button")).find(b => {
+            if (b === btn || b.id.includes("bada") || b.closest("#bada-dual-manager-pill")) return false;
+            const txt = (b.textContent || "").trim();
+            const aria = (b.getAttribute("aria-label") || "").toLowerCase();
+            const title = (b.getAttribute("title") || "").toLowerCase();
+            return (
+                aria.includes("extension") || aria.includes("manager") || aria.includes("매니저") ||
+                title.includes("extension") || title.includes("manager") || title.includes("매니저") ||
+                txt === "Manager" || txt === "매니저" || txt === "Manage Extensions" || txt === "Extensions"
+            );
+        });
+        if (modernBtn) {
+            modernBtn.click();
             return;
         }
 
