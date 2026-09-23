@@ -3,7 +3,6 @@ import { BadaI18n } from "./bada_i18n.js";
 import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary, getGlobalPresetsStore } from "./presets_overview_modal.js";
 import { showToast } from "./presets_modal.js";
 import "./tooltip_fixer.js";
-import { setupDualManager, updateDualManagerVisibility } from "./bada_dual_manager.js";
 
 /**
  * ComfyUI-Bada-Utils · bada_core.js
@@ -60,9 +59,6 @@ const BADA_SETTINGS_TEXTS = {
         terminalHubTitle: `${BADA_ICONS.terminal} Bada Terminal Hub`,
         terminalHubDesc: "Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar.",
 
-        dualManagerName: "🧩 Classic Manager Quick Launcher",
-        dualManagerDesc: "Displays a blue puzzle button in the top menu bar to open classic ComfyUI-Manager anytime.",
-
         detectiveName: "⚓ Node Smart Care (Missing Node Resolver & Model Assigner)",
         detectiveDesc: "Smartly resolves uninstalled missing nodes (red X) and missing models/LoRAs via right-click menu, providing one-click installation and smart auto-assignment."
     },
@@ -95,9 +91,6 @@ const BADA_SETTINGS_TEXTS = {
         terminalHubPlain: "바다 터미널 허브",
         terminalHubTitle: `${BADA_ICONS.terminal} 바다 터미널 허브`,
         terminalHubDesc: "좌측 사이드바 하단에 Bada Terminal Hub 바로가기 탭 아이콘을 표시합니다.",
-
-        dualManagerName: "🧩 클래식 매니저 퀵 런처 (듀얼 매니저)",
-        dualManagerDesc: "상단 메뉴 바에 파란 퍼즐 버튼을 표시하여 언제든 익숙한 구형 클래식 매니저 창을 바로 실행합니다.",
 
         detectiveName: "⚓ 노드 스마트 케어 (미싱 노드 복구 & 모델 자동 장착)",
         detectiveDesc: "캔버스 빈 공간 또는 노드 우클릭 시, 미설치 미싱 노드(빨간 X) 탐색/설치 및 누락된 모델/LoRA를 탭별로 한눈에 케어하고 스마트 자동 장착합니다."
@@ -189,15 +182,6 @@ const BADA_UNIFIED_SETTINGS = {
         name: "📋 Clipboard & LoadImage Auto-Error Fixer",
         type: "boolean",
         sortOrder: 300,
-        defaultValue: true
-    },
-
-    dualManager: {
-        id: "BadaUtils.DualManager",
-        category: ["Bada Utils", "DualManager"],
-        name: "🧩 Classic Manager Quick Launcher",
-        type: "boolean",
-        sortOrder: 100,
         defaultValue: true
     },
     missingDetective: {
@@ -596,9 +580,6 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.terminalHub.id) {
                 targetTitle = texts.terminalHubTitle;
                 targetDesc = texts.terminalHubDesc;
-            } else if (id === BADA_UNIFIED_SETTINGS.dualManager.id) {
-                targetTitle = texts.dualManagerName;
-                targetDesc = texts.dualManagerDesc;
             } else if (id === BADA_UNIFIED_SETTINGS.missingDetective.id) {
                 targetTitle = texts.detectiveName;
                 targetDesc = texts.detectiveDesc;
@@ -712,19 +693,17 @@ app.registerExtension({
                     BadaI18n.setLanguage(target, false);
                     applyBilingualSettingsUI(target);
                     app.graph?.setDirtyCanvas?.(true, true);
-                    updateDualManagerVisibility();
                 }
             }
         });
 
-        // Auto-refresh presets inline panel, settings DOM, and dual manager when language switches
+        // Auto-refresh presets inline panel and settings DOM when language switches
         BadaI18n.subscribe((lang) => {
             const existingPanel = document.getElementById("bada-inline-presets-panel");
             if (existingPanel) {
                 existingPanel.replaceWith(buildInlinePresetsPanel());
             }
             applyBilingualSettingsUI(lang);
-            updateDualManagerVisibility();
         });
 
         // ② Sidebar Workflow Folder Management
@@ -870,21 +849,7 @@ app.registerExtension({
 
 
 
-        // ⑧ Classic Manager Quick Launcher (Dual Manager)
-        safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.dualManager.id,
-            category: [texts.category, "DualManager"],
-            name: texts.dualManagerName,
-            type: BADA_UNIFIED_SETTINGS.dualManager.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.dualManager.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.dualManager.defaultValue,
-            onChange: (newVal) => {
-                const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
-                updateDualManagerVisibility(target);
-            }
-        });
-
-        // ⑨ Missing Node Detective (Real Name & GitHub Finder)
+        // ⑧ Missing Node Detective (Real Name & GitHub Finder)
         safeAddSetting({
             id: BADA_UNIFIED_SETTINGS.missingDetective.id,
             category: [texts.category, "MissingDetective"],
@@ -893,9 +858,6 @@ app.registerExtension({
             sortOrder: BADA_UNIFIED_SETTINGS.missingDetective.sortOrder,
             defaultValue: BADA_UNIFIED_SETTINGS.missingDetective.defaultValue
         });
-
-        // Initialize Dual Manager Launcher
-        setupDualManager();
 
         // 4. ⌨️ Global ESC Key Dismissal for All Custom Bada Modals & Dialogs
         if (!window.__BADA_GLOBAL_ESC_INSTALLED__) {
