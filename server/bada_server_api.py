@@ -957,6 +957,8 @@ def register_bada_api_routes():
                         logger.warning(f"[Bada-Utils] Metadata delete cleanup error: {me}")
 
                 if os.path.isdir(target_full):
+                    if os.path.realpath(target_full) == os.path.realpath(root_dir):
+                        return web.json_response({"success": False, "error": "Cannot delete the workflow root directory"}, status=403)
                     shutil.rmtree(target_full)
                     return web.json_response({"success": True, "message": f"Folder '{clean_rel}' deleted"})
                 elif os.path.isfile(target_full):

@@ -215,9 +215,11 @@ def google_translate_robust(text: str) -> str:
     if not re.search(r'[가-힣]', trimmed):
         return trimmed
 
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
 
     # 1. Google Clients5 API (Chrome Extension Endpoint)
     try:
