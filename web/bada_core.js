@@ -60,7 +60,13 @@ const BADA_SETTINGS_TEXTS = {
         terminalHubDesc: "Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar.",
 
         detectiveName: "⚓ Node Smart Care (Missing Node Resolver & Model Assigner)",
-        detectiveDesc: "Smartly resolves uninstalled missing nodes (red X) and missing models/LoRAs via right-click menu, providing one-click installation and smart auto-assignment."
+        detectiveDesc: "Smartly resolves uninstalled missing nodes (red X) and missing models/LoRAs via right-click menu, providing one-click installation and smart auto-assignment.",
+
+        noteHelperName: "📝 Text & Prompt One-Click Translator",
+        noteHelperDesc: "Displays a one-click translation button on prompt node title bars. Edit target node names (separated by commas) below.",
+
+        customWhitelistName: "📝 Target Translation Node List",
+        customWhitelistDesc: "Enter target node names separated by commas (removing a name disables its translation button)."
     },
     ko: {
         category: "Bada Utils",
@@ -93,7 +99,13 @@ const BADA_SETTINGS_TEXTS = {
         terminalHubDesc: "좌측 사이드바 하단에 Bada Terminal Hub 바로가기 탭 아이콘을 표시합니다.",
 
         detectiveName: "⚓ 노드 스마트 케어 (미싱 노드 복구 & 모델 자동 장착)",
-        detectiveDesc: "캔버스 빈 공간 또는 노드 우클릭 시, 미설치 미싱 노드(빨간 X) 탐색/설치 및 누락된 모델/LoRA를 탭별로 한눈에 케어하고 스마트 자동 장착합니다."
+        detectiveDesc: "캔버스 빈 공간 또는 노드 우클릭 시, 미설치 미싱 노드(빨간 X) 탐색/설치 및 누락된 모델/LoRA를 탭별로 한눈에 케어하고 스마트 자동 장착합니다.",
+
+        noteHelperName: "📝 텍스트 & 프롬프트 원클릭 번역기",
+        noteHelperDesc: "프롬프트 노드 제목 표시줄 우측에 원클릭 번역 단추를 표시합니다. 추가할 노드명을 쉼표(,)로 구분하여 입력하세요.",
+
+        customWhitelistName: "📝 번역 대상 노드 목록 (직접 추가 및 수정/삭제)",
+        customWhitelistDesc: "번역 버튼을 적용할 노드명을 쉼표(,)로 구분하여 입력하세요 (지우면 해당 노드의 번역 버튼이 제거됩니다)."
     }
 };
 
@@ -114,6 +126,22 @@ const BADA_UNIFIED_SETTINGS = {
             { value: "ko", text: "한국어 (Korean)" },
         ],
         defaultValue: "en"
+    },
+    noteHelper: {
+        id: "BadaUtils.NoteHelper",
+        category: ["Bada Utils", "NoteHelper"],
+        name: "📝 Text & Prompt One-Click Translator",
+        type: "boolean",
+        sortOrder: 850,
+        defaultValue: true
+    },
+    customWhitelist: {
+        id: "BadaUtils.CustomTranslationWhitelist",
+        category: ["Bada Utils", "CustomTranslationWhitelist"],
+        name: "📝 Target Translation Node List",
+        type: "text",
+        sortOrder: 840,
+        defaultValue: "Text Encode, PromptLine, Text Multiline, Show Text, Note, Markdown Note, Show any"
     },
     sidebar: {
         id: "BadaUtils.SidebarOrganizer",
@@ -337,6 +365,32 @@ function escapeHtml(str) {
         div[data-setting-id="BadaUtils.GlobalPresetsPanel"] #BadaUtils\\.GlobalPresetsPanel {
             width: 100% !important;
         }
+
+        /* 3. Full-width styling for Bada Note Helper & Translator panel */
+        div[data-setting-id="BadaUtils.NoteHelper"] {
+            width: 100% !important;
+            margin-top: 2px !important;
+        }
+        div[data-setting-id="BadaUtils.NoteHelper"] > div {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            width: 100% !important;
+        }
+        div[data-setting-id="BadaUtils.NoteHelper"] .form-label,
+        div[data-setting-id="BadaUtils.NoteHelper"] .form-input > input[type="checkbox"],
+        div[data-setting-id="BadaUtils.NoteHelper"] .form-input > .p-inputswitch,
+        div[data-setting-id="BadaUtils.NoteHelper"] .form-input > label {
+            display: none !important;
+        }
+        div[data-setting-id="BadaUtils.NoteHelper"] .form-input {
+            width: 100% !important;
+            max-width: 100% !important;
+            display: block !important;
+        }
+        div[data-setting-id="BadaUtils.CustomTranslationWhitelist"] {
+            display: none !important;
+        }
+
         #bada-inline-presets-panel button {
             cursor: pointer;
             transition: filter 0.15s, transform 0.12s;
@@ -525,6 +579,184 @@ function buildInlinePresetsPanel() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+//  Build Rich Full-Width Note Helper & Translator Panel
+// ──────────────────────────────────────────────────────────────────────────────
+function buildNoteHelperPanel() {
+    const isKo = BadaI18n.lang === "ko";
+
+    let isEnabled = true;
+    try {
+        if (app.ui && app.ui.settings && app.ui.settings.getSettingValue) {
+            const v = app.ui.settings.getSettingValue("BadaUtils.NoteHelper");
+            if (v !== undefined) isEnabled = !!v;
+        }
+    } catch (_) {}
+
+    const defaultListStr = "Text Encode, PromptLine, Text Multiline, Show Text, Note, Markdown Note, Show any";
+    let whitelistStr = defaultListStr;
+    try {
+        if (app.ui && app.ui.settings && app.ui.settings.getSettingValue) {
+            const str = app.ui.settings.getSettingValue("BadaUtils.CustomTranslationWhitelist");
+            if (typeof str === "string" && str.trim()) {
+                whitelistStr = str;
+            }
+        }
+    } catch (_) {}
+
+    const panel = document.createElement("div");
+    panel.id = "bada-note-helper-panel";
+    panel.style.cssText = "width: 100%; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 4px 0;";
+
+    // Header (Title + Toggle Switch)
+    const headerRow = document.createElement("div");
+    headerRow.style.cssText = "display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px;";
+
+    const titleEl = document.createElement("div");
+    titleEl.style.cssText = "font-size: 13px; font-weight: 600; color: #f8fafc; display: flex; align-items: center; gap: 6px;";
+    titleEl.innerHTML = isKo ? "📝 텍스트 & 프롬프트 원클릭 번역기" : "📝 Text & Prompt One-Click Translator";
+
+    // Custom Toggle Switch (iOS / ComfyUI Pill Style)
+    const toggleLabel = document.createElement("label");
+    toggleLabel.style.cssText = "position: relative; display: inline-block; width: 40px; height: 22px; cursor: pointer; flex-shrink: 0; user-select: none;";
+
+    const toggleInput = document.createElement("input");
+    toggleInput.type = "checkbox";
+    toggleInput.checked = isEnabled;
+    toggleInput.style.cssText = "opacity: 0; width: 0; height: 0; position: absolute;";
+
+    const toggleSlider = document.createElement("span");
+    const updateSlider = () => {
+        const checked = toggleInput.checked;
+        toggleSlider.style.cssText = `
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: ${checked ? "#0284c7" : "#475569"};
+            transition: background-color 0.2s; border-radius: 22px;
+            box-shadow: ${checked ? "0 0 8px rgba(2, 132, 199, 0.4)" : "none"};
+        `;
+        toggleSlider.innerHTML = `
+            <span style="
+                position: absolute; content: ''; height: 16px; width: 16px;
+                left: ${checked ? "21px" : "3px"}; bottom: 3px;
+                background-color: #ffffff; transition: left 0.2s; border-radius: 50%;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            "></span>
+        `;
+    };
+    updateSlider();
+
+    toggleInput.addEventListener("change", () => {
+        const val = toggleInput.checked;
+        updateSlider();
+        try {
+            if (app.ui?.settings?.setSettingValue) {
+                app.ui.settings.setSettingValue("BadaUtils.NoteHelper", val);
+            }
+        } catch (_) {}
+        if (window.__BADA_SYNC_NOTE_HELPER_STATE__) {
+            window.__BADA_SYNC_NOTE_HELPER_STATE__(val);
+        }
+        app.graph?.setDirtyCanvas?.(true, true);
+    });
+
+    toggleLabel.appendChild(toggleInput);
+    toggleLabel.appendChild(toggleSlider);
+    headerRow.appendChild(titleEl);
+    headerRow.appendChild(toggleLabel);
+
+    // Sub-description text
+    const descEl = document.createElement("div");
+    descEl.style.cssText = "font-size: 11px; color: #94a3b8; line-height: 1.4; font-weight: 400;";
+    descEl.textContent = isKo
+        ? "프롬프트 노드 제목 표시줄 우측에 원클릭 번역 단추를 표시합니다. 추가할 노드명을 쉼표(,)로 구분하여 입력하세요."
+        : "Displays a one-click translation button on prompt node title bars. Enter target node names separated by commas below.";
+
+    // Input + Apply button row
+    const inputRow = document.createElement("div");
+    inputRow.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 4px;";
+
+    const inputEl = document.createElement("input");
+    inputEl.type = "text";
+    inputEl.value = whitelistStr;
+    inputEl.style.cssText = [
+        "flex: 1; min-width: 0; height: 34px;",
+        "background: rgba(15, 23, 42, 0.85); color: #f8fafc;",
+        "border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 6px;",
+        "padding: 0 12px; font-size: 13px; font-family: monospace, inherit;",
+        "outline: none; transition: border-color 0.15s, box-shadow 0.15s;"
+    ].join("");
+
+    inputEl.addEventListener("focus", () => {
+        inputEl.style.borderColor = "#38bdf8";
+        inputEl.style.boxShadow = "0 0 8px rgba(56, 189, 248, 0.25)";
+    });
+    inputEl.addEventListener("blur", () => {
+        inputEl.style.borderColor = "rgba(255, 255, 255, 0.25)";
+        inputEl.style.boxShadow = "none";
+    });
+
+    const applyBtn = document.createElement("button");
+    applyBtn.type = "button";
+    applyBtn.textContent = isKo ? "적용" : "Apply";
+    applyBtn.style.cssText = [
+        "height: 34px; padding: 0 18px; min-width: 64px;",
+        "background: rgba(15, 23, 42, 0.9); color: #38bdf8;",
+        "border: 1px solid #38bdf8; border-radius: 6px;",
+        "font-size: 13px; font-weight: 700; cursor: pointer;",
+        "transition: all 0.15s ease; white-space: nowrap; flex-shrink: 0;"
+    ].join("");
+
+    applyBtn.addEventListener("mouseenter", () => {
+        applyBtn.style.background = "#0284c7";
+        applyBtn.style.color = "#ffffff";
+        applyBtn.style.boxShadow = "0 0 10px rgba(2, 132, 199, 0.4)";
+    });
+    applyBtn.addEventListener("mouseleave", () => {
+        applyBtn.style.background = "rgba(15, 23, 42, 0.9)";
+        applyBtn.style.color = "#38bdf8";
+        applyBtn.style.boxShadow = "none";
+    });
+
+    const handleApply = () => {
+        const newVal = inputEl.value.trim();
+        try {
+            if (app.ui?.settings?.setSettingValue) {
+                app.ui.settings.setSettingValue("BadaUtils.CustomTranslationWhitelist", newVal);
+            }
+        } catch (_) {}
+        if (window.__BADA_REAPPLY_NOTE_HELPER_NODES__) {
+            window.__BADA_REAPPLY_NOTE_HELPER_NODES__();
+        }
+        app.graph?.setDirtyCanvas?.(true, true);
+
+        applyBtn.textContent = isKo ? "✓ 적용됨" : "✓ Applied";
+        applyBtn.style.borderColor = "#10b981";
+        applyBtn.style.color = "#10b981";
+        setTimeout(() => {
+            applyBtn.textContent = isKo ? "적용" : "Apply";
+            applyBtn.style.borderColor = "#38bdf8";
+            applyBtn.style.color = "#38bdf8";
+        }, 1500);
+    };
+
+    applyBtn.addEventListener("click", handleApply);
+    inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            handleApply();
+        }
+    });
+
+    inputRow.appendChild(inputEl);
+    inputRow.appendChild(applyBtn);
+
+    panel.appendChild(headerRow);
+    panel.appendChild(descEl);
+    panel.appendChild(inputRow);
+
+    return panel;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 //  Dynamic Settings Dialog Live Updater (Freeze-Safe & Re-entrant Guarded)
 // ──────────────────────────────────────────────────────────────────────────────
 let isApplyingBilingualUI = false;
@@ -536,16 +768,11 @@ function applyBilingualSettingsUI(targetLang) {
         const isKo = lang === "ko";
         const texts = BADA_SETTINGS_TEXTS[isKo ? "ko" : "en"];
 
-        // NOTE: Do NOT modify app.ui.settings.settingsLookup/settingsById here.
-        // Those are Vue reactive refs — any mutation triggers a full dialog re-render,
-        // which orphans PrimeVue tooltips at (0,0) and breaks ALL native tooltips.
-        // Bilingual display is handled purely through DOM-level label updates below.
-
         // 2. Setting rows label updates (Title with custom SVG + Sub-description below)
         const settingRows = document.querySelectorAll('[data-setting-id^="BadaUtils"], [data-setting-id^="⚓ Bada"]');
         settingRows.forEach(row => {
             const id = row.getAttribute("data-setting-id");
-            if (id === BADA_UNIFIED_SETTINGS.presetsPanel.id) return; // inline presets panel is handled separately
+            if (id === BADA_UNIFIED_SETTINGS.presetsPanel.id || id === BADA_UNIFIED_SETTINGS.noteHelper.id || id === BADA_UNIFIED_SETTINGS.customWhitelist.id) return;
 
             const formLabel = row.querySelector(".form-label, label");
             if (!formLabel) return;
@@ -577,6 +804,12 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.loadImageFix.id) {
                 targetTitle = texts.loadImageName;
                 targetDesc = texts.loadImageDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.noteHelper.id) {
+                targetTitle = texts.noteHelperName;
+                targetDesc = texts.noteHelperDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.customWhitelist.id) {
+                targetTitle = texts.customWhitelistName;
+                targetDesc = texts.customWhitelistDesc;
             } else if (id === BADA_UNIFIED_SETTINGS.terminalHub.id) {
                 targetTitle = texts.terminalHubTitle;
                 targetDesc = texts.terminalHubDesc;
@@ -845,6 +1078,28 @@ app.registerExtension({
                     window.BadaLoadImageFixer.healAllImageNodes();
                 }
             }
+        });
+
+        // ⑦ Markdown Note Helper & Translator Panel (Single Consolidated UI)
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.noteHelper.id,
+            category: [texts.category, "NoteHelper"],
+            name: texts.noteHelperName,
+            sortOrder: BADA_UNIFIED_SETTINGS.noteHelper.sortOrder,
+            type: () => {
+                return buildNoteHelperPanel();
+            },
+            defaultValue: BADA_UNIFIED_SETTINGS.noteHelper.defaultValue
+        });
+
+        // ⑦-b Custom Translation Whitelist Setting (Registered for persistence)
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.customWhitelist.id,
+            category: [texts.category, "CustomTranslationWhitelist"],
+            name: texts.customWhitelistName,
+            type: BADA_UNIFIED_SETTINGS.customWhitelist.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.customWhitelist.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.customWhitelist.defaultValue
         });
 
 

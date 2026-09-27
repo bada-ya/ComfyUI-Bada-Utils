@@ -13,6 +13,7 @@ import json
 import logging
 import base64
 import urllib.parse
+import urllib.request
 from aiohttp import web
 from server import PromptServer
 import folder_paths
@@ -747,6 +748,77 @@ def register_bada_api_routes():
         routes.post("/api/bada/presets/save")(save_presets_handler)
         routes.get("/universal_presets/load")(load_presets_handler)
         routes.post("/universal_presets/save")(save_presets_handler)
+
+        # --- A-2. Format-Preserving Translation API ---
+        async def translate_handler(request):
+            try:
+                body = await request.json()
+                text = body.get("text", "")
+                target_lang = body.get("target_lang", "ko")
+                source_lang = body.get("source_lang", "auto")
+
+                if not text or not text.strip():
+                    return web.json_response({"success": True, "translated_text": text})
+
+                protected_items = []
+                def protect_match(match):
+                    idx = len(protected_items)
+                    protected_items.append(match.group(0))
+                    return f"__BADA_PROT_{idx}__"
+
+                patterns = [
+                    r'```[\s\S]*?```',                           # Code blocks
+                    r'`[^`\n]+`',                                 # Inline code
+                    r'https?://[^\s)]+',                          # URLs
+                    r'\[([^\]]+)\]\(([^)]+)\)',                   # Markdown links
+                    r'^[│├└─┃┣┗━+|]{2,}.*$',                      # ASCII tree / box art lines
+                    r'\|?\s*:?-+:?\s*\|.*',                       # Markdown table headers/dividers
+                    r'\b[\w.-]+(?:/[\w.-]+)+\b'                   # File & Directory paths
+                ]
+
+                protected_text = text
+                for pat in patterns:
+                    protected_text = re.sub(pat, protect_match, protected_text, flags=re.MULTILINE)
+
+                url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={source_lang}&tl={target_lang}&dt=t&q=" + urllib.parse.quote(protected_text)
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+                )
+
+                loop = PromptServer.instance.loop
+                def fetch_translation():
+                    with urllib.request.urlopen(req, timeout=12) as response:
+                        return response.read()
+
+                res_bytes = await loop.run_in_executor(None, fetch_translation)
+                res_json = json.loads(res_bytes.decode('utf-8'))
+
+                translated_parts = []
+                if res_json and isinstance(res_json, list) and len(res_json) > 0 and isinstance(res_json[0], list):
+                    for item in res_json[0]:
+                        if item and isinstance(item, list) and len(item) > 0 and item[0]:
+                            translated_parts.append(item[0])
+
+                translated_text = "".join(translated_parts) if translated_parts else protected_text
+
+                def restore_match(match):
+                    try:
+                        idx = int(match.group(1))
+                        if 0 <= idx < len(protected_items):
+                            return protected_items[idx]
+                    except Exception:
+                        pass
+                    return match.group(0)
+
+                restored_text = re.sub(r'__\s*(?:BADA|bada)\s*_\s*(?:PROT|prot)\s*_\s*(\d+)\s*__', restore_match, translated_text)
+
+                return web.json_response({"success": True, "translated_text": restored_text})
+            except Exception as e:
+                logger.error(f"[Bada-Utils] Translation error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        routes.post("/api/bada/translate")(translate_handler)
 
         # --- B. Auto Model Assigner API ---
         async def get_models_handler(request):
