@@ -12,6 +12,7 @@ import shutil
 import json
 import logging
 import base64
+import html
 import urllib.parse
 import urllib.request
 from aiohttp import web
@@ -780,27 +781,62 @@ def register_bada_api_routes():
                 for pat in patterns:
                     protected_text = re.sub(pat, protect_match, protected_text, flags=re.MULTILINE)
 
-                url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={source_lang}&tl={target_lang}&dt=t&q=" + urllib.parse.quote(protected_text)
-                req = urllib.request.Request(
-                    url,
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-                )
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+                    "Referer": "https://translate.google.com/",
+                }
+
+                strategies = [
+                    (
+                        "https://translate.googleapis.com/translate_a/single",
+                        {"client": "dict-chrome-ex", "sl": source_lang, "tl": target_lang, "dt": "t", "q": protected_text},
+                    ),
+                    (
+                        "https://clients5.google.com/translate_a/t",
+                        {"client": "dict-chrome-ex", "sl": source_lang, "tl": target_lang, "q": protected_text},
+                    ),
+                    (
+                        "https://translate.googleapis.com/translate_a/single",
+                        {"client": "gtx", "sl": source_lang, "tl": target_lang, "dt": "t", "q": protected_text},
+                    ),
+                    (
+                        "https://translate.google.com/translate_a/single",
+                        {"client": "gtx", "sl": source_lang, "tl": target_lang, "dt": "t", "q": protected_text},
+                    ),
+                ]
 
                 loop = PromptServer.instance.loop
-                def fetch_translation():
-                    with urllib.request.urlopen(req, timeout=12) as response:
-                        return response.read()
+                def fetch_translation_with_failover():
+                    direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                    last_err = None
+                    for base_url, params in strategies:
+                        try:
+                            url = f"{base_url}?{urllib.parse.urlencode(params)}"
+                            req = urllib.request.Request(url, headers=headers)
+                            with direct_opener.open(req, timeout=10) as response:
+                                raw_bytes = response.read()
+                                res_json = json.loads(raw_bytes.decode('utf-8'))
+                                chunks = []
+                                if isinstance(res_json, list) and len(res_json) > 0:
+                                    if isinstance(res_json[0], list) and len(res_json[0]) > 0 and isinstance(res_json[0][0], list):
+                                        for item in res_json[0]:
+                                            if item and isinstance(item, list) and len(item) > 0 and item[0]:
+                                                chunks.append(item[0])
+                                        return "".join(chunks)
+                                    elif isinstance(res_json[0], str):
+                                        return "".join([c for c in res_json if isinstance(c, str)])
+                        except Exception as err:
+                            last_err = err
+                            logger.warning(f"[Bada-Utils] Note Helper translate endpoint {base_url} ({params.get('client')}) failover: {err}")
+                            continue
+                    if last_err:
+                        raise last_err
+                    return protected_text
 
-                res_bytes = await loop.run_in_executor(None, fetch_translation)
-                res_json = json.loads(res_bytes.decode('utf-8'))
-
-                translated_parts = []
-                if res_json and isinstance(res_json, list) and len(res_json) > 0 and isinstance(res_json[0], list):
-                    for item in res_json[0]:
-                        if item and isinstance(item, list) and len(item) > 0 and item[0]:
-                            translated_parts.append(item[0])
-
-                translated_text = "".join(translated_parts) if translated_parts else protected_text
+                raw_translated = await loop.run_in_executor(None, fetch_translation_with_failover)
+                translated_text = html.unescape(raw_translated) if raw_translated else protected_text
 
                 def restore_match(match):
                     try:
