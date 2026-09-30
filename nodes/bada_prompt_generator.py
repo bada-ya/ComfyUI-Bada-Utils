@@ -27,6 +27,7 @@ Highlights
 from __future__ import annotations
 
 import base64
+import collections
 import hashlib
 import io
 import json
@@ -507,6 +508,61 @@ def _schema_for(submenu: dict):
     return QWEN_SCHEMA_I2I if "ratio_follow" in fields else QWEN_SCHEMA_T2I
 
 
+# ---------------------------------------------------------------------------
+# Identical-input quota guard
+#   `IS_CHANGED` has to return NaN (linked inputs are invisible at that point),
+#   so the node re-runs on every Queue.  Byte-identical requests are therefore
+#   memoised here instead — images included, which IS_CHANGED cannot see.
+#   Any change of text / image / target / model / registry -> fresh API call.
+# ---------------------------------------------------------------------------
+_RESULT_CACHE = collections.OrderedDict()
+_RESULT_CACHE_MAX = 24
+
+
+def _tensor_digest(tensor) -> str:
+    """Cheap, collision-resistant fingerprint of a ComfyUI IMAGE tensor."""
+    try:
+        import numpy as np
+        arr = tensor
+        if hasattr(arr, "detach"):
+            arr = arr.detach().cpu().numpy()
+        arr = np.ascontiguousarray(np.asarray(arr, dtype="float32"))
+        return hashlib.sha1(str(arr.shape).encode("utf-8") + arr.tobytes()).hexdigest()[:20]
+    except Exception:  # noqa: BLE001
+        return "unhashable"
+
+
+def result_cache_key(registry, target, submenu, request_text, tensors, duration=10,
+                     uncensored=True) -> str:
+    digest = hashlib.sha256()
+    digest.update(repr((
+        (target or {}).get("name"), (submenu or {}).get("name"),
+        (request_text or "").strip(), int(duration or 10), bool(uncensored),
+    )).encode("utf-8"))
+    digest.update(resolve_model(registry).encode("utf-8"))
+    try:
+        digest.update(str(os.path.getmtime(REGISTRY_FILE)).encode("utf-8"))
+    except Exception:  # noqa: BLE001
+        pass
+    for index, tensor in enumerate(tensors or [], start=1):
+        digest.update(f"|{index}:{_tensor_digest(tensor)}".encode("utf-8"))
+    return digest.hexdigest()
+
+
+def cache_lookup(key):
+    entry = _RESULT_CACHE.get(key)
+    if entry is not None:
+        _RESULT_CACHE.move_to_end(key)
+    return entry
+
+
+def cache_store(key, prompt: str, wh_ratio: str) -> None:
+    _RESULT_CACHE[key] = (prompt, wh_ratio)
+    _RESULT_CACHE.move_to_end(key)
+    while len(_RESULT_CACHE) > _RESULT_CACHE_MAX:
+        _RESULT_CACHE.popitem(last=False)
+
+
 def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, api_key,
                         duration: int = 10, uncensored: bool = True):
     """Execute the generation pipeline.
@@ -567,12 +623,14 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
             logger.warning("[BadaPromptGen][Pass 1] %s returned a refusal -> Pass 2", model)
             break
 
-    # ---- PASS 2: 3D VFX technical override (images detached) -------------------
+    # ---- PASS 2: 3D VFX technical override (images stay attached) -----------
+    # NOTE: the images used to be detached here, which silently produced
+    # image-less (hallucinated) prompts whenever PASS 1 was refused/SAFETY.
     if not result_text and uncensored:
         pass_used = 2
         system_p2 = PASS2_SYSTEM + "\n\n" + system_text
         for model in models:
-            status, body = _post_generate_content(model, api_key, payload(system_p2, False, 0.5))
+            status, body = _post_generate_content(model, api_key, payload(system_p2, bool(images_b64), 0.5))
             if status != 200:
                 continue
             text, _finish = _extract_candidate_text(body)
@@ -587,7 +645,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
         if schema:
             system_p3 += _json_directive((submenu or {}).get("output_fields") or ["rewritten_prompt"])
         for model in models:
-            status, body = _post_generate_content(model, api_key, payload(system_p3, False, 0.8))
+            status, body = _post_generate_content(model, api_key, payload(system_p3, bool(images_b64), 0.8))
             if status != 200:
                 continue
             text, _finish = _extract_candidate_text(body)
@@ -701,34 +759,26 @@ class BadaPromptGenerator:
         }
 
     # -- validation & caching ----------------------------------------------
+    # NOTE: `VALIDATE_INPUTS` was removed on purpose.
+    #   ComfyUI calls it through `get_input_data(..., execution_list=None)`
+    #   (execution.py ~L1083 and, for IS_CHANGED, L95), which marks every
+    #   *linked* input as `(None,)`.  A validator therefore can never see
+    #   `image_1..5` and would reject "image only" runs; worse, because the
+    #   validator declares `**kwargs`, ComfyUI repeats the same message on every
+    #   input -> "8 errors" noise.  The guard now lives in `generate()`.
     @classmethod
-    def VALIDATE_INPUTS(cls, request_text="", image_1=None, image_2=None, image_3=None,
-                        image_4=None, image_5=None, **kwargs):
-        has_image = any(img is not None for img in (image_1, image_2, image_3, image_4, image_5))
-        if not (request_text or "").strip() and not has_image:
-            return "요청사항을 입력하거나 이미지를 1장 이상 연결해 주세요."
-        return True
+    def IS_CHANGED(cls, **kwargs):
+        """Always re-execute.
 
-    @classmethod
-    def IS_CHANGED(cls, enhance=True, uncensored=True, target=None, submenu=None,
-                   request_text="", duration=10, image_1=None, image_2=None, image_3=None,
-                   image_4=None, image_5=None, **kwargs):
-        digest = hashlib.sha256()
-        digest.update(repr((enhance, uncensored, target, submenu, request_text, duration)).encode("utf-8"))
-        registry = load_registry()
-        digest.update(resolve_model(registry).encode("utf-8"))
-        digest.update(str(resolve_api_key(""))[-8:].encode("utf-8"))
-        for index, img in enumerate((image_1, image_2, image_3, image_4, image_5), start=1):
-            if img is None:
-                digest.update(f"|{index}:none".encode("utf-8"))
-                continue
-            try:
-                digest.update(
-                    f"|{index}:{tuple(img.shape)}:{float(img.float().mean()):.5f}:{float(img.float().std()):.5f}".encode("utf-8")
-                )
-            except Exception:  # noqa: BLE001
-                digest.update(f"|{index}:unknown".encode("utf-8"))
-        return digest.hexdigest()
+        `IS_CHANGED` is evaluated with `execution_list=None`, so linked inputs
+        (`image_1..image_5`) always arrive as `None` there — hashing them is
+        impossible.  Any text-only hash would therefore be *identical* for
+        "no image" and "image attached", ComfyUI would reuse the cached output
+        and the freshly attached image would be silently ignored.
+        Returning NaN guarantees the node re-runs; the identical-input quota
+        guard below (`_RESULT_CACHE`) still prevents duplicate API spending.
+        """
+        return float("NaN")
 
     # -- execution ----------------------------------------------------------
     def generate(self, enhance=True, uncensored=True, target=None, submenu=None,
@@ -752,8 +802,18 @@ class BadaPromptGenerator:
 
         # ---- image slot resolution ---------------------------------------
         tensors = [image_1, image_2, image_3, image_4, image_5]
+        tensors_present = any(t is not None for t in tensors)
         used_tensors, dropped = resolve_images(submenu_obj, tensors)
         mode = (submenu_obj.get("images") or {}).get("mode", "single")
+
+        # This used to live in VALIDATE_INPUTS, but ComfyUI evaluates that with
+        # `execution_list=None`, i.e. linked `image_1..5` always arrive there as
+        # None — an image-only run was rejected with "Invalid input" (+ the same
+        # message repeated on every input, hence the "8 errors" list).
+        if not (request_text or "").strip() and not tensors_present:
+            raise RuntimeError(
+                "요청사항을 입력하거나 이미지를 1장 이상 연결해 주세요."
+            )
 
         if dropped > 0:
             if mode == "none":
@@ -764,11 +824,22 @@ class BadaPromptGenerator:
                 msg = "더 붙어 있는 이미지는 무시되고 첫 한장만 사용됩니다."
             toasts.append({"level": "warn", "msg": msg})
 
+        if used_tensors:
+            # Visible proof that the images really travelled into the request.
+            toasts.append({"level": "info",
+                           "msg": f"📎 참조 이미지 {len(used_tensors)}장 분석에 포함"})
+
         # ---- enhance OFF -> passthrough (zero API calls) ------------------
         if not enhance:
             logger.info("[BadaPromptGen] enhance=OFF -> passthrough (%d chars)", len(request_text or ""))
             return {"ui": {"bada_promptgen_toast": toasts},
                     "result": ((request_text or "").strip(), "")}
+
+        if not (request_text or "").strip() and not used_tensors:
+            raise RuntimeError(
+                "요청사항이 비어 있고 이 서브메뉴는 이미지를 사용하지 않습니다. "
+                "요청사항을 입력하거나 이미지를 사용하는 서브메뉴를 선택해 주세요."
+            )
 
         api_key = resolve_api_key()
         if not api_key:
@@ -776,6 +847,22 @@ class BadaPromptGenerator:
                 "Gemini API 키를 찾을 수 없습니다. 노드의 '🔑 API Key' 입력란에서 [🔌 연결확인]을 누르거나 "
                 "config.json 에 api_key 를 저장해 주세요."
             )
+
+        # ---- identical-input quota guard ---------------------------------
+        # IS_CHANGED must return NaN (it cannot see linked images), so the node
+        # re-runs on every Queue. Byte-identical requests are served from this
+        # in-process memo instead of re-spending Gemini quota; any change of
+        # text / image / target / duration / uncensored / model / registry
+        # produces a new key -> fresh API call.
+        cache_key = result_cache_key(registry, target_obj, submenu_obj, request_text,
+                                     used_tensors, duration=int(duration or 10),
+                                     uncensored=bool(uncensored))
+        cached = cache_lookup(cache_key)
+        if cached:
+            toasts.append({"level": "info",
+                           "msg": "♻️ 동일한 입력 감지 → 이전 결과 재사용 (Gemini 호출 없음)"})
+            logger.info("[BadaPromptGen] identical inputs -> cached result (%d chars)", len(cached[0]))
+            return {"ui": {"bada_promptgen_toast": toasts}, "result": cached}
 
         prompt, wh_ratio, pass_used, model_used, warnings = run_prompt_pipeline(
             registry, target_obj, submenu_obj, request_text, used_tensors, api_key,
@@ -785,8 +872,15 @@ class BadaPromptGenerator:
         for warning in warnings:
             toasts.append({"level": "info", "msg": warning})
 
+        if pass_used > 1:
+            toasts.append({"level": "warn",
+                           "msg": f"⚠️ Pass {pass_used} 폴백으로 생성"
+                                  + (" (이미지 포함)" if used_tensors else "")})
+
         if not prompt:
             raise RuntimeError("Gemini 가 빈 프롬프트를 반환했습니다. 요청사항을 조금 더 구체적으로 입력해 주세요.")
+
+        cache_store(cache_key, prompt, wh_ratio)
 
         logger.info(
             "[BadaPromptGen] %s/%s | pass=%d | model=%s | images=%d | %d chars",

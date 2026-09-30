@@ -513,8 +513,13 @@ function setupNode(node) {
         serialize: false,
         hideOnZoom: false,
     });
-    // CONSTANT size — never derived from node.size, so no layout feedback loop
-    domWidget.computeSize = () => [HEADER_WIDTH, HEADER_HEIGHT];
+    // Reported height. The frontend wraps DOM widgets in a `.dom-widget` box and
+    // reserves a label strip (~16px) for it, so a hard-coded 138 makes this panel
+    // paint over the native widget rows below it (the reported overlap).
+    // `calibrateHeight()` below measures the rendered content and adds that slack
+    // back, so the canvas box and the panel always match.
+    let domHeight = HEADER_HEIGHT;
+    domWidget.computeSize = () => [HEADER_WIDTH, domHeight];
 
     const headerIndex = node.widgets.indexOf(domWidget);
     if (headerIndex > 0) {
@@ -545,6 +550,50 @@ function setupNode(node) {
     if (!node.size || node.size[0] < HEADER_WIDTH + 26 || node.size[1] < 520) {
         node.setSize([446, 560]);
     }
+
+    // ---- height calibration (overlap guard) --------------------------------
+    // Measure what the panel actually renders, plus the slack the DOM-widget
+    // wrapper eats, and report *that* to LiteGraph.  Self-correcting but
+    // deliberately bounded (3 passes, only on a >1px delta) so it can never
+    // enter the documented size feedback loop.
+    let calibrations = 0;
+    const calibrateHeight = () => {
+        if (calibrations >= 3) return;
+        const wrap = header.root.parentElement;
+        if (!wrap) return;
+        const scale = (app.canvas && app.canvas.ds && app.canvas.ds.scale) || 1;
+        const contentH = Math.ceil(header.root.getBoundingClientRect().height / scale);
+        const wrapH = Math.round(wrap.getBoundingClientRect().height / scale);
+        if (contentH < 8 || wrapH < 8) return;
+        const slack = Math.max(0, domHeight - wrapH);   // label strip the wrapper eats
+        const next = contentH + slack;
+        if (Math.abs(next - domHeight) <= 1) return;
+        domHeight = next;
+        calibrations += 1;
+        const need = node.computeSize ? node.computeSize() : [HEADER_WIDTH + 26, 520];
+        if (node.size[0] + 1 < need[0] || node.size[1] + 1 < need[1]) {
+            node.setSize([Math.max(node.size[0], need[0]), Math.max(node.size[1], need[1])]);
+        }
+        node.setDirtyCanvas?.(true, true);
+    };
+    const onContentResize = () => setTimeout(calibrateHeight, 0);
+    let resizeObserver = null;
+    if (typeof ResizeObserver !== "undefined") {
+        resizeObserver = new ResizeObserver(onContentResize);
+        resizeObserver.observe(header.root);
+    }
+    requestAnimationFrame(() => requestAnimationFrame(calibrateHeight));
+    setTimeout(calibrateHeight, 300);
+
+    const removeBefore = node.onRemoved;
+    node.onRemoved = function () {
+        if (resizeObserver) {
+            resizeObserver.disconnect();
+            resizeObserver = null;
+        }
+        return removeBefore ? removeBefore.apply(this, arguments) : undefined;
+    };
+
     syncSubmenuFor(node, true);
     app.graph?.setDirtyCanvas?.(true, true);
 }

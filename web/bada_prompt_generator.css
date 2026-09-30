@@ -19,8 +19,12 @@
     box-sizing: border-box;
     width: 400px;
     max-width: 400px;
-    height: 138px;
-    max-height: 138px;
+    /* Height is measured by `calibrateHeight()` in bada_prompt_generator.js and
+       reported to LiteGraph, so the panel can never spill over the widget rows
+       below it (the reported overlap). `min-height` keeps the classic 138px look. */
+    height: auto;
+    min-height: 138px;
+    max-height: none;
     overflow: hidden;
     padding: 8px 9px;
     display: flex;

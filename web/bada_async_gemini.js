@@ -2001,6 +2001,8 @@ app.registerExtension({
 
             const langSubscription = () => {
                 updateAllStaticLabels();
+                // label lengths differ per language -> re-check the frame height
+                setTimeout(fitToContent, 60);
             };
             BadaI18n.subscribe(langSubscription);
 
@@ -2035,6 +2037,37 @@ app.registerExtension({
 
                 root.classList.toggle("bada-compact-width", w < 380);
                 root.classList.toggle("bada-ultra-compact", w < 340);
+            }
+
+            // FIX: `node.size[1] - 46` alone starved the inner content area.
+            // `.bada-prompt-studio-container` needs 763px but only receives
+            // ~577px (root minus header/rows) -> its own vertical scrollbar and
+            // the squashed frame reported by the user. Grow the node until the
+            // content area fits.  Runs only on mount / configure / language
+            // switch — never inside `onDrawForeground`, because measuring there
+            // forces a reflow on every frame.
+            function fitToContent() {
+                if (!root || !node || !node.size) return;
+                syncContainerSize();
+                const area = root.querySelector(".bada-prompt-studio-container");
+                if (!area) return;
+                let overflow = area.scrollHeight - area.clientHeight;
+                let steps = 0;
+                while (overflow > 1 && steps < 5 && node.size[1] < 1600) {
+                    steps += 1;
+                    node.setSize([node.size[0],
+                                  Math.min(1600, node.size[1] + overflow + 8)]);
+                    syncContainerSize();
+                    overflow = area.scrollHeight - area.clientHeight;
+                }
+                // debug probe (readable from the console / test harness)
+                window.__badaFit = {
+                    overflow, steps,
+                    size: node.size.slice(),
+                    area: [area.clientHeight, area.scrollHeight],
+                    runs: (window.__badaFit && window.__badaFit.runs || 0) + 1,
+                };
+                if (steps && appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
             }
 
             window.addEventListener("paste", onGlobalPaste);
@@ -2085,7 +2118,7 @@ app.registerExtension({
                 if (this.size && this.size[1] < 420) this.size[1] = 780;
                 setTimeout(() => {
                     hideAllBackendWidgets(this);
-                    syncContainerSize();
+                    fitToContent();
                     if (appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
                 }, 50);
                 return r;
@@ -2110,6 +2143,9 @@ app.registerExtension({
                 node.setSize([520, 820]);
             }
             syncContainerSize();
+            // first honest measurement once the panel is in the DOM
+            setTimeout(fitToContent, 0);
+            setTimeout(fitToContent, 350);
             if (appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
         };
     }
