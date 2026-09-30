@@ -7,7 +7,7 @@ from .nodes import (
     NODE_CLASS_MAPPINGS,
     NODE_DISPLAY_NAME_MAPPINGS,
 )
-from .server import register_bada_api_routes, register_gemini_api_routes
+from .server import register_bada_api_routes, register_gemini_api_routes, register_promptgen_api_routes
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 
@@ -18,6 +18,7 @@ WEB_DIRECTORY = "./web"
 try:
     register_bada_api_routes()
     register_gemini_api_routes()
+    register_promptgen_api_routes()
 except Exception as e:
     logger.warning(f"[ComfyUI-Bada-Utils] Server API initialization notice: {e}")
 

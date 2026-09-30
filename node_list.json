@@ -3,5 +3,6 @@
   "BadaRegionalPrompt": "⚓ Visual Interactive Canvas & Multi-zone Regional Prompting with color-coded masks and real-time bounding preview",
   "VisualGridPromptNode": "📐 Visual Grid Regional Prompting Node (Legacy Compatible)",
   "BadaAsyncGeminiStudio": "⚓ Non-blocking Multimodal Async Gemini Prompt Studio & Chat for ComfyUI",
-  "BadaGoogleTranslator": "⚓ Zero-Dependency Google Translator for ComfyUI with Quotes Preservation and Free Endpoint Bypass"
+  "BadaGoogleTranslator": "⚓ Zero-Dependency Google Translator for ComfyUI with Quotes Preservation and Free Endpoint Bypass",
+  "BadaPromptGenerator": "⚓ Queue-Synchronous Prompt Compiler with Multi-Image Analysis, Qwen-Image-2.1 / KREA 2 / MiniMax H3 / LTX-Video targets and Zero-Refusal mode"
 }

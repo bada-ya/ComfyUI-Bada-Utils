@@ -8,6 +8,7 @@ from .bada_preset_hub import BadaPresetHub
 from .bada_regional_prompt import BadaRegionalPrompt
 from .bada_async_gemini import BadaAsyncGeminiStudio
 from .bada_google_translator import BadaGoogleTranslator
+from .bada_prompt_generator import BadaPromptGenerator
 
 NODE_CLASS_MAPPINGS = {
     "BadaPresetHub": BadaPresetHub,
@@ -15,6 +16,7 @@ NODE_CLASS_MAPPINGS = {
     "VisualGridPromptNode": BadaRegionalPrompt,
     "BadaAsyncGeminiStudio": BadaAsyncGeminiStudio,
     "BadaGoogleTranslator": BadaGoogleTranslator,
+    "BadaPromptGenerator": BadaPromptGenerator,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -23,6 +25,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "VisualGridPromptNode": "📐 Visual Grid Regional Prompt (Legacy)",
     "BadaAsyncGeminiStudio": "⚓ Bada Async Gemini Studio",
     "BadaGoogleTranslator": "⚓ Bada Google Translator",
+    "BadaPromptGenerator": "⚓ Bada 프롬프트 생성기",
 }
 
 __all__ = [
@@ -32,4 +35,5 @@ __all__ = [
     "BadaRegionalPrompt",
     "BadaAsyncGeminiStudio",
     "BadaGoogleTranslator",
+    "BadaPromptGenerator",
 ]

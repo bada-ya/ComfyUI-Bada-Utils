@@ -9,4 +9,6 @@ WORK_LOG.md
 .agents/
 config.json
 favorites_data.json
+*.bak
+dev_tests/_shots/
 
