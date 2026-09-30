@@ -738,6 +738,27 @@ class BadaPromptGenerator:
         names = [s.get("name") for s in ((target or {}).get("submenus") or []) if s.get("name")]
         return names or list(cls.SUBMENU_FALLBACK)
 
+    @classmethod
+    def all_submenu_names(cls) -> list:
+        registry = load_registry()
+        submenus = []
+        for t in (registry.get("targets") or []):
+            if t.get("dynamic") == "user_prompts":
+                for p in (registry.get("user_prompts") or []):
+                    name = p.get("name")
+                    if name and name not in submenus:
+                        submenus.append(name)
+            else:
+                for s in (t.get("submenus") or []):
+                    name = s.get("name")
+                    if name and name not in submenus:
+                        submenus.append(name)
+        fallback = ["General", "일반", "T2I", "EDIT", "Ref2VA", "T2VA", "I2VA", "FL2VA", "L2VA", "LTX 2.5", "LTX T2V", "LTX I2V", "Voice & Audio", "Camera Master"]
+        for f in fallback:
+            if f not in submenus:
+                submenus.append(f)
+        return submenus
+
     # -- ComfyUI interface --------------------------------------------------
     @classmethod
     def INPUT_TYPES(cls):
@@ -748,7 +769,7 @@ class BadaPromptGenerator:
         if default_target not in targets:
             default_target = targets[0]
 
-        submenus = cls.submenu_names(default_target)
+        submenus = cls.all_submenu_names()
         default_submenu = defaults.get("submenu", submenus[0])
         if default_submenu not in submenus:
             default_submenu = submenus[0]
@@ -783,6 +804,10 @@ class BadaPromptGenerator:
             },
             "hidden": {"unique_id": "UNIQUE_ID"},
         }
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, target="", submenu="", **kwargs):
+        return True
 
     # -- validation & caching ----------------------------------------------
     # NOTE: `VALIDATE_INPUTS` was removed on purpose.
