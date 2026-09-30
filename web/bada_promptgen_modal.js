@@ -16,7 +16,7 @@ const MOVE_URL = "/api/bada/promptgen/user_prompts/move";
 
 const M = {
     ko: {
-        title: "⚙️ Bada 프롬프트 생성기 — 모델 관리",
+        title: "⚙️ Bada 프롬프트 생성기 — 시스템 프롬프트 관리",
         sub: "사용자 시스템 프롬프트를 등록·수정·삭제하고 순서를 바꿉니다.",
         listHead: "등록된 프롬프트",
         create: "＋ 새로 만들기",
@@ -43,10 +43,14 @@ const M = {
         moved: "↕ 순서가 변경되었습니다",
         failed: "❌ 요청 실패",
         chars: "자",
+        moveUp: "위로 이동",
+        moveDown: "아래로 이동",
+        edit: "수정",
+        delete: "삭제",
         officialNote: "공식 프롬프트는 Qwen Research License 에 따르며 삭제할 수 없습니다.",
     },
     en: {
-        title: "⚙️ Bada Prompt Generator — Model Manager",
+        title: "⚙️ Bada Prompt Generator — System Prompt Manager",
         sub: "Create, edit, delete and reorder your custom system prompts.",
         listHead: "Registered prompts",
         create: "＋ New",
@@ -73,6 +77,10 @@ const M = {
         moved: "↕ Order updated",
         failed: "❌ Request failed",
         chars: "chars",
+        moveUp: "Move up",
+        moveDown: "Move down",
+        edit: "Edit",
+        delete: "Delete",
         officialNote: "Official prompts follow the Qwen Research License and cannot be deleted.",
     },
 };
@@ -155,6 +163,7 @@ export async function openPromptGenModal(options = {}) {
     headText.append(titleEl, subEl);
     const headClose = makeEl("button", "bpgm-x", "✕");
     headClose.type = "button";
+    headClose.title = m("close");
     head.append(headText, headClose);
     panel.appendChild(head);
 
@@ -195,6 +204,10 @@ export async function openPromptGenModal(options = {}) {
             const down = makeEl("button", "bpgm-mini", "▼");
             const edit = makeEl("button", "bpgm-mini", "✏️");
             const del = makeEl("button", "bpgm-mini bpgm-mini--del", "🗑");
+            up.title = m("moveUp");
+            down.title = m("moveDown");
+            edit.title = m("edit");
+            del.title = m("delete");
             [up, down, edit, del].forEach((btn) => {
                 btn.type = "button";
                 btn.addEventListener("click", (event) => {
@@ -216,9 +229,11 @@ export async function openPromptGenModal(options = {}) {
     const right = makeEl("div", "bpgm-right");
     body.appendChild(right);
 
-    const field = (labelText, control, hint) => {
+    const field = (labelKey, control, hint) => {
         const wrap = makeEl("div", "bpgm-field");
-        wrap.appendChild(makeEl("label", "bpgm-label", labelText));
+        const label = makeEl("label", "bpgm-label", m(labelKey));
+        label.dataset.i18n = labelKey;
+        wrap.appendChild(label);
         wrap.appendChild(control);
         if (hint) wrap.appendChild(makeEl("div", "bpgm-hint", hint));
         return wrap;
@@ -272,12 +287,12 @@ export async function openPromptGenModal(options = {}) {
     footBar.append(noteEl, saveBtn, closeBtn);
 
     right.append(
-        field(m("name"), nameInput),
-        field(m("desc"), descInput),
-        field(m("format"), formatSel),
-        field(m("fields"), fieldsInput),
-        field(m("template"), templateRow),
-        field(m("prompt"), promptArea, charCount.textContent),
+        field("name", nameInput),
+        field("desc", descInput),
+        field("format", formatSel),
+        field("fields", fieldsInput),
+        field("template", templateRow),
+        field("prompt", promptArea, charCount.textContent),
         footBar
     );
 
@@ -336,7 +351,7 @@ export async function openPromptGenModal(options = {}) {
             notify(label, "ok");
         } catch (err) {
             console.error("[BadaPromptGen] modal action failed:", err);
-            notify(`${m("failed")} · ${err.message}`, "err");
+            notify(m("failed"), "err");
         } finally {
             saveBtn.disabled = false;
         }
@@ -460,6 +475,19 @@ export async function openPromptGenModal(options = {}) {
         saveBtn.textContent = m("save");
         closeBtn.textContent = m("close");
         noteEl.textContent = m("officialNote");
+        headClose.title = m("close");
+        right.querySelectorAll(".bpgm-label[data-i18n]").forEach((label) => {
+            label.textContent = m(label.dataset.i18n);
+        });
+        nameInput.placeholder = m("name");
+        descInput.placeholder = m("desc");
+        promptArea.placeholder = m("promptPh");
+        optText.textContent = m("text");
+        optJson.textContent = m("json");
+        templateNone.textContent = m("templateNone");
+        templateBtn.textContent = m("loadTemplate");
+        charCount.textContent = `${promptArea.value.length} ${m("chars")}`;
+        if (footerHint) footerHint.textContent = charCount.textContent;
         renderList();
     };
     BadaI18n.subscribe(langSub);

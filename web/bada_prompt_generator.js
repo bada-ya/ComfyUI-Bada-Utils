@@ -36,22 +36,31 @@ const I18N = {
         target: "모델",
         submenu: "서브메뉴",
         request_text: "요청사항 입력란",
+        requestPlaceholder: "요청사항을 입력하세요 (이미지만으로도 생성 가능)",
         duration: "영상 길이 (초)",
+        durationTip: "영상 모델(MINIMAX H3 / LTX2.5)의 초 단위 길이입니다.",
         apiHeader: "🔑 API Key & 우선순위 모델 선택",
+        keyPlaceholder: "Gemini API 키 입력",
+        showKey: "API 키 표시",
+        hideKey: "API 키 숨기기",
+        issueKeyTip: "Google AI Studio에서 API 키 발급",
         getKey: "발급",
         checkKey: "연결확인",
         testing: "확인중...",
         lsNotice: "LocalStorage 자동 저장",
-        manage: "⚙️ 모델 관리…",
+        manage: "⚙️ 시스템 프롬프트 관리",
         keyRequired: "Gemini API 키를 먼저 입력해 주세요.",
         keyOk: "✅ API 연결 정상",
         keyFail: "❌ API 연결 실패",
         saved: "저장됨",
-        manageTip: "대상 모델 / 시스템 프롬프트를 등록·선택·삭제·이동합니다.",
+        manageTip: "시스템 프롬프트를 등록·선택·삭제·이동합니다.",
+        manageLoadFail: "⚠️ 모델 관리 모듈을 불러오지 못했습니다.",
         enhanceTip: "OFF이면 Gemini를 호출하지 않고 요청사항 원문을 그대로 통과시킵니다.",
         uncensoredTip: "BLOCK_NONE + 3-Pass Zero-Refusal 우회 폴백을 활성화합니다.",
         targetTip: "프롬프트를 최적화할 대상 모델을 선택하세요.",
         submenuTip: "선택한 모델에서 사용할 기능(서브모드)을 선택하세요.",
+        noPrompts: "(등록된 프롬프트 없음)",
+        general: "일반",
     },
     en: {
         enhance: "🔥 Enhance",
@@ -59,22 +68,31 @@ const I18N = {
         target: "Target Model",
         submenu: "Submenu",
         request_text: "Request / Instruction",
+        requestPlaceholder: "Enter a request (or connect images only)",
         duration: "Duration (sec)",
+        durationTip: "Duration in seconds for video models (MINIMAX H3 / LTX2.5).",
         apiHeader: "🔑 API Key & Priority Model",
+        keyPlaceholder: "Enter Gemini API key",
+        showKey: "Show API key",
+        hideKey: "Hide API key",
+        issueKeyTip: "Get an API key from Google AI Studio",
         getKey: "Get Key",
         checkKey: "Check",
         testing: "Testing...",
         lsNotice: "Auto-saved to LocalStorage",
-        manage: "⚙️ Manage Models…",
+        manage: "⚙️ System Prompt Manager",
         keyRequired: "Please enter your Gemini API key first.",
         keyOk: "✅ API connected",
         keyFail: "❌ API connection failed",
         saved: "Saved",
-        manageTip: "Register, select, delete or reorder target models and system prompts.",
+        manageTip: "Create, select, delete or reorder system prompts.",
+        manageLoadFail: "⚠️ Could not load the model manager.",
         enhanceTip: "When OFF the request text passes through untouched (no Gemini call).",
         uncensoredTip: "Enables BLOCK_NONE plus the 3-Pass zero-refusal fallback.",
         targetTip: "Choose the downstream model to optimize the prompt for.",
         submenuTip: "Choose the capability of the selected model.",
+        noPrompts: "(No prompts registered)",
+        general: "General",
     },
 };
 
@@ -107,10 +125,10 @@ function submenuNamesFor(registry, targetName) {
     if (!target) return null;
     if (target.dynamic === "user_prompts") {
         const names = (registry.user_prompts || []).map((p) => p.name).filter(Boolean);
-        return names.length ? names : ["(등록된 프롬프트 없음)"];
+        return names.length ? names : [t("noPrompts")];
     }
     const names = (target.submenus || []).map((s) => s.name).filter(Boolean);
-    return names.length ? names : ["일반"];
+    return names.length ? names : [t("general")];
 }
 
 // ---------------------------------------------------------------------------
@@ -218,13 +236,14 @@ async function verifyKey(key) {
         });
         const data = await res.json().catch(() => ({}));
         if (data.success) {
-            showToast(`${t("keyOk")} · ${data.message || ""}`, "ok", 2600);
+            showToast(t("keyOk"), "ok", 2600);
             return true;
         }
-        showToast(`${t("keyFail")} · ${data.error || "HTTP " + res.status}`, "err", 5200);
+        showToast(t("keyFail"), "err", 5200);
         return false;
     } catch (err) {
-        showToast(`${t("keyFail")} · ${err.message}`, "err", 5200);
+        console.warn("[BadaPromptGen] API key check failed:", err);
+        showToast(t("keyFail"), "err", 5200);
         return false;
     }
 }
@@ -249,6 +268,7 @@ async function verifyKey(key) {
 // ---------------------------------------------------------------------------
 const HEADER_WIDTH = 400;
 const HEADER_HEIGHT = 138;
+const NODE_WIDTH_INSET = 46;
 
 function el(tag, cls, text) {
     const created = document.createElement(tag);
@@ -285,23 +305,24 @@ function buildHeader(node, widgets) {
     const row1 = el("div", "bpg-row");
     const keyInput = el("input", "bpg-key");
     keyInput.type = "password";
-    keyInput.placeholder = "AIzaSy…  (Gemini API Key)";
+    keyInput.placeholder = t("keyPlaceholder");
     keyInput.spellcheck = false;
     keyInput.autocomplete = "off";
     keyInput.value = readKey();
 
     const eye = el("button", "bpg-icon-btn", "👁");
     eye.type = "button";
-    eye.title = "표시 / 숨김";
+    eye.title = t("showKey");
     eye.addEventListener("click", () => {
         keyInput.type = keyInput.type === "password" ? "text" : "password";
         eye.classList.toggle("bpg-icon-btn--on", keyInput.type === "text");
+        eye.title = t(keyInput.type === "password" ? "showKey" : "hideKey");
     });
 
     const issueBtn = el("button", "bpg-btn", t("getKey"));
     issueBtn.type = "button";
     issueBtn.dataset.i18n = "getKey";
-    issueBtn.title = "Google AI Studio 에서 키 발급";
+    issueBtn.title = t("issueKeyTip");
     issueBtn.addEventListener("click", () => {
         window.open("https://aistudio.google.com/app/apikey", "_blank", "noopener");
     });
@@ -310,14 +331,13 @@ function buildHeader(node, widgets) {
     testBtn.type = "button";
     testBtn.dataset.i18n = "checkKey";
     testBtn.addEventListener("click", async () => {
-        const original = testBtn.textContent;
         testBtn.disabled = true;
         testBtn.textContent = t("testing");
         const key = writeKey(keyInput.value);
         const ok = await verifyKey(key);
         if (ok) pushToServer(key);
         testBtn.disabled = false;
-        testBtn.textContent = original;
+        testBtn.textContent = t("checkKey");
     });
 
     keyInput.addEventListener("input", () => pushToServer(writeKey(keyInput.value)));
@@ -403,7 +423,7 @@ function buildHeader(node, widgets) {
             });
         } catch (err) {
             console.error("[BadaPromptGen] modal load failed:", err);
-            showToast(`⚠️ 모델 관리 모듈을 불러오지 못했습니다: ${err.message}`, "err", 5000);
+            showToast(t("manageLoadFail"), "err", 5000);
         } finally {
             manageBtn.disabled = false;
         }
@@ -411,9 +431,67 @@ function buildHeader(node, widgets) {
     row3.appendChild(manageBtn);
     root.appendChild(row3);
 
+    const targetGroup = el("div", "bpg-picker-group");
+    const targetLabel = el("div", "bpg-picker-label", t("target"));
+    targetLabel.dataset.i18n = "target";
+    const targetButtons = el("div", "bpg-choice-row");
+    targetGroup.append(targetLabel, targetButtons);
+
+    const submenuGroup = el("div", "bpg-picker-group");
+    const submenuLabel = el("div", "bpg-picker-label", t("submenu"));
+    submenuLabel.dataset.i18n = "submenu";
+    const submenuButtons = el("div", "bpg-choice-row");
+    submenuGroup.append(submenuLabel, submenuButtons);
+
+    function addChoiceButtons(container, items, selectedValue, onSelect) {
+        container.replaceChildren(...items.map((item) => {
+            const button = el("button", "bpg-choice", item.label);
+            button.type = "button";
+            button.classList.toggle("bpg-choice--selected", item.value === selectedValue);
+            button.setAttribute("aria-pressed", String(item.value === selectedValue));
+            button.addEventListener("click", () => onSelect(item.value));
+            return button;
+        }));
+    }
+
+    function renderTargetButtons() {
+        const registryTargets = (REGISTRY?.targets || []).filter((target) => target.name || target.id);
+        const items = registryTargets.length
+            ? registryTargets.map((target) => ({
+                value: target.name || target.id,
+                label: BadaI18n.lang === "en" && target.name === "시스템 프롬프트" ? "System Prompt" : (target.name || target.id),
+            }))
+            : (widgets.target?.options?.values || []).map((value) => ({ value, label: value }));
+        addChoiceButtons(targetButtons, items, widgets.target?.value, (value) => {
+            widgets.target.value = value;
+            widgets.target.callback?.call(widgets.target, value, app.canvas, node, null, {});
+            syncSubmenuFor(node, false);
+            renderTargetButtons();
+            node.setDirtyCanvas?.(true, true);
+        });
+    }
+
+    function renderSubmenuButtons() {
+        const values = submenuNamesFor(REGISTRY, widgets.target?.value) || widgets.submenu?.options?.values || [];
+        const items = values.map((value) => ({ value, label: value }));
+        addChoiceButtons(submenuButtons, items, widgets.submenu?.value, (value) => {
+            widgets.submenu.value = value;
+            widgets.submenu.callback?.call(widgets.submenu, value, app.canvas, node, null, {});
+            node.setDirtyCanvas?.(true, true);
+        });
+    }
+
+    root.append(targetGroup, submenuGroup);
+    renderTargetButtons();
+    renderSubmenuButtons();
+
     const WIDGET_LABELS = ["target", "submenu", "request_text", "duration"];
 
     function localize() {
+        const displayTitle = "⚓ Bada Prompt Generator";
+        if (!node.title || ["BadaPromptGenerator", "⚓ Bada 프롬프트 생성기", "Bada 프롬프트 생성기", displayTitle].includes(node.title)) {
+            node.title = displayTitle;
+        }
         for (const key of WIDGET_LABELS) {
             const w = widgets[key];
             if (!w) continue;
@@ -421,8 +499,18 @@ function buildHeader(node, widgets) {
             w.label = text;
             if (w.options) w.options.label = text;
         }
+        if (widgets.ui_language) widgets.ui_language.value = BadaI18n.lang;
+        if (widgets.enhance) widgets.enhance.tooltip = t("enhanceTip");
+        if (widgets.uncensored) widgets.uncensored.tooltip = t("uncensoredTip");
         if (widgets.target) widgets.target.tooltip = t("targetTip");
         if (widgets.submenu) widgets.submenu.tooltip = t("submenuTip");
+        if (widgets.duration) widgets.duration.tooltip = t("durationTip");
+        const requestInput = widgets.request_text?.inputEl || widgets.request_text?.element;
+        if (requestInput) requestInput.placeholder = t("requestPlaceholder");
+        keyInput.placeholder = t("keyPlaceholder");
+        eye.title = t(keyInput.type === "password" ? "showKey" : "hideKey");
+        issueBtn.title = t("issueKeyTip");
+        manageBtn.title = t("manageTip");
     }
 
     const langSub = () => {
@@ -432,6 +520,8 @@ function buildHeader(node, widgets) {
         Object.values(cards).forEach((c) => c.paint());
         fillModels();
         localize();
+        renderTargetButtons();
+        renderSubmenuButtons();
         node.setDirtyCanvas?.(true, true);
     };
     localize();
@@ -445,7 +535,7 @@ function buildHeader(node, widgets) {
 
     fillModels();
     pullFromServer();
-    return { root, cards };
+    return { root, cards, renderTargetButtons, renderSubmenuButtons };
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +543,28 @@ function buildHeader(node, widgets) {
 // ---------------------------------------------------------------------------
 function widgetByName(node, name) {
     return (node.widgets || []).find((w) => w.name === name);
+}
+
+function syncDurationFor(node) {
+    const duration = widgetByName(node, "duration");
+    if (!duration) return;
+
+    if (!Object.prototype.hasOwnProperty.call(duration, "__bpgOriginalType")) {
+        duration.__bpgOriginalType = duration.type;
+        duration.__bpgOriginalComputeSize = duration.computeSize;
+    }
+
+    const target = String(widgetByName(node, "target")?.value || "");
+    const visible = /MINIMAX\s*H3|LTX\s*2\.5/i.test(target);
+    duration.hidden = !visible;
+    if (visible) {
+        duration.type = duration.__bpgOriginalType || "number";
+        if (duration.__bpgOriginalComputeSize) duration.computeSize = duration.__bpgOriginalComputeSize;
+        else delete duration.computeSize;
+    } else {
+        duration.type = "hidden";
+        duration.computeSize = () => [0, -4];
+    }
 }
 
 function syncSubmenuFor(node, preserve = true) {
@@ -464,6 +576,8 @@ function syncSubmenuFor(node, preserve = true) {
     subW.options = subW.options || {};
     subW.options.values = names;
     if (!preserve || !names.includes(subW.value)) subW.value = names[0];
+    syncDurationFor(node);
+    node.__bpgHeader?.renderSubmenuButtons?.();
     node.setDirtyCanvas?.(true, true);
 }
 
@@ -482,12 +596,14 @@ function refreshAllNodes() {
         }
         syncSubmenuFor(node, true);
         const header = node.__bpgHeader;
+        header?.renderTargetButtons?.();
+        header?.renderSubmenuButtons?.();
         if (header?.cards) Object.values(header.cards).forEach((c) => c.paint());
     }
 }
 
 function setupNode(node) {
-    const widgetNames = ["enhance", "uncensored", "target", "submenu", "request_text", "duration"];
+    const widgetNames = ["enhance", "uncensored", "target", "submenu", "request_text", "duration", "ui_language"];
     const widgets = {};
     for (const name of widgetNames) widgets[name] = widgetByName(node, name);
     if (!widgets.target || !widgets.submenu) {
@@ -498,13 +614,19 @@ function setupNode(node) {
     // Collapse the two BOOLEAN rows and drive them from the DOM toggle cards.
     // (Same hide pattern already proven in bada_async_gemini.js — values keep
     //  serializing and are still sent to the queue.)
-    for (const name of ["enhance", "uncensored"]) {
+    for (const name of ["enhance", "uncensored", "target", "submenu"]) {
         const w = widgets[name];
         if (!w) continue;
         w.hidden = true;
         w.type = "hidden";
         if (w.computeSize) w.computeSize = () => [0, -4];
     }
+    if (widgets.ui_language) {
+        widgets.ui_language.hidden = true;
+        widgets.ui_language.type = "hidden";
+        if (widgets.ui_language.computeSize) widgets.ui_language.computeSize = () => [0, -4];
+    }
+    syncDurationFor(node);
 
     const header = buildHeader(node, widgets);
     node.__bpgHeader = header;
@@ -519,7 +641,18 @@ function setupNode(node) {
     // `calibrateHeight()` below measures the rendered content and adds that slack
     // back, so the canvas box and the panel always match.
     let domHeight = HEADER_HEIGHT;
-    domWidget.computeSize = () => [HEADER_WIDTH, domHeight];
+    let domWidth = HEADER_WIDTH;
+    domWidget.computeSize = () => [domWidth, domHeight];
+
+    const syncHeaderWidth = () => {
+        if (!node.size) return;
+        const nextWidth = Math.max(HEADER_WIDTH, node.size[0] - NODE_WIDTH_INSET);
+        if (Math.abs(nextWidth - domWidth) <= 1 && header.root.style.width === `${nextWidth}px`) return;
+        domWidth = nextWidth;
+        header.root.style.width = `${domWidth}px`;
+        header.root.style.maxWidth = `${domWidth}px`;
+        node.setDirtyCanvas?.(true, true);
+    };
 
     const headerIndex = node.widgets.indexOf(domWidget);
     if (headerIndex > 0) {
@@ -536,13 +669,14 @@ function setupNode(node) {
     const originalSubmenuCb = widgets.submenu.callback;
     widgets.submenu.callback = function (value, canvas, originNode, pos, extra) {
         if (originalSubmenuCb) originalSubmenuCb.call(this, value, canvas, originNode, pos, extra);
+        node.__bpgHeader?.renderSubmenuButtons?.();
         node.setDirtyCanvas?.(true, true);
     };
 
     const originalComputeSize = node.computeSize;
     node.computeSize = function (out) {
         const size = originalComputeSize ? originalComputeSize.call(this, out || [0, 0]) : (out || [0, 0]);
-        size[0] = Math.max(size[0], HEADER_WIDTH + 26);
+        size[0] = Math.max(size[0], domWidth + 26);
         size[1] = Math.max(size[1], 520);
         return size;
     };
@@ -550,6 +684,15 @@ function setupNode(node) {
     if (!node.size || node.size[0] < HEADER_WIDTH + 26 || node.size[1] < 520) {
         node.setSize([446, 560]);
     }
+    syncHeaderWidth();
+
+    const originalOnResize = node.onResize;
+    node.onResize = function () {
+        const result = originalOnResize ? originalOnResize.apply(this, arguments) : undefined;
+        syncHeaderWidth();
+        return result;
+    };
+    node.__bpgSyncHeaderWidth = syncHeaderWidth;
 
     // ---- height calibration (overlap guard) --------------------------------
     // Measure what the panel actually renders, plus the slack the DOM-widget
@@ -591,6 +734,7 @@ function setupNode(node) {
             resizeObserver.disconnect();
             resizeObserver = null;
         }
+        delete this.__bpgSyncHeaderWidth;
         return removeBefore ? removeBefore.apply(this, arguments) : undefined;
     };
 
@@ -635,6 +779,7 @@ app.registerExtension({
             setTimeout(() => {
                 try {
                     syncSubmenuFor(this, true);
+                    this.__bpgSyncHeaderWidth?.();
                     const header = this.__bpgHeader;
                     if (header?.cards) Object.values(header.cards).forEach((c) => c.paint());
                 } catch (err) {

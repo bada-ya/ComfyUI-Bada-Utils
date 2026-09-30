@@ -25,7 +25,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "VisualGridPromptNode": "📐 Visual Grid Regional Prompt (Legacy)",
     "BadaAsyncGeminiStudio": "⚓ Bada Async Gemini Studio",
     "BadaGoogleTranslator": "⚓ Bada Google Translator",
-    "BadaPromptGenerator": "⚓ Bada 프롬프트 생성기",
+    "BadaPromptGenerator": "⚓ Bada Prompt Generator",
 }
 
 __all__ = [

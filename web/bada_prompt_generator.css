@@ -17,22 +17,22 @@
     --bpg-on: #22c55e;
 
     box-sizing: border-box;
-    width: 400px;
-    max-width: 400px;
+    width: 100%;
+    max-width: none;
     /* Height is measured by `calibrateHeight()` in bada_prompt_generator.js and
        reported to LiteGraph, so the panel can never spill over the widget rows
        below it (the reported overlap). `min-height` keeps the classic 138px look. */
     height: auto;
-    min-height: 138px;
+    min-height: 0;
     max-height: none;
-    overflow: hidden;
-    padding: 8px 9px;
+    overflow: visible;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    background: linear-gradient(180deg, var(--bpg-elevated), var(--bpg-bg));
-    border: 1px solid var(--bpg-border);
-    border-radius: var(--bada-radius-md, 10px);
+    gap: 5px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
     color: var(--bpg-text);
     font-size: 11px;
     line-height: 1.35;
@@ -59,7 +59,65 @@
 }
 
 .bpg-row--toggles {
-    margin-top: auto;
+    margin-top: 1px;
+}
+
+.bpg-picker-group {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.bpg-picker-label {
+    color: var(--bpg-muted);
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.bpg-choice-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.bpg-choice {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    padding: 4px 8px;
+    overflow: hidden;
+    border: 1px solid var(--bpg-border);
+    border-radius: 5px;
+    background: rgba(15, 23, 42, 0.5);
+    color: var(--bpg-dim);
+    font: inherit;
+    font-size: 10px;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.bpg-choice:hover {
+    border-color: var(--bpg-accent);
+    color: var(--bpg-text);
+}
+
+.bpg-choice--selected {
+    border-color: var(--bpg-accent);
+    background: rgba(56, 189, 248, 0.2);
+    color: #e2f5ff;
+    font-weight: 700;
+}
+
+.bpg-choice:focus-visible {
+    outline: 2px solid var(--bpg-accent);
+    outline-offset: 1px;
 }
 
 .bpg-key,

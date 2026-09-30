@@ -50,6 +50,12 @@ const BADA_SETTINGS_TEXTS = {
         presetsBadgeDesc: "Display shortcut preset badges on nodes. Disabling this hides the badges without deleting any preset data.",
         presetsBadgePosName: "🏷️ Preset Badge Position",
         presetsBadgePosDesc: "Position for preset badges on nodes. 'Bottom Dock' auto-tracks dynamic node height changes without overlapping execution time.",
+        presetsBadgePosOptions: [
+            { value: "bottom", text: "Bottom Dock (Recommended)" },
+            { value: "bottom_inside", text: "Bottom Inside" },
+            { value: "top_high", text: "Top Stacked" },
+            { value: "top_left", text: "Top Left (Legacy)" },
+        ],
         presetsName: "Global Presets",
 
         loadImageName: "📋 Clipboard & LoadImage Auto-Error Fixer",
@@ -63,10 +69,10 @@ const BADA_SETTINGS_TEXTS = {
         detectiveDesc: "Smartly resolves uninstalled missing nodes (red X) and missing models/LoRAs via right-click menu, providing one-click installation and smart auto-assignment.",
 
         noteHelperName: "📝 Text & Prompt One-Click Translator",
-        noteHelperDesc: "Displays a one-click translation button on prompt node title bars. Edit target node names (separated by commas) below.",
+        noteHelperDesc: "Automatically adds a one-click translation button to nodes with text inputs or displayed text.",
 
-        customWhitelistName: "📝 Target Translation Node List",
-        customWhitelistDesc: "Enter target node names separated by commas (removing a name disables its translation button)."
+        translationBlacklistName: "📝 Translation Blacklist",
+        translationBlacklistDesc: "Enter node names to exclude from automatic translation, separated by commas."
     },
     ko: {
         category: "Bada Utils",
@@ -89,6 +95,12 @@ const BADA_SETTINGS_TEXTS = {
         presetsBadgeDesc: "노드에 글로벌 프리셋 바로가기 뱃지를 표시합니다. 꺼도 저장된 프리셋 데이터는 안전하게 유지됩니다.",
         presetsBadgePosName: "🏷️ 프리셋 뱃지 위치",
         presetsBadgePosDesc: "노드의 프리셋 뱃지 표시 위치를 설정합니다. 기본값(노드 하단 바깥쪽)은 생성물로 인한 노드 길이 변화를 자동 추적하며 상단 실행 시간과 겹치지 않습니다.",
+        presetsBadgePosOptions: [
+            { value: "bottom", text: "노드 하단 바깥쪽 (Bottom Dock - 권장)" },
+            { value: "bottom_inside", text: "노드 하단 안쪽 (Bottom Inside)" },
+            { value: "top_high", text: "노드 상단 2층 (Top Stacked)" },
+            { value: "top_left", text: "노드 상단 좌측 (Top Left - 레거시)" },
+        ],
         presetsName: "글로벌 프리셋",
 
         loadImageName: "📋 클립보드 & LoadImage 자동 에러 해결사",
@@ -102,16 +114,63 @@ const BADA_SETTINGS_TEXTS = {
         detectiveDesc: "캔버스 빈 공간 또는 노드 우클릭 시, 미설치 미싱 노드(빨간 X) 탐색/설치 및 누락된 모델/LoRA를 탭별로 한눈에 케어하고 스마트 자동 장착합니다.",
 
         noteHelperName: "📝 텍스트 & 프롬프트 원클릭 번역기",
-        noteHelperDesc: "프롬프트 노드 제목 표시줄 우측에 원클릭 번역 단추를 표시합니다. 추가할 노드명을 쉼표(,)로 구분하여 입력하세요.",
+        noteHelperDesc: "텍스트 입력 또는 표시 위젯이 있는 노드에 번역 버튼을 자동으로 추가합니다.",
 
-        customWhitelistName: "📝 번역 대상 노드 목록 (직접 추가 및 수정/삭제)",
-        customWhitelistDesc: "번역 버튼을 적용할 노드명을 쉼표(,)로 구분하여 입력하세요 (지우면 해당 노드의 번역 버튼이 제거됩니다)."
+        translationBlacklistName: "📝 번역 제외 노드 목록",
+        translationBlacklistDesc: "자동 번역에서 제외할 노드명을 쉼표(,)로 구분하여 입력하세요."
     }
 };
 
 function getSettingsText(key) {
     const lang = BadaI18n.lang === "ko" ? "ko" : "en";
     return BADA_SETTINGS_TEXTS[lang][key] || BADA_SETTINGS_TEXTS.en[key] || "";
+}
+
+function updatePresetBadgePositionOptions(lang) {
+    const setting = BADA_UNIFIED_SETTINGS.presetsBadgePosition;
+    const options = BADA_SETTINGS_TEXTS[lang === "ko" ? "ko" : "en"].presetsBadgePosOptions;
+    const localizedOptions = options.map((option) => ({ ...option }));
+    setting.options.splice(0, setting.options.length, ...localizedOptions);
+
+    const registeredSetting = app.ui?.settings?.settingsLookup?.[setting.id];
+    if (registeredSetting) {
+        if (Array.isArray(registeredSetting.options) && registeredSetting.options !== setting.options) {
+            registeredSetting.options.splice(0, registeredSetting.options.length, ...localizedOptions.map((option) => ({ ...option })));
+        } else {
+            registeredSetting.options = setting.options;
+        }
+    }
+
+    const row = document.querySelector(`[data-setting-id="${setting.id}"]`);
+    const selectedValue = app.ui?.settings?.getSettingValue?.(setting.id) || setting.defaultValue;
+    const selectedOption = localizedOptions.find((option) => option.value === selectedValue);
+    const selectedLabel = row?.querySelector(".p-select-label");
+    if (selectedLabel && selectedOption) {
+        selectedLabel.textContent = selectedOption.text;
+        selectedLabel.setAttribute("aria-label", selectedOption.text);
+    }
+
+    const openList = document.getElementById(`${setting.id}_list`);
+    if (openList) {
+        openList.querySelectorAll('[role="option"]').forEach((option, index) => {
+            if (localizedOptions[index]) {
+                option.textContent = localizedOptions[index].text;
+                option.setAttribute("aria-label", localizedOptions[index].text);
+            }
+        });
+    }
+
+    const select = row?.querySelector("select");
+    if (!select) return;
+
+    const currentValue = select.value || selectedValue;
+    select.replaceChildren(...setting.options.map(({ value, text }) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = text;
+        return option;
+    }));
+    select.value = currentValue;
 }
 
 const BADA_UNIFIED_SETTINGS = {
@@ -135,13 +194,13 @@ const BADA_UNIFIED_SETTINGS = {
         sortOrder: 850,
         defaultValue: true
     },
-    customWhitelist: {
-        id: "BadaUtils.CustomTranslationWhitelist",
-        category: ["Bada Utils", "CustomTranslationWhitelist"],
-        name: "📝 Target Translation Node List",
+    translationBlacklist: {
+        id: "BadaUtils.TranslationBlacklist",
+        category: ["Bada Utils", "TranslationBlacklist"],
+        name: "📝 Translation Blacklist",
         type: "text",
         sortOrder: 840,
-        defaultValue: "Text Encode, PromptLine, Text Multiline, Show Text, Note, Markdown Note, Show any"
+        defaultValue: ""
     },
     sidebar: {
         id: "BadaUtils.SidebarOrganizer",
@@ -189,10 +248,10 @@ const BADA_UNIFIED_SETTINGS = {
         name: "🏷️ Preset Badge Position",
         type: "combo",
         options: [
-            { value: "bottom", text: "노드 하단 바깥쪽 (Bottom Dock - 권장)" },
-            { value: "bottom_inside", text: "노드 하단 안쪽 (Bottom Inside)" },
-            { value: "top_high", text: "노드 상단 2층 (Top Stacked)" },
-            { value: "top_left", text: "노드 상단 좌측 (Top Left - 레거시)" },
+            { value: "bottom", text: "Bottom Dock (Recommended)" },
+            { value: "bottom_inside", text: "Bottom Inside" },
+            { value: "top_high", text: "Top Stacked" },
+            { value: "top_left", text: "Top Left (Legacy)" },
         ],
         sortOrder: 490,
         defaultValue: "bottom"
@@ -387,7 +446,7 @@ function escapeHtml(str) {
             max-width: 100% !important;
             display: block !important;
         }
-        div[data-setting-id="BadaUtils.CustomTranslationWhitelist"] {
+        div[data-setting-id="BadaUtils.TranslationBlacklist"] {
             display: none !important;
         }
 
@@ -592,13 +651,12 @@ function buildNoteHelperPanel() {
         }
     } catch (_) {}
 
-    const defaultListStr = "Text Encode, PromptLine, Text Multiline, Show Text, Note, Markdown Note, Show any";
-    let whitelistStr = defaultListStr;
+    let blacklistStr = "";
     try {
         if (app.ui && app.ui.settings && app.ui.settings.getSettingValue) {
-            const str = app.ui.settings.getSettingValue("BadaUtils.CustomTranslationWhitelist");
-            if (typeof str === "string" && str.trim()) {
-                whitelistStr = str;
+            const str = app.ui.settings.getSettingValue("BadaUtils.TranslationBlacklist");
+            if (typeof str === "string") {
+                blacklistStr = str;
             }
         }
     } catch (_) {}
@@ -667,8 +725,8 @@ function buildNoteHelperPanel() {
     const descEl = document.createElement("div");
     descEl.style.cssText = "font-size: 11px; color: #94a3b8; line-height: 1.4; font-weight: 400;";
     descEl.textContent = isKo
-        ? "프롬프트 노드 제목 표시줄 우측에 원클릭 번역 단추를 표시합니다. 추가할 노드명을 쉼표(,)로 구분하여 입력하세요."
-        : "Displays a one-click translation button on prompt node title bars. Enter target node names separated by commas below.";
+        ? "텍스트 입력 또는 표시 위젯이 있는 노드에 번역 버튼을 자동으로 추가합니다. 제외할 노드명을 쉼표(,)로 구분해 입력하세요."
+        : "Translation buttons are added automatically to nodes with text inputs or displays. Enter excluded node names, separated by commas.";
 
     // Input + Apply button row
     const inputRow = document.createElement("div");
@@ -676,7 +734,8 @@ function buildNoteHelperPanel() {
 
     const inputEl = document.createElement("input");
     inputEl.type = "text";
-    inputEl.value = whitelistStr;
+    inputEl.value = blacklistStr;
+    inputEl.placeholder = isKo ? "제외할 노드명 (쉼표로 구분)" : "Node names to exclude (comma-separated)";
     inputEl.style.cssText = [
         "flex: 1; min-width: 0; height: 34px;",
         "background: rgba(15, 23, 42, 0.85); color: #f8fafc;",
@@ -720,7 +779,7 @@ function buildNoteHelperPanel() {
         const newVal = inputEl.value.trim();
         try {
             if (app.ui?.settings?.setSettingValue) {
-                app.ui.settings.setSettingValue("BadaUtils.CustomTranslationWhitelist", newVal);
+                app.ui.settings.setSettingValue("BadaUtils.TranslationBlacklist", newVal);
             }
         } catch (_) {}
         if (window.__BADA_REAPPLY_NOTE_HELPER_NODES__) {
@@ -767,12 +826,13 @@ function applyBilingualSettingsUI(targetLang) {
         const lang = targetLang || BadaI18n.lang || "en";
         const isKo = lang === "ko";
         const texts = BADA_SETTINGS_TEXTS[isKo ? "ko" : "en"];
+        updatePresetBadgePositionOptions(lang);
 
         // 2. Setting rows label updates (Title with custom SVG + Sub-description below)
         const settingRows = document.querySelectorAll('[data-setting-id^="BadaUtils"], [data-setting-id^="⚓ Bada"]');
         settingRows.forEach(row => {
             const id = row.getAttribute("data-setting-id");
-            if (id === BADA_UNIFIED_SETTINGS.presetsPanel.id || id === BADA_UNIFIED_SETTINGS.noteHelper.id || id === BADA_UNIFIED_SETTINGS.customWhitelist.id) return;
+            if (id === BADA_UNIFIED_SETTINGS.presetsPanel.id) return;
 
             const formLabel = row.querySelector(".form-label, label");
             if (!formLabel) return;
@@ -807,10 +867,10 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.noteHelper.id) {
                 targetTitle = texts.noteHelperName;
                 targetDesc = texts.noteHelperDesc;
-            } else if (id === BADA_UNIFIED_SETTINGS.customWhitelist.id) {
-                targetTitle = texts.customWhitelistName;
-                targetDesc = texts.customWhitelistDesc;
-            } else if (id === BADA_UNIFIED_SETTINGS.terminalHub.id) {
+            } else if (id === BADA_UNIFIED_SETTINGS.translationBlacklist.id) {
+                targetTitle = texts.translationBlacklistName;
+                targetDesc = texts.translationBlacklistDesc;
+            } else if (BADA_UNIFIED_SETTINGS.terminalHub && id === BADA_UNIFIED_SETTINGS.terminalHub.id) {
                 targetTitle = texts.terminalHubTitle;
                 targetDesc = texts.terminalHubDesc;
             } else if (id === BADA_UNIFIED_SETTINGS.missingDetective.id) {
@@ -819,6 +879,9 @@ function applyBilingualSettingsUI(targetLang) {
             }
 
             if (!targetTitle) return;
+
+            const registeredSetting = app.ui?.settings?.settingsLookup?.[id];
+            if (registeredSetting) registeredSetting.name = targetTitle;
 
             // Enforce vertical flex layout for form-label
             formLabel.style.display = "flex";
@@ -894,6 +957,7 @@ app.registerExtension({
         BadaI18n.init(app);
         const currentLang = BadaI18n.lang || "en";
         const texts = BADA_SETTINGS_TEXTS[currentLang === "ko" ? "ko" : "en"];
+        updatePresetBadgePositionOptions(currentLang);
 
         // 2. Register Unified Bilingual Settings (English + 한국어)
         const safeAddSetting = (settingConfig) => {
@@ -1092,14 +1156,14 @@ app.registerExtension({
             defaultValue: BADA_UNIFIED_SETTINGS.noteHelper.defaultValue
         });
 
-        // ⑦-b Custom Translation Whitelist Setting (Registered for persistence)
+        // ⑦-b Translation Blacklist Setting (Registered for persistence)
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.customWhitelist.id,
-            category: [texts.category, "CustomTranslationWhitelist"],
-            name: texts.customWhitelistName,
-            type: BADA_UNIFIED_SETTINGS.customWhitelist.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.customWhitelist.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.customWhitelist.defaultValue
+            id: BADA_UNIFIED_SETTINGS.translationBlacklist.id,
+            category: [texts.category, "TranslationBlacklist"],
+            name: texts.translationBlacklistName,
+            type: BADA_UNIFIED_SETTINGS.translationBlacklist.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.translationBlacklist.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.translationBlacklist.defaultValue
         });
 
 

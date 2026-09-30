@@ -81,7 +81,17 @@ PW = """() => {
   if (!n) return null;
   const w = {};
   (n.widgets || []).forEach((x) => { w[x.name] = { type: x.type, value: x.value, options: (x.options && x.options.values) || null, hidden: !!x.hidden }; });
-  return { id: n.id, size: n.size, widgets: w };
+      return {
+            id: n.id,
+            size: n.size,
+            title: n.title,
+            widgets: w,
+            targetLabel: n.widgets.find((x) => x.name === 'target')?.label,
+            requestPlaceholder: n.widgets.find((x) => x.name === 'request_text')?.inputEl?.placeholder,
+            uiLanguage: n.widgets.find((x) => x.name === 'ui_language')?.value,
+            headerTitle: document.querySelector('.bpg-sec-title')?.textContent,
+            toggleLabel: document.querySelector('.bpg-card-label')?.textContent,
+      };
 }"""
 
 SET_TARGET = """([value]) => {
@@ -186,7 +196,7 @@ with sync_playwright() as p:
     state = page.evaluate(PW)
     widgets = (state or {}).get("widgets") or {}
     check("UI-F native widgets present", all(k in widgets for k in
-          ("target", "submenu", "request_text", "duration", "enhance", "uncensored")),
+          ("target", "submenu", "request_text", "duration", "enhance", "uncensored", "ui_language")),
           ",".join(sorted(widgets.keys())))
     check("UI-G boolean widgets collapsed into DOM toggle cards",
           widgets.get("enhance", {}).get("hidden") is True
@@ -210,9 +220,34 @@ with sync_playwright() as p:
     check("UI-N fixed-size header (400x138) keeps the node layout stable",
           abs((state or {}).get("size", [0, 0])[0] - 446) < 40 and (state or {}).get("size", [0, 0])[1] >= 520,
           f"size={state['size'] if state else None}")
+
+    print("\n== 2a. Bada language setting ==")
+    original_lang = page.evaluate("() => window.BadaI18n.lang")
+    check("UI-O node display name is English", state.get("title") == "⚓ Bada Prompt Generator",
+          str(state.get("title")))
+    for lang, target_label, header_title, toggle_label, placeholder in (
+        ("en", "Target Model", "🔑 API Key & Priority Model", "🔥 Enhance",
+         "Enter a request (or connect images only)"),
+        ("ko", "모델", "🔑 API Key & 우선순위 모델 선택", "🔥 증강",
+         "요청사항을 입력하세요 (이미지만으로도 생성 가능)"),
+    ):
+        page.evaluate("(lang) => window.BadaI18n.setLanguage(lang)", lang)
+        page.wait_for_timeout(150)
+        lang_state = page.evaluate(PW)
+        check(f"UI-{lang.upper()} node labels and header follow Bada language",
+              lang_state.get("targetLabel") == target_label
+              and lang_state.get("headerTitle") == header_title
+              and lang_state.get("toggleLabel") == toggle_label,
+              str(lang_state))
+        check(f"UI-{lang.upper()} request placeholder and execution language follow setting",
+              lang_state.get("requestPlaceholder") == placeholder
+              and lang_state.get("uiLanguage") == lang,
+              str(lang_state))
+    page.evaluate("(lang) => window.BadaI18n.setLanguage(lang)", original_lang)
+    page.wait_for_timeout(150)
+    check("UI language restored after node checks", page.evaluate("() => window.BadaI18n.lang") == original_lang)
     shot(page, "02_node")
 
-    print("\n== 3. toggle cards <-> BOOLEAN widgets ==")
     init_enh = widgets["enhance"]["value"]
     init_unc = widgets["uncensored"]["value"]
     page.locator(".bpg-card").first.click()

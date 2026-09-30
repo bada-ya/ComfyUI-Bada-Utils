@@ -562,8 +562,12 @@ def cache_store(key, prompt: str, wh_ratio: str) -> None:
         _RESULT_CACHE.popitem(last=False)
 
 
+def _ui_text(ui_language, english, korean):
+    return korean if ui_language == "ko" else english
+
+
 def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, api_key,
-                        duration: int = 10, uncensored: bool = True):
+                        duration: int = 10, uncensored: bool = True, ui_language: str = "en"):
     """Execute the generation pipeline.
 
     Returns `(prompt, wh_ratio, pass_used, model_used, warnings)`.
@@ -578,7 +582,9 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
         if got:
             images_b64.append(got)
         else:
-            warnings.append("One attached image could not be converted and was skipped.")
+            warnings.append(_ui_text(ui_language,
+                                     "One attached image could not be converted and was skipped.",
+                                     "첨부 이미지 한 장을 변환하지 못해 건너뛰었습니다."))
 
     image_count = len(images_b64)
     system_text = build_system_prompt(registry, submenu, image_count, duration, uncensored)
@@ -664,19 +670,31 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
     if not result_text:
         if uncensored:
             raise RuntimeError(
-                "모든 Gemini 모델이 할당량 초과 또는 요청 거부로 실패했습니다. "
-                "API 키 상태와 일일 쿼터를 확인해 주세요."
+                _ui_text(ui_language,
+                         "All Gemini models failed because of quota limits or a blocked request. Check the API key and daily quota.",
+                         "모든 Gemini 모델이 할당량 초과 또는 요청 거부로 실패했습니다. "
+                         "API 키 상태와 일일 쿼터를 확인해 주세요.")
             )
         raise RuntimeError(
-            "Gemini가 요청을 거부했습니다. '🔓 무검열' 토글을 켜고 다시 시도해 주세요. "
-            "(무검열 OFF 상태에서는 3-Pass 우회 폴백이 비활성화됩니다)"
+            _ui_text(ui_language,
+                     "Gemini refused the request. Enable the '🔓 Uncensored' toggle and try again. (The 3-pass fallback is disabled when Uncensored is OFF.)",
+                     "Gemini가 요청을 거부했습니다. '🔓 무검열' 토글을 켜고 다시 시도해 주세요. "
+                     "(무검열 OFF 상태에서는 3-Pass 우회 폴백이 비활성화됩니다)")
         )
 
     if pass_used > 1:
-        warnings.append(f"검열 우회 {pass_used}차 폴백(3-Pass)으로 생성되었습니다.")
+        warnings.append(_ui_text(ui_language,
+                                 f"Generated with the Pass {pass_used} fallback (3-pass).",
+                                 f"검열 우회 {pass_used}차 폴백(3-Pass)으로 생성되었습니다."))
 
     prompt, wh_ratio, parse_warnings = parse_output(result_text, submenu)
-    warnings.extend(parse_warnings)
+    parse_warning_ko = {
+        "JSON parsed successfully but 'rewritten_prompt' was empty.": "JSON은 정상적으로 분석됐지만 'rewritten_prompt' 필드가 비어 있습니다.",
+        "Recovered the prompt with the regex fallback parser.": "정규식 대체 파서로 프롬프트를 복구했습니다.",
+        "Could not parse structured JSON output; fell back to the raw response.": "구조화 JSON 출력을 해석하지 못해 원본 응답을 사용했습니다.",
+    }
+    warnings.extend(_ui_text(ui_language, warning, parse_warning_ko.get(warning, warning))
+                    for warning in parse_warnings)
     return (prompt, wh_ratio, pass_used, model_used, warnings)
 
 
@@ -702,8 +720,8 @@ class BadaPromptGenerator:
         "then emits an optimized prompt for the selected target model tab."
     )
 
-    TARGET_FALLBACK = ["KREA2", "QWEN2.1", "MINIMAX H3", "LTX2.5", "시스템 프롬프트"]
-    SUBMENU_FALLBACK = ["일반"]
+    TARGET_FALLBACK = ["KREA2", "QWEN2.1", "MINIMAX H3", "LTX2.5", "System Prompt"]
+    SUBMENU_FALLBACK = ["General"]
 
     # -- registry helpers ---------------------------------------------------
     @classmethod
@@ -717,7 +735,7 @@ class BadaPromptGenerator:
         target = resolve_target(registry, target_name)
         if target and target.get("dynamic") == "user_prompts":
             names = [p.get("name") for p in (registry.get("user_prompts") or []) if p.get("name")]
-            return names or ["(등록된 프롬프트 없음)"]
+            return names or ["No prompts registered"]
         names = [s.get("name") for s in ((target or {}).get("submenus") or []) if s.get("name")]
         return names or list(cls.SUBMENU_FALLBACK)
 
@@ -741,25 +759,26 @@ class BadaPromptGenerator:
                 "enhance": ("BOOLEAN", {
                     "default": bool(defaults.get("enhance", True)),
                     "label_on": "🔥 ON", "label_off": "OFF",
-                    "tooltip": "OFF이면 Gemini를 호출하지 않고 요청사항 원문을 그대로 통과시킵니다.",
+                    "tooltip": "When OFF, the request passes through unchanged without calling Gemini.",
                 }),
                 "uncensored": ("BOOLEAN", {
                     "default": bool(defaults.get("uncensored", True)),
                     "label_on": "🔓 ON", "label_off": "OFF",
-                    "tooltip": "BLOCK_NONE + 3-Pass Zero-Refusal 우회 폴백을 활성화합니다.",
+                    "tooltip": "Enables BLOCK_NONE and the 3-pass zero-refusal fallback.",
                 }),
                 "target": (targets, {"default": default_target}),
                 "submenu": (submenus, {"default": default_submenu}),
                 "request_text": ("STRING", {
                     "multiline": True, "default": "",
-                    "placeholder": "요청사항을 입력하세요 (이미지만으로도 생성 가능)",
+                    "placeholder": "Enter a request (or connect images only)",
                     "dynamicPrompts": False,
                 }),
             },
             "optional": {
                 "duration": ("INT", {"default": int(defaults.get("duration", 10)),
                                      "min": 1, "max": 30, "step": 1,
-                                     "tooltip": "영상 모델(MINIMAX H3 / LTX2.5)의 초 단위 길이입니다."}),
+                                     "tooltip": "Duration in seconds for video models (MINIMAX H3 / LTX2.5)."}),
+                "ui_language": ("STRING", {"default": "en"}),
                 "image_1": ("IMAGE",), "image_2": ("IMAGE",), "image_3": ("IMAGE",),
                 "image_4": ("IMAGE",), "image_5": ("IMAGE",),
             },
@@ -791,7 +810,8 @@ class BadaPromptGenerator:
     # -- execution ----------------------------------------------------------
     def generate(self, enhance=True, uncensored=True, target=None, submenu=None,
                  request_text="", duration=10, image_1=None, image_2=None, image_3=None,
-                 image_4=None, image_5=None, unique_id=None, **kwargs):
+                 image_4=None, image_5=None, unique_id=None, ui_language="en", **kwargs):
+        ui_language = "ko" if ui_language == "ko" else "en"
         registry = load_registry()
         toasts = []
 
@@ -800,12 +820,16 @@ class BadaPromptGenerator:
 
         if target_obj is None:
             raise RuntimeError(
-                f"대상 모델 '{target}' 을(를) engines_registry.json 에서 찾을 수 없습니다."
+                _ui_text(ui_language,
+                         f"Target model '{target}' was not found in engines_registry.json.",
+                         f"대상 모델 '{target}' 을(를) engines_registry.json 에서 찾을 수 없습니다.")
             )
         if submenu_obj is None:
             raise RuntimeError(
-                f"서브메뉴 '{submenu}' 을(를) '{target}' 에서 찾을 수 없습니다. "
-                "설정창의 모델 관리에서 항목을 확인해 주세요."
+                _ui_text(ui_language,
+                         f"Submenu '{submenu}' was not found under '{target}'. Check it in Model Manager.",
+                         f"서브메뉴 '{submenu}' 을(를) '{target}' 에서 찾을 수 없습니다. "
+                         "설정창의 모델 관리에서 항목을 확인해 주세요.")
             )
 
         # ---- image slot resolution ---------------------------------------
@@ -820,22 +844,32 @@ class BadaPromptGenerator:
         # message repeated on every input, hence the "8 errors" list).
         if not (request_text or "").strip() and not tensors_present:
             raise RuntimeError(
-                "요청사항을 입력하거나 이미지를 1장 이상 연결해 주세요."
+                _ui_text(ui_language,
+                         "Enter a request or connect at least one image.",
+                         "요청사항을 입력하거나 이미지를 1장 이상 연결해 주세요.")
             )
 
         if dropped > 0:
             if mode == "none":
-                msg = f"이 서브메뉴는 이미지를 사용하지 않습니다. 연결된 이미지 {dropped}장이 무시됩니다."
+                msg = _ui_text(ui_language,
+                               f"This submenu does not use images. {dropped} connected image(s) will be ignored.",
+                               f"이 서브메뉴는 이미지를 사용하지 않습니다. 연결된 이미지 {dropped}장이 무시됩니다.")
             elif mode == "pair":
-                msg = f"이 서브메뉴는 이미지 2장만 사용합니다. 나머지 {dropped}장은 무시됩니다."
+                msg = _ui_text(ui_language,
+                               f"This submenu uses only two images. The remaining {dropped} will be ignored.",
+                               f"이 서브메뉴는 이미지 2장만 사용합니다. 나머지 {dropped}장은 무시됩니다.")
             else:
-                msg = "더 붙어 있는 이미지는 무시되고 첫 한장만 사용됩니다."
+                msg = _ui_text(ui_language,
+                               "Extra connected images will be ignored; only the first will be used.",
+                               "더 붙어 있는 이미지는 무시되고 첫 한장만 사용됩니다.")
             toasts.append({"level": "warn", "msg": msg})
 
         if used_tensors:
             # Visible proof that the images really travelled into the request.
             toasts.append({"level": "info",
-                           "msg": f"📎 참조 이미지 {len(used_tensors)}장 분석에 포함"})
+                           "msg": _ui_text(ui_language,
+                                           f"📎 {len(used_tensors)} reference image(s) included in analysis",
+                                           f"📎 참조 이미지 {len(used_tensors)}장 분석에 포함")})
 
         # ---- enhance OFF -> passthrough (zero API calls) ------------------
         if not enhance:
@@ -845,15 +879,19 @@ class BadaPromptGenerator:
 
         if not (request_text or "").strip() and not used_tensors:
             raise RuntimeError(
-                "요청사항이 비어 있고 이 서브메뉴는 이미지를 사용하지 않습니다. "
-                "요청사항을 입력하거나 이미지를 사용하는 서브메뉴를 선택해 주세요."
+                _ui_text(ui_language,
+                         "This submenu does not use images and the request is empty. Enter a request or choose a submenu that uses images.",
+                         "요청사항이 비어 있고 이 서브메뉴는 이미지를 사용하지 않습니다. "
+                         "요청사항을 입력하거나 이미지를 사용하는 서브메뉴를 선택해 주세요.")
             )
 
         api_key = resolve_api_key()
         if not api_key:
             raise RuntimeError(
-                "Gemini API 키를 찾을 수 없습니다. 노드의 '🔑 API Key' 입력란에서 [🔌 연결확인]을 누르거나 "
-                "config.json 에 api_key 를 저장해 주세요."
+                _ui_text(ui_language,
+                         "Gemini API key not found. Enter it in the node's API Key field and select Check, or save api_key in config.json.",
+                         "Gemini API 키를 찾을 수 없습니다. 노드의 '🔑 API Key' 입력란에서 [🔌 연결확인]을 누르거나 "
+                         "config.json 에 api_key 를 저장해 주세요.")
             )
 
         # ---- identical-input quota guard ---------------------------------
@@ -868,13 +906,15 @@ class BadaPromptGenerator:
         cached = cache_lookup(cache_key)
         if cached:
             toasts.append({"level": "info",
-                           "msg": "♻️ 동일한 입력 감지 → 이전 결과 재사용 (Gemini 호출 없음)"})
+                           "msg": _ui_text(ui_language,
+                                           "♻️ Identical input detected; reusing the previous result (no Gemini call)",
+                                           "♻️ 동일한 입력 감지 → 이전 결과 재사용 (Gemini 호출 없음)")})
             logger.info("[BadaPromptGen] identical inputs -> cached result (%d chars)", len(cached[0]))
             return {"ui": {"bada_promptgen_toast": toasts}, "result": cached}
 
         prompt, wh_ratio, pass_used, model_used, warnings = run_prompt_pipeline(
             registry, target_obj, submenu_obj, request_text, used_tensors, api_key,
-            duration=int(duration or 10), uncensored=bool(uncensored),
+            duration=int(duration or 10), uncensored=bool(uncensored), ui_language=ui_language,
         )
 
         for warning in warnings:
@@ -882,11 +922,14 @@ class BadaPromptGenerator:
 
         if pass_used > 1:
             toasts.append({"level": "warn",
-                           "msg": f"⚠️ Pass {pass_used} 폴백으로 생성"
-                                  + (" (이미지 포함)" if used_tensors else "")})
+                          "msg": _ui_text(ui_language,
+                                 f"⚠️ Generated using Pass {pass_used} fallback" + (" (with images)" if used_tensors else ""),
+                                 f"⚠️ Pass {pass_used} 폴백으로 생성" + (" (이미지 포함)" if used_tensors else ""))})
 
         if not prompt:
-            raise RuntimeError("Gemini 가 빈 프롬프트를 반환했습니다. 요청사항을 조금 더 구체적으로 입력해 주세요.")
+            raise RuntimeError(_ui_text(ui_language,
+                                        "Gemini returned an empty prompt. Please make your request more specific.",
+                                        "Gemini 가 빈 프롬프트를 반환했습니다. 요청사항을 조금 더 구체적으로 입력해 주세요."))
 
         cache_store(cache_key, prompt, wh_ratio)
 

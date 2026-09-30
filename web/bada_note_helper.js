@@ -6,8 +6,8 @@ import { BadaI18n } from "./bada_i18n.js";
  * Streamlined 1-Button Header Titlebar Control (🌐 / ⏳ / ✅)
  * 
  * Features:
- * 1) 100% Whitelist Matching: Default 7 Whitelist Types + Settings Custom Additions
- * 2) Real-Time Instant Apply: Adding node names in settings instantly attaches buttons (No F5 required)
+ * 1) Automatically detects visible text input/display widgets; blacklist entries are excluded
+ * 2) Real-Time Instant Apply: Blacklist changes immediately update translation buttons
  * 3) Auto-Hide on Collapsed: Completely disappears when node is collapsed (no floating icons)
  * 4) Rich Settings Descriptions: Full bilingual titles and sub-descriptions in Bada Settings panel
  */
@@ -75,41 +75,50 @@ function isNoteHelperEnabled() {
     return true; // Default Enabled
 }
 
-// Get User-Configured Custom Whitelist Node Names from Bada Settings
-function getCustomWhitelist() {
-    const defaultList = [
-        "text encode", "promptline", "text multiline", 
-        "show text", "note", "markdown note", "show any"
-    ];
+// Get user-configured node names that must not receive translation controls.
+function getTranslationBlacklist() {
     try {
         if (app.ui && app.ui.settings && app.ui.settings.getSettingValue) {
-            const val = app.ui.settings.getSettingValue("BadaUtils.CustomTranslationWhitelist");
+            const val = app.ui.settings.getSettingValue("BadaUtils.TranslationBlacklist");
             if (typeof val === "string" && val.trim()) {
                 return val.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
             }
         }
     } catch (e) {}
-    return defaultList;
+    return [];
 }
 
-// Whitelist-Based Target Node Matcher
+function isTextWidget(widget) {
+    if (!widget || widget.hidden || String(widget.type || "").toLowerCase() === "hidden") return false;
+
+    const name = `${widget.name || ""} ${widget.label || ""}`.toLowerCase();
+    if (/(api[\s_-]*key|password|secret|token)/.test(name)) return false;
+
+    const element = widget.inputEl || widget.element;
+    const tag = String(element?.tagName || "").toLowerCase();
+    if (tag === "input") {
+        const inputType = String(element.type || "text").toLowerCase();
+        return ["text", "search"].includes(inputType) && typeof element.value === "string";
+    }
+    if (tag === "textarea") return typeof element.value === "string";
+    if (tag === "select") return false;
+
+    const type = String(widget.type || "").toLowerCase();
+    return ["text", "string", "customtext", "textarea", "markdown"].includes(type) &&
+        typeof widget.value === "string";
+}
+
+// Add translation controls to nodes with visible text widgets unless excluded.
 function isTargetNoteNode(node) {
     if (!node) return false;
-    const typeLower = (node.type || node.comfyClass || "").toLowerCase();
-    const titleLower = (node.title || "").toLowerCase();
-    
-    const whitelist = getCustomWhitelist();
-
-    for (const item of whitelist) {
-        if (!item) continue;
-        const itemNoSpace = item.replace(/\s+/g, "");
-        if (typeLower.includes(item) || titleLower.includes(item) ||
-            typeLower.includes(itemNoSpace) || titleLower.includes(itemNoSpace)) {
-            return true;
-        }
-    }
-
-    return false;
+    const names = [node.type, node.comfyClass, node.title]
+        .filter(Boolean)
+        .map((name) => String(name).toLowerCase());
+    const blocked = getTranslationBlacklist().some((item) => {
+        const compactItem = item.replace(/\s+/g, "");
+        return names.some((name) => name.includes(item) || name.replace(/\s+/g, "").includes(compactItem));
+    });
+    return !blocked && getTextWidgets(node).length > 0;
 }
 
 function getWidgetKey(widget, index) {
@@ -130,10 +139,7 @@ function getTextWidgets(node) {
     return node.widgets
         .map((widget, index) => ({ widget, key: getWidgetKey(widget, index) }))
         .filter(({ widget }) => {
-            if (widget.inputEl && typeof widget.inputEl.value === "string") return true;
-            if (widget.element && typeof widget.element.value === "string") return true;
-            if (typeof widget.value === "string") return true;
-            return false;
+            return isTextWidget(widget);
         });
 }
 
@@ -295,7 +301,7 @@ window.__BADA_SYNC_NOTE_HELPER_STATE__ = function(enabled) {
     }
 };
 
-// Real-Time Instant Re-apply callback for Whitelist changes
+// Real-Time Instant Re-apply callback for Blacklist changes
 window.__BADA_REAPPLY_NOTE_HELPER_NODES__ = function() {
     if (app.graph && app.graph._nodes) {
         app.graph._nodes.forEach(node => {
