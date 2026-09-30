@@ -72,7 +72,10 @@ const BADA_SETTINGS_TEXTS = {
         noteHelperDesc: "Automatically adds a one-click translation button to nodes with text inputs or displayed text.",
 
         translationBlacklistName: "📝 Translation Blacklist",
-        translationBlacklistDesc: "Enter node names to exclude from automatic translation, separated by commas."
+        translationBlacklistDesc: "Enter node names to exclude from automatic translation, separated by commas.",
+        saveAsName: "💾 Save As Folder Picker (Choose & Create Folders)",
+        saveAsDesc: "Adds folder selection and one-click folder creation to the native File ▸ Save As dialog, so workflows can be saved into any subfolder of the workflows root.",
+
     },
     ko: {
         category: "Bada Utils",
@@ -117,7 +120,10 @@ const BADA_SETTINGS_TEXTS = {
         noteHelperDesc: "텍스트 입력 또는 표시 위젯이 있는 노드에 번역 버튼을 자동으로 추가합니다.",
 
         translationBlacklistName: "📝 번역 제외 노드 목록",
-        translationBlacklistDesc: "자동 번역에서 제외할 노드명을 쉼표(,)로 구분하여 입력하세요."
+        translationBlacklistDesc: "자동 번역에서 제외할 노드명을 쉼표(,)로 구분하여 입력하세요.",
+        saveAsName: "💾 다른 이름으로 저장 폴더 선택기",
+        saveAsDesc: "순정 '다른 이름으로 저장' 창에 폴더 선택과 새 폴더 생성을 추가하여, 워크플로우 루트 안의 원하는 하위 폴더에 바로 저장할 수 있게 합니다.",
+
     }
 };
 
@@ -210,6 +216,15 @@ const BADA_UNIFIED_SETTINGS = {
         sortOrder: 800,
         defaultValue: true
     },
+    saveAsFolderPicker: {
+        id: "BadaUtils.SaveAsFolderPicker",
+        category: ["Bada Utils", "SaveAsFolderPicker"],
+        name: "💾 Save As Folder Picker",
+        type: "boolean",
+        sortOrder: 790,
+        defaultValue: true
+    },
+
     mouse: {
         id: "BadaUtils.MouseFix",
         category: ["Bada Utils", "MouseFix"],
@@ -1018,6 +1033,21 @@ app.registerExtension({
                 }
             }
         });
+
+        // ②-1 Save As Folder Picker (ComfyUI File ▸ Save As ▸ 폴더 지정 저장)
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.saveAsFolderPicker.id,
+            category: [texts.category, "SaveAsFolderPicker"],
+            name: texts.saveAsName,
+            type: BADA_UNIFIED_SETTINGS.saveAsFolderPicker.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.saveAsFolderPicker.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.saveAsFolderPicker.defaultValue,
+            onChange: () => {
+                // 훅은 promptSave() 호출 시점에 설정값을 다시 읽으므로 재시도만 걸어 주면 된다.
+                window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__?.setupSaveAsFolderPicker?.();
+            }
+        });
+
 
         // ③ Smooth Mouse Pan & Wheel Zoom Fixer
         safeAddSetting({

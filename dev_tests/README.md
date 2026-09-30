@@ -13,6 +13,7 @@ $env:BADA_TEST_BASE = "http://127.0.0.1:8199"   # scratch instance (default anyw
 | `bada_promptgen_exec_test.py` | Backend **execution** path. Queues `enhance=false` (no Gemini call), then asserts the node executed, `generated_text` passed `request_text` through verbatim, `wh_ratio` stayed empty, the `bada_promptgen_toast` ui key was emitted, and a downstream consumer node actually received the text. |
 | `bada_promptgen_ui_smoke.py` | Frontend **browser** path (Playwright/Chromium, headless). 49 checks: boot/registration, node header DOM, toggle-card ↔ BOOLEAN widget sync (both directions), cascading `target → submenu`, toast rendering from a websocket `executed` payload, API-key row (mask/reveal/empty-key warning), model select → localStorage + `config.json`, modal CRUD (create/load/reorder/delete), and modal → registry → node `submenu` integration (no restart). |
 | `bada_promptgen_live_check.py` | **Read-only** readiness probe for an already-running instance (defaults to port `8188`). Confirms the registry route answers, `BadaPromptGenerator` is in `/object_info`, and the browser-side assets (`bada_prompt_generator.js` / `.css`, `bada_promptgen_modal.js`, `bada_i18n.js`) are served with the latest markers. Mutates nothing — safe on the daily driver. |
+| `bada_saveas_ui_smoke.py` | Frontend **browser** path for the Save As Folder Picker. 24 checks: extension boot, `ComfyWorkflow.prototype.promptSave` hook, `Comfy.SaveWorkflowAs` opening the Bada dialog, the Windows Explorer-style tree (root row first, first-level folders matching the tree API, a parent expanding with a `▼` chevron and its child appearing at a deeper indent), in-place folder creation + auto-select + breadcrumb, live target-path preview, the real save landing on disk at `<root>/<folder>/<name>.json`, and the Cancel path. Creates a blank temporary workflow first (never renames a real file) and deletes every artifact afterwards, so it is safe on the daily driver. |
 
 > Is your main instance already up to date? `python dev_tests/bada_promptgen_live_check.py`
 > — if it prints `READY`, you only need a browser hard refresh (<kbd>Ctrl</kbd>+<kbd>F5</kbd>);
@@ -25,11 +26,18 @@ pip install requests playwright
 playwright install chromium
 ```
 
+> `bada_saveas_ui_smoke.py` also works when only the regular `chromium-*` build is
+> cached (no `chromium_headless_shell-*`): it detects the missing headless shell and
+> relaunches with `channel="chromium"` automatically.
+> If `import requests` suddenly fails with a `python39.dll` conflict, clear the
+> `PYTHONPATH` environment variable for the test run.
+
 Run:
 
 ```powershell
 python dev_tests/bada_promptgen_exec_test.py
 python dev_tests/bada_promptgen_ui_smoke.py      # screenshots -> dev_tests/_shots (gitignored)
+python dev_tests/bada_saveas_ui_smoke.py         # Save As folder picker (safe on 8188)
 ```
 
 Both scripts exit non-zero on the first failed check and print a `PASS/FAIL` line

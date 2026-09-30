@@ -28,6 +28,16 @@ function getPresetLabel(preset) {
     return BadaI18n.lang === "ko" ? (preset.label_ko || preset.label) : (preset.label_en || preset.label);
 }
 
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+
 class WorkflowsPlusManager {
     constructor() {
         this.treeData = null;
@@ -85,6 +95,8 @@ class WorkflowsPlusManager {
         this.registerSidebarTab();
         this.cleanNativeTooltipsAndKeybindings();
         this.setupAutoSyncOnSave();
+        this.setupSaveAsFolderPicker();
+
         await this.loadFavorites();
         await this.loadTree();
         console.log("[BadaUtils] Workflows+ Manager initialized cleanly.");
@@ -760,6 +772,58 @@ class WorkflowsPlusManager {
                 box-sizing: border-box;
             }
             .qol-select:focus, .qol-input:focus { border-color: #6366f1; }
+
+            /* Windows Explorer-style folder tree (Save As picker) */
+            .qol-sa-tree {
+                height: 208px;
+                overflow: auto;
+                background: #09090b;
+                border: 1px solid #3f3f46;
+                border-radius: 6px;
+                padding: 4px 0;
+                font-size: 12.5px;
+                outline: none;
+            }
+            .qol-sa-tree:focus { border-color: #6366f1; }
+            .qol-sa-row {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                height: 24px;
+                padding-right: 8px;
+                cursor: default;
+                color: #e4e4e7;
+                white-space: nowrap;
+                user-select: none;
+            }
+            .qol-sa-row:hover { background: #27272a; }
+            .qol-sa-row.selected { background: #2563eb; color: #ffffff; }
+            .qol-sa-chevron {
+                flex: 0 0 12px;
+                width: 12px;
+                text-align: center;
+                font-size: 9px;
+                color: #a1a1aa;
+                cursor: pointer;
+            }
+            .qol-sa-row.selected .qol-sa-chevron { color: #ffffff; }
+            .qol-sa-chevron.empty { visibility: hidden; }
+            .qol-sa-icon { flex: 0 0 auto; }
+            .qol-sa-name { overflow: hidden; text-overflow: ellipsis; }
+            .qol-sa-count { margin-left: auto; font-size: 10.5px; color: #71717a; }
+            .qol-sa-row.selected .qol-sa-count { color: #dbeafe; }
+            .qol-sa-breadcrumb {
+                margin-top: 6px;
+                font-size: 11.5px;
+                color: #a1a1aa;
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                flex-wrap: wrap;
+                word-break: break-all;
+            }
+            .qol-sa-breadcrumb b { color: #f4f4f5; font-weight: 600; }
+            .qol-sa-hint { margin-top: 4px; font-size: 11px; color: #71717a; }
             .qol-modal-footer {
                 padding: 12px 16px;
                 border-top: 1px solid #27272a;
@@ -2691,6 +2755,457 @@ class WorkflowsPlusManager {
         } catch (e) {}
         return ["/"];
     }
+
+    // =========================================================================
+    // ★ Save As Folder Picker  (ComfyUI File ▸ Save As ▸ 폴더 지정 저장)
+    // -------------------------------------------------------------------------
+    // 네이티브 흐름 (comfyui-frontend 1.53.x):
+    //   Command "Comfy.SaveWorkflowAs" → workflowService.saveWorkflowAs(wf)
+    //     → wf.promptSave()                        ← 순정 "Enter the filename:" 창
+    //     → 저장 경로 = wf.directory + "/" + 이름 + ".json"
+    // 따라서 ComfyWorkflow 프로토타입의 promptSave() 한 곳만 감싸면 되고,
+    // 폴더 선택 결과를 wf.directory 에 잠시 반영하는 것만으로 네이티브 저장
+    // (덮어쓰기 확인, saveAs/rename, 탭 상태, draft, 북마크)을 100% 재사용한다.
+    // 어떤 이유로든 실패하면 원래 promptSave() 로 폴백하므로 순정 동작이 보존된다.
+    // =========================================================================
+
+    isSaveAsFolderPickerEnabled() {
+        try {
+            const v = window.app?.ui?.settings?.getSettingValue?.("BadaUtils.SaveAsFolderPicker");
+            if (typeof v === "boolean") return v;
+        } catch (e) {}
+        try {
+            const local = localStorage.getItem("Comfy.Settings.BadaUtils.SaveAsFolderPicker");
+            if (local !== null) return JSON.parse(local);
+        } catch (e) {}
+        return true;
+    }
+
+    findComfyWorkflowPrototype() {
+        try {
+            const pinia = window.__pinia ||
+                window.__VUE_DEVTOOLS_GLOBAL_HOOK__?.apps?.[0]?.config?.globalProperties?.$pinia ||
+                document.querySelector("#vue-app")?.__vue_app__?.config?.globalProperties?.$pinia;
+            const store = pinia?._s?.get("workflow");
+            const instance = store?.activeWorkflow ||
+                (Array.isArray(store?.openWorkflows) ? store.openWorkflows[0] : null) ||
+                (Array.isArray(store?.persistedWorkflows) ? store.persistedWorkflows[0] : null) ||
+                null;
+            if (!instance) return null;
+
+            const proto = Object.getPrototypeOf(instance);
+            // 워크플로우 클래스(basePath "workflows/")만 대상. 서브그래프 블루프린트("subgraphs/")는 제외.
+            if (proto?.constructor?.basePath === "workflows/" && typeof proto.promptSave === "function") {
+                return proto;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    setupSaveAsFolderPicker() {
+        const hook = () => {
+            const proto = this.findComfyWorkflowPrototype();
+            if (!proto || proto.__badaSaveAsPicker) return !!proto;
+
+            const manager = this;
+            const origPromptSave = proto.promptSave;
+
+            proto.promptSave = async function (...args) {
+                if (!manager.isSaveAsFolderPickerEnabled()) {
+                    return await origPromptSave.apply(this, args);
+                }
+                try {
+                    const picked = await manager.openSaveAsModal(this);
+                    if (!picked || !picked.name) return null;   // 취소 → saveWorkflowAs() 가 중단된다
+
+                    const prevDir = this.directory;
+                    const prevPath = this.path;
+                    if (picked.directory && picked.directory !== prevDir) {
+                        // 네이티브 saveWorkflowAs() 가 "directory + / + 이름 + .json" 으로 저장한다.
+                        this.directory = picked.directory;
+                        setTimeout(() => {
+                            // 저장이 성공하면 path 가 새 경로로 바뀐다. 바뀌지 않았다면
+                            // (덮어쓰기 취소/오류) 원래 폴더로 되돌려 다음 저장에 영향이 없게 한다.
+                            if (this.path === prevPath && this.directory !== prevDir) {
+                                this.directory = prevDir;
+                            }
+                        }, 4000);
+                    }
+                    return picked.name;
+                } catch (e) {
+                    console.warn("[BadaUtils] Save As folder picker failed — falling back to native dialog:", e);
+                    return await origPromptSave.apply(this, args);
+                }
+            };
+
+            proto.__badaSaveAsPicker = true;
+            console.log("[BadaUtils] Save As Folder Picker hooked:", proto.constructor?.name || "ComfyWorkflow");
+            return true;
+        };
+
+        if (hook()) return;
+
+        // 워크플로우 인스턴스가 아직 생성되지 않았을 수 있으므로 준비될 때까지 재시도 (기존 코드 관례와 동일)
+        let tries = 0;
+        this._saveAsHookTimer = setInterval(() => {
+            tries += 1;
+            if (hook() || tries >= 60) {
+                clearInterval(this._saveAsHookTimer);
+                this._saveAsHookTimer = null;
+            }
+        }, 2000);
+    }
+
+    folderToDirectory(folder) {
+        const clean = String(folder || "/").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+        return clean ? `workflows/${clean}` : "workflows";
+    }
+
+    directoryToFolder(dir) {
+        const clean = String(dir || "").replace(/\\/g, "/").replace(/\/+$/g, "");
+        if (!clean || clean === "workflows") return "/";
+        return "/" + clean.replace(/^workflows\//, "");
+    }
+
+    normalizeFolderPath(rawPath) {
+        const clean = String(rawPath ?? "").replace(/\\/g, "/").replace(/\/+$/g, "");
+        if (!clean || clean === "/") return "/";
+        return clean.startsWith("/") ? clean : "/" + clean;
+    }
+
+    /**
+     * Windows Explorer-style folder tree (folders only, hierarchy kept).
+     * The server tree stores paths without a leading slash ("1234/4567"),
+     * while the folder API uses "/1234/4567" - everything is normalised here.
+     * Returns the flat list of *visible* rows so keyboard navigation can reuse it.
+     */
+    renderSaveAsTree(container, selectedPath, expandedPaths) {
+        const rows = [];
+        const walk = (node, depth) => {
+            const isRoot = depth === 0;
+            const path = isRoot ? "/" : this.normalizeFolderPath(node.path);
+            const children = (node.folders || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+            const hasChildren = children.length > 0;
+            const expanded = isRoot || expandedPaths.has(path);
+            rows.push({
+                path,
+                depth,
+                hasChildren,
+                expanded,
+                name: isRoot ? BadaI18n.t("wf_saveas_root") : node.name,
+                count: node.count || 0,
+            });
+            if (hasChildren && expanded) children.forEach((sub) => walk(sub, depth + 1));
+        };
+        if (this.treeData) walk(this.treeData, 0);
+
+        container.innerHTML = rows.map((row) => {
+            const chevron = row.hasChildren
+                ? `<span class="qol-sa-chevron" data-toggle="1">${row.expanded ? "▼" : "▶"}</span>`
+                : `<span class="qol-sa-chevron empty">▶</span>`;
+            const icon = row.path === "/" ? "🏠" : (row.expanded ? "📂" : "📁");
+            const count = row.count ? `<span class="qol-sa-count">${row.count}</span>` : "";
+            return `<div class="qol-sa-row ${row.path === selectedPath ? "selected" : ""}" data-path="${escapeHtml(row.path)}" ` +
+                `style="padding-left:${8 + row.depth * 16}px;">${chevron}<span class="qol-sa-icon">${icon}</span>` +
+                `<span class="qol-sa-name">${escapeHtml(row.name)}</span>${count}</div>`;
+        }).join("");
+
+        return rows;
+    }
+
+    sanitizeWorkflowName(raw) {
+        let name = String(raw ?? "")
+            .replace(/[\\/:*?"<>|]/g, "")
+            .replace(/\.+$/g, "")
+            .trim();
+        name = name.replace(/\.app\.json$/i, "").replace(/\.json$/i, "");
+        return name.trim();
+    }
+
+    getRememberedSaveFolder() {
+        try {
+            return localStorage.getItem("bada_saveas_last_folder") || "";
+        } catch (e) {
+            return "";
+        }
+    }
+
+    rememberSaveFolder(folder) {
+        try {
+            localStorage.setItem("bada_saveas_last_folder", folder || "/");
+        } catch (e) {}
+    }
+
+    workflowExistsAt(folder, name) {
+        try {
+            if (!this.treeData || !name) return false;
+            const rel = String(folder || "/").replace(/^\/+|\/+$/g, "");
+            const target = (rel ? `${rel}/` : "") + name;
+            const wanted = new Set([`${target}.json`.toLowerCase(), `${target}.app.json`.toLowerCase()]);
+            const walk = (node) => {
+                if (!node) return false;
+                for (const f of (node.files || [])) {
+                    if (wanted.has(String(f.path || "").toLowerCase())) return true;
+                }
+                for (const sub of (node.folders || [])) {
+                    if (walk(sub)) return true;
+                }
+                return false;
+            };
+            return walk(this.treeData);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async createWorkflowFolder(parentFolder, folderName) {
+        const clean = String(folderName || "").replace(/[\\/:*?"<>|]/g, "").replace(/\.+$/g, "").trim();
+        if (!clean) return null;
+        try {
+            const res = await fetch("/api/qol/workflows/create_folder", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ folder_name: clean, parent_folder: parentFolder || "/" })
+            });
+            const data = await res.json();
+            if (data.success) {
+                if (parentFolder && parentFolder !== "/") this.expandedFolders.add(parentFolder);
+                await this.loadTree();
+                return data.path || null;
+            }
+            this.showToast(data.error || (BadaI18n.lang === "ko" ? "폴더 생성 실패" : "Failed to create folder"), true);
+        } catch (e) {
+            this.showToast(`Error: ${e.message}`, true);
+        }
+        return null;
+    }
+
+    async openSaveAsModal(wf) {
+        const isKo = BadaI18n.lang === "ko";
+        if (!this.treeData) {
+            try { await this.loadTree(); } catch (e) {}
+        }
+
+        let folders = await this.getFolderList();
+        const currentFolder = this.directoryToFolder(wf?.directory);
+        const remembered = this.getRememberedSaveFolder();
+        let initialFolder = currentFolder;
+        if ((wf?.isTemporary || currentFolder === "/") && remembered && folders.includes(remembered)) {
+            initialFolder = remembered;
+        }
+        if (!folders.includes(initialFolder)) initialFolder = "/";
+
+        const initialName = this.sanitizeWorkflowName(wf?.filename) || (isKo ? "제목 없음" : "Untitled");
+
+        return new Promise((resolve) => {
+            const overlay = document.createElement("div");
+            overlay.className = "qol-modal-overlay";
+            overlay.innerHTML = `
+                <div class="qol-modal-dialog">
+                    <div class="qol-modal-header">
+                        <span>${BadaI18n.t("wf_saveas_title")}</span>
+                        <span style="cursor:pointer;" id="qol-sa-close">&times;</span>
+                    </div>
+                    <div class="qol-modal-body">
+                        <div>
+                            <div class="qol-form-label" style="margin-bottom:4px; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                                <span>${BadaI18n.t("wf_saveas_folder")}</span>
+                                <button class="qol-btn" id="qol-sa-newbtn" style="padding:2px 10px; font-size:12px; white-space:nowrap;">${BadaI18n.t("wf_saveas_new_folder")}</button>
+                            </div>
+                            <div id="qol-sa-tree" class="qol-sa-tree" tabindex="0" role="tree" aria-label="${BadaI18n.t("wf_saveas_folder")}"></div>
+                            <div id="qol-sa-breadcrumb" class="qol-sa-breadcrumb"></div>
+                            <div class="qol-sa-hint">${BadaI18n.t("wf_saveas_tree_hint")}</div>
+                            <div id="qol-sa-newrow" style="display:none; margin-top:8px; gap:6px; align-items:center;">
+                                <input type="text" class="qol-input" id="qol-sa-newparent" style="flex:0 0 38%;" readonly />
+                                <input type="text" class="qol-input" id="qol-sa-newname" style="flex:1 1 auto;" placeholder="${BadaI18n.t("wf_saveas_new_folder_ph")}" />
+                                <button class="qol-btn qol-btn-primary" id="qol-sa-newcreate" style="white-space:nowrap;">${BadaI18n.t("wf_saveas_new_folder_btn")}</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="qol-form-label" style="margin-bottom:4px;">${BadaI18n.t("wf_saveas_name")}</div>
+                            <input type="text" class="qol-input" id="qol-sa-name" value="${escapeHtml(initialName)}" />
+                        </div>
+                        <div id="qol-sa-path" style="font-size:12px; line-height:1.5; opacity:0.85; word-break:break-all;"></div>
+                    </div>
+                    <div class="qol-modal-footer">
+                        <button class="qol-btn qol-btn-cancel" id="qol-sa-cancel">${BadaI18n.t("wf_cancel_btn")}</button>
+                        <button class="qol-btn qol-btn-primary" id="qol-sa-confirm">${BadaI18n.t("wf_saveas_confirm")}</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            const treeEl = overlay.querySelector("#qol-sa-tree");
+            const crumbEl = overlay.querySelector("#qol-sa-breadcrumb");
+            const nameInput = overlay.querySelector("#qol-sa-name");
+            const newRow = overlay.querySelector("#qol-sa-newrow");
+            const newParent = overlay.querySelector("#qol-sa-newparent");
+            const newName = overlay.querySelector("#qol-sa-newname");
+            const pathEl = overlay.querySelector("#qol-sa-path");
+
+            let selectedPath = this.normalizeFolderPath(initialFolder);
+            const expandedPaths = new Set(["/"]);
+            (() => {
+                let acc = "";
+                selectedPath.split("/").filter(Boolean).forEach((part) => {
+                    acc += "/" + part;
+                    expandedPaths.add(acc);
+                });
+            })();
+            let visibleRows = [];
+
+            let settled = false;
+            const finish = (value) => {
+                if (settled) return;
+                settled = true;
+                try { overlay.remove(); } catch (e) {}
+                resolve(value);
+            };
+            const cancel = () => finish(null);
+
+            const renderTree = () => {
+                visibleRows = this.renderSaveAsTree(treeEl, selectedPath, expandedPaths);
+            };
+
+            const renderBreadcrumb = () => {
+                const parts = selectedPath.split("/").filter(Boolean);
+                crumbEl.innerHTML = `<span>${BadaI18n.t("wf_saveas_selected")}</span> <b>🏠 ${escapeHtml(BadaI18n.t("wf_saveas_root"))}</b>` +
+                    parts.map((part) => `<span>›</span><b>${escapeHtml(part)}</b>`).join("");
+            };
+
+            const refreshPreview = () => {
+                const name = this.sanitizeWorkflowName(nameInput.value);
+                const dir = this.folderToDirectory(selectedPath);
+                const exists = !!name && this.workflowExistsAt(selectedPath, name);
+                pathEl.innerHTML = `${exists ? "⚠️" : "📂"} ${BadaI18n.t("wf_saveas_path")}: <strong>${escapeHtml(`${dir}/${name || "..."}.json`)}</strong>` +
+                    (exists ? ` <span style="color:#fbbf24;">${escapeHtml(BadaI18n.t("wf_saveas_exists"))}</span>` : "");
+                newParent.value = selectedPath;
+            };
+
+            const refreshAll = () => {
+                renderTree();
+                renderBreadcrumb();
+                refreshPreview();
+            };
+
+            const selectPath = (path, keepTreeFocus = false) => {
+                selectedPath = this.normalizeFolderPath(path);
+                refreshAll();
+                if (keepTreeFocus) treeEl.focus();
+            };
+
+            const confirmSave = () => {
+                const name = this.sanitizeWorkflowName(nameInput.value);
+                if (!name) {
+                    this.showToast(BadaI18n.t("wf_saveas_name_required"), true);
+                    nameInput.focus();
+                    return;
+                }
+                this.rememberSaveFolder(selectedPath);
+                finish({ name, folder: selectedPath, directory: this.folderToDirectory(selectedPath) });
+            };
+
+            overlay.querySelector("#qol-sa-close").onclick = cancel;
+            overlay.querySelector("#qol-sa-cancel").onclick = cancel;
+            overlay.querySelector("#qol-sa-confirm").onclick = confirmSave;
+            nameInput.oninput = refreshPreview;
+
+            // Explorer-style tree: click a row to select, click ▶/▼ (or double-click) to expand
+            treeEl.addEventListener("click", (e) => {
+                const row = e.target.closest(".qol-sa-row");
+                if (!row) return;
+                const path = row.getAttribute("data-path");
+                const wantsToggle = !!e.target.closest(".qol-sa-chevron[data-toggle]") || e.detail === 2;
+                if (wantsToggle) {
+                    const entry = visibleRows.find((r) => r.path === path);
+                    if (entry && entry.hasChildren) {
+                        if (expandedPaths.has(path)) expandedPaths.delete(path);
+                        else expandedPaths.add(path);
+                    }
+                }
+                selectPath(path, true);
+            });
+
+            // Explorer-style keyboard: ↑/↓ move, → expand or step into, ← collapse or step out
+            treeEl.addEventListener("keydown", (e) => {
+                const idx = visibleRows.findIndex((r) => r.path === selectedPath);
+                const row = visibleRows[idx];
+                if (e.key === "ArrowDown" && idx > -1 && idx < visibleRows.length - 1) {
+                    e.preventDefault();
+                    selectPath(visibleRows[idx + 1].path, true);
+                } else if (e.key === "ArrowUp" && idx > 0) {
+                    e.preventDefault();
+                    selectPath(visibleRows[idx - 1].path, true);
+                } else if (e.key === "ArrowRight" && row) {
+                    e.preventDefault();
+                    if (row.hasChildren && !expandedPaths.has(row.path)) {
+                        expandedPaths.add(row.path);
+                    } else if (row.hasChildren && visibleRows[idx + 1] && visibleRows[idx + 1].depth > row.depth) {
+                        selectedPath = visibleRows[idx + 1].path;
+                    }
+                    refreshAll();
+                } else if (e.key === "ArrowLeft" && row) {
+                    e.preventDefault();
+                    if (row.hasChildren && expandedPaths.has(row.path)) {
+                        expandedPaths.delete(row.path);
+                    } else {
+                        selectedPath = this.normalizeFolderPath(selectedPath.split("/").slice(0, -1).join("/"));
+                    }
+                    refreshAll();
+                }
+            });
+
+            overlay.querySelector("#qol-sa-newbtn").onclick = () => {
+                const willShow = newRow.style.display === "none" || !newRow.style.display;
+                newRow.style.display = willShow ? "flex" : "none";
+                if (willShow) {
+                    refreshPreview();
+                    newName.focus();
+                }
+            };
+
+            overlay.querySelector("#qol-sa-newcreate").onclick = async () => {
+                const parent = selectedPath;
+                const created = await this.createWorkflowFolder(parent, newName.value);
+                if (!created) return;
+                newName.value = "";
+                newRow.style.display = "none";
+                // 부모와 새로 만든 폴더까지 자동으로 펼쳐서 트리에 즉시 보이게 한다
+                expandedPaths.add(parent);
+                let acc = "";
+                this.normalizeFolderPath(created).split("/").filter(Boolean).forEach((part) => {
+                    acc += "/" + part;
+                    expandedPaths.add(acc);
+                });
+                selectPath(created);
+                this.showToast(BadaI18n.t("wf_saveas_new_folder_done", { folder: created }));
+            };
+
+            overlay.addEventListener("keydown", (e) => {
+                if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancel();
+                } else if (e.key === "Enter") {
+                    if (document.activeElement === newName) {
+                        e.preventDefault();
+                        overlay.querySelector("#qol-sa-newcreate").click();
+                    } else {
+                        e.preventDefault();
+                        confirmSave();
+                    }
+                }
+            });
+
+            refreshAll();
+            setTimeout(() => {
+                nameInput.focus();
+                nameInput.select();
+            }, 30);
+        });
+    }
+
+
+
 
     async openMoveModal(workflowPath) {
         const folders = await this.getFolderList();

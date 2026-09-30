@@ -151,6 +151,23 @@ export const BadaI18n = {
             "wf_modal_delete_btn": "Delete",
             "wf_cancel_btn": "Cancel",
 
+            // --- Save As Folder Picker ---
+            "wf_saveas_title": "💾 Save Workflow As (Choose Folder)",
+            "wf_saveas_folder": "📁 Destination Folder",
+            "wf_saveas_root": "Root (top level)",
+            "wf_saveas_name": "📄 File Name",
+            "wf_saveas_name_required": "Please enter a file name.",
+            "wf_saveas_path": "Target path",
+            "wf_saveas_exists": "(a file with this name already exists - you will be asked to overwrite)",
+            "wf_saveas_confirm": "Save",
+            "wf_saveas_new_folder": "➕ New Folder",
+            "wf_saveas_new_folder_ph": "New folder name",
+            "wf_saveas_new_folder_btn": "Create",
+            "wf_saveas_new_folder_done": "Folder '{folder}' created.",
+            "wf_saveas_selected": "Selected folder",
+            "wf_saveas_tree_hint": "Click = select · ▶/▼ or double-click = expand · Arrow keys to navigate",
+
+
             // --- Settings Tab ---
             "category": "⚓ Bada Utils",
             "settings_cat_general": "1. General",
@@ -406,6 +423,23 @@ export const BadaI18n = {
             "wf_modal_delete_confirm": "정말로 <strong>'{name}'</strong> {target} 삭제하시겠습니까?",
             "wf_modal_delete_btn": "삭제",
             "wf_cancel_btn": "취소",
+
+            // --- Save As 폴더 지정 저장 ---
+            "wf_saveas_title": "💾 다른 이름으로 저장 (폴더 지정)",
+            "wf_saveas_folder": "📁 저장할 폴더",
+            "wf_saveas_root": "최상위 (Root)",
+            "wf_saveas_name": "📄 파일 이름",
+            "wf_saveas_name_required": "파일 이름을 입력해 주세요.",
+            "wf_saveas_path": "저장 위치",
+            "wf_saveas_exists": "(같은 이름의 파일이 이미 있습니다 - 덮어쓰기 확인창이 표시됩니다)",
+            "wf_saveas_confirm": "저장",
+            "wf_saveas_new_folder": "➕ 새 폴더",
+            "wf_saveas_new_folder_ph": "새 폴더 이름",
+            "wf_saveas_new_folder_btn": "생성",
+            "wf_saveas_new_folder_done": "'{folder}' 폴더를 생성했습니다.",
+            "wf_saveas_selected": "선택한 폴더",
+            "wf_saveas_tree_hint": "클릭 = 선택 · ▶/▼ 또는 더블클릭 = 펼치기 · 방향키로 이동",
+
 
             // --- Regional Prompt ---
             "rp_art_style": "화풍:",

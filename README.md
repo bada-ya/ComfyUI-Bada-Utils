@@ -203,6 +203,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 | **Active Workflow Tracking** | ❌ Manual search | ⭕ **🎯 Real-time auto-focus & smooth scroll into view** |
 | **Favorites (⭐/★)** | ⭕ Basic | ⭕ **100% 2-way live sync with native SQLite DB** |
 | **Context Menu** | ❌ Basic | ⭕ **Load / Move to / Favorite / Rename / Delete** |
+| **Save As Destination** | ❌ Filename only (always saves to the workflows root) | ⭕ **Pick any subfolder + create new folders in place, with a live target-path preview** |
 
 #### 📸 Feature Highlights
 * **(1) ✨ Workflows+ Explorer & 🎛️ Quick Toolbar**:
@@ -224,6 +225,15 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
   </p>
   * Automatically marks the open workflow with a blue `[• Active]` badge and centers it in the view.
   * 100% two-way synchronized with native ComfyUI SQLite database (`comfyui.db`) and favorites bar.
+
+* **(4) 💾 Save As Folder Picker (`File ▸ Save As`, `Ctrl+Shift+S`)**:
+  * The native dialog can only rename the file inside the workflows root. Bada upgrades it to a **folder-aware dialog**.
+  * 📁 **Windows Explorer-style folder tree** — `🏠 Root` plus expandable folders with `▶/▼` chevrons, per-level indentation, collapsed (`📁`) vs expanded (`📂`) icons and per-folder item counts, so `/1234/4567` is visually nested inside `1234` instead of looking like a sibling.
+  * 🖱️ **Explorer behaviour** — click a row to select, click `▶/▼` (or double-click) to expand, `↑ ↓ ← →` to navigate, `Enter` to save, `Esc` to cancel; a breadcrumb line shows the selected path (`Selected folder: Root › 1234`).
+  * ➕ **New Folder in place** — type a name and the folder is created immediately, then auto-selected (no second modal).
+  * 📂 **Live target-path preview** — shows the exact `workflows/<folder>/<name>.json` that will be written and warns before overwriting an existing file.
+  * 🔁 Remembers the last used folder and keeps every native behaviour (overwrite confirm, tab title, thumbnails, drafts, favorites).
+  * The whole flow is wrapped in a safety net: the picker is only hooked onto the `ComfyWorkflow` class, and any failure falls back to the stock ComfyUI dialog (`Settings ▸ Bada Utils ▸ 💾 Save As Folder Picker` toggles it off).
 
 </details>
 
@@ -348,6 +358,7 @@ Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 
 | :--- | :--- | :--- |
 | **1. Language** | **🌐 UI Language** | Switch display language between `English` and `한국어 (Korean)` in real time. |
 | **2. Workflows+** | **📁 Sidebar Workflows+ Folder Management** | Enables drag-and-drop workflow folder organization, 0-item folder preservation, and Workflows+ in the left sidebar. |
+| **2-1. Save As** | **💾 Save As Folder Picker** | Replaces the filename-only Save As prompt with a folder picker (choose any subfolder + create new folders in place). Turn it off to get the stock ComfyUI dialog back. |
 | **3. Sidebar** | **📐 Compact Sidebar Mode (Icons Only)** | Hides text labels below left sidebar icons to keep the sidebar slim, compact, and icon-centric. |
 | **4. Canvas QoL** | **🖱️ Mouse Wheel Zoom & Middle-Click Pan Fixer** | Fixes middle-click panning and wheel zoom freezes even over textareas, DOM widgets, and custom nodes. |
 | **5. Startup** | **🧼 Clean Blank Canvas Startup** | Starts ComfyUI and new tabs with a clean blank canvas, completely preventing annoying missing-model startup errors (`2 errors found`). |
