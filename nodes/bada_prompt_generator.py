@@ -60,16 +60,15 @@ BROWSER_HEADERS = {
     "Client-Version": "1.52.7",
 }
 
-# Model fallback cascade (identical order to the Async Gemini Studio).
 FALLBACK_MODELS = [
     "gemini-3.6-flash",
     "gemini-3.1-flash-lite",
     "gemini-flash-latest",
     "gemini-3.7-flash",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-3.1-pro-preview",
 ]
+
+PRIMARY_MODEL_TIMEOUT = 30
+FALLBACK_MODEL_TIMEOUT = 20
 
 MAX_IMAGE_EDGE = 1536  # keep inline payloads small while preserving caption fidelity
 
@@ -266,7 +265,7 @@ def tensor_to_base64(tensor, max_edge: int = MAX_IMAGE_EDGE):
 # ---------------------------------------------------------------------------
 # Synchronous Gemini transport (urllib only — safe inside the queue thread)
 # ---------------------------------------------------------------------------
-def _post_generate_content(model: str, api_key: str, payload: dict, timeout: int = 90):
+def _post_generate_content(model: str, api_key: str, payload: dict, timeout: int = FALLBACK_MODEL_TIMEOUT):
     """POST a generateContent request. Returns `(status, body_dict_or_text)`."""
     url = GEMINI_ENDPOINT.format(model=model)
     sep = "&" if "?" in url else "?"
@@ -607,8 +606,11 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
     result_text, model_used, pass_used = "", "", 1
 
     # ---- PASS 1: direct master compilation -------------------------------------
-    for model in models:
-        status, body = _post_generate_content(model, api_key, payload(system_text, True, 0.75))
+    for model_index, model in enumerate(models):
+        timeout = PRIMARY_MODEL_TIMEOUT if model_index == 0 else FALLBACK_MODEL_TIMEOUT
+        status, body = _post_generate_content(
+            model, api_key, payload(system_text, True, 0.75), timeout=timeout
+        )
         if status != 200:
             logger.warning("[BadaPromptGen][Pass 1] %s -> HTTP %s", model, status)
             continue
@@ -630,7 +632,10 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
         pass_used = 2
         system_p2 = PASS2_SYSTEM + "\n\n" + system_text
         for model in models:
-            status, body = _post_generate_content(model, api_key, payload(system_p2, bool(images_b64), 0.5))
+            status, body = _post_generate_content(
+                model, api_key, payload(system_p2, bool(images_b64), 0.5),
+                timeout=FALLBACK_MODEL_TIMEOUT,
+            )
             if status != 200:
                 continue
             text, _finish = _extract_candidate_text(body)
@@ -645,7 +650,10 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
         if schema:
             system_p3 += _json_directive((submenu or {}).get("output_fields") or ["rewritten_prompt"])
         for model in models:
-            status, body = _post_generate_content(model, api_key, payload(system_p3, bool(images_b64), 0.8))
+            status, body = _post_generate_content(
+                model, api_key, payload(system_p3, bool(images_b64), 0.8),
+                timeout=FALLBACK_MODEL_TIMEOUT,
+            )
             if status != 200:
                 continue
             text, _finish = _extract_candidate_text(body)

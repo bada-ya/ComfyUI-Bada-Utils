@@ -112,32 +112,149 @@ function isTargetNoteNode(node) {
     return false;
 }
 
-// Safely get main prompt/note text
-function getNodeText(node) {
-    if (!node.widgets) return "";
-    for (const w of node.widgets) {
-        if (w.inputEl && typeof w.inputEl.value === "string") return w.inputEl.value;
-        if (w.element && typeof w.element.value === "string") return w.element.value;
-        if (w.value !== undefined && typeof w.value === "string" && w.value.length > 0) return w.value;
+function getWidgetKey(widget, index) {
+    const candidates = [
+        widget?.name,
+        widget?.label,
+        widget?.inputEl?.name,
+        widget?.element?.name,
+        widget?.type,
+        `widget_${index}`
+    ].filter(Boolean);
+    return (candidates[0] || `widget_${index}`) + `:${index}`;
+}
+
+function getTextWidgets(node) {
+    if (!node || !node.widgets) return [];
+
+    return node.widgets
+        .map((widget, index) => ({ widget, key: getWidgetKey(widget, index) }))
+        .filter(({ widget }) => {
+            if (widget.inputEl && typeof widget.inputEl.value === "string") return true;
+            if (widget.element && typeof widget.element.value === "string") return true;
+            if (typeof widget.value === "string") return true;
+            return false;
+        });
+}
+
+function getWidgetText(widget) {
+    if (typeof widget.value === "string") return widget.value;
+    if (widget.inputEl && typeof widget.inputEl.value === "string") return widget.inputEl.value;
+    if (widget.element && typeof widget.element.value === "string") return widget.element.value;
+    return "";
+}
+
+function setWidgetText(widget, text) {
+    if (!widget) return;
+
+    if (widget.inputEl) widget.inputEl.value = text;
+    if (widget.element) {
+        if (widget.element.tagName === "TEXTAREA" || widget.element.tagName === "INPUT") {
+            widget.element.value = text;
+        }
+    }
+    if (typeof widget.value === "string") widget.value = text;
+}
+
+function getRuntimeOriginals(node) {
+    if (!node._badaOriginalTexts || typeof node._badaOriginalTexts !== "object") {
+        node._badaOriginalTexts = {};
+    }
+    return node._badaOriginalTexts;
+}
+
+function getFocusedTextWidgetKey(node) {
+    if (!node || !node.widgets || !document || !document.activeElement) return null;
+
+    const focused = getTextWidgets(node).find(({ widget }) => {
+        const el = widget.inputEl || widget.element;
+        return !!el && document.activeElement === el;
+    });
+
+    return focused ? focused.key : null;
+}
+
+function getTargetWidgetKey(node, fallbackKey = null) {
+    const textWidgets = getTextWidgets(node);
+    if (!textWidgets.length) return fallbackKey || null;
+
+    const focusedKey = getFocusedTextWidgetKey(node);
+    if (focusedKey) return focusedKey;
+
+    if (node.badaNoteState?.activeWidgetKey) {
+        const activeExists = textWidgets.some(({ key }) => key === node.badaNoteState.activeWidgetKey);
+        if (activeExists) return node.badaNoteState.activeWidgetKey;
+    }
+
+    return textWidgets[0].key;
+}
+
+function getActiveWidgetState(node) {
+    if (!node || !node.badaNoteState || !node.badaNoteState.activeWidgetKey) return null;
+    return getWidgetState(node, node.badaNoteState.activeWidgetKey);
+}
+
+function syncNodeStateFromActiveWidget(node) {
+    const active = getActiveWidgetState(node);
+    if (!active || !node.badaNoteState) return;
+
+    node.badaNoteState.originalText = active.original || "";
+    node.badaNoteState.translatedText = active.translated || "";
+    node.badaNoteState.translatedLang = active.translatedLang || null;
+    node.badaNoteState.viewMode = active.viewMode || "original";
+}
+
+// Safely get main prompt/note text for a specific widget or active widget
+function getNodeText(node, widgetKey = null) {
+    const targetKey = widgetKey || getTargetWidgetKey(node);
+    if (!targetKey) return "";
+
+    for (const { widget, key } of getTextWidgets(node)) {
+        if (key === targetKey) return getWidgetText(widget);
     }
     return "";
 }
 
-// Safely set prompt/note text without triggering third-party UI side-effects
-function setNodeText(node, text) {
-    if (!node.widgets) return;
+function getWidgetState(node, widgetKey) {
+    if (!node.properties) node.properties = {};
+    if (!node.properties.bada_text_map || typeof node.properties.bada_text_map !== "object") {
+        node.properties.bada_text_map = {};
+    }
 
-    for (const w of node.widgets) {
-        if (w.inputEl) {
-            w.inputEl.value = text;
+    if (!node.properties.bada_text_map[widgetKey]) {
+        node.properties.bada_text_map[widgetKey] = {
+            original: "",
+            translated: "",
+            translatedLang: null,
+            viewMode: "original"
+        };
+    }
+
+    return node.properties.bada_text_map[widgetKey];
+}
+
+// Safely set prompt/note text without triggering third-party UI side-effects
+function setNodeText(node, text, widgetKey = null) {
+    const targetKey = widgetKey || getTargetWidgetKey(node);
+    if (!targetKey) return;
+
+    const matched = getTextWidgets(node).find(({ key }) => key === targetKey);
+    if (matched) {
+        setWidgetText(matched.widget, text);
+        const state = getWidgetState(node, targetKey);
+        if (!state.original && text) state.original = text;
+        state.viewMode = state.viewMode || "original";
+        if (node.badaNoteState) {
+            node.badaNoteState.activeWidgetKey = targetKey;
+            syncNodeStateFromActiveWidget(node);
         }
-        if (w.element) {
-            if (w.element.tagName === "TEXTAREA" || w.element.tagName === "INPUT") {
-                w.element.value = text;
-            }
-        }
-        if (typeof w.value === "string") {
-            w.value = text;
+        if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+        return;
+    }
+
+    if (node.widgets) {
+        for (const w of node.widgets) {
+            if (typeof w.value === "string") w.value = text;
         }
     }
 
@@ -149,12 +266,23 @@ function restoreAllNotesToOriginal() {
     if (app.graph && app.graph._nodes) {
         app.graph._nodes.forEach(node => {
             if (node._badaNoteAttached && isTargetNoteNode(node) && node.badaNoteState) {
-                const state = node.badaNoteState;
-                const savedOriginal = node.properties?.bada_original_text || state.originalText;
-                if (savedOriginal) {
-                    state.viewMode = "original";
-                    setNodeText(node, savedOriginal);
+                const keys = getTextWidgets(node).map(({ key }) => key);
+                const runtimeOriginals = getRuntimeOriginals(node);
+                for (const key of keys) {
+                    const state = getWidgetState(node, key);
+                    const originalText = runtimeOriginals[key] || state.original;
+                    if (originalText) {
+                        const target = getTextWidgets(node).find(({ key: k }) => k === key);
+                        if (target) {
+                            node._badaApplyingTranslation = true;
+                            setWidgetText(target.widget, originalText);
+                            node._badaApplyingTranslation = false;
+                            state.viewMode = "original";
+                        }
+                    }
                 }
+                node.badaNoteState.activeWidgetKey = getTargetWidgetKey(node);
+                node.badaNoteState.viewMode = "original";
             }
         });
     }
@@ -204,48 +332,104 @@ function attachBadaNoteHelper(node) {
     node._badaNoteAttached = true;
     if (!node.properties) node.properties = {};
 
-    const currentText = getNodeText(node);
-    
-    // Persist original text in properties
+    const textWidgets = getTextWidgets(node);
+    const currentText = textWidgets.length ? getNodeText(node, textWidgets[0].key) : "";
+    const firstKey = textWidgets.length ? textWidgets[0].key : null;
+
     if (!node.properties.bada_original_text && currentText) {
         node.properties.bada_original_text = currentText;
     }
 
-    const storedOriginal = node.properties.bada_original_text || currentText;
-    const storedTranslated = node.properties.bada_translated_text || null;
-    const storedTranslatedLang = node.properties.bada_translated_lang || null;
+    if (!node.properties.bada_text_map || typeof node.properties.bada_text_map !== "object") {
+        node.properties.bada_text_map = {};
+    }
 
-    // State Initialization
+    for (const { key, widget } of textWidgets) {
+        const state = getWidgetState(node, key);
+        const widgetValue = getWidgetText(widget);
+        const runtimeOriginals = getRuntimeOriginals(node);
+        const hasOldTranslation = !!state.translated && widgetValue === state.translated;
+
+        if (hasOldTranslation && state.original) {
+            node._badaApplyingTranslation = true;
+            setWidgetText(widget, state.original);
+            node._badaApplyingTranslation = false;
+        } else if (widgetValue && widgetValue !== state.original) {
+            state.original = widgetValue;
+        }
+
+        runtimeOriginals[key] = state.original || widgetValue || "";
+        state.translated = "";
+        state.translatedLang = null;
+        state.viewMode = "original";
+    }
+
+    const activeKey = firstKey || getTargetWidgetKey(node);
     node.badaNoteState = {
-        viewMode: (storedTranslated && storedOriginal && currentText === storedTranslated) ? "translated" : "original",
-        originalText: storedOriginal,
-        translatedText: storedTranslated,
-        translatedLang: storedTranslatedLang,
+        activeWidgetKey: activeKey,
+        viewMode: "original",
+        originalText: node.properties.bada_original_text || currentText,
+        translatedText: null,
+        translatedLang: null,
         isTranslating: false
     };
+    node.properties.bada_translated_text = null;
+    node.properties.bada_translated_lang = null;
 
-    // If disabled in settings on load, ensure original text is displayed
     if (!isNoteHelperEnabled() && node.properties.bada_original_text) {
-        setNodeText(node, node.properties.bada_original_text);
+        setNodeText(node, node.properties.bada_original_text, activeKey);
         node.badaNoteState.viewMode = "original";
     }
 
-    // Auto-reset translation on user edit
     if (node.widgets) {
-        node.widgets.forEach(w => {
+        node.widgets.forEach((w, index) => {
+            const key = getWidgetKey(w, index);
             const origCallback = w.callback;
+            const focusTarget = w.inputEl || w.element;
+
+            if (focusTarget) {
+                const prevFocus = focusTarget.onfocus;
+                focusTarget.onfocus = function(ev) {
+                    if (node.badaNoteState) node.badaNoteState.activeWidgetKey = key;
+                    if (prevFocus) return prevFocus.call(this, ev);
+                };
+
+                const prevBlur = focusTarget.onblur;
+                focusTarget.onblur = function(ev) {
+                    if (node.badaNoteState && node.badaNoteState.activeWidgetKey === key) {
+                        const freshKey = getTargetWidgetKey(node, key);
+                        if (freshKey && freshKey !== key) {
+                            node.badaNoteState.activeWidgetKey = freshKey;
+                        }
+                    }
+                    if (prevBlur) return prevBlur.call(this, ev);
+                };
+            }
+
             w.callback = function(val) {
                 const state = node.badaNoteState;
-                if (state && state.viewMode === "original") {
-                    if (val !== state.originalText) {
-                        state.originalText = val;
-                        node.properties.bada_original_text = val;
-                        state.translatedText = null;
-                        state.translatedLang = null;
-                        node.properties.bada_translated_text = null;
-                        node.properties.bada_translated_lang = null;
-                    }
+                const widgetState = getWidgetState(node, key);
+
+                if (node._badaApplyingTranslation) {
+                    if (origCallback) return origCallback.apply(this, arguments);
+                    return;
                 }
+
+                if (state) {
+                    state.activeWidgetKey = key;
+                }
+
+                widgetState.original = val;
+                getRuntimeOriginals(node)[key] = val;
+                widgetState.viewMode = "original";
+                widgetState.translated = "";
+                widgetState.translatedLang = null;
+
+                node.properties.bada_original_text = val;
+                node.properties.bada_translated_text = null;
+                node.properties.bada_translated_lang = null;
+                syncNodeStateFromActiveWidget(node);
+
                 if (origCallback) return origCallback.apply(this, arguments);
             };
         });
@@ -301,9 +485,13 @@ function attachBadaNoteHelper(node) {
             let borderColor = "rgba(255, 255, 255, 0.35)";
 
             if (btn.id === "translate") {
+                const activeWidgetState = getActiveWidgetState(n);
+                const translatedText = activeWidgetState?.translated || state.translatedText || null;
+                const isTranslatedView = activeWidgetState ? activeWidgetState.viewMode === "translated" : state.viewMode === "translated";
+
                 if (state.isTranslating) {
                     icon = "⏳";
-                } else if (state.translatedText && state.viewMode === "translated") {
+                } else if (translatedText && isTranslatedView) {
                     icon = "✅";
                     isHighlighted = true;
                 } else {
@@ -388,58 +576,106 @@ function attachBadaNoteHelper(node) {
 
                     const currentBadaLang = getBadaLanguage(); // "en" or "ko"
 
-                    // If already translated and NOT shift-clicking, toggle between Translation and Original
-                    if (state.translatedText && state.translatedLang === currentBadaLang && !isForce) {
-                        if (state.viewMode === "translated") {
-                            state.viewMode = "original";
-                            const origText = this.properties?.bada_original_text || state.originalText;
-                            setNodeText(this, origText);
-                        } else {
-                            state.viewMode = "translated";
-                            setNodeText(this, state.translatedText);
+                    const textEntries = getTextWidgets(this);
+                    if (!this.properties) this.properties = {};
+                    if (!this.properties.bada_text_map || typeof this.properties.bada_text_map !== "object") {
+                        this.properties.bada_text_map = {};
+                    }
+                    const map = this.properties.bada_text_map;
+                    const runtimeOriginals = getRuntimeOriginals(this);
+
+                    textEntries.forEach(({ key, widget }) => {
+                        if (!map[key]) {
+                            map[key] = { original: "", translated: "", translatedLang: null, viewMode: "original" };
                         }
+                        const item = map[key];
+                        if (!Object.prototype.hasOwnProperty.call(runtimeOriginals, key)) {
+                            runtimeOriginals[key] = getWidgetText(widget) || "";
+                        }
+                        if (!item.original) {
+                            item.original = runtimeOriginals[key];
+                        }
+
+                        const currentText = getWidgetText(widget) || "";
+                        const previousOriginal = runtimeOriginals[key] || item.original || "";
+                        const previousTranslation = item.translated || "";
+                        if (currentText && currentText !== previousOriginal && currentText !== previousTranslation) {
+                            runtimeOriginals[key] = currentText;
+                            item.original = currentText;
+                            item.translated = "";
+                            item.translatedLang = null;
+                            item.viewMode = "original";
+                            state.viewMode = "original";
+                        }
+                    });
+
+                    const hasTranslatedView = state.viewMode === "translated" ||
+                        textEntries.some(({ key, widget }) => {
+                            const item = map[key];
+                            const currentText = getWidgetText(widget);
+                            return item && item.translated &&
+                                (item.viewMode === "translated" || currentText === item.translated);
+                        });
+
+                    if (hasTranslatedView && !isForce) {
+                        textEntries.forEach(({ key, widget }) => {
+                            const item = map[key];
+                            if (!item) return;
+                            const originalText = runtimeOriginals[key] || item.original || getWidgetText(widget) || "";
+                            if (originalText) {
+                                this._badaApplyingTranslation = true;
+                                setWidgetText(widget, originalText);
+                                this._badaApplyingTranslation = false;
+                                item.viewMode = "original";
+                            }
+                        });
+
+                        state.viewMode = "original";
+                        state.translatedText = "";
+                        state.translatedLang = null;
                         if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                         return true;
                     }
 
-                    // Request Translation from Server using Original Text
-                    const baseText = this.properties?.bada_original_text || getNodeText(this);
-                    if (!baseText || !baseText.trim()) return true;
-
                     state.isTranslating = true;
                     if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
 
-                    fetch("/api/bada/translate", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            text: baseText,
-                            target_lang: currentBadaLang
+                    Promise.all(textEntries.map(({ key, widget }) => {
+                        const item = map[key] || (map[key] = { original: "", translated: "", translatedLang: null, viewMode: "original" });
+                        const originalText = runtimeOriginals[key] || item.original || getWidgetText(widget) || "";
+                        item.original = originalText || item.original || "";
+                        if (!item.original.trim()) return Promise.resolve();
+
+                        return fetch("/api/bada/translate", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ text: item.original, target_lang: currentBadaLang })
                         })
-                    })
-                    .then(res => res.json())
-                    .then(data => {
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.success && data.translated_text) {
+                                item.translated = data.translated_text;
+                                item.translatedLang = currentBadaLang;
+                                item.viewMode = "translated";
+                                this._badaApplyingTranslation = true;
+                                setWidgetText(widget, data.translated_text);
+                                this._badaApplyingTranslation = false;
+                            }
+                        });
+                    }))
+                    .then(() => {
                         state.isTranslating = false;
-                        if (data.success && data.translated_text) {
-                            state.originalText = baseText;
-                            node.properties.bada_original_text = baseText;
-
-                            state.translatedText = data.translated_text;
-                            state.translatedLang = currentBadaLang;
-                            node.properties.bada_translated_text = data.translated_text;
-                            node.properties.bada_translated_lang = currentBadaLang;
-
-                            state.viewMode = "translated";
-                            setNodeText(node, data.translated_text);
-                        } else {
-                            alert((currentBadaLang === "ko" ? "번역 오류: " : "Translation Error: ") + (data.error || "Unknown Error"));
-                        }
-                        if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                        const translatedStates = textEntries.map(({ key }) => map[key]).filter(Boolean);
+                        const anyTranslated = translatedStates.some(item => item.viewMode === "translated");
+                        state.viewMode = anyTranslated ? "translated" : "original";
+                        state.translatedText = translatedStates.find(item => item.viewMode === "translated" && item.translated)?.translated || "";
+                        state.translatedLang = translatedStates.find(item => item.viewMode === "translated" && item.translatedLang)?.translatedLang || null;
+                        if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                     })
                     .catch(err => {
                         state.isTranslating = false;
-                        alert((currentBadaLang === "ko" ? "번역 서버 연결 실패: " : "Translation Server Connection Failed: ") + err.message);
-                        if (node.setDirtyCanvas) node.setDirtyCanvas(true, true);
+                        alert((currentBadaLang === "ko" ? "번역 서버 연결 실패: " : "Translation Server Connection Failed: ") + (err && err.message ? err.message : err));
+                        if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                     });
 
                     return true;
