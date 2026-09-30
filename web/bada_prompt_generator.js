@@ -20,13 +20,9 @@ const KEY_LS = "bada_gemini_api_key";
 const MODEL_LS = "bada_gemini_model";
 
 const FALLBACK_MODELS = [
-    { id: "gemini-3.6-flash", name: "⚡ 3.6 Flash (권장 ⭐)", name_en: "⚡ 3.6 Flash (Recommended ⭐)" },
-    { id: "gemini-3.1-flash-lite", name: "🚀 3.1 Flash-Lite", name_en: "🚀 3.1 Flash-Lite" },
-    { id: "gemini-flash-latest", name: "🌟 Flash Latest", name_en: "🌟 Flash Latest" },
-    { id: "gemini-3.8-flash", name: "⚡ 3.8 Flash (프리뷰)", name_en: "⚡ 3.8 Flash (Preview)" },
-    { id: "gemini-3.7-flash", name: "⚡ 3.7 Flash", name_en: "⚡ 3.7 Flash" },
-    { id: "gemini-3.1-pro-preview", name: "🧠 3.1 Pro", name_en: "🧠 3.1 Pro" },
-    { id: "gemini-pro-latest", name: "🧠 Pro Latest", name_en: "🧠 Pro Latest" },
+    { id: "gemini-3.5-flash-lite", name: "🚀 Gemini 3.5 Flash-Lite (권장 ⭐)", name_en: "🚀 Gemini 3.5 Flash-Lite (Recommended ⭐)" },
+    { id: "gemini-3.6-flash", name: "⚡ Gemini 3.6 Flash", name_en: "⚡ Gemini 3.6 Flash" },
+    { id: "gemini-3.8-flash", name: "🌟 Gemini 3.8 Flash", name_en: "🌟 Gemini 3.8 Flash" },
 ];
 
 const I18N = {
@@ -266,9 +262,9 @@ async function verifyKey(key) {
 // Node DOM header (fixed height — deliberately NOT a flex-fill area, so the
 // LiteGraph layout engine can never enter a size feedback loop)
 // ---------------------------------------------------------------------------
-const HEADER_WIDTH = 400;
+const HEADER_WIDTH = 380;
 const HEADER_HEIGHT = 138;
-const NODE_WIDTH_INSET = 46;
+const NODE_WIDTH_INSET = 20;
 
 function el(tag, cls, text) {
     const created = document.createElement(tag);
@@ -651,14 +647,27 @@ function setupNode(node) {
         domWidth = nextWidth;
         header.root.style.width = `${domWidth}px`;
         header.root.style.maxWidth = `${domWidth}px`;
-        node.setDirtyCanvas?.(true, true);
     };
 
-    const headerIndex = node.widgets.indexOf(domWidget);
-    if (headerIndex > 0) {
-        node.widgets.splice(headerIndex, 1);
-        node.widgets.unshift(domWidget);
+    // Arrange widget visual order: domWidget -> duration -> request_text -> rest
+    const domIdx = node.widgets.indexOf(domWidget);
+    if (domIdx !== -1) node.widgets.splice(domIdx, 1);
+
+    const durW = widgets.duration;
+    const reqW = widgets.request_text;
+
+    if (durW) {
+        const durIdx = node.widgets.indexOf(durW);
+        if (durIdx !== -1) node.widgets.splice(durIdx, 1);
     }
+    if (reqW) {
+        const reqIdx = node.widgets.indexOf(reqW);
+        if (reqIdx !== -1) node.widgets.splice(reqIdx, 1);
+    }
+
+    node.widgets.unshift(domWidget);
+    if (durW) node.widgets.push(durW);
+    if (reqW) node.widgets.push(reqW);
 
     const originalTargetCb = widgets.target.callback;
     widgets.target.callback = function (value, canvas, originNode, pos, extra) {
@@ -673,11 +682,12 @@ function setupNode(node) {
         node.setDirtyCanvas?.(true, true);
     };
 
+    const MIN_NODE_WIDTH = HEADER_WIDTH + NODE_WIDTH_INSET;
     const originalComputeSize = node.computeSize;
     node.computeSize = function (out) {
         const size = originalComputeSize ? originalComputeSize.call(this, out || [0, 0]) : (out || [0, 0]);
-        size[0] = Math.max(size[0], domWidth + 26);
-        size[1] = Math.max(size[1], 520);
+        size[0] = Math.max(size[0], MIN_NODE_WIDTH);
+        size[1] = Math.max(size[1], 500);
         return size;
     };
 

@@ -1,7 +1,7 @@
 /**
  * ⚓ Bada Async Gemini Studio
  * ComfyUI Web Extension (4-Engine Multi-Mode Edition)
- * - Exact 7 Models: 3.6 Flash, 3.1 Flash-Lite, 3.8 Flash, 3.7 Flash, Flash Latest, 3.1 Pro, Pro Latest
+ * - 3 Fast & Robust Models: Gemini 2.0 Flash-Lite, Gemini 2.5 Flash-Lite, Gemini 2.5 Flash
  * - 4 Dedicated Engine Tabs:
  *    1. ● MiniMax H3 (5 submodes, duration slider, multimodal vision)
  *    2. ● LTX-Video (5 submodes, duration slider, 6-element DiT)
@@ -31,13 +31,9 @@ import { BadaI18n } from "./bada_i18n.js";
 
 // Exact 7 Models matching bada-ya.github.io
 const EXACT_MODELS = [
-    { id: "gemini-3.6-flash", name: "⚡ 3.6 Flash (권장 ⭐)", name_en: "⚡ 3.6 Flash (Recommended ⭐)", desc: "1,500회/일 • 올라운더/NSFW 1차 통과", desc_en: "1,500 RPD • All-rounder / Uncensored pass" },
-    { id: "gemini-3.1-flash-lite", name: "🚀 3.1 Flash-Lite", name_en: "🚀 3.1 Flash-Lite", desc: "1,500회/일 • 초고속 영작/실시간 챗", desc_en: "1,500 RPD • Fast English / Live Chat" },
-    { id: "gemini-flash-latest", name: "🌟 Flash Latest", name_en: "🌟 Flash Latest", desc: "1,500회/일 • 최신 Flash 자동 라우팅", desc_en: "1,500 RPD • Latest Flash Auto-routing" },
-    { id: "gemini-3.8-flash", name: "⚡ 3.8 Flash (프리뷰)", name_en: "⚡ 3.8 Flash (Preview)", desc: "20회/일 • 최신 기능 사전 체험", desc_en: "20 RPD • Preview Latest Features" },
-    { id: "gemini-3.7-flash", name: "⚡ 3.7 Flash", name_en: "⚡ 3.7 Flash", desc: "1,500회/일 • 안정적 표준 작업", desc_en: "1,500 RPD • Reliable Standard Output" },
-    { id: "gemini-3.1-pro-preview", name: "🧠 3.1 Pro", name_en: "🧠 3.1 Pro", desc: "50회/일 • 고난도 시나리오 & 기획", desc_en: "50 RPD • Complex Reasoning & Planning" },
-    { id: "gemini-pro-latest", name: "🧠 Pro Latest", name_en: "🧠 Pro Latest", desc: "50회/일 • 최신 Pro 심층 추론", desc_en: "50 RPD • Deepest Multimodal Reasoning" },
+    { id: "gemini-3.5-flash-lite", name: "🚀 Gemini 3.5 Flash-Lite (권장 ⭐)", name_en: "🚀 Gemini 3.5 Flash-Lite (Recommended ⭐)", desc: "1,500회/일 • 최신 초고속 영작/실시간 챗", desc_en: "1,500 RPD • Ultra Fast / Live Chat" },
+    { id: "gemini-3.6-flash", name: "⚡ Gemini 3.6 Flash", name_en: "⚡ Gemini 3.6 Flash", desc: "1,500회/일 • 표준 올라운더 Flash", desc_en: "1,500 RPD • Standard Flash Output" },
+    { id: "gemini-3.8-flash", name: "🌟 Gemini 3.8 Flash", name_en: "🌟 Gemini 3.8 Flash", desc: "1,500회/일 • 최신 고성능 Flash", desc_en: "1,500 RPD • High Performance Flash" },
 ];
 
 // 4 Engine Tabs Specification
@@ -357,8 +353,11 @@ app.registerExtension({
                 opt.textContent = isKo ? m.name : (m.name_en || m.name);
                 modelSelect.appendChild(opt);
             });
-            const savedModel = localStorage.getItem("bada_gemini_model") || "gemini-3.6-flash";
+            const rawSaved = localStorage.getItem("bada_gemini_model") || "gemini-3.5-flash-lite";
+            const validIds = EXACT_MODELS.map(m => m.id);
+            const savedModel = validIds.includes(rawSaved) ? rawSaved : "gemini-3.5-flash-lite";
             modelSelect.value = savedModel;
+            localStorage.setItem("bada_gemini_model", savedModel);
             modelSelect.addEventListener("change", () => {
                 localStorage.setItem("bada_gemini_model", modelSelect.value);
             });

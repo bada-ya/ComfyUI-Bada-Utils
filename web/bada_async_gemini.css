@@ -4,32 +4,32 @@
    ========================================================================== */
 
 :root {
-  --bada-bg-base: #0b0f19;
-  --bada-bg-surface: #131926;
-  --bada-bg-surface-elevated: #1a2234;
-  --bada-bg-input: #0e131f;
-  --bada-border: rgba(255, 255, 255, 0.08);
-  --bada-border-hover: rgba(255, 255, 255, 0.2);
-  --bada-border-focus: #10b981;
+  --bada-bg-base: #141414;
+  --bada-bg-surface: #1a1a1a;
+  --bada-bg-surface-elevated: #242424;
+  --bada-bg-input: #161616;
+  --bada-border: #383838;
+  --bada-border-hover: #555555;
+  --bada-border-focus: #777777;
 
-  --bada-text-main: #f8fafc;
-  --bada-text-muted: #94a3b8;
-  --bada-text-dim: #64748b;
+  --bada-text-main: #eeeeee;
+  --bada-text-muted: #aaaaaa;
+  --bada-text-dim: #777777;
 
-  /* Accent Colors */
-  --bada-minimax-accent: #6366f1;
-  --bada-minimax-glow: rgba(99, 102, 241, 0.35);
-  --bada-ltx-accent: #06b6d4;
-  --bada-ltx-glow: rgba(6, 182, 212, 0.35);
-  --bada-krea-accent: #10b981;
-  --bada-krea-glow: rgba(16, 185, 129, 0.35);
-  --bada-gemini-accent: #a855f7;
-  --bada-gemini-glow: rgba(168, 85, 247, 0.35);
+  /* Accent Colors (Neutral Grays) */
+  --bada-minimax-accent: #888888;
+  --bada-minimax-glow: transparent;
+  --bada-ltx-accent: #888888;
+  --bada-ltx-glow: transparent;
+  --bada-krea-accent: #888888;
+  --bada-krea-glow: transparent;
+  --bada-gemini-accent: #888888;
+  --bada-gemini-glow: transparent;
 
   --bada-radius-sm: 6px;
-  --bada-radius-md: 10px;
-  --bada-radius-lg: 14px;
-  --bada-radius-xl: 18px;
+  --bada-radius-md: 8px;
+  --bada-radius-lg: 10px;
+  --bada-radius-xl: 12px;
 }
 
 /* Base Card Container inside ComfyUI Node (Pure Flex Container) */
@@ -429,28 +429,16 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   color: #fff;
 }
 
-.bada-engine-btn.active[data-engine="minimax"] {
-  background: linear-gradient(135deg, #6366f1, #4338ca);
-  color: #fff;
-  box-shadow: 0 2px 10px var(--bada-minimax-glow);
-}
-
-.bada-engine-btn.active[data-engine="ltx"] {
-  background: linear-gradient(135deg, #06b6d4, #0891b2);
-  color: #fff;
-  box-shadow: 0 2px 10px var(--bada-ltx-glow);
-}
-
-.bada-engine-btn.active[data-engine="krea"] {
-  background: linear-gradient(135deg, #10b981, #047857);
-  color: #fff;
-  box-shadow: 0 2px 10px var(--bada-krea-glow);
-}
-
+.bada-engine-btn.active,
+.bada-engine-btn.active[data-engine="minimax"],
+.bada-engine-btn.active[data-engine="ltx"],
+.bada-engine-btn.active[data-engine="krea"],
 .bada-engine-btn.active[data-engine="uncensored"] {
-  background: linear-gradient(135deg, #4338ca, #7c3aed, #db2777);
-  color: #fff;
-  box-shadow: 0 2px 12px var(--bada-gemini-glow);
+  background: #333333;
+  color: #ffffff;
+  border: 1px solid #aaaaaa;
+  box-shadow: none;
+  font-weight: 700;
 }
 
 /* Submode & Controls Panel */
@@ -528,22 +516,12 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   border-color: var(--bada-border-hover);
 }
 
-.bada-sub-card.active {
-  background: rgba(16, 185, 129, 0.12);
-  border-color: #10b981;
-  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
-}
-
-.bada-sub-card.active.minimax-card {
-  background: rgba(99, 102, 241, 0.12);
-  border-color: #6366f1;
-  box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
-}
-
+.bada-sub-card.active,
+.bada-sub-card.active.minimax-card,
 .bada-sub-card.active.ltx-card {
-  background: rgba(6, 182, 212, 0.12);
-  border-color: #06b6d4;
-  box-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
+  background: #2a2a2a;
+  border: 1px solid #aaaaaa;
+  box-shadow: none;
 }
 
 .bada-sub-icon {
@@ -758,9 +736,9 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
 }
 
 .bada-toggle-badge.green {
-  background: rgba(16, 185, 129, 0.15);
-  color: #10b981;
-  border-color: rgba(16, 185, 129, 0.35);
+  background: #282828;
+  color: #eeeeee;
+  border-color: #555555;
 }
 
 /* Sections & Form Controls */
@@ -846,9 +824,9 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
 }
 
 .bada-key-action-btn.success {
-  background: rgba(16, 185, 129, 0.2);
-  border-color: #10b981;
-  color: #6ee7b7;
+  background: #242424;
+  border-color: #666666;
+  color: #ffffff;
 }
 
 .bada-key-action-btn.error {

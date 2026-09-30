@@ -61,14 +61,13 @@ BROWSER_HEADERS = {
 }
 
 FALLBACK_MODELS = [
+    "gemini-3.5-flash-lite",
     "gemini-3.6-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-flash-latest",
-    "gemini-3.7-flash",
+    "gemini-3.8-flash",
 ]
 
-PRIMARY_MODEL_TIMEOUT = 30
-FALLBACK_MODEL_TIMEOUT = 20
+PRIMARY_MODEL_TIMEOUT = 8
+FALLBACK_MODEL_TIMEOUT = 5
 
 MAX_IMAGE_EDGE = 1536  # keep inline payloads small while preserving caption fidelity
 
@@ -219,7 +218,7 @@ def resolve_model(registry: dict) -> str:
                 return model
     except Exception as exc:  # noqa: BLE001
         logger.warning("[BadaPromptGen] Could not read config.json for the model: %s", exc)
-    return str((registry or {}).get("gemini_model") or "gemini-3.6-flash").strip()
+    return str((registry or {}).get("gemini_model") or "gemini-3.5-flash-lite").strip()
 
 
 # ---------------------------------------------------------------------------

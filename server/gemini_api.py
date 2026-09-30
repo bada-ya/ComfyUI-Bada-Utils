@@ -21,15 +21,11 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 CONFIG_FILE = os.path.join(PARENT_DIR, "config.json")
 
-# Exact 7 Models matching bada-ya.github.io
+# 3 Fast & Robust Verified Gemini Models
 EXACT_MODELS = [
-    {"id": "gemini-3.6-flash", "name": "⚡ 3.6 Flash (권장 ⭐)", "desc": "1,500회/일 • 올라운더/NSFW 1차 통과"},
-    {"id": "gemini-3.1-flash-lite", "name": "🚀 3.1 Flash-Lite", "desc": "1,500회/일 • 초고속 영작/실시간 챗"},
-    {"id": "gemini-flash-latest", "name": "🌟 Flash Latest", "desc": "1,500회/일 • 최신 Flash 자동 라우팅"},
-    {"id": "gemini-3.8-flash", "name": "⚡ 3.8 Flash (프리뷰)", "desc": "20회/일 • 최신 기능 사전 체험"},
-    {"id": "gemini-3.7-flash", "name": "⚡ 3.7 Flash", "desc": "1,500회/일 • 안정적 표준 작업"},
-    {"id": "gemini-3.1-pro-preview", "name": "🧠 3.1 Pro", "desc": "50회/일 • 고난도 시나리오 & 기획"},
-    {"id": "gemini-pro-latest", "name": "🧠 Pro Latest", "desc": "50회/일 • 최신 Pro 심층 추론"},
+    {"id": "gemini-3.5-flash-lite", "name": "🚀 Gemini 3.5 Flash-Lite (권장 ⭐)", "desc": "1,500회/일 • 최신 초고속 영작/실시간 챗"},
+    {"id": "gemini-3.6-flash", "name": "⚡ Gemini 3.6 Flash", "desc": "1,500회/일 • 표준 올라운더 Flash"},
+    {"id": "gemini-3.8-flash", "name": "🌟 Gemini 3.8 Flash", "desc": "1,500회/일 • 최신 고성능 Flash"},
 ]
 
 # 5-Category BLOCK_NONE Uncensored Safety Settings
@@ -315,7 +311,7 @@ def register_gemini_api_routes():
                 "success": True,
                 "has_key": has_key,
                 "masked_key": masked_key,
-                "default_model": cfg.get("default_model", "gemini-3.6-flash"),
+                "default_model": cfg.get("default_model", "gemini-3.5-flash-lite"),
                 "models": EXACT_MODELS,
                 "personas": GEM_PERSONAS
             })
@@ -392,7 +388,9 @@ def register_gemini_api_routes():
                         "error": "Gemini API key is required. Please enter it in the top API Key field or set the GEMINI_API_KEY environment variable."
                     }, status=400)
 
-                primary_model = body.get("model") or cfg.get("default_model") or "gemini-3.6-flash"
+                primary_model = body.get("model") or cfg.get("default_model") or "gemini-3.5-flash-lite"
+                if primary_model not in ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]:
+                    primary_model = "gemini-3.5-flash-lite"
                 instruction = (body.get("instruction") or "").strip()
                 images = body.get("images", [])
                 engine_mode = body.get("engine_mode", "krea") # "minimax" | "ltx" | "krea" | "uncensored"
@@ -410,19 +408,12 @@ def register_gemini_api_routes():
                         "error": "Please enter at least one prompt instruction or reference image."
                     }, status=400)
 
-                # Models Cascade (Starting with requested model, fallback through all robust variants)
+                # Models Cascade (Starting with requested model, fallback through verified fast variants)
                 candidate_pool = [
                     primary_model,
+                    "gemini-3.5-flash-lite",
                     "gemini-3.6-flash",
-                    "gemini-3.1-flash-lite",
-                    "gemini-flash-latest",
                     "gemini-3.8-flash",
-                    "gemini-3.7-flash",
-                    "gemini-2.5-flash",
-                    "gemini-2.0-flash",
-                    "gemini-1.5-flash",
-                    "gemini-3.1-pro-preview",
-                    "gemini-pro-latest"
                 ]
                 models_to_try = []
                 for m in candidate_pool:
@@ -458,7 +449,7 @@ def register_gemini_api_routes():
                     f"User Raw Scene Directive:\n{instruction or 'Analyze attached image(s) and generate detailed prompt.'}"
                 )
 
-                client_timeout = aiohttp.ClientTimeout(total=85)
+                client_timeout = aiohttp.ClientTimeout(total=15)
                 pass_used = 1
                 successful_model = None
                 raw_result_text = None
@@ -627,7 +618,9 @@ def register_gemini_api_routes():
                         "error": "Gemini API 키가 필요합니다. API Key를 입력해 주세요."
                     }, status=400)
 
-                model = body.get("model") or cfg.get("default_model") or "gemini-3.6-flash"
+                model = body.get("model") or cfg.get("default_model") or "gemini-3.5-flash-lite"
+                if model not in ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]:
+                    model = "gemini-3.5-flash-lite"
                 messages = body.get("messages", []) # Array of {role: "user"|"model", text: "...", images: [...]}
                 persona_id = body.get("persona", "universal")
                 web_search_enabled = body.get("web_search", False)
@@ -674,10 +667,9 @@ def register_gemini_api_routes():
 
                 candidate_pool = [
                     model,
-                    "gemini-2.5-flash",
-                    "gemini-2.0-flash",
-                    "gemini-1.5-flash",
-                    "gemini-flash-latest"
+                    "gemini-3.5-flash-lite",
+                    "gemini-3.6-flash",
+                    "gemini-3.8-flash",
                 ]
                 models_to_try = []
                 for m in candidate_pool:
