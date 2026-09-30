@@ -12,6 +12,11 @@ $env:BADA_TEST_BASE = "http://127.0.0.1:8199"   # scratch instance (default anyw
 | --- | --- |
 | `bada_promptgen_exec_test.py` | Backend **execution** path. Queues `enhance=false` (no Gemini call), then asserts the node executed, `generated_text` passed `request_text` through verbatim, `wh_ratio` stayed empty, the `bada_promptgen_toast` ui key was emitted, and a downstream consumer node actually received the text. |
 | `bada_promptgen_ui_smoke.py` | Frontend **browser** path (Playwright/Chromium, headless). 49 checks: boot/registration, node header DOM, toggle-card ↔ BOOLEAN widget sync (both directions), cascading `target → submenu`, toast rendering from a websocket `executed` payload, API-key row (mask/reveal/empty-key warning), model select → localStorage + `config.json`, modal CRUD (create/load/reorder/delete), and modal → registry → node `submenu` integration (no restart). |
+| `bada_promptgen_live_check.py` | **Read-only** readiness probe for an already-running instance (defaults to port `8188`). Confirms the registry route answers, `BadaPromptGenerator` is in `/object_info`, and the browser-side assets (`bada_prompt_generator.js` / `.css`, `bada_promptgen_modal.js`, `bada_i18n.js`) are served with the latest markers. Mutates nothing — safe on the daily driver. |
+
+> Is your main instance already up to date? `python dev_tests/bada_promptgen_live_check.py`
+> — if it prints `READY`, you only need a browser hard refresh (<kbd>Ctrl</kbd>+<kbd>F5</kbd>);
+> a server restart is only required after editing Python files.
 
 Requirements (install into the ComfyUI venv or any Python 3.10+):
 
