@@ -86,6 +86,48 @@ function showLongTranslationWarning(lang) {
     toast._badaDismissTimer = setTimeout(() => toast.remove(), 5000);
 }
 
+// Bottom-of-screen toast: tells the user what the translate button actually did, so a silent
+// no-op (empty widget, rejected request, write that never reached the control) is visible.
+function showTranslateToast(message, kind = "info") {
+    const palette = {
+        info: { border: "#60a5fa", bg: "rgba(30, 41, 59, 0.96)", fg: "#dbeafe" },
+        success: { border: "#34d399", bg: "rgba(6, 42, 32, 0.96)", fg: "#a7f3d0" },
+        error: { border: "#ef4444", bg: "rgba(45, 20, 20, 0.96)", fg: "#fecaca" },
+    };
+    const c = palette[kind] || palette.info;
+
+    let toast = document.getElementById("bada-translate-toast");
+    if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "bada-translate-toast";
+        Object.assign(toast.style, {
+            position: "fixed",
+            bottom: "24px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: "1000000",
+            maxWidth: "min(640px, calc(100vw - 32px))",
+            padding: "10px 16px",
+            borderRadius: "6px",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            boxShadow: "0 6px 20px rgba(0, 0, 0, 0.35)",
+            pointerEvents: "none",
+            transition: "opacity 0.15s ease",
+            opacity: "0"
+        });
+        document.body.appendChild(toast);
+    }
+
+    toast.style.border = `1px solid ${c.border}`;
+    toast.style.background = c.bg;
+    toast.style.color = c.fg;
+    toast.textContent = message;
+    toast.style.opacity = "1";
+    clearTimeout(toast._badaDismissTimer);
+    toast._badaDismissTimer = setTimeout(() => { toast.style.opacity = "0"; }, 3200);
+}
+
 // Get Current Bada Utils UI Language setting ('en' | 'ko')
 function getBadaLanguage() {
     try {
@@ -221,14 +263,37 @@ function getWidgetText(widget) {
     return "";
 }
 
+// Resolve the real DOM control behind a widget.
+// Legacy frontend: widget.inputEl / widget.element IS the <input>/<textarea>.
+// Current (Vue) frontend: multiline widgets expose `element` as the textarea (with
+// `inputEl` kept as a deprecated alias), but wrapper elements exist too - so fall back to
+// looking for the control inside the wrapper instead of silently doing nothing.
+function resolveWidgetControl(widget) {
+    if (!widget) return null;
+    const direct = widget.inputEl || widget.element;
+    if (direct) {
+        const tag = String(direct.tagName || "").toLowerCase();
+        if (tag === "input" || tag === "textarea") return direct;
+        const nested = typeof direct.querySelector === "function"
+            ? direct.querySelector("input, textarea")
+            : null;
+        if (nested) return nested;
+    }
+    return null;
+}
+
 function setWidgetText(widget, text) {
     if (!widget) return;
 
-    if (widget.inputEl) widget.inputEl.value = text;
-    if (widget.element) {
-        if (widget.element.tagName === "TEXTAREA" || widget.element.tagName === "INPUT") {
-            widget.element.value = text;
-        }
+    const control = resolveWidgetControl(widget);
+    if (control) {
+        control.value = text;
+        // Writing `.value` alone leaves the framework binding (and our own widget callback)
+        // untouched, so the rendered control can snap back to the old value. An `input` event
+        // keeps both in sync; callers guard it with `_badaApplyingTranslation`.
+        try {
+            control.dispatchEvent(new Event("input", { bubbles: true }));
+        } catch (_) {}
     }
     if (typeof widget.value === "string") widget.value = text;
 }
@@ -317,7 +382,9 @@ function setNodeText(node, text, widgetKey = null) {
 
     const matched = getTextWidgets(node).find(({ key }) => key === targetKey);
     if (matched) {
+        node._badaApplyingTranslation = true;
         setWidgetText(matched.widget, text);
+        node._badaApplyingTranslation = false;
         const state = getWidgetState(node, targetKey);
         if (!state.original && text) state.original = text;
         state.viewMode = state.viewMode || "original";
@@ -369,7 +436,15 @@ function restoreAllNotesToOriginal() {
 window.__BADA_SYNC_NOTE_HELPER_STATE__ = function(enabled) {
     if (!enabled) {
         restoreAllNotesToOriginal();
+    } else {
+        // Re-enabling has to re-attach: the badge is painted from the node's own draw/click
+        // hooks, so a node whose hooks were never installed (or were dropped while the helper
+        // was off) would stay bare until the graph is reloaded.
+        window.__BADA_REAPPLY_NOTE_HELPER_NODES__();
     }
+    // The settings store settles a tick after the toggle, so paint once more to be certain
+    // the badge actually appears (or disappears) instead of waiting for the next interaction.
+    setTimeout(() => app.graph?.setDirtyCanvas?.(true, true), 80);
 };
 
 // Real-Time Instant Re-apply callback for Blacklist changes
@@ -723,11 +798,19 @@ function attachBadaNoteHelper(node) {
                     state.isTranslating = true;
                     if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
 
+                    const langKo = currentBadaLang === "ko";
+                    let okCount = 0;
+                    let failCount = 0;
+                    let skipCount = 0;
+
                     Promise.all(textEntries.map(({ key, widget }) => {
                         const item = map[key] || (map[key] = { original: "", translated: "", translatedLang: null, viewMode: "original" });
                         const originalText = runtimeOriginals[key] || item.original || getWidgetText(widget) || "";
                         item.original = originalText || item.original || "";
-                        if (!item.original.trim()) return Promise.resolve();
+                        if (!item.original.trim()) {
+                            skipCount += 1;
+                            return Promise.resolve();
+                        }
 
                         return fetch("/api/bada/translate", {
                             method: "POST",
@@ -743,6 +826,10 @@ function attachBadaNoteHelper(node) {
                                 this._badaApplyingTranslation = true;
                                 setWidgetText(widget, data.translated_text);
                                 this._badaApplyingTranslation = false;
+                                okCount += 1;
+                            } else {
+                                failCount += 1;
+                                console.warn("[BadaUtils.NoteHelper] translate rejected:", data);
                             }
                         });
                     }))
@@ -754,10 +841,36 @@ function attachBadaNoteHelper(node) {
                         state.translatedText = translatedStates.find(item => item.viewMode === "translated" && item.translated)?.translated || "";
                         state.translatedLang = translatedStates.find(item => item.viewMode === "translated" && item.translatedLang)?.translatedLang || null;
                         if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
+
+                        // Report the outcome - a silent no-op is impossible to debug for the user
+                        if (okCount > 0) {
+                            const target = langKo ? "한국어" : "English";
+                            showTranslateToast(
+                                langKo ? `✅ ${okCount}개 텍스트를 ${target}로 번역했습니다.`
+                                       : `✅ Translated ${okCount} text field(s) to ${target}.`,
+                                "success"
+                            );
+                        } else if (failCount > 0) {
+                            showTranslateToast(
+                                langKo ? "⚠️ 번역 서버가 요청을 거부했습니다. 잠시 후 다시 시도해 주세요."
+                                       : "⚠️ The translation server rejected the request. Please try again.",
+                                "error"
+                            );
+                        } else if (skipCount > 0) {
+                            showTranslateToast(
+                                langKo ? "⚠️ 번역할 텍스트가 비어 있습니다. 내용을 입력한 뒤 다시 눌러 주세요."
+                                       : "⚠️ There is no text to translate. Type something first, then click again.",
+                                "error"
+                            );
+                        }
                     })
                     .catch(err => {
                         state.isTranslating = false;
-                        alert((currentBadaLang === "ko" ? "번역 서버 연결 실패: " : "Translation Server Connection Failed: ") + (err && err.message ? err.message : err));
+                        showTranslateToast(
+                            (langKo ? "번역 서버 연결 실패: " : "Translation server connection failed: ") +
+                            (err && err.message ? err.message : err),
+                            "error"
+                        );
                         if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                     });
 
