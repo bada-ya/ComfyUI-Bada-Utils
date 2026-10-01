@@ -808,7 +808,7 @@ app.registerExtension({
             container.style.cssText = `
                 width: 100%;
                 height: 100%;
-                background: #111116;
+                background: #353535;
                 color: #e4e4e7;
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
                 padding: 8px;
@@ -871,16 +871,16 @@ app.registerExtension({
             const styleTag = document.createElement("style");
             styleTag.textContent = `
                 .vg-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-                .vg-btn { background: #27272a; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; transition: all 0.15s ease; }
-                .vg-btn:hover { background: #3f3f46; border-color: #71717a; }
+                .vg-btn { background: #3d3d3d; color: #f4f4f5; border: 1px solid #4e4e4e; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer; transition: all 0.15s ease; }
+                .vg-btn:hover { background: #4e4e4e; border-color: #6b6b6b; }
                 .vg-btn.active { background: #4f46e5; border-color: #6366f1; color: #fff; font-weight: 600; box-shadow: 0 0 8px rgba(99, 102, 241, 0.4); }
-                .vg-select { background: #18181b; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 4px; padding: 3px 6px; font-size: 11px; outline: none; }
-                .vg-input { background: #18181b; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 4px; padding: 3px 6px; font-size: 11px; }
-                .vg-textarea { background: #18181b; color: #f4f4f5; border: 1px solid #3f3f46; border-radius: 4px; padding: 5px 8px; font-size: 11px; line-height: 1.4; font-family: inherit; resize: vertical; min-height: 32px; box-sizing: border-box; width: 100%; outline: none; transition: border-color 0.2s ease, box-shadow 0.2s ease; }
+                .vg-select { background: #2a2a2a; color: #f4f4f5; border: 1px solid #4e4e4e; border-radius: 4px; padding: 3px 6px; font-size: 11px; outline: none; }
+                .vg-input { background: #2a2a2a; color: #f4f4f5; border: 1px solid #4e4e4e; border-radius: 4px; padding: 3px 6px; font-size: 11px; }
+                .vg-textarea { background: #2a2a2a; color: #f4f4f5; border: 1px solid #4e4e4e; border-radius: 4px; padding: 5px 8px; font-size: 11px; line-height: 1.4; font-family: inherit; resize: vertical; min-height: 32px; box-sizing: border-box; width: 100%; outline: none; transition: border-color 0.2s ease, box-shadow 0.2s ease; }
                 .vg-textarea:focus { border-color: #6366f1; box-shadow: 0 0 8px rgba(99, 102, 241, 0.4); }
-                .vg-canvas-stage { width: 100%; height: 320px; min-height: 150px; max-height: 850px; background: #0d0d11; border: 1px solid #27272a; border-radius: 6px; padding: 6px; box-sizing: border-box; display: flex; justify-content: center; align-items: center; position: relative; overflow: hidden; user-select: none; }
-                .vg-grid-wrapper { position: relative; background: #18181b; border: 1.5px solid #4f46e5; border-radius: 4px; overflow: hidden; box-sizing: border-box; flex-shrink: 0; box-shadow: 0 0 16px rgba(0,0,0,0.6); }
-                .vg-stage-resize-handle { position: absolute; right: 3px; bottom: 3px; width: 18px; height: 18px; cursor: nwse-resize; color: #a1a1aa; font-size: 13px; font-weight: bold; display: flex; align-items: center; justify-content: center; z-index: 15; user-select: none; background: rgba(24,24,27,0.85); border-radius: 3px; border: 1px solid #3f3f46; transition: all 0.15s; }
+                .vg-canvas-stage { width: 100%; height: 320px; min-height: 150px; max-height: 850px; background: #262626; border: 1px solid #3d3d3d; border-radius: 6px; padding: 6px; box-sizing: border-box; display: flex; justify-content: center; align-items: center; position: relative; overflow: hidden; user-select: none; }
+                .vg-grid-wrapper { position: relative; background: #2a2a2a; border: 1.5px solid #4f46e5; border-radius: 4px; overflow: hidden; box-sizing: border-box; flex-shrink: 0; box-shadow: 0 0 16px rgba(0,0,0,0.6); }
+                .vg-stage-resize-handle { position: absolute; right: 3px; bottom: 3px; width: 18px; height: 18px; cursor: nwse-resize; color: #a1a1aa; font-size: 13px; font-weight: bold; display: flex; align-items: center; justify-content: center; z-index: 15; user-select: none; background: rgba(53,53,53,0.85); border-radius: 3px; border: 1px solid #4e4e4e; transition: all 0.15s; }
                 .vg-stage-resize-handle:hover { color: #ffffff; border-color: #6366f1; background: #4f46e5; }
                 .vg-grid-cells { position: absolute; inset: 0; display: grid; pointer-events: none; }
                 .vg-cell { border-right: 2px dashed rgba(255, 255, 255, 0.38); border-bottom: 2px dashed rgba(255, 255, 255, 0.38); box-sizing: border-box; }
@@ -892,19 +892,19 @@ app.registerExtension({
                 .vg-area-close:hover { background: #ef4444; color: #fff; }
                 .vg-area-prompt { font-size: 10px; font-weight: 500; text-shadow: 0 1px 2px rgba(0,0,0,0.8); line-height: 1.2; word-break: break-word; overflow: hidden; z-index: 2; }
                 .mockup-svg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.28; pointer-events: none; }
-                .vg-tree-drawer { background: #141418; border: 1px solid #4f46e5; border-radius: 6px; max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px; box-sizing: border-box; }
+                .vg-tree-drawer { background: #2e2e2e; border: 1px solid #4f46e5; border-radius: 6px; max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px; box-sizing: border-box; }
                 .vg-tree-drawer.collapsed { display: none; }
-                .tree-folder { font-size: 11.5px; font-weight: 600; color: #f4f4f5; background: #27272a; padding: 6px 8px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
-                .tree-folder:hover { background: #3f3f46; color: #fff; }
-                .tree-children { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px; padding: 6px; background: rgba(0,0,0,0.3); border-radius: 4px; }
+                .tree-folder { font-size: 11.5px; font-weight: 600; color: #f4f4f5; background: #3d3d3d; padding: 6px 8px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+                .tree-folder:hover { background: #4e4e4e; color: #fff; }
+                .tree-children { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px; padding: 6px; background: rgba(0,0,0,0.18); border-radius: 4px; }
                 .tree-children.collapsed { display: none; }
-                .tree-item { font-size: 11px; color: #e4e4e7; background: #18181b; border: 1px solid #3f3f46; padding: 5px 6px; cursor: pointer; border-radius: 4px; text-align: center; line-height: 1.2; word-break: keep-all; }
+                .tree-item { font-size: 11px; color: #e4e4e7; background: #2a2a2a; border: 1px solid #4e4e4e; padding: 5px 6px; cursor: pointer; border-radius: 4px; text-align: center; line-height: 1.2; word-break: keep-all; }
                 .tree-item:hover { background: #4f46e5; border-color: #6366f1; color: #fff; font-weight: 600; }
-                .vg-drawer { background: #18181b; border: 1px solid #27272a; border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; box-sizing: border-box; }
+                .vg-drawer { background: #2a2a2a; border: 1px solid #3d3d3d; border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; box-sizing: border-box; }
                 .vg-drawer.collapsed { display: none; }
-                .vg-char-manager-drawer { background: #141418; border: 1px solid #6366f1; border-radius: 6px; padding: 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.6); }
-                .vg-char-item { background: #1c1c24; border: 1px solid #2e2e3a; border-radius: 4px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
-                .custom-chip { display: flex; align-items: center; justify-content: space-between; background: #27272a; border: 1px solid #3f3f46; border-radius: 4px; padding: 3px 6px; font-size: 11px; cursor: grab; }
+                .vg-char-manager-drawer { background: #2e2e2e; border: 1px solid #6366f1; border-radius: 6px; padding: 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.6); }
+                .vg-char-item { background: #333333; border: 1px solid #4e4e4e; border-radius: 4px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+                .custom-chip { display: flex; align-items: center; justify-content: space-between; background: #3d3d3d; border: 1px solid #4e4e4e; border-radius: 4px; padding: 3px 6px; font-size: 11px; cursor: grab; }
                 .custom-chip.dragging { opacity: 0.4; }
                 .custom-chip-del { color: #ef4444; font-weight: 700; cursor: pointer; padding: 0 4px; }
                 .vg-stepper-input::-webkit-outer-spin-button,
@@ -984,14 +984,14 @@ app.registerExtension({
             // Clean & Comfortable Steppers for Columns and Rows (Zero spinner arrows)
             function createStepper(initialVal, min, max, onChange) {
                 const wrap = document.createElement("div");
-                wrap.style.cssText = "display:inline-flex; align-items:center; background:#18181b; border:1px solid #3f3f46; border-radius:4px; overflow:hidden; vertical-align:middle;";
+                wrap.style.cssText = "display:inline-flex; align-items:center; background:#2a2a2a; border:1px solid #4e4e4e; border-radius:4px; overflow:hidden; vertical-align:middle;";
 
                 const btnMinus = document.createElement("button");
                 btnMinus.type = "button";
                 btnMinus.className = "vg-btn";
                 btnMinus.textContent = "−";
                 btnMinus.title = isEnInitial ? "Decrease" : "감소 (Decrease)";
-                btnMinus.style.cssText = "width:22px; height:24px; padding:0; font-size:14px; font-weight:bold; display:flex; align-items:center; justify-content:center; border:none; border-radius:0; background:#27272a; color:#d4d4d8; cursor:pointer;";
+                btnMinus.style.cssText = "width:22px; height:24px; padding:0; font-size:14px; font-weight:bold; display:flex; align-items:center; justify-content:center; border:none; border-radius:0; background:#3d3d3d; color:#d4d4d8; cursor:pointer;";
 
                 const numInput = document.createElement("input");
                 numInput.type = "text";
@@ -1010,7 +1010,7 @@ app.registerExtension({
                 btnPlus.className = "vg-btn";
                 btnPlus.textContent = "+";
                 btnPlus.title = isEnInitial ? "Increase" : "증가 (Increase)";
-                btnPlus.style.cssText = "width:22px; height:24px; padding:0; font-size:14px; font-weight:bold; display:flex; align-items:center; justify-content:center; border:none; border-radius:0; background:#27272a; color:#d4d4d8; cursor:pointer;";
+                btnPlus.style.cssText = "width:22px; height:24px; padding:0; font-size:14px; font-weight:bold; display:flex; align-items:center; justify-content:center; border:none; border-radius:0; background:#3d3d3d; color:#d4d4d8; cursor:pointer;";
 
                 btnMinus.addEventListener("click", (e) => {
                     e.preventDefault();
@@ -1116,7 +1116,7 @@ app.registerExtension({
             // 3. Character Profile Master Section (Presets, Ko/En Inputs & Live Auto-Translate)
             const charCard = document.createElement("div");
             charCard.className = "vg-char-card";
-            charCard.style.cssText = "background:#18181b; border:1px solid #27272a; border-radius:6px; padding:6px; display:flex; flex-direction:column; gap:5px;";
+            charCard.style.cssText = "background:#2a2a2a; border:1px solid #3d3d3d; border-radius:6px; padding:6px; display:flex; flex-direction:column; gap:5px;";
 
             const charHeader = document.createElement("div");
             charHeader.style.cssText = "display:flex; justify-content:space-between; align-items:center; width:100%; gap:8px;";
@@ -1164,7 +1164,7 @@ app.registerExtension({
             const btnOpenCharManager = document.createElement("button");
             btnOpenCharManager.className = "vg-btn";
             btnOpenCharManager.type = "button";
-            btnOpenCharManager.style.cssText = "padding:2px 8px; font-size:10.5px; border-color:#6366f1; background:#1e1e2e; color:#c7d2fe; white-space:nowrap;";
+            btnOpenCharManager.style.cssText = "padding:2px 8px; font-size:10.5px; border-color:#6366f1; background:#3d3d3d; color:#c7d2fe; white-space:nowrap;";
             btnOpenCharManager.textContent = isEnChar ? "⚙️ Preset Settings" : "⚙️ 외모 프리셋 설정";
             btnOpenCharManager.title = isEnChar ? "Manage character profile presets (add, edit, delete, reorder)" : "인물 외모 프리셋 관리 (추가, 수정, 삭제, 순서 변경)";
 
@@ -1194,7 +1194,7 @@ app.registerExtension({
             const charEnInput = document.createElement("textarea");
             charEnInput.className = "vg-textarea";
             charEnInput.rows = 1;
-            charEnInput.style.cssText = "min-height:26px; resize:vertical; font-size:11px; padding:4px 6px; border-color:#3f3f46; color:#d4d4d8; width:100%; box-sizing:border-box;";
+            charEnInput.style.cssText = "min-height:26px; resize:vertical; font-size:11px; padding:4px 6px; border-color:#4e4e4e; color:#d4d4d8; width:100%; box-sizing:border-box;";
             charEnInput.placeholder = isEnChar ? "US: English character profile (Sent to AI)" : "US: 영문 인물 공통 외모 (AI 최종 전달용 / 한글 입력 시 실시간 자동 번역)";
             charEnInput.value = !/[가-힣]/.test(characterProfile) ? characterProfile : "";
 
@@ -1259,7 +1259,7 @@ app.registerExtension({
             const btnQuickSave = document.createElement("button");
             btnQuickSave.className = "vg-btn";
             btnQuickSave.type = "button";
-            btnQuickSave.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:2px; background:#22222a; border-color:#eab308; color:#fef08a;";
+            btnQuickSave.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:2px; background:#3a3a3a; border-color:#eab308; color:#fef08a;";
             btnQuickSave.innerHTML = `<span>${isEnChar ? "⭐ Save" : "⭐ 저장"}</span>`;
             btnQuickSave.title = isEnChar ? "Quickly save current character profile as a new preset" : "현재 입력된 외모를 새 프리셋으로 빠른 추가";
 
@@ -1285,7 +1285,7 @@ app.registerExtension({
             const btnClearChar = document.createElement("button");
             btnClearChar.className = "vg-btn";
             btnClearChar.type = "button";
-            btnClearChar.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; display:flex; align-items:center; justify-content:center; background:#22222a; color:#a1a1aa;";
+            btnClearChar.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; display:flex; align-items:center; justify-content:center; background:#3a3a3a; color:#a1a1aa;";
             btnClearChar.textContent = isEnChar ? "Clear" : "비우기";
             btnClearChar.title = isEnChar ? "Clear character profile inputs" : "인물 외모 묘사 지우기";
             btnClearChar.addEventListener("click", () => {
@@ -1315,7 +1315,7 @@ app.registerExtension({
                 
                 // Header
                 const mHeader = document.createElement("div");
-                mHeader.style.cssText = "display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #3f3f46; padding-bottom:4px;";
+                mHeader.style.cssText = "display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #4e4e4e; padding-bottom:4px;";
                 mHeader.innerHTML = `<div style="font-size:11.5px; font-weight:700; color:#c7d2fe; display:flex; align-items:center; gap:4px;">⚙️ ${isEn ? "Character Presets Manager" : "인물 외모 프리셋 관리"} <span style="font-size:10px; color:#a1a1aa;">(${charPresets.length})</span></div>`;
 
                 const btnCloseM = document.createElement("button");
@@ -1427,7 +1427,7 @@ app.registerExtension({
                     const inputEn = document.createElement("textarea");
                     inputEn.className = "vg-textarea";
                     inputEn.rows = 1;
-                    inputEn.style.cssText = "min-height:22px; font-size:10.5px; padding:2px 4px; border-color:#3f3f46; color:#d4d4d8;";
+                    inputEn.style.cssText = "min-height:22px; font-size:10.5px; padding:2px 4px; border-color:#4e4e4e; color:#d4d4d8;";
                     inputEn.value = cp.en || "";
                     inputEn.placeholder = isEn ? "US: English character profile" : "US: 영문 인물 외모";
                     inputEn.addEventListener("input", () => {
@@ -1458,7 +1458,7 @@ app.registerExtension({
 
                 // Footer Bar (Add New, Reset Default, Save & Close)
                 const mFooter = document.createElement("div");
-                mFooter.style.cssText = "display:flex; justify-content:space-between; align-items:center; gap:4px; padding-top:4px; border-top:1px solid #3f3f46;";
+                mFooter.style.cssText = "display:flex; justify-content:space-between; align-items:center; gap:4px; padding-top:4px; border-top:1px solid #4e4e4e;";
 
                 const btnAddRow = document.createElement("button");
                 btnAddRow.className = "vg-btn";
@@ -1596,7 +1596,7 @@ app.registerExtension({
             // 5. Area Prompt Editor & Explorer Tree Selector Modal / Drawer
             // =========================================================================
             const editorCard = document.createElement("div");
-            editorCard.style.cssText = "background:#18181b; border:1px solid #27272a; border-radius:6px; padding:8px; display:flex; flex-direction:column; gap:6px;";
+            editorCard.style.cssText = "background:#2a2a2a; border:1px solid #3d3d3d; border-radius:6px; padding:8px; display:flex; flex-direction:column; gap:6px;";
             
             // Header: Active area badge
             const editorHeader = document.createElement("div");
@@ -1613,7 +1613,7 @@ app.registerExtension({
             const treeBtn = document.createElement("button");
             treeBtn.className = "vg-btn";
             treeBtn.type = "button";
-            treeBtn.style.cssText = "width:100%; display:flex; justify-content:space-between; align-items:center; padding:6px 10px; font-weight:600; background:#27272a; border:1px solid #4f46e5; border-radius:4px; color:#fff; cursor:pointer;";
+            treeBtn.style.cssText = "width:100%; display:flex; justify-content:space-between; align-items:center; padding:6px 10px; font-weight:600; background:#3d3d3d; border:1px solid #4f46e5; border-radius:4px; color:#fff; cursor:pointer;";
             treeBtn.innerHTML = `<span>${isEnExplorer ? "📂 10 Category Shot & Angle Explorer" : "📂 10대 캐릭터 시트 구도 탐색기"}</span><span>▼</span>`;
             
             const treeDrawer = document.createElement("div");
@@ -1732,7 +1732,7 @@ app.registerExtension({
             const btnOpenCustomManager = document.createElement("button");
             btnOpenCustomManager.className = "vg-btn";
             btnOpenCustomManager.type = "button";
-            btnOpenCustomManager.style.cssText = "padding:2px 8px; font-size:10.5px; border-color:#6366f1; background:#1e1e2e; color:#c7d2fe; white-space:nowrap;";
+            btnOpenCustomManager.style.cssText = "padding:2px 8px; font-size:10.5px; border-color:#6366f1; background:#3d3d3d; color:#c7d2fe; white-space:nowrap;";
             btnOpenCustomManager.textContent = isEnExplorer ? "⚙️ Custom Presets Settings" : "⚙️ 나만의 프리셋 설정";
             btnOpenCustomManager.title = isEnExplorer ? "Manage custom presets (add, edit, delete, reorder)" : "나만의 구도/포즈 프리셋 관리 (추가, 수정, 삭제, 순서 변경)";
 
@@ -1785,7 +1785,7 @@ app.registerExtension({
             const areaEnInput = document.createElement("textarea");
             areaEnInput.className = "vg-textarea";
             areaEnInput.rows = 2;
-            areaEnInput.style.cssText = "min-height:36px; resize:vertical; font-size:11px; padding:4px 6px; border-color:#3f3f46; color:#d4d4d8; width:100%; box-sizing:border-box;";
+            areaEnInput.style.cssText = "min-height:36px; resize:vertical; font-size:11px; padding:4px 6px; border-color:#4e4e4e; color:#d4d4d8; width:100%; box-sizing:border-box;";
             areaEnInput.placeholder = isEnExplorer ? "US: English area prompt (Sent to AI / Editable)" : "US: 영문 프롬프트 (AI 최종 전달용 / 직접 수정 가능)";
             areaEnInput.addEventListener("input", () => {
                 const area = getSelectedArea();
@@ -1806,7 +1806,7 @@ app.registerExtension({
             const btnQuickSaveCustom = document.createElement("button");
             btnQuickSaveCustom.className = "vg-btn";
             btnQuickSaveCustom.type = "button";
-            btnQuickSaveCustom.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:2px; background:#22222a; border-color:#eab308; color:#fef08a;";
+            btnQuickSaveCustom.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:2px; background:#3a3a3a; border-color:#eab308; color:#fef08a;";
             btnQuickSaveCustom.innerHTML = `<span>${isEnExplorer ? "⭐ Save" : "⭐ 저장"}</span>`;
             btnQuickSaveCustom.title = isEnExplorer ? "Quickly save current prompt to custom presets" : "현재 구도/포즈를 나만의 프리셋으로 빠른 추가";
 
@@ -1832,7 +1832,7 @@ app.registerExtension({
             const btnClearArea = document.createElement("button");
             btnClearArea.className = "vg-btn";
             btnClearArea.type = "button";
-            btnClearArea.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; display:flex; align-items:center; justify-content:center; background:#22222a; color:#a1a1aa;";
+            btnClearArea.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; display:flex; align-items:center; justify-content:center; background:#3a3a3a; color:#a1a1aa;";
             btnClearArea.textContent = isEnExplorer ? "Clear" : "비우기";
             btnClearArea.title = isEnExplorer ? "Clear prompt for current area" : "현재 선택된 영역의 프롬프트 지우기";
             btnClearArea.addEventListener("click", () => {
@@ -1865,7 +1865,7 @@ app.registerExtension({
                 
                 // Header
                 const mHeader = document.createElement("div");
-                mHeader.style.cssText = "display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #3f3f46; padding-bottom:4px;";
+                mHeader.style.cssText = "display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #4e4e4e; padding-bottom:4px;";
                 mHeader.innerHTML = `<div style="font-size:11.5px; font-weight:700; color:#fef08a; display:flex; align-items:center; gap:4px;">⚙️ ${isEn ? "Custom Presets Manager" : "나만의 구도/포즈 프리셋 관리"} <span style="font-size:10px; color:#a1a1aa;">(${customPresets.length})</span></div>`;
 
                 const btnCloseM = document.createElement("button");
@@ -1977,7 +1977,7 @@ app.registerExtension({
                     const inputEn = document.createElement("textarea");
                     inputEn.className = "vg-textarea";
                     inputEn.rows = 1;
-                    inputEn.style.cssText = "min-height:22px; font-size:10.5px; padding:2px 4px; border-color:#3f3f46; color:#d4d4d8;";
+                    inputEn.style.cssText = "min-height:22px; font-size:10.5px; padding:2px 4px; border-color:#4e4e4e; color:#d4d4d8;";
                     inputEn.value = cp.en || "";
                     inputEn.placeholder = isEn ? "US: English composition/pose" : "US: 영문 구도/포즈 묘사";
                     inputEn.addEventListener("input", () => {
@@ -2008,7 +2008,7 @@ app.registerExtension({
 
                 // Footer Bar (Add New, Reset Default, Save & Close)
                 const mFooter = document.createElement("div");
-                mFooter.style.cssText = "display:flex; justify-content:space-between; align-items:center; gap:4px; padding-top:4px; border-top:1px solid #3f3f46;";
+                mFooter.style.cssText = "display:flex; justify-content:space-between; align-items:center; gap:4px; padding-top:4px; border-top:1px solid #4e4e4e;";
 
                 const btnAddRow = document.createElement("button");
                 btnAddRow.className = "vg-btn";
@@ -2199,7 +2199,7 @@ app.registerExtension({
             // 10. Live Final Prompt Preview & 1-Click Copy Card
             const promptPreviewCard = document.createElement("div");
             promptPreviewCard.className = "vg-prompt-preview-card";
-            promptPreviewCard.style.cssText = "background:#141418; border:1px solid #3f3f46; border-radius:6px; padding:8px; display:flex; flex-direction:column; gap:6px; box-sizing:border-box;";
+            promptPreviewCard.style.cssText = "background:#2e2e2e; border:1px solid #4e4e4e; border-radius:6px; padding:8px; display:flex; flex-direction:column; gap:6px; box-sizing:border-box;";
 
             const previewHeader = document.createElement("div");
             previewHeader.style.cssText = "display:flex; justify-content:space-between; align-items:center; width:100%;";
@@ -2244,7 +2244,7 @@ app.registerExtension({
             const fullPromptTextarea = document.createElement("textarea");
             fullPromptTextarea.className = "vg-textarea";
             fullPromptTextarea.rows = 4;
-            fullPromptTextarea.style.cssText = "min-height:85px; resize:vertical; font-family:Consolas, Monaco, monospace; font-size:11px; line-height:1.45; background:#0c0c10; border-color:#27272a; color:#e4e4e7; width:100%; box-sizing:border-box;";
+            fullPromptTextarea.style.cssText = "min-height:85px; resize:vertical; font-family:Consolas, Monaco, monospace; font-size:11px; line-height:1.45; background:#2b2b2b; border-color:#3d3d3d; color:#e4e4e7; width:100%; box-sizing:border-box;";
             fullPromptTextarea.placeholder = isEnBottom ? "Generated final prompt will appear here in real time..." : "생성된 최종 프롬프트가 실시간으로 여기에 표시됩니다...";
             
             fullPromptTextarea.addEventListener("input", () => {
@@ -2413,9 +2413,9 @@ app.registerExtension({
                     areaEnInput.style.borderColor = palette.border;
                     areaEnInput.value = area.prompt || "";
                 } else {
-                    editorCard.style.borderColor = "#27272a";
+                    editorCard.style.borderColor = "#3d3d3d";
                     editorCard.style.boxShadow = "none";
-                    activeAreaTitle.innerHTML = `<span style="color:#71717a;">${isEn ? "📍 Select an area to edit (or drag on canvas)" : "📍 편집할 영역을 선택하세요 (또는 캔버스에서 드래그)"}</span>`;
+                    activeAreaTitle.innerHTML = `<span style="color:#6b6b6b;">${isEn ? "📍 Select an area to edit (or drag on canvas)" : "📍 편집할 영역을 선택하세요 (또는 캔버스에서 드래그)"}</span>`;
                     treeBtn.style.borderColor = "#4f46e5";
                     treeBtn.style.boxShadow = "none";
                     btnApplyPrompt.style.background = "#4f46e5";
@@ -2423,10 +2423,10 @@ app.registerExtension({
                     btnApplyPrompt.style.boxShadow = "none";
                     btnApplyPrompt.style.color = "#fff";
                     areaKoInput.placeholder = isEn ? "🇰🇷 Korean prompt (1:1 replace on preset select)" : "🇰🇷 한글 프롬프트 (프리셋 선택 시 1:1 교체)";
-                    areaKoInput.style.borderColor = "#3f3f46";
+                    areaKoInput.style.borderColor = "#4e4e4e";
                     areaKoInput.value = "";
                     areaEnInput.placeholder = isEn ? "🇺🇸 English prompt (Sent to AI / Editable)" : "🇺🇸 영문 프롬프트 (AI 최종 전달용 / 직접 수정 가능)";
-                    areaEnInput.style.borderColor = "#3f3f46";
+                    areaEnInput.style.borderColor = "#4e4e4e";
                     areaEnInput.value = "";
                 }
                 renderGrid();

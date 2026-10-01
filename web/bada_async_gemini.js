@@ -3,7 +3,7 @@
  * ComfyUI Web Extension (6-Engine Multi-Mode Edition)
  * - 3 Fast & Robust Models: Gemini 2.0 Flash-Lite, Gemini 2.5 Flash-Lite, Gemini 2.5 Flash
  * - 6 Dedicated Engine Tabs (left → right):
- *    1. ● KREA 2 (일반/스타일칩, 스토리보드)
+ *    1. ● KREA 2 (일반 / 스토리보드)
  *    2. ● QWEN2.1 (official T2I / I2I prompt enhancement)
  *    3. ● MiniMax H3 (5 submodes, duration slider, multimodal vision)
  *    4. ● LTX-Video (5 submodes, duration slider, 6-element DiT)
@@ -87,22 +87,13 @@ const LTX_SUBMODES = [
 
 // KREA 2 Submodes & Presets
 const KREA_SUBMODES = [
-    { id: "general", name: "🌐 일반", name_en: "🌐 General", desc: "KREA 2 화풍 & 스타일 칩", desc_en: "KREA 2 art styles & style chips" },
+    { id: "general", name: "🌐 일반", name_en: "🌐 General", desc: "KREA 2 포토리얼 화풍 렌더링", desc_en: "KREA 2 photorealism rendering" },
     { id: "storyboard", name: "🎞️ 스토리보드", name_en: "🎞️ Storyboard", desc: "연속 컷 시퀀스 분할 생성", desc_en: "Sequential cut storyboard prompts" },
 ];
 
 const QWEN_SUBMODES = [
     { id: "t2i", name: "🖼️ T2I", name_en: "🖼️ T2I", desc: "텍스트 기반 이미지 프롬프트 강화", desc_en: "Text-to-image prompt enhancement" },
     { id: "i2i", name: "🪄 I2I (편집)", name_en: "🪄 I2I (Edit)", desc: "참조 이미지를 바탕으로 편집 프롬프트 생성", desc_en: "Image-edit prompt from reference images" },
-];
-
-const KREA_STYLES = [
-    { id: "cinematic_photo", name: "35mm 필름", name_en: "35mm Film", icon: "🎬" },
-    { id: "iphone_snapshot", name: "Raw 스냅샷", name_en: "Raw Snapshot", icon: "📱" },
-    { id: "vintage_retro", name: "빈티지 레트로", name_en: "Vintage Retro", icon: "🎞️" },
-    { id: "digital_art", name: "디지털 아트", name_en: "Digital Art", icon: "🎨" },
-    { id: "3d_render", name: "3D 렌더링", name_en: "3D Render", icon: "🧊" },
-    { id: "cyberpunk_anime", name: "사이버펑크", name_en: "Cyberpunk", icon: "🌆" },
 ];
 
 // Gem Personas for Uncensored Gemini Chat
@@ -129,6 +120,13 @@ app.registerExtension({
             node.title = "⚓ Bada Async Gemini Studio";
             node.setSize([520, 820]);
 
+            // The backend no longer exposes an output socket (RETURN_TYPES is empty). A node
+            // instance restored from a saved workflow can still carry the old slot, so drop it
+            // here as well — otherwise the "prompt" socket survives a plain browser refresh.
+            while (node.outputs && node.outputs.length > 0) {
+                node.removeOutput(0);
+            }
+
             // Hide raw multiline widgets
             if (node.widgets && node.widgets.length > 0) {
                 const rawPromptWidget = node.widgets.find(w => w.name === "generated_prompt");
@@ -151,7 +149,6 @@ app.registerExtension({
             let ltxSub = localStorage.getItem("bada_ltx_sub") || "ltx_2_5";
             let kreaSub = localStorage.getItem("bada_krea_sub") || "general";
             if (!KREA_SUBMODES.some(submode => submode.id === kreaSub)) kreaSub = "general";
-            let kreaStyle = localStorage.getItem("bada_krea_style") || "cinematic_photo";
             let qwenSub = localStorage.getItem("bada_qwen_sub") || "t2i";
             let userSystemPrompts = [];
             let selectedSystemPromptId = localStorage.getItem("bada_async_system_prompt") || "";
@@ -723,47 +720,6 @@ app.registerExtension({
 
             promptStudioContainer.appendChild(promptSection);
 
-            // Custom Directives Accordion
-            const accordion = document.createElement("div");
-            accordion.style.border = "1px solid var(--bada-border)";
-            accordion.style.borderRadius = "var(--bada-radius-sm)";
-            accordion.style.overflow = "hidden";
-
-            const accBtn = document.createElement("button");
-            accBtn.type = "button";
-            accBtn.style.width = "100%";
-            accBtn.style.background = "var(--bada-bg-surface-elevated)";
-            accBtn.style.border = "none";
-            accBtn.style.padding = "6px 10px";
-            accBtn.style.display = "flex";
-            accBtn.style.alignItems = "center";
-            accBtn.style.justifyContent = "space-between";
-            accBtn.style.color = "var(--bada-text-muted)";
-            accBtn.style.fontSize = "11px";
-            accBtn.style.fontWeight = "700";
-            accBtn.style.cursor = "pointer";
-            accBtn.innerHTML = `<span id="bada-acc-title">${isKo ? "⚙️ 커스텀 시스템 지시사항 (선택 사항)" : "⚙️ Custom System Directives (Optional)"}</span><span id="bada-acc-arrow">▼</span>`;
-
-            const accBody = document.createElement("div");
-            accBody.style.display = "none";
-            accBody.style.padding = "8px";
-            accBody.style.background = "#090d15";
-
-            const customDirectivesInput = document.createElement("textarea");
-            customDirectivesInput.className = "bada-textarea";
-            customDirectivesInput.rows = 2;
-            customDirectivesInput.placeholder = isKo ? "이번 생성에만 강제 주입할 커스텀 시스템 지시사항이 있다면 입력하세요..." : "Enter custom system directives to override for this generation only...";
-            accBody.appendChild(customDirectivesInput);
-
-            accBtn.onclick = () => {
-                const isHidden = accBody.style.display === "none";
-                accBody.style.display = isHidden ? "block" : "none";
-                accBtn.querySelector("#bada-acc-arrow").textContent = isHidden ? "▲" : "▼";
-            };
-            accordion.appendChild(accBtn);
-            accordion.appendChild(accBody);
-            promptStudioContainer.appendChild(accordion);
-
             // Multimodal Reference Images Section
             const imgSection = document.createElement("div");
             imgSection.className = "bada-section";
@@ -925,78 +881,52 @@ app.registerExtension({
             outputTextarea.placeholder = isKo ? "생성된 프롬프트가 여기에 표시됩니다. 자유롭게 직접 수정할 수도 있습니다." : "Generated prompt will appear here. You can also edit it directly.";
             outputSection.appendChild(outputTextarea);
 
+            // Clipboard button: it shares the tab bar but is styled as a separate group.
+            // It always copies whatever the currently selected tab is showing.
+            const copyBtn = document.createElement("button");
+            copyBtn.type = "button";
+            copyBtn.className = "bada-tab-copy";
+            const COPY_TAB_META = {
+                english: { ko: "영문 마스터", en: "English Master", chip: { ko: "📋 영문", en: "📋 English" } },
+                korean: { ko: "한국어 번역", en: "Korean Translation", chip: { ko: "📋 한국어", en: "📋 Korean" } },
+                all: { ko: "통합본", en: "Combined", chip: { ko: "📋 통합본", en: "📋 Combined" } },
+            };
+            function refreshCopyButton() {
+                const langKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                const meta = COPY_TAB_META[currentTab] || COPY_TAB_META.english;
+                copyBtn.textContent = langKo ? meta.chip.ko : meta.chip.en;
+                copyBtn.title = langKo
+                    ? `지금 화면에 보이는 [${meta.ko}] 내용을 클립보드에 복사합니다 (탭을 바꾸면 대상도 바뀝니다)`
+                    : `Copies the visible [${meta.en}] text to the clipboard (follows the active tab)`;
+            }
+            copyBtn.onclick = async () => {
+                const langKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                const meta = COPY_TAB_META[currentTab] || COPY_TAB_META.english;
+                const text = (outputTextarea.value || "").trim();
+                if (!text) {
+                    showToast(langKo ? "⚠️ 복사할 생성된 프롬프트가 없습니다." : "⚠️ No generated prompt to copy.", "error", 2000);
+                    return;
+                }
+                try {
+                    await navigator.clipboard.writeText(text);
+                    copyBtn.classList.add("active");
+                    showToast(langKo
+                        ? `📋 ${meta.ko} 내용을 클립보드에 복사했습니다!`
+                        : `📋 Copied the ${meta.en} text to the clipboard!`, "success", 2000);
+                    setTimeout(() => copyBtn.classList.remove("active"), 1200);
+                } catch (err) {
+                    showToast((langKo ? "클립보드 복사 실패: " : "Clipboard copy failed: ") + err, "error", 2500);
+                }
+            };
+            tabsHeader.appendChild(copyBtn);
+            refreshCopyButton();
+
             // Storyboard Card Container (Rendered when Storyboard cuts are returned)
             const storyboardOutputContainer = document.createElement("div");
             storyboardOutputContainer.className = "bada-storyboard-panel";
             storyboardOutputContainer.style.display = "none";
             outputSection.appendChild(storyboardOutputContainer);
 
-            // Output Actions Row
-            const actionsRow = document.createElement("div");
-            actionsRow.className = "bada-actions-row";
-
-            const copyBtn = document.createElement("button");
-            copyBtn.type = "button";
-            copyBtn.className = "bada-btn-secondary";
-            copyBtn.innerHTML = `<span>📋</span> <span>${isKo ? "프롬프트 복사" : "Copy Prompt"}</span>`;
-            copyBtn.onclick = async () => {
-                const text = (lastEnglishPrompt || outputTextarea.value).trim();
-                if (!text) {
-                    showToast(isKo ? "⚠️ 복사할 생성된 프롬프트가 없습니다." : "⚠️ No generated prompt to copy.", "error", 2000);
-                    return;
-                }
-                try {
-                    await navigator.clipboard.writeText(text);
-                    copyBtn.classList.add("active");
-                    copyBtn.innerHTML = `<span>✅</span> <span>Copied!</span>`;
-                    showToast(isKo ? "클립보드에 영문 프롬프트가 복사되었습니다! 📋" : "Copied English prompt to clipboard! 📋", "success", 2000);
-                    setTimeout(() => {
-                        copyBtn.classList.remove("active");
-                        copyBtn.innerHTML = `<span>📋</span> <span>${isKo ? "프롬프트 복사" : "Copy Prompt"}</span>`;
-                    }, 2000);
-                } catch (err) {
-                    showToast((isKo ? "클립보드 복사 실패: " : "Clipboard copy failed: ") + err, "error", 2500);
-                }
-            };
-
-            const sendClipBtn = document.createElement("button");
-            sendClipBtn.type = "button";
-            sendClipBtn.className = "bada-btn-secondary";
-            sendClipBtn.innerHTML = `<span>➡️</span> <span>${isKo ? "CLIP 전송" : "Send to Active CLIP"}</span>`;
-            sendClipBtn.title = isKo ? "선택된 CLIPTextEncode 노드의 텍스트로 영문 프롬프트를 다이렉트 주입합니다." : "Directly injects English prompt into selected CLIPTextEncode node.";
-            sendClipBtn.onclick = () => {
-                const text = (lastEnglishPrompt || outputTextarea.value).trim();
-                if (!text) {
-                    showToast(isKo ? "⚠️ 전송할 생성된 프롬프트가 없습니다." : "⚠️ No generated prompt to send.", "error", 2000);
-                    return;
-                }
-                sendTextToActiveClip(text);
-            };
-
-            const downloadTxtBtn = document.createElement("button");
-            downloadTxtBtn.type = "button";
-            downloadTxtBtn.className = "bada-btn-secondary";
-            downloadTxtBtn.innerHTML = `<span>💾</span> <span>${isKo ? "TXT 다운로드" : "Download TXT"}</span>`;
-            downloadTxtBtn.onclick = () => {
-                const text = outputTextarea.value.trim();
-                if (!text) {
-                    showToast(isKo ? "다운로드할 텍스트가 없습니다." : "No text to download.", "error", 1500);
-                    return;
-                }
-                const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `bada_${activeEngine}_prompt_${Date.now()}.txt`;
-                a.click();
-                URL.revokeObjectURL(url);
-                showToast(isKo ? "텍스트 파일 다운로드 완료!" : "Text file downloaded!", "success", 1500);
-            };
-
-            actionsRow.appendChild(copyBtn);
-            actionsRow.appendChild(sendClipBtn);
-            actionsRow.appendChild(downloadTxtBtn);
-            outputSection.appendChild(actionsRow);
             promptStudioContainer.appendChild(outputSection);
 
             function updateActiveTab(tabName) {
@@ -1016,11 +946,32 @@ app.registerExtension({
                         outputTextarea.value = lastEnglishPrompt;
                     }
                 }
+                refreshCopyButton();
+                autoFitOutputTextarea();
             }
 
             tabEng.onclick = () => updateActiveTab("english");
             tabKor.onclick = () => updateActiveTab("korean");
             tabAll.onclick = () => updateActiveTab("all");
+
+            // QWEN2.1 (and the structured-JSON system prompt mode) return no Korean block, so the
+            // "한국어 번역" / "통합본" tabs are filled through the format-preserving translate proxy.
+            async function ensureKoreanTranslation(text) {
+                try {
+                    const resp = await fetch("/api/bada/translate", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ text: text, target_lang: "ko", source_lang: "en" })
+                    });
+                    const data = await resp.json();
+                    if (data.success && data.translated_text) {
+                        lastKoreanTranslation = data.translated_text;
+                        if (currentTab === "korean" || currentTab === "all") updateActiveTab(currentTab);
+                    }
+                } catch (err) {
+                    console.warn("[BadaAsyncGemini] Korean translation failed:", err);
+                }
+            }
 
             const syncOutputToNodeWidget = (text) => {
                 if (node.widgets && node.widgets.length > 0) {
@@ -1034,6 +985,7 @@ app.registerExtension({
                     lastEnglishPrompt = outputTextarea.value;
                     syncOutputToNodeWidget(lastEnglishPrompt);
                 }
+                scheduleOutputRefit();
             });
 
             function sendTextToActiveClip(text) {
@@ -1236,28 +1188,8 @@ app.registerExtension({
                     if (kreaSub === "general") {
                         const callout = document.createElement("div");
                         callout.className = "bada-callout";
-                        callout.innerHTML = `ℹ️ <b>${isKo ? "일반 모드" : "General Mode"}</b>: ${isKo ? "KREA 2의 최신 화풍 렌더링 규칙과 선택한 스타일을 적용합니다." : "Applies KREA 2 photorealism rules with selected art style."}`;
+                        callout.innerHTML = `ℹ️ <b>${isKo ? "일반 모드" : "General Mode"}</b>: ${isKo ? "KREA 2의 최신 포토리얼 화풍 렌더링 규칙을 적용합니다." : "Applies KREA 2 photorealism rendering rules."}`;
                         submodePanel.appendChild(callout);
-
-                        const chipsRow = document.createElement("div");
-                        chipsRow.className = "bada-chips-row";
-                        KREA_STYLES.forEach(st => {
-                            const chip = document.createElement("button");
-                            chip.type = "button";
-                            chip.className = `bada-chip ${kreaStyle === st.id ? "active" : ""}`;
-                            chip.innerHTML = `<span>${st.icon}</span> <span>${isKo ? st.name : (st.name_en || st.name)}</span>`;
-                            chip.onclick = () => {
-                                kreaStyle = kreaStyle === st.id ? "" : st.id;
-                                localStorage.setItem("bada_krea_style", kreaStyle);
-                                chipsRow.querySelectorAll(".bada-chip").forEach(c => {
-                                    c.classList.toggle("active", c === chip && kreaStyle === st.id);
-                                });
-                                updateInputPlaceholders();
-                            };
-                            chipsRow.appendChild(chip);
-                        });
-                        submodePanel.appendChild(chipsRow);
-
                     } else if (kreaSub === "storyboard") {
                         const callout = document.createElement("div");
                         callout.className = "bada-callout";
@@ -1282,25 +1214,6 @@ app.registerExtension({
                             cutSliderRow.querySelector("#bada-cut-badge").textContent = `${storyboardCutCount} Cuts`;
                         });
                         submodePanel.appendChild(cutSliderRow);
-
-                        const chipsRow = document.createElement("div");
-                        chipsRow.className = "bada-chips-row";
-                        KREA_STYLES.forEach(st => {
-                            const chip = document.createElement("button");
-                            chip.type = "button";
-                            chip.className = `bada-chip ${kreaStyle === st.id ? "active" : ""}`;
-                            chip.innerHTML = `<span>${st.icon}</span> <span>${isKo ? st.name : (st.name_en || st.name)}</span>`;
-                            chip.onclick = () => {
-                                kreaStyle = kreaStyle === st.id ? "" : st.id;
-                                localStorage.setItem("bada_krea_style", kreaStyle);
-                                chipsRow.querySelectorAll(".bada-chip").forEach(c => {
-                                    c.classList.toggle("active", c === chip && kreaStyle === st.id);
-                                });
-                                updateInputPlaceholders();
-                            };
-                            chipsRow.appendChild(chip);
-                        });
-                        submodePanel.appendChild(chipsRow);
                     }
                 } else if (activeEngine === "qwen21") {
                     const headerRow = document.createElement("div");
@@ -1447,10 +1360,6 @@ app.registerExtension({
 
             function updateInputPlaceholders() {
                 const label = promptSection.querySelector("#bada-input-label");
-                const isQwen = activeEngine === "qwen21";
-                tabKor.hidden = isQwen;
-                tabAll.hidden = isQwen;
-                if (isQwen && currentTab !== "english") updateActiveTab("english");
                 if (activeEngine === "minimax") {
                     label.textContent = isKo 
                         ? `✍️ MiniMax H3 요청 (${minimaxSub.toUpperCase()} • ${durationSec}초)`
@@ -1480,8 +1389,7 @@ app.registerExtension({
                         generateBtn.className = "bada-btn-generate";
                         generateBtn.innerHTML = `<span>🎞️</span> <span>${isKo ? `${storyboardCutCount}컷 스토리보드 생성 🚀` : `Generate ${storyboardCutCount}-Cut Storyboard 🚀`}</span>`;
                     } else {
-                        const subTag = kreaStyle || (isKo ? "스타일 미선택" : "No style preset");
-                        label.textContent = isKo ? `✍️ KREA 2 요청 (${subTag})` : `✍️ KREA 2 Prompt (${subTag})`;
+                        label.textContent = isKo ? "✍️ KREA 2 요청" : "✍️ KREA 2 Prompt";
                         instructionTextarea.placeholder = isKo
                             ? "KREA 2로 생성할 씬의 아이디어나 스토리들을 자유롭게 입력하세요.\n예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감"
                             : "Enter ideas or scenes to generate with KREA 2.\ne.g. Cyberpunk city with wet asphalt reflecting neon lights, photorealistic texture";
@@ -1512,7 +1420,6 @@ app.registerExtension({
             }
 
             function renderEngineView() {
-                accordion.hidden = activeEngine === "qwen21" || activeEngine === "system_prompt";
                 if (activeEngine === "uncensored") {
                     promptStudioContainer.style.setProperty("display", "none", "important");
                     promptStudioContainer.classList.add("bada-hidden");
@@ -1546,7 +1453,6 @@ app.registerExtension({
                 const instruction = instructionTextarea.value.trim();
                 const key = apiKeyInput.value.trim();
                 const model = modelSelect.value;
-                const customDirectives = activeEngine === "system_prompt" ? "" : customDirectivesInput.value.trim();
 
                 if (!instruction && uploadedImages.length === 0) {
                     showToast(isKo ? "⚠️ 프롬프트 지시사항 또는 참고 이미지를 입력해 주세요." : "⚠️ Please enter prompt directives or attach a reference image.", "error", 3000);
@@ -1583,12 +1489,6 @@ app.registerExtension({
 
                 showToast(isKoNow ? `🚀 ${activeEngine.toUpperCase()} 작업 중... (중단하려면 버튼 클릭)` : `🚀 ${activeEngine.toUpperCase()} working... (Click to Stop)`, "info", 2500);
 
-                // Prepare style / preset
-                let styleParam = "";
-                if (activeEngine === "krea") {
-                    styleParam = kreaStyle || "none";
-                }
-
                 try {
                     const resp = await fetch("/api/bada/gemini/generate", {
                         method: "POST",
@@ -1600,14 +1500,12 @@ app.registerExtension({
                             submode: activeEngine === "minimax"
                                 ? minimaxSub
                                 : (activeEngine === "ltx" ? ltxSub : (activeEngine === "qwen21" ? qwenSub : kreaSub)),
-                            style: styleParam,
                             duration: durationSec,
                             cut_count: storyboardCutCount,
                             is_nsfw: isNSFW,
                             translate_korean: isTranslate,
                             aspect_ratio: aspectRatio,
                             instruction: instruction,
-                            custom_directives: customDirectives,
                             images: uploadedImages,
                             system_prompt_id: activeEngine === "system_prompt" ? selectedSystemPromptId : ""
                         }),
@@ -1625,6 +1523,12 @@ app.registerExtension({
                         lastStoryboardData = data.storyboard || null;
 
                         syncOutputToNodeWidget(lastEnglishPrompt);
+
+                        // QWEN2.1 returns only the enhanced prompt (no Korean block) — fill the
+                        // "한국어 번역" / "통합본" tabs asynchronously so all engines behave the same.
+                        if (!lastKoreanTranslation && !lastStoryboardData && isTranslate && lastEnglishPrompt) {
+                            ensureKoreanTranslation(lastEnglishPrompt);
+                        }
 
                         // If storyboard data exists, render cards
                         if (lastStoryboardData && lastStoryboardData.cuts && lastStoryboardData.cuts.length > 0) {
@@ -2213,11 +2117,6 @@ app.registerExtension({
                 });
                 modelSelect.value = currentModelVal;
 
-                // Accordion
-                const accTitle = accordion.querySelector("#bada-acc-title");
-                if (accTitle) accTitle.textContent = isKo ? "⚙️ 커스텀 시스템 지시사항 (선택 사항)" : "⚙️ Custom System Directives (Optional)";
-                customDirectivesInput.placeholder = isKo ? "이번 생성에만 강제 주입할 커스텀 시스템 지시사항이 있다면 입력하세요..." : "Enter custom system directives to override for this generation only...";
-
                 // Dropzone & Image hints
                 const imgLabel = imgLabelRow.querySelector("#bada-img-label");
                 if (imgLabel) imgLabel.textContent = isKo ? "🖼️ 참고 이미지 (멀티모달 비전)" : "🖼️ Reference Images (Multimodal Vision)";
@@ -2230,11 +2129,8 @@ app.registerExtension({
                 const clearAllBtn = thumbActions.querySelector("#bada-clear-all");
                 if (clearAllBtn) clearAllBtn.textContent = isKo ? "🗑️ 전체 삭제" : "🗑️ Clear All";
 
-                // Action buttons
-                copyBtn.innerHTML = `<span>📋</span> <span>${isKo ? "프롬프트 복사" : "Copy Prompt"}</span>`;
-                sendClipBtn.innerHTML = `<span>➡️</span> <span>${isKo ? "CLIP 전송" : "Send to Active CLIP"}</span>`;
-                sendClipBtn.title = isKo ? "선택된 CLIPTextEncode 노드의 텍스트로 영문 프롬프트를 다이렉트 주입합니다." : "Directly injects English prompt into selected CLIPTextEncode node.";
-                downloadTxtBtn.innerHTML = `<span>💾</span> <span>${isKo ? "TXT 다운로드" : "Download TXT"}</span>`;
+                // Clipboard button label follows the active tab
+                refreshCopyButton();
                 outputTextarea.placeholder = isKo ? "생성된 프롬프트가 여기에 표시됩니다. 자유롭게 직접 수정할 수도 있습니다." : "Generated prompt will appear here. You can also edit it directly.";
 
                 // Output section header & tabs
@@ -2267,8 +2163,8 @@ app.registerExtension({
 
             const langSubscription = () => {
                 updateAllStaticLabels();
-                // label lengths differ per language -> re-check the frame height
-                setTimeout(fitToContent, 60);
+                // label lengths differ per language -> re-fit the output box and the frame height
+                scheduleOutputRefit(60);
             };
             BadaI18n.subscribe(langSubscription);
 
@@ -2289,6 +2185,28 @@ app.registerExtension({
                 }
             }
 
+            // The output box no longer has a manual resize grip: it is resized to fit exactly the
+            // text it currently shows, and the node frame follows it (grow AND shrink).
+            let outputRefitTimer = null;
+            function scheduleOutputRefit(delay = 0) {
+                if (outputRefitTimer) clearTimeout(outputRefitTimer);
+                outputRefitTimer = setTimeout(() => {
+                    outputRefitTimer = null;
+                    autoFitOutputTextarea();
+                }, delay);
+            }
+            function autoFitOutputTextarea() {
+                if (!outputTextarea) return;
+                if (outputTextarea.style.display === "none") {
+                    setTimeout(fitToContent, 0);
+                    return;
+                }
+                // 1) size the box to its content, 2) let the node frame follow it
+                outputTextarea.style.height = "auto";
+                outputTextarea.style.height = Math.max(64, outputTextarea.scrollHeight + 2) + "px";
+                setTimeout(fitToContent, 0);
+            }
+
             function syncContainerSize() {
                 if (!root || !node || !node.size) return;
 
@@ -2305,6 +2223,9 @@ app.registerExtension({
                 root.classList.toggle("bada-ultra-compact", w < 340);
             }
 
+            const NODE_MIN_HEIGHT = 420;
+            const NODE_MAX_HEIGHT = 1600;
+
             // FIX: `node.size[1] - 46` alone starved the inner content area.
             // `.bada-prompt-studio-container` needs 763px but only receives
             // ~577px (root minus header/rows) -> its own vertical scrollbar and
@@ -2317,23 +2238,50 @@ app.registerExtension({
                 syncContainerSize();
                 const area = root.querySelector(".bada-prompt-studio-container");
                 if (!area) return;
+
+                // The uncensored (제미나이) chat tab hides the prompt-studio container, so its
+                // measurements are 0 x 0 and any auto-resize would collapse the node down to the
+                // minimum. That view keeps the height the user set by hand instead.
+                if (activeEngine === "uncensored") return;
+
+                // 1) Grow the node until the inner content fits.
                 let overflow = area.scrollHeight - area.clientHeight;
                 let steps = 0;
-                while (overflow > 1 && steps < 5 && node.size[1] < 1600) {
+                while (overflow > 1 && steps < 5 && node.size[1] < NODE_MAX_HEIGHT) {
                     steps += 1;
                     node.setSize([node.size[0],
-                                  Math.min(1600, node.size[1] + overflow + 8)]);
+                                  Math.min(NODE_MAX_HEIGHT, node.size[1] + overflow + 8)]);
                     syncContainerSize();
                     overflow = area.scrollHeight - area.clientHeight;
                 }
+
+                // 2) Shrink back while the content still fits, so a short output box produces a
+                //    short node frame (the user no longer drags a resize grip by hand).
+                let shrinkSteps = 0;
+                while (node.size[1] > NODE_MIN_HEIGHT && shrinkSteps < 30) {
+                    const before = node.size[1];
+                    const next = Math.max(NODE_MIN_HEIGHT, before - 40);
+                    if (next >= before) break;
+                    node.setSize([node.size[0], next]);
+                    syncContainerSize();
+                    if (area.scrollHeight - area.clientHeight > 0) {
+                        // that step clipped the content -> restore the last fitting height
+                        node.setSize([node.size[0], before]);
+                        syncContainerSize();
+                        break;
+                    }
+                    shrinkSteps += 1;
+                }
+                overflow = area.scrollHeight - area.clientHeight;
+
                 // debug probe (readable from the console / test harness)
                 window.__badaFit = {
-                    overflow, steps,
+                    overflow, steps, shrinkSteps,
                     size: node.size.slice(),
                     area: [area.clientHeight, area.scrollHeight],
                     runs: (window.__badaFit && window.__badaFit.runs || 0) + 1,
                 };
-                if (steps && appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
+                if ((steps || shrinkSteps) && appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
             }
 
             window.addEventListener("paste", onGlobalPaste);
@@ -2375,6 +2323,8 @@ app.registerExtension({
                 if (size[1] < 420) size[1] = 420;
                 origResize?.apply(this, arguments);
                 syncContainerSize();
+                // a width change re-wraps the text -> re-fit the output box afterwards
+                scheduleOutputRefit(120);
             };
 
             const origConfigure = node.onConfigure;

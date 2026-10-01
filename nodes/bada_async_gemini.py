@@ -50,20 +50,16 @@ class BadaAsyncGeminiStudio:
             },
         }
 
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("prompt",)
+    RETURN_TYPES = ()
+    RETURN_NAMES = ()
     FUNCTION = "execute"
     CATEGORY = "⚓ Bada Utils/Gemini"
     OUTPUT_NODE = False
 
     def execute(self, generated_prompt="", system_instruction="", unique_id=None, **kwargs):
         """
-        When executed in ComfyUI queue, simply passes the current generated_prompt string.
+        UI-only node: it is never wired to downstream nodes, so the queued run is a no-op
+        that simply keeps the generated text stored in its (hidden) widget.
         """
-        return (generated_prompt,)
-
-    @classmethod
-    def IS_CHANGED(cls, generated_prompt="", **kwargs):
-        # Always propagate updated text to downstream nodes
-        return generated_prompt or ""
+        return {}
 

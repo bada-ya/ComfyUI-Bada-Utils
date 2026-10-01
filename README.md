@@ -287,8 +287,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
    * Combines 6 cinematic elements: Shot, Lighting, Action, Subject, Camera, Sound
    * Supports `LTX 2.5`, `LTX T2V`, `LTX I2V`, `Voice & Audio`, `Camera Master`
 3. **🟢 ● KREA 2 (Photorealism)**:
-   * **🌐 General**: 6 curated art style chips (35mm Film, Raw Snapshot, Vintage Retro, Digital Art, 3D Render, Cyberpunk)
-   * **📜 System Prompt**: 5 verified directive cards (Cinematic Anamorphic, Raw UGC, Octane 3D, 90s Polaroid, Vogue Editorial)
+   * **🌐 General**: Photorealistic rendering rules, framed for the aspect ratio selected in the picker
    * **🎞️ Storyboard**: Analyzes scenario and partitions it into 2~15 continuous cuts with individual prompt card views
 4. **✨ Uncensored Gemini (Google AI Studio-Direct Chat)**:
    * 100% uncensored open conversation with `BLOCK_NONE` safety overrides

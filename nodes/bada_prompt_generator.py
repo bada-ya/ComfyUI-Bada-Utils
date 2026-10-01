@@ -360,7 +360,6 @@ def build_system_prompt(registry: dict, submenu: dict, image_count: int,
             is_nsfw=uncensored,
             translate_korean=False,
             cut_count=4,
-            custom_directives="",
         )
     elif kind == "official":
         prompt = (registry.get("official_prompts", {}) or {}).get(spec.get("key", ""), {})
