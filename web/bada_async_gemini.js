@@ -2,11 +2,11 @@
  * ⚓ Bada Async Gemini Studio
  * ComfyUI Web Extension (6-Engine Multi-Mode Edition)
  * - 3 Fast & Robust Models: Gemini 2.0 Flash-Lite, Gemini 2.5 Flash-Lite, Gemini 2.5 Flash
- * - 4 Dedicated Engine Tabs:
- *    1. ● MiniMax H3 (5 submodes, duration slider, multimodal vision)
- *    2. ● LTX-Video (5 submodes, duration slider, 6-element DiT)
- *    3. ● KREA 2 (일반/스타일칩, 스토리보드)
- *    4. ● QWEN2.1 (official T2I / I2I prompt enhancement)
+ * - 6 Dedicated Engine Tabs (left → right):
+ *    1. ● KREA 2 (일반/스타일칩, 스토리보드)
+ *    2. ● QWEN2.1 (official T2I / I2I prompt enhancement)
+ *    3. ● MiniMax H3 (5 submodes, duration slider, multimodal vision)
+ *    4. ● LTX-Video (5 submodes, duration slider, 6-element DiT)
  *    5. 📜 사용자 시스템 프롬프트
  *    6. ✨ 무검열 제미나이 (인터랙티브 챗 & Gem 페르소나, 실시간 웹검색)
  * - Excludes 텍스트 가공 도구 as requested
@@ -38,32 +38,51 @@ const EXACT_MODELS = [
     { id: "gemini-3.8-flash", name: "🌟 Gemini 3.8 Flash", name_en: "🌟 Gemini 3.8 Flash", desc: "1,500회/일 • 최신 고성능 Flash", desc_en: "1,500 RPD • High Performance Flash" },
 ];
 
-// 6 Engine Tabs Specification
+// 6 Engine Tabs Specification (left → right order)
 const ENGINES = [
-    { id: "minimax", name: "● MiniMax H3", name_en: "● MiniMax H3", tag: "Omni-Modal Video", tag_en: "Omni-Modal Video", color: "#6366f1" },
-    { id: "ltx", name: "● LTX-Video", name_en: "● LTX-Video", tag: "6-Element DiT", tag_en: "6-Element DiT", color: "#06b6d4" },
     { id: "krea", name: "● KREA 2", name_en: "● KREA 2", tag: "Photorealism", tag_en: "Photorealism", color: "#10b981" },
     { id: "qwen21", name: "● QWEN2.1", name_en: "● QWEN2.1", tag: "Image Prompt Enhancer", tag_en: "Image Prompt Enhancer", color: "#f59e0b" },
+    { id: "minimax", name: "● MiniMax H3", name_en: "● MiniMax H3", tag: "Omni-Modal Video", tag_en: "Omni-Modal Video", color: "#6366f1" },
+    { id: "ltx", name: "● LTX-Video", name_en: "● LTX-Video", tag: "6-Element DiT", tag_en: "6-Element DiT", color: "#06b6d4" },
     { id: "system_prompt", name: "📜 시스템", name_en: "📜 System", tag: "사용자 시스템 프롬프트", tag_en: "Custom System Prompt", color: "#38bdf8" },
     { id: "uncensored", name: "🔞 제미나이", name_en: "🔞 Gemini", tag: "Zero-Refusal Uncensored Chat", tag_en: "Zero-Refusal Uncensored Chat", color: "#a855f7" },
 ];
 
+// Output frame (aspect ratio) choices — "" means "let the AI decide".
+// Keep in sync with server/gemini_api.py::ASPECT_RATIO_CHOICES
+const ASPECT_RATIOS = [
+    { id: "", label: "자동", label_en: "Auto" },
+    { id: "1:1", label: "1:1", label_en: "1:1" },
+    { id: "3:2", label: "3:2", label_en: "3:2" },
+    { id: "2:3", label: "2:3", label_en: "2:3" },
+    { id: "4:3", label: "4:3", label_en: "4:3" },
+    { id: "3:4", label: "3:4", label_en: "3:4" },
+    { id: "5:4", label: "5:4", label_en: "5:4" },
+    { id: "4:5", label: "4:5", label_en: "4:5" },
+    { id: "16:9", label: "16:9", label_en: "16:9" },
+    { id: "9:16", label: "9:16", label_en: "9:16" },
+    { id: "21:9", label: "21:9", label_en: "21:9" },
+    { id: "9:21", label: "9:21", label_en: "9:21" },
+    { id: "2:1", label: "2:1", label_en: "2:1" },
+    { id: "1:2", label: "1:2", label_en: "1:2" },
+];
+
 // MiniMax H3 Submodes
 const MINIMAX_SUBMODES = [
-    { id: "ref2va", name: "Ref2VA", tag: "전체 참조", tag_en: "Full Ref", icon: "🎬", desc: "인물/의상/사물/동작/사운드 통합 연출", desc_en: "Character, attire, motion & audio direction" },
-    { id: "t2va", name: "T2VA", tag: "텍스트", tag_en: "Text", icon: "⚡", desc: "텍스트 프롬프트 기반 24fps 비디오+오디오 생성", desc_en: "24fps video + audio from text prompt" },
-    { id: "i2va", name: "I2VA", tag: "첫 프레임", tag_en: "First Frame", icon: "🖼️", desc: "첫 이미지로부터 유기적 물리 동작 전개", desc_en: "Organic motion expanding from first image" },
-    { id: "fl2va", name: "FL2VA", tag: "첫-끝 루프", tag_en: "First-Last Loop", icon: "🔄", desc: "시작 프레임과 끝 프레임을 잇는 시퀀스", desc_en: "Seamless transition between start & end frames" },
-    { id: "l2va", name: "L2VA", tag: "끝 착륙", tag_en: "End Target", icon: "🎯", desc: "지정된 마지막 프레임 이미지로 역산 수렴", desc_en: "Reverse motion converging to final frame" },
+    { id: "ref2va", name: "Ref2VA", tag: "전체 참조", tag_en: "Full Ref", desc: "인물/의상/사물/동작/사운드 통합 연출", desc_en: "Character, attire, motion & audio direction" },
+    { id: "t2va", name: "T2VA", tag: "텍스트", tag_en: "Text", desc: "텍스트 프롬프트 기반 24fps 비디오+오디오 생성", desc_en: "24fps video + audio from text prompt" },
+    { id: "i2va", name: "I2VA", tag: "첫 프레임", tag_en: "First Frame", desc: "첫 이미지로부터 유기적 물리 동작 전개", desc_en: "Organic motion expanding from first image" },
+    { id: "fl2va", name: "FL2VA", tag: "첫-끝 루프", tag_en: "First-Last Loop", desc: "시작 프레임과 끝 프레임을 잇는 시퀀스", desc_en: "Seamless transition between start & end frames" },
+    { id: "l2va", name: "L2VA", tag: "끝 착륙", tag_en: "End Target", desc: "지정된 마지막 프레임 이미지로 역산 수렴", desc_en: "Reverse motion converging to final frame" },
 ];
 
 // LTX-Video Submodes
 const LTX_SUBMODES = [
-    { id: "ltx_2_5", name: "LTX 2.5", tag: "6요소 DiT", tag_en: "6-Element DiT", icon: "⚡", desc: "샷, 조명, 액션, 인물, 카메라, 사운드 6대 요소 결합", desc_en: "Shot, light, action, character, camera, sound" },
-    { id: "ltx_t2v", name: "LTX T2V", tag: "텍스트 모션", tag_en: "Text Motion", icon: "📝", desc: "텍스트 서술 기반 24fps 시네마틱 프롬프트", desc_en: "Text-driven 24fps cinematic motion prompt" },
-    { id: "ltx_i2v", name: "LTX I2V", tag: "첫 프레임", tag_en: "First Frame", icon: "🖼️", desc: "첫 프레임 이미지 기반 모션 역동성 확장", desc_en: "Dynamic motion extension from initial frame" },
-    { id: "voice_audio", name: "Voice & Audio", tag: "대사/음향", tag_en: "Voice & Audio", icon: "🗣️", desc: "캐릭터 음성 대사 및 배경 앰비언스 사운드 동기화", desc_en: "Dialogue synchronization & atmospheric sound" },
-    { id: "camera_master", name: "Camera Master", tag: "3D 카메라", tag_en: "3D Camera", icon: "🎥", desc: "35mm 아나모픽 렌즈, 슬로우 돌리 인/아웃, 3D 카메라 궤적", desc_en: "35mm anamorphic, dolly in/out, 3D camera trajectory" },
+    { id: "ltx_2_5", name: "LTX 2.5", tag: "6요소 DiT", tag_en: "6-Element DiT", desc: "샷, 조명, 액션, 인물, 카메라, 사운드 6대 요소 결합", desc_en: "Shot, light, action, character, camera, sound" },
+    { id: "ltx_t2v", name: "LTX T2V", tag: "텍스트 모션", tag_en: "Text Motion", desc: "텍스트 서술 기반 24fps 시네마틱 프롬프트", desc_en: "Text-driven 24fps cinematic motion prompt" },
+    { id: "ltx_i2v", name: "LTX I2V", tag: "첫 프레임", tag_en: "First Frame", desc: "첫 프레임 이미지 기반 모션 역동성 확장", desc_en: "Dynamic motion extension from initial frame" },
+    { id: "voice_audio", name: "Voice & Audio", tag: "대사/음향", tag_en: "Voice & Audio", desc: "캐릭터 음성 대사 및 배경 앰비언스 사운드 동기화", desc_en: "Dialogue synchronization & atmospheric sound" },
+    { id: "camera_master", name: "Camera Master", tag: "3D 카메라", tag_en: "3D Camera", desc: "35mm 아나모픽 렌즈, 슬로우 돌리 인/아웃, 3D 카메라 궤적", desc_en: "35mm anamorphic, dolly in/out, 3D camera trajectory" },
 ];
 
 // KREA 2 Submodes & Presets
@@ -143,6 +162,8 @@ app.registerExtension({
 
             let isNSFW = localStorage.getItem("bada_is_nsfw") !== "false";
             let isTranslate = localStorage.getItem("bada_is_translate") !== "false";
+            let aspectRatio = localStorage.getItem("bada_aspect_ratio") || "";
+            if (!ASPECT_RATIOS.some(ratio => ratio.id === aspectRatio)) aspectRatio = "";
             let isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
 
             let uploadedImages = [];
@@ -561,26 +582,102 @@ app.registerExtension({
             submodePanel.className = "bada-submode-panel";
             promptStudioContainer.appendChild(submodePanel);
 
-            // Options Row (NSFW & Korean Translation Toggles)
+            // Options Row: slim NSFW / Korean toggles (left) + expandable Aspect Ratio picker (right)
             const optionsGrid = document.createElement("div");
-            optionsGrid.className = "bada-options-grid";
+            optionsGrid.className = "bada-options-row";
             optionsGrid.innerHTML = `
-                <div class="bada-toggle-card" id="bada-toggle-nsfw">
-                    <div class="bada-toggle-info">
+                <div class="bada-options-toggles">
+                    <div class="bada-toggle-card" id="bada-toggle-nsfw" title="${isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes"}">
                         <span class="bada-toggle-title">${isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content"}</span>
-                        <span class="bada-toggle-desc">${isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes"}</span>
+                        <span class="bada-toggle-badge ${isNSFW ? 'amber' : ''}" id="bada-badge-nsfw">${isNSFW ? 'ON' : 'OFF'}</span>
                     </div>
-                    <span class="bada-toggle-badge ${isNSFW ? 'amber' : ''}" id="bada-badge-nsfw">${isNSFW ? 'ON' : 'OFF'}</span>
-                </div>
-                <div class="bada-toggle-card" id="bada-toggle-trans">
-                    <div class="bada-toggle-info">
+                    <div class="bada-toggle-card" id="bada-toggle-trans" title="${isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes"}">
                         <span class="bada-toggle-title">${isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes"}</span>
-                        <span class="bada-toggle-desc">${isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes"}</span>
+                        <span class="bada-toggle-badge ${isTranslate ? 'green' : ''}" id="bada-badge-trans">${isTranslate ? 'ON' : 'OFF'}</span>
                     </div>
-                    <span class="bada-toggle-badge ${isTranslate ? 'green' : ''}" id="bada-badge-trans">${isTranslate ? 'ON' : 'OFF'}</span>
+                </div>
+                <div class="bada-aspect-picker" id="bada-aspect-picker">
+                    <button type="button" class="bada-aspect-trigger" id="bada-aspect-trigger" aria-expanded="false" aria-controls="bada-aspect-body">
+                        <span class="bada-aspect-trigger-label" id="bada-aspect-label">${isKo ? "화면 비율 선택" : "Aspect Ratio"}</span>
+                        <span class="bada-aspect-trigger-value" id="bada-aspect-value">${activeAspectLabel()}</span>
+                        <span class="bada-aspect-arrow" id="bada-aspect-arrow">▼</span>
+                    </button>
+                    <div class="bada-aspect-body" id="bada-aspect-body">
+                        <div class="bada-aspect-chips" id="bada-aspect-chips"></div>
+                        <div class="bada-aspect-note" id="bada-aspect-note">${isKo ? "선택한 비율이 프롬프트 생성 AI에 반영됩니다." : "The selected ratio is applied to the prompt generation AI."}</div>
+                    </div>
                 </div>
             `;
             promptStudioContainer.appendChild(optionsGrid);
+
+            // -------------------------------------------------------------
+            // ASPECT RATIO PICKER (expands downward / persisted / forwarded to the AI)
+            // -------------------------------------------------------------
+            const aspectPicker = optionsGrid.querySelector("#bada-aspect-picker");
+            const aspectTrigger = optionsGrid.querySelector("#bada-aspect-trigger");
+            const aspectBody = optionsGrid.querySelector("#bada-aspect-body");
+            const aspectChips = optionsGrid.querySelector("#bada-aspect-chips");
+
+            function activeAspectLabel() {
+                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                const found = ASPECT_RATIOS.find(ratio => ratio.id === aspectRatio) || ASPECT_RATIOS[0];
+                return isKoNow ? found.label : (found.label_en || found.label);
+            }
+
+            function renderAspectChips() {
+                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                aspectChips.innerHTML = "";
+                ASPECT_RATIOS.forEach(ratio => {
+                    const chip = document.createElement("button");
+                    chip.type = "button";
+                    chip.className = `bada-aspect-chip ${aspectRatio === ratio.id ? "active" : ""}`;
+                    chip.textContent = isKoNow ? ratio.label : (ratio.label_en || ratio.label);
+                    chip.title = ratio.id
+                        ? (isKoNow ? `${ratio.id} 비율로 프레임을 구성합니다` : `Compose the frame at ${ratio.id}`)
+                        : (isKoNow ? "AI가 장면에 맞는 비율을 직접 선택합니다" : "Let the AI pick the ratio for the scene");
+                    chip.onclick = () => {
+                        aspectRatio = ratio.id;
+                        localStorage.setItem("bada_aspect_ratio", aspectRatio);
+                        syncAspectPicker();
+                        setAspectPickerOpen(false);
+                        const label = activeAspectLabel();
+                        showToast(isKo ? `🖼️ 화면 비율: ${label}` : `🖼️ Aspect ratio: ${label}`, "info", 1500);
+                    };
+                    aspectChips.appendChild(chip);
+                });
+            }
+
+            function syncAspectPicker() {
+                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                const labelEl = optionsGrid.querySelector("#bada-aspect-label");
+                const valueEl = optionsGrid.querySelector("#bada-aspect-value");
+                const noteEl = optionsGrid.querySelector("#bada-aspect-note");
+                if (labelEl) labelEl.textContent = isKoNow ? "화면 비율 선택" : "Aspect Ratio";
+                if (valueEl) valueEl.textContent = activeAspectLabel();
+                if (noteEl) noteEl.textContent = isKoNow
+                    ? "선택한 비율이 프롬프트 생성 AI에 반영됩니다."
+                    : "The selected ratio is applied to the prompt generation AI.";
+                renderAspectChips();
+            }
+
+            function setAspectPickerOpen(open) {
+                const isOpen = !!open;
+                aspectBody.classList.toggle("open", isOpen);
+                aspectTrigger.classList.toggle("open", isOpen);
+                aspectTrigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+                const arrow = optionsGrid.querySelector("#bada-aspect-arrow");
+                if (arrow) arrow.textContent = isOpen ? "▲" : "▼";
+                // The row grew or shrank -> re-measure the node frame.
+                setTimeout(fitToContent, 0);
+            }
+
+            aspectTrigger.onclick = () => setAspectPickerOpen(!aspectBody.classList.contains("open"));
+            const onAspectOutsidePointerDown = (e) => {
+                if (!aspectBody.classList.contains("open")) return;
+                if (!aspectPicker.contains(e.target)) setAspectPickerOpen(false);
+            };
+            document.addEventListener("pointerdown", onAspectOutsidePointerDown);
+            syncAspectPicker();
 
             const nsfwToggle = optionsGrid.querySelector("#bada-toggle-nsfw");
             const nsfwBadge = optionsGrid.querySelector("#bada-badge-nsfw");
@@ -1039,9 +1136,8 @@ app.registerExtension({
                     grid.className = "bada-submode-grid cols-5";
                     MINIMAX_SUBMODES.forEach(sub => {
                         const card = document.createElement("div");
-                        card.className = `bada-sub-card minimax-card ${minimaxSub === sub.id ? "active" : ""}`;
+                        card.className = `bada-sub-card compact minimax-card ${minimaxSub === sub.id ? "active" : ""}`;
                         card.innerHTML = `
-                            <span class="bada-sub-icon">${sub.icon}</span>
                             <span class="bada-sub-name">${isKo ? sub.name : (sub.name_en || sub.name)}</span>
                             <span class="bada-sub-tag">${isKo ? sub.tag : (sub.tag_en || sub.tag)}</span>
                         `;
@@ -1081,9 +1177,8 @@ app.registerExtension({
                     grid.className = "bada-submode-grid cols-5";
                     LTX_SUBMODES.forEach(sub => {
                         const card = document.createElement("div");
-                        card.className = `bada-sub-card ltx-card ${ltxSub === sub.id ? "active" : ""}`;
+                        card.className = `bada-sub-card compact ltx-card ${ltxSub === sub.id ? "active" : ""}`;
                         card.innerHTML = `
-                            <span class="bada-sub-icon">${sub.icon}</span>
                             <span class="bada-sub-name">${isKo ? sub.name : (sub.name_en || sub.name)}</span>
                             <span class="bada-sub-tag">${isKo ? sub.tag : (sub.tag_en || sub.tag)}</span>
                         `;
@@ -1510,6 +1605,7 @@ app.registerExtension({
                             cut_count: storyboardCutCount,
                             is_nsfw: isNSFW,
                             translate_korean: isTranslate,
+                            aspect_ratio: aspectRatio,
                             instruction: instruction,
                             custom_directives: customDirectives,
                             images: uploadedImages,
@@ -1525,7 +1621,7 @@ app.registerExtension({
                         dataSuccess = true;
                         lastEnglishPrompt = data.prompt || "";
                         lastKoreanTranslation = data.korean_translation || "";
-                        lastWhRatio = data.wh_ratio || "";
+                        lastWhRatio = data.wh_ratio || aspectRatio;
                         lastStoryboardData = data.storyboard || null;
 
                         syncOutputToNodeWidget(lastEnglishPrompt);
@@ -2075,16 +2171,17 @@ app.registerExtension({
             function updateAllStaticLabels() {
                 isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
 
-                // Options grid
+                // Options row (slim toggles + aspect ratio picker)
                 const nsfwTitle = optionsGrid.querySelector("#bada-toggle-nsfw .bada-toggle-title");
-                const nsfwDesc = optionsGrid.querySelector("#bada-toggle-nsfw .bada-toggle-desc");
                 if (nsfwTitle) nsfwTitle.textContent = isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content";
-                if (nsfwDesc) nsfwDesc.textContent = isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes";
+                nsfwToggle.title = isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes";
 
                 const transTitle = optionsGrid.querySelector("#bada-toggle-trans .bada-toggle-title");
-                const transDesc = optionsGrid.querySelector("#bada-toggle-trans .bada-toggle-desc");
                 if (transTitle) transTitle.textContent = isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes";
-                if (transDesc) transDesc.textContent = isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes";
+                transToggle.title = isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes";
+
+                // Aspect ratio picker labels + chips (rebuild for the active language)
+                syncAspectPicker();
 
                 // Config section
                 const cfgTitle = configSection.querySelector(".bada-config-title-text");
@@ -2247,6 +2344,7 @@ app.registerExtension({
             const onRemoved = node.onRemoved;
             node.onRemoved = function () {
                 window.removeEventListener("paste", onGlobalPaste);
+                document.removeEventListener("pointerdown", onAspectOutsidePointerDown);
                 window.removeEventListener("visibilitychange", onVisChange);
                 window.removeEventListener("focus", onVisChange);
                 if (timerInterval) clearInterval(timerInterval);

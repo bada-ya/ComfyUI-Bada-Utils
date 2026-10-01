@@ -530,9 +530,10 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   box-shadow: none;
 }
 
-.bada-sub-icon {
-  font-size: 13px;
-  line-height: 1;
+/* MiniMax H3 / LTX-Video cards: icon row removed -> tighter vertical rhythm */
+.bada-sub-card.compact {
+  padding: 5px 2px;
+  gap: 2px;
 }
 
 .bada-sub-name {
@@ -689,23 +690,32 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   line-height: 1.35;
 }
 
-/* Options 2-Column Grid (NSFW & Translate Toggles) */
-.bada-options-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+/* Options Row: slim toggles (left) + expandable Aspect Ratio picker (right) */
+.bada-options-row {
+  display: flex;
+  align-items: flex-start;
   gap: 8px;
   min-width: 0;
   width: 100%;
+}
+
+.bada-options-toggles {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .bada-toggle-card {
   background: var(--bada-bg-surface-elevated);
   border: 1px solid var(--bada-border);
   border-radius: var(--bada-radius-md);
-  padding: 8px 10px;
+  padding: 6px 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   cursor: pointer;
   min-width: 0;
   transition: all 0.15s;
@@ -715,16 +725,8 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   border-color: var(--bada-border-hover);
 }
 
-.bada-toggle-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  overflow: hidden;
-}
-
 .bada-toggle-title {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 800;
   color: var(--bada-text-main);
   overflow: hidden;
@@ -732,12 +734,109 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   white-space: nowrap;
 }
 
-.bada-toggle-desc {
-  font-size: 9px;
-  color: var(--bada-text-dim);
+/* Aspect Ratio picker (accordion that expands downward) */
+.bada-aspect-picker {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bada-aspect-trigger {
+  width: 100%;
+  background: var(--bada-bg-surface-elevated);
+  border: 1px solid var(--bada-border);
+  border-radius: var(--bada-radius-md);
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--bada-text-main);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  transition: all 0.15s;
+}
+
+.bada-aspect-trigger:hover,
+.bada-aspect-trigger.open {
+  border-color: var(--bada-border-hover);
+}
+
+.bada-aspect-trigger-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.bada-aspect-trigger-value {
+  font-family: 'Fira Code', monospace;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--bada-border);
+  color: var(--bada-text-muted);
+  white-space: nowrap;
+}
+
+.bada-aspect-arrow {
+  font-size: 9px;
+  color: var(--bada-text-dim);
+}
+
+.bada-aspect-body {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bada-bg-input);
+  border: 1px solid var(--bada-border);
+  border-radius: var(--bada-radius-md);
+  padding: 8px;
+}
+
+.bada-aspect-body.open {
+  display: flex;
+}
+
+.bada-aspect-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
+  gap: 4px;
+}
+
+.bada-aspect-chip {
+  background: var(--bada-bg-surface-elevated);
+  border: 1px solid var(--bada-border);
+  border-radius: var(--bada-radius-sm);
+  color: var(--bada-text-muted);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 2px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.bada-aspect-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.bada-aspect-chip.active {
+  background: #2a2a2a;
+  border-color: #aaaaaa;
+  color: #fff;
+}
+
+.bada-aspect-note {
+  font-size: 9px;
+  color: var(--bada-text-dim);
+  line-height: 1.35;
 }
 
 .bada-toggle-badge {

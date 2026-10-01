@@ -176,7 +176,36 @@ def clean_base64_image(image_str):
         mime = "image/webp"
     return mime, clean_data
 
-def build_engine_system_instruction(engine_mode, submode, style, duration, is_nsfw=True, translate_korean=True, cut_count=4, custom_directives=""):
+# Output frame (aspect ratio) choices accepted from the frontend picker.
+# Keep in sync with web/bada_async_gemini.js::ASPECT_RATIOS ("" = let the AI decide).
+ASPECT_RATIO_CHOICES = (
+    "1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5",
+    "16:9", "9:16", "21:9", "9:21", "2:1", "1:2",
+)
+
+
+def build_aspect_ratio_directive(aspect_ratio, ratio_field=""):
+    """
+    Extra system-prompt block that forces the requested output frame ratio
+    (chosen in the studio UI's "화면 비율 선택" picker) for every engine pass.
+    `ratio_field` names the structured JSON key that must echo the exact ratio.
+    """
+    ratio = str(aspect_ratio or "").strip()
+    if ratio not in ASPECT_RATIO_CHOICES:
+        return ""
+    lines = [
+        "",
+        "[OUTPUT FRAME / ASPECT RATIO DIRECTIVE]",
+        f"- Fixed output aspect ratio for this generation: {ratio}.",
+        f"- Compose framing, subject placement, headroom and negative space strictly for a {ratio} frame.",
+        "- Never print the ratio notation or the words \"aspect ratio\" inside the prompt body itself; simply frame the shot for that shape.",
+    ]
+    if ratio_field:
+        lines.append(f'- The JSON field "{ratio_field}" MUST be exactly "{ratio}" (no other value, no extra explanation).')
+    return "\n".join(lines) + "\n"
+
+
+def build_engine_system_instruction(engine_mode, submode, style, duration, is_nsfw=True, translate_korean=True, cut_count=4, custom_directives="", aspect_ratio=""):
     """
     Constructs the specialized system instruction based on the active engine tab.
     Directly ported from bada-ya.github.io / 20260903_AI프롬프트스튜디오.
@@ -192,6 +221,8 @@ def build_engine_system_instruction(engine_mode, submode, style, duration, is_ns
         )
 
     lang_rule = "End with '--- KOREAN TRANSLATION ---' and a comprehensive Korean translation." if translate_korean else "Output ONLY the final English master prompt without any Korean text or conversational filler."
+
+    aspect_directive = build_aspect_ratio_directive(aspect_ratio)
 
     global_language_directive = (
         "\n=========================================\n"
@@ -288,10 +319,11 @@ def build_engine_system_instruction(engine_mode, submode, style, duration, is_ns
         + custom_block
         + "\n"
         + base_system
+        + aspect_directive
     )
 
 
-def build_qwen_system_instruction(submode, image_count):
+def build_qwen_system_instruction(submode, image_count, aspect_ratio=""):
     prompt_key = {"t2i": "qwen_t2i", "i2i": "qwen_i2i"}.get(submode)
     if not prompt_key:
         raise ValueError("QWEN2.1 submode must be 't2i' or 'i2i'.")
@@ -324,6 +356,8 @@ def build_qwen_system_instruction(submode, image_count):
         "\n\nReturn exactly one valid JSON object and no markdown fences or commentary. "
         f"Required keys and order: {fields}. All fields must be strings."
     )
+    ratio_field = next((field for field in ("wh_ratio", "ratio_follow") if field in output_fields), "")
+    system_text += build_aspect_ratio_directive(aspect_ratio, ratio_field)
     schema = {
         "type": "object",
         "properties": {field: {"type": "string"} for field in output_fields},
@@ -520,6 +554,12 @@ def register_gemini_api_routes():
                 translate_korean = body.get("translate_korean", True)
                 cut_count = int(body.get("cut_count", 4))
                 custom_directives = body.get("custom_directives", "")
+                aspect_ratio = str(body.get("aspect_ratio") or "").strip()
+                if aspect_ratio and aspect_ratio not in ASPECT_RATIO_CHOICES:
+                    return web.json_response({
+                        "success": False,
+                        "error": f"Unsupported aspect ratio '{aspect_ratio}'. Allowed: {', '.join(ASPECT_RATIO_CHOICES)}."
+                    }, status=400)
 
                 if not instruction and not images:
                     return web.json_response({
@@ -537,7 +577,7 @@ def register_gemini_api_routes():
                         return web.json_response({"success": False, "error": "Attach at least one image for QWEN2.1 I2I editing."}, status=400)
                     if submode == "t2i":
                         images = images[:1]
-                    final_system_p1, structured_schema = build_qwen_system_instruction(submode, len(images))
+                    final_system_p1, structured_schema = build_qwen_system_instruction(submode, len(images), aspect_ratio)
                 elif engine_mode == "system_prompt":
                     try:
                         system_prompt_entry, final_system_p1 = load_user_system_prompt(system_prompt_id)
@@ -584,9 +624,13 @@ def register_gemini_api_routes():
                             "required": [fields[0]],
                             "propertyOrdering": fields,
                         }
+                        ratio_field = next((field for field in ("wh_ratio", "ratio_follow") if field in fields), "")
+                        final_system_p1 += build_aspect_ratio_directive(aspect_ratio, ratio_field)
+                    else:
+                        final_system_p1 += build_aspect_ratio_directive(aspect_ratio)
                 else:
                     final_system_p1 = build_engine_system_instruction(
-                        engine_mode, submode, style, duration, is_nsfw, translate_korean, cut_count, custom_directives
+                        engine_mode, submode, style, duration, is_nsfw, translate_korean, cut_count, custom_directives, aspect_ratio
                     )
 
                 def generation_config(temperature):
@@ -627,21 +671,25 @@ def register_gemini_api_routes():
                                 logger.warning(f"[bada-AsyncGemini] Image parse error: {img_err}")
                     return p_list
 
+                ratio_line = f"Fixed output aspect ratio: {aspect_ratio}\n" if aspect_ratio else ""
                 if engine_mode == "qwen21":
                     framed_user_prompt = (
                         f"[QWEN2.1 / {submode.upper()} PROMPT GENERATION REQUEST]\n"
-                        f"Attached reference images: {len(images)}\n\n"
+                        f"Attached reference images: {len(images)}\n"
+                        f"{ratio_line}\n"
                         f"User Raw Directive:\n{instruction}"
                     )
                 elif engine_mode == "system_prompt":
                     framed_user_prompt = (
                         f"[SYSTEM PROMPT / {system_prompt_entry.get('name', 'CUSTOM')} REQUEST]\n"
-                        f"Attached reference images: {len(images)}\n\nUser Raw Directive:\n{instruction}"
+                        f"Attached reference images: {len(images)}\n"
+                        f"{ratio_line}\nUser Raw Directive:\n{instruction}"
                     )
                 else:
                     framed_user_prompt = (
                         f"[{engine_mode.upper()} PROMPT GENERATION REQUEST]\n"
-                        f"Duration: {duration}s | Sub-mode/Style: {submode or style}\n\n"
+                        f"Duration: {duration}s | Sub-mode/Style: {submode or style}\n"
+                        f"{ratio_line}\n"
                         f"User Raw Scene Directive:\n{instruction or 'Analyze attached image(s) and generate detailed prompt.'}"
                     )
 
