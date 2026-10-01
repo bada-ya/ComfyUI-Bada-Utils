@@ -73,6 +73,8 @@ const BADA_SETTINGS_TEXTS = {
 
         translationBlacklistName: "📝 Translation Blacklist",
         translationBlacklistDesc: "Enter node names to exclude from automatic translation, separated by commas.",
+        translationWhitelistName: "➕ Translation Forced-Add List",
+        translationWhitelistDesc: "Enter node names to force translation buttons on, separated by commas. Auto-detection misses are covered here.",
         saveAsName: "💾 Save As Folder Picker (Choose & Create Folders)",
         saveAsDesc: "Adds folder selection and one-click folder creation to the native File ▸ Save As dialog, so workflows can be saved into any subfolder of the workflows root.",
 
@@ -121,6 +123,8 @@ const BADA_SETTINGS_TEXTS = {
 
         translationBlacklistName: "📝 번역 제외 노드 목록",
         translationBlacklistDesc: "자동 번역에서 제외할 노드명을 쉼표(,)로 구분하여 입력하세요.",
+        translationWhitelistName: "➕ 번역 강제 추가 노드 목록",
+        translationWhitelistDesc: "자동감지되지 않는 노드명을 쉼표(,)로 구분하여 입력하세요. 번역 버튼이 강제로 추가됩니다.",
         saveAsName: "💾 다른 이름으로 저장 폴더 선택기",
         saveAsDesc: "순정 '다른 이름으로 저장' 창에 폴더 선택과 새 폴더 생성을 추가하여, 워크플로우 루트 안의 원하는 하위 폴더에 바로 저장할 수 있게 합니다.",
 
@@ -207,6 +211,14 @@ const BADA_UNIFIED_SETTINGS = {
         type: "text",
         sortOrder: 840,
         defaultValue: ""
+    },
+    translationWhitelist: {
+        id: "BadaUtils.TranslationWhitelist",
+        category: ["Bada Utils", "TranslationWhitelist"],
+        name: "➕ Translation Forced-Add List",
+        type: "text",
+        sortOrder: 839,
+        defaultValue: "show text, show any"
     },
     sidebar: {
         id: "BadaUtils.SidebarOrganizer",
@@ -464,6 +476,23 @@ function escapeHtml(str) {
         div[data-setting-id="BadaUtils.TranslationBlacklist"] {
             display: none !important;
         }
+        div[data-setting-id="BadaUtils.TranslationWhitelist"] {
+            display: none !important;
+        }
+        .bada-trans-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+        .bada-trans-row .bada-trans-input { flex: 1 1 auto; min-width: 0; }
+        .bada-trans-row .bada-trans-input.dup {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 0 1px rgba(239,68,68,0.55) !important;
+        }
+        .bada-trans-row .bada-trans-input.conflict {
+            border-color: #f59e0b !important;
+            box-shadow: 0 0 0 1px rgba(245,158,11,0.55) !important;
+        }
+        .bada-trans-hint { font-size: 11px; line-height: 1.5; margin-top: 4px; color: #94a3b8; }
+        .bada-trans-hint.warn { color: #fbbf24; }
+        .bada-trans-hint.error { color: #f87171; }
+        .bada-trans-hint.ok { color: #34d399; }
 
         #bada-inline-presets-panel button {
             cursor: pointer;
@@ -676,6 +705,31 @@ function buildNoteHelperPanel() {
         }
     } catch (_) {}
 
+    let whitelistStr = "";
+    try {
+        if (app.ui && app.ui.settings && app.ui.settings.getSettingValue) {
+            const str = app.ui.settings.getSettingValue("BadaUtils.TranslationWhitelist");
+            if (typeof str === "string") {
+                whitelistStr = str;
+            }
+        }
+    } catch (_) {}
+
+    // Normalize a comma-separated list for duplicate / conflict detection:
+    // trim + lowercase + collapse inner whitespace, keep first raw form for display.
+    const parseNameList = (raw) => {
+        const items = String(raw || "").split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .map((rawItem) => ({
+                raw: rawItem,
+                key: rawItem.toLowerCase().replace(/\s+/g, " "),
+            }));
+        const counts = new Map();
+        items.forEach(({ key }) => counts.set(key, (counts.get(key) || 0) + 1));
+        return { items, counts };
+    };
+
     const panel = document.createElement("div");
     panel.id = "bada-note-helper-panel";
     panel.style.cssText = "width: 100%; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 4px 0;";
@@ -736,22 +790,8 @@ function buildNoteHelperPanel() {
     headerRow.appendChild(titleEl);
     headerRow.appendChild(toggleLabel);
 
-    // Sub-description text
-    const descEl = document.createElement("div");
-    descEl.style.cssText = "font-size: 11px; color: #94a3b8; line-height: 1.4; font-weight: 400;";
-    descEl.textContent = isKo
-        ? "텍스트 입력 또는 표시 위젯이 있는 노드에 번역 버튼을 자동으로 추가합니다. 제외할 노드명을 쉼표(,)로 구분해 입력하세요."
-        : "Translation buttons are added automatically to nodes with text inputs or displays. Enter excluded node names, separated by commas.";
-
-    // Input + Apply button row
-    const inputRow = document.createElement("div");
-    inputRow.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 4px;";
-
-    const inputEl = document.createElement("input");
-    inputEl.type = "text";
-    inputEl.value = blacklistStr;
-    inputEl.placeholder = isKo ? "제외할 노드명 (쉼표로 구분)" : "Node names to exclude (comma-separated)";
-    inputEl.style.cssText = [
+    // Shared input style helper
+    const transInputStyle = [
         "flex: 1; min-width: 0; height: 34px;",
         "background: rgba(15, 23, 42, 0.85); color: #f8fafc;",
         "border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 6px;",
@@ -759,73 +799,215 @@ function buildNoteHelperPanel() {
         "outline: none; transition: border-color 0.15s, box-shadow 0.15s;"
     ].join("");
 
-    inputEl.addEventListener("focus", () => {
-        inputEl.style.borderColor = "#38bdf8";
-        inputEl.style.boxShadow = "0 0 8px rgba(56, 189, 248, 0.25)";
-    });
-    inputEl.addEventListener("blur", () => {
-        inputEl.style.borderColor = "rgba(255, 255, 255, 0.25)";
-        inputEl.style.boxShadow = "none";
-    });
+    const mkInput = (val, ph) => {
+        const el = document.createElement("input");
+        el.type = "text";
+        el.value = val;
+        el.placeholder = ph;
+        el.className = "bada-trans-input";
+        el.style.cssText = transInputStyle;
+        return el;
+    };
 
-    const applyBtn = document.createElement("button");
-    applyBtn.type = "button";
-    applyBtn.textContent = isKo ? "적용" : "Apply";
-    applyBtn.style.cssText = [
-        "height: 34px; padding: 0 18px; min-width: 64px;",
-        "background: rgba(15, 23, 42, 0.9); color: #38bdf8;",
-        "border: 1px solid #38bdf8; border-radius: 6px;",
-        "font-size: 13px; font-weight: 700; cursor: pointer;",
-        "transition: all 0.15s ease; white-space: nowrap; flex-shrink: 0;"
-    ].join("");
+    const blInputEl = mkInput(blacklistStr, isKo ? "제외할 노드명 (쉼표로 구분)" : "Node names to exclude (comma-separated)");
+    const wlInputEl = mkInput(whitelistStr, isKo ? "추가할 노드명 (쉼표로 구분)" : "Node names to force-add (comma-separated)");
+    blInputEl.id = "bada-translation-blacklist-input";
+    blInputEl.setAttribute("aria-label", isKo ? "번역 제외 노드 목록" : "Translation exclude list");
+    wlInputEl.id = "bada-translation-whitelist-input";
+    wlInputEl.setAttribute("aria-label", isKo ? "번역 강제 추가 노드 목록" : "Translation force-add list");
 
-    applyBtn.addEventListener("mouseenter", () => {
-        applyBtn.style.background = "#0284c7";
-        applyBtn.style.color = "#ffffff";
-        applyBtn.style.boxShadow = "0 0 10px rgba(2, 132, 199, 0.4)";
-    });
-    applyBtn.addEventListener("mouseleave", () => {
-        applyBtn.style.background = "rgba(15, 23, 42, 0.9)";
-        applyBtn.style.color = "#38bdf8";
-        applyBtn.style.boxShadow = "none";
-    });
+    const mkListLabel = (text, inputId, color, background) => {
+        const label = document.createElement("label");
+        label.htmlFor = inputId;
+        label.textContent = text;
+        label.style.cssText = [
+            "display: flex; align-items: center; justify-content: center;",
+            "flex: 0 0 96px; min-height: 34px; box-sizing: border-box;",
+            "border: 1px solid currentColor; border-radius: 6px;",
+            "font-size: 12px; font-weight: 700; white-space: nowrap;",
+            `color: ${color}; background: ${background};`
+        ].join("");
+        return label;
+    };
 
-    const handleApply = () => {
-        const newVal = inputEl.value.trim();
+    const blLabel = mkListLabel(
+        isKo ? "제외 목록" : "Exclude",
+        blInputEl.id,
+        "#fca5a5",
+        "rgba(127, 29, 29, 0.22)"
+    );
+    const wlLabel = mkListLabel(
+        isKo ? "강제 추가" : "Force add",
+        wlInputEl.id,
+        "#6ee7b7",
+        "rgba(6, 78, 59, 0.22)"
+    );
+
+    const descEl = document.createElement("div");
+    descEl.style.cssText = "font-size: 11px; color: #94a3b8; line-height: 1.4; font-weight: 400;";
+    descEl.textContent = isKo
+        ? "번역 버튼을 자동으로 추가합니다. 제외 / 강제 추가할 노드명을 쉼표(,)로 구분해 입력하세요."
+        : "Auto-adds translation buttons. Enter excluded / forced-add node names, separated by commas.";
+
+    const mkApplyBtn = () => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = isKo ? "적용" : "Apply";
+        btn.style.cssText = [
+            "height: 34px; padding: 0 18px; min-width: 64px;",
+            "background: rgba(15, 23, 42, 0.9); color: #38bdf8;",
+            "border: 1px solid #38bdf8; border-radius: 6px;",
+            "font-size: 13px; font-weight: 700; cursor: pointer;",
+            "transition: all 0.15s ease; white-space: nowrap; flex-shrink: 0;"
+        ].join("");
+        btn.addEventListener("mouseenter", () => {
+            btn.style.background = "#0284c7";
+            btn.style.color = "#ffffff";
+            btn.style.boxShadow = "0 0 10px rgba(2, 132, 199, 0.4)";
+        });
+        btn.addEventListener("mouseleave", () => {
+            btn.style.background = "rgba(15, 23, 42, 0.9)";
+            btn.style.color = "#38bdf8";
+            btn.style.boxShadow = "none";
+        });
+        return btn;
+    };
+    const applyBtn = mkApplyBtn();
+
+    const flashApplyBtn = (btn) => {
+        btn.textContent = isKo ? "✓ 적용됨" : "✓ Applied";
+        btn.style.borderColor = "#10b981";
+        btn.style.color = "#10b981";
+        setTimeout(() => {
+            btn.textContent = isKo ? "적용" : "Apply";
+            btn.style.borderColor = "#38bdf8";
+            btn.style.color = "#38bdf8";
+        }, 1500);
+    };
+
+    const applyBtn2 = mkApplyBtn();
+
+    const transHintEl = document.createElement("div");
+    transHintEl.className = "bada-trans-hint";
+    transHintEl.style.cssText = "font-size: 11px; line-height: 1.5; margin-top: 4px; color: #94a3b8;";
+
+    const setInputMark = (input, state) => {
+        input.classList.remove("dup", "conflict");
+        if (state === "dup") {
+            input.classList.add("dup");
+            input.style.borderColor = "#ef4444";
+            input.style.boxShadow = "0 0 0 1px rgba(239,68,68,0.55)";
+        } else if (state === "conflict") {
+            input.classList.add("conflict");
+            input.style.borderColor = "#f59e0b";
+            input.style.boxShadow = "0 0 0 1px rgba(245,158,11,0.55)";
+        } else {
+            input.style.borderColor = "rgba(255, 255, 255, 0.25)";
+            input.style.boxShadow = "none";
+        }
+    };
+
+    const refreshTransHint = () => {
+        const bl = parseNameList(blInputEl.value);
+        const wl = parseNameList(wlInputEl.value);
+        const wlKeySet = new Set(wl.items.map((i) => i.key));
+        const msgs = [];
+        let level = "ok";
+        const collectDup = (parsed, tagKo, tagEn) => {
+            const out = [];
+            for (const [key, n] of parsed.counts) {
+                if (n > 1) {
+                    const raws = [...new Set(parsed.items.filter((i) => i.key === key).map((i) => i.raw))];
+                    out.push(key);
+                    const v = raws.length > 1 ? (isKo ? ` (표기 변형: ${raws.join(" / ")})` : ` (variants: ${raws.join(" / ")})`) : "";
+                    msgs.push(isKo ? `⚠️ [${tagKo}] "${raws[0]}" ${n}회 중복${v}` : `⚠️ [${tagEn}] "${raws[0]}" duplicated ${n}x${v}`);
+                    level = "error";
+                }
+            }
+            return out;
+        };
+        const dupBlKeys = collectDup(bl, "제외", "Exclude");
+        const dupWlKeys = collectDup(wl, "추가", "Add");
+        const conflicts = bl.items.map((i) => i.key).filter((k) => wlKeySet.has(k));
+        const uniqConf = [...new Set(conflicts)];
+        uniqConf.forEach((k) => {
+            const raw = bl.items.find((i) => i.key === k)?.raw || k;
+            msgs.push(isKo ? `⛔ "${raw}"가 제외와 추가에 모두 있습니다 — 제외가 우선 적용됩니다` : `⛔ "${raw}" is in both Exclude and Add — Exclude wins`);
+            if (level !== "error") level = "warn";
+        });
+        if (!msgs.length) {
+            const a = bl.items.length, b = wl.items.length;
+            transHintEl.textContent = (a || b) ? (isKo ? `✓ 제외 ${a}개 · 추가 ${b}개 — 중복 없음` : `✓ ${a} excluded · ${b} forced — no duplicates`) : "";
+            transHintEl.className = "bada-trans-hint ok";
+        } else {
+            transHintEl.innerHTML = msgs.map((m) => `<div>${m}</div>`).join("");
+            transHintEl.className = `bada-trans-hint ${level}`;
+        }
+        setInputMark(blInputEl, dupBlKeys.length ? "dup" : (uniqConf.length ? "conflict" : "ok"));
+        setInputMark(wlInputEl, dupWlKeys.length ? "dup" : (uniqConf.length ? "conflict" : "ok"));
+    };
+
+    const persistTransLists = () => {
         try {
             if (app.ui?.settings?.setSettingValue) {
-                app.ui.settings.setSettingValue("BadaUtils.TranslationBlacklist", newVal);
+                app.ui.settings.setSettingValue("BadaUtils.TranslationBlacklist", blInputEl.value.trim());
+                app.ui.settings.setSettingValue("BadaUtils.TranslationWhitelist", wlInputEl.value.trim());
             }
         } catch (_) {}
         if (window.__BADA_REAPPLY_NOTE_HELPER_NODES__) {
             window.__BADA_REAPPLY_NOTE_HELPER_NODES__();
         }
         app.graph?.setDirtyCanvas?.(true, true);
+    };
 
-        applyBtn.textContent = isKo ? "✓ 적용됨" : "✓ Applied";
-        applyBtn.style.borderColor = "#10b981";
-        applyBtn.style.color = "#10b981";
-        setTimeout(() => {
-            applyBtn.textContent = isKo ? "적용" : "Apply";
-            applyBtn.style.borderColor = "#38bdf8";
-            applyBtn.style.color = "#38bdf8";
-        }, 1500);
+    const handleApply = () => {
+        persistTransLists();
+        flashApplyBtn(applyBtn);
+    };
+
+    const handleApply2 = () => {
+        persistTransLists();
+        flashApplyBtn(applyBtn2);
     };
 
     applyBtn.addEventListener("click", handleApply);
-    inputEl.addEventListener("keydown", (e) => {
+    applyBtn2.addEventListener("click", handleApply2);
+    blInputEl.addEventListener("input", refreshTransHint);
+    wlInputEl.addEventListener("input", refreshTransHint);
+    blInputEl.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
             e.preventDefault();
             handleApply();
         }
     });
+    wlInputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            handleApply2();
+        }
+    });
 
-    inputRow.appendChild(inputEl);
-    inputRow.appendChild(applyBtn);
+    const blRow = document.createElement("div");
+    blRow.className = "bada-trans-row";
+    blRow.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 4px;";
+    blRow.appendChild(blLabel);
+    blRow.appendChild(blInputEl);
+    blRow.appendChild(applyBtn);
+
+    const wlRow = document.createElement("div");
+    wlRow.className = "bada-trans-row";
+    wlRow.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 6px;";
+    wlRow.appendChild(wlLabel);
+    wlRow.appendChild(wlInputEl);
+    wlRow.appendChild(applyBtn2);
 
     panel.appendChild(headerRow);
     panel.appendChild(descEl);
-    panel.appendChild(inputRow);
+    panel.appendChild(blRow);
+    panel.appendChild(wlRow);
+    panel.appendChild(transHintEl);
+
+    refreshTransHint();
 
     return panel;
 }
@@ -861,6 +1043,9 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.sidebar.id) {
                 targetTitle = texts.sidebarName;
                 targetDesc = texts.sidebarDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.saveAsFolderPicker.id) {
+                targetTitle = texts.saveAsName;
+                targetDesc = texts.saveAsDesc;
             } else if (id === BADA_UNIFIED_SETTINGS.mouse.id) {
                 targetTitle = texts.mouseName;
                 targetDesc = texts.mouseDesc;
@@ -885,6 +1070,9 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.translationBlacklist.id) {
                 targetTitle = texts.translationBlacklistName;
                 targetDesc = texts.translationBlacklistDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.translationWhitelist.id) {
+                targetTitle = texts.translationWhitelistName;
+                targetDesc = texts.translationWhitelistDesc;
             } else if (BADA_UNIFIED_SETTINGS.terminalHub && id === BADA_UNIFIED_SETTINGS.terminalHub.id) {
                 targetTitle = texts.terminalHubTitle;
                 targetDesc = texts.terminalHubDesc;
@@ -1015,6 +1203,19 @@ app.registerExtension({
             if (existingPanel) {
                 existingPanel.replaceWith(buildInlinePresetsPanel());
             }
+            // Rebuild the note-helper panel so its bilingual header / placeholders /
+            // duplicate hints follow the new language (it is a custom renderer).
+            try {
+                const noteRow = document.querySelector('[data-setting-id="BadaUtils.NoteHelper"]');
+                if (noteRow) {
+                    const host = noteRow.querySelector(".form-input, div");
+                    const oldPanel = document.getElementById("bada-note-helper-panel");
+                    if (host && oldPanel) {
+                        const fresh = buildNoteHelperPanel();
+                        oldPanel.replaceWith(fresh);
+                    }
+                }
+            } catch (_) {}
             applyBilingualSettingsUI(lang);
         });
 
@@ -1194,6 +1395,16 @@ app.registerExtension({
             type: BADA_UNIFIED_SETTINGS.translationBlacklist.type,
             sortOrder: BADA_UNIFIED_SETTINGS.translationBlacklist.sortOrder,
             defaultValue: BADA_UNIFIED_SETTINGS.translationBlacklist.defaultValue
+        });
+
+        // ⑦-c Translation Whitelist (Forced-add) Setting (Registered for persistence)
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.translationWhitelist.id,
+            category: [texts.category, "TranslationWhitelist"],
+            name: texts.translationWhitelistName,
+            type: BADA_UNIFIED_SETTINGS.translationWhitelist.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.translationWhitelist.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.translationWhitelist.defaultValue
         });
 
 

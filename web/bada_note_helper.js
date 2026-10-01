@@ -53,6 +53,39 @@ function hideTooltip() {
     if (tooltipEl) tooltipEl.style.opacity = "0";
 }
 
+function showLongTranslationWarning(lang) {
+    const isKo = lang === "ko";
+    let toast = document.getElementById("bada-translation-length-warning");
+    if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "bada-translation-length-warning";
+        Object.assign(toast.style, {
+            position: "fixed",
+            top: "20px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: "1000000",
+            maxWidth: "min(640px, calc(100vw - 32px))",
+            padding: "10px 16px",
+            border: "1px solid #f59e0b",
+            borderRadius: "6px",
+            background: "rgba(30, 24, 12, 0.96)",
+            color: "#fef3c7",
+            fontSize: "13px",
+            lineHeight: "1.5",
+            boxShadow: "0 6px 20px rgba(0, 0, 0, 0.35)",
+            pointerEvents: "none"
+        });
+        document.body.appendChild(toast);
+    }
+
+    toast.textContent = isKo
+        ? "5000자를 넘었습니다. 번역 시간이 오래 걸리거나 구글에서 번역을 거부 할 수 있습니다."
+        : "This text exceeds 5,000 characters. Translation may take longer or Google may reject it.";
+    clearTimeout(toast._badaDismissTimer);
+    toast._badaDismissTimer = setTimeout(() => toast.remove(), 5000);
+}
+
 // Get Current Bada Utils UI Language setting ('en' | 'ko')
 function getBadaLanguage() {
     try {
@@ -88,6 +121,28 @@ function getTranslationBlacklist() {
     return [];
 }
 
+// Get user-configured node names that must always receive translation controls
+// (covers nodes missed by auto-detection). Exclude (blacklist) wins on conflict.
+function getTranslationWhitelist() {
+    try {
+        if (app.ui && app.ui.settings && app.ui.settings.getSettingValue) {
+            const val = app.ui.settings.getSettingValue("BadaUtils.TranslationWhitelist");
+            if (typeof val === "string" && val.trim()) {
+                return val.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+            }
+        }
+    } catch (e) {}
+    return [];
+}
+
+// Shared partial-name matcher (case-insensitive, whitespace-compacted).
+function matchesNameList(names, list) {
+    return list.some((item) => {
+        const compactItem = item.replace(/\s+/g, "");
+        return names.some((name) => name.includes(item) || name.replace(/\s+/g, "").includes(compactItem));
+    });
+}
+
 function isTextWidget(widget) {
     if (!widget || widget.hidden || String(widget.type || "").toLowerCase() === "hidden") return false;
 
@@ -109,16 +164,15 @@ function isTextWidget(widget) {
 }
 
 // Add translation controls to nodes with visible text widgets unless excluded.
+// Whitelisted (forced-add) nodes bypass auto-detection; blacklist always wins.
 function isTargetNoteNode(node) {
     if (!node) return false;
     const names = [node.type, node.comfyClass, node.title]
         .filter(Boolean)
         .map((name) => String(name).toLowerCase());
-    const blocked = getTranslationBlacklist().some((item) => {
-        const compactItem = item.replace(/\s+/g, "");
-        return names.some((name) => name.includes(item) || name.replace(/\s+/g, "").includes(compactItem));
-    });
-    return !blocked && getTextWidgets(node).length > 0;
+    if (matchesNameList(names, getTranslationBlacklist())) return false;
+    if (matchesNameList(names, getTranslationWhitelist())) return true;
+    return getTextWidgets(node).length > 0;
 }
 
 function getWidgetKey(widget, index) {
@@ -136,10 +190,27 @@ function getWidgetKey(widget, index) {
 function getTextWidgets(node) {
     if (!node || !node.widgets) return [];
 
-    return node.widgets
+    const strict = node.widgets
         .map((widget, index) => ({ widget, key: getWidgetKey(widget, index) }))
         .filter(({ widget }) => {
             return isTextWidget(widget);
+        });
+    if (strict.length > 0) return strict;
+
+    // Fallback for whitelisted (forced-add) nodes missed by auto-detection:
+    // accept any DOM-backed text-like widget even if its type tag is exotic.
+    const names = [node.type, node.comfyClass, node.title]
+        .filter(Boolean)
+        .map((name) => String(name).toLowerCase());
+    if (!matchesNameList(names, getTranslationWhitelist())) return [];
+    return node.widgets
+        .map((widget, index) => ({ widget, key: getWidgetKey(widget, index) }))
+        .filter(({ widget }) => {
+            if (!widget || widget.hidden) return false;
+            const el = widget.inputEl || widget.element;
+            const tag = String(el?.tagName || "").toLowerCase();
+            if ((tag === "input" || tag === "textarea") && typeof el.value === "string") return true;
+            return typeof widget.value === "string" && widget.value.trim().length > 0;
         });
 }
 
@@ -464,7 +535,7 @@ function attachBadaNoteHelper(node) {
         const yHit2 = yDraw;          // Relative to translated origin
 
         const width = (n.size && n.size[0] > 50) ? n.size[0] : 200;
-        const xTranslate = width - btnPaddingRight - btnWidth;           // Translate Button
+        const xTranslate = width - btnPaddingRight - btnWidth - btnWidth - 8;
 
         return [
             { id: "translate", x: xTranslate, yDraw, yHit1, yHit2, w: btnWidth, h: btnHeight }
@@ -643,6 +714,12 @@ function attachBadaNoteHelper(node) {
                         return true;
                     }
 
+                    const hasLongText = textEntries.some(({ key, widget }) => {
+                        const originalText = runtimeOriginals[key] || map[key]?.original || getWidgetText(widget) || "";
+                        return originalText.length > 5000;
+                    });
+                    if (hasLongText) showLongTranslationWarning(currentBadaLang);
+
                     state.isTranslating = true;
                     if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
 
@@ -751,35 +828,62 @@ function attachBadaNoteHelper(node) {
     };
 }
 
+function scheduleAttachBadaNoteHelper(node) {
+    if (!node || node._badaNoteAttachScheduled) return;
+    node._badaNoteAttachScheduled = true;
+
+    const schedule = window.requestAnimationFrame || (callback => setTimeout(callback, 0));
+    schedule(() => {
+        node._badaNoteAttachScheduled = false;
+        if (node.graph && node.graph._nodes && !node.graph._nodes.includes(node)) return;
+        attachBadaNoteHelper(node);
+    });
+}
+
+function watchGraphNodeAdditions(graph) {
+    if (!graph || graph._badaNoteHelperNodeAddedHook) return;
+
+    const originalOnNodeAdded = graph.onNodeAdded;
+    graph.onNodeAdded = function(node) {
+        const result = originalOnNodeAdded?.apply(this, arguments);
+        scheduleAttachBadaNoteHelper(node);
+        return result;
+    };
+    graph._badaNoteHelperNodeAddedHook = true;
+}
+
 // Register Extension with Multi-Hook Scanning
 app.registerExtension({
     name: "ComfyUI.BadaUtils.NoteHelper",
 
     async setup() {
+        watchGraphNodeAdditions(app.graph);
         if (app.graph && app.graph._nodes) {
-            app.graph._nodes.forEach(node => attachBadaNoteHelper(node));
+            app.graph._nodes.forEach(node => scheduleAttachBadaNoteHelper(node));
         }
     },
 
     async afterConfigure() {
+        watchGraphNodeAdditions(app.graph);
         if (app.graph && app.graph._nodes) {
-            app.graph._nodes.forEach(node => attachBadaNoteHelper(node));
+            app.graph._nodes.forEach(node => scheduleAttachBadaNoteHelper(node));
         }
     },
 
     async nodeCreated(node) {
-        attachBadaNoteHelper(node);
+        scheduleAttachBadaNoteHelper(node);
     },
 
     async loadedGraphNode(node) {
-        attachBadaNoteHelper(node);
+        scheduleAttachBadaNoteHelper(node);
     },
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
         const origOnNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function() {
-            if (origOnNodeCreated) origOnNodeCreated.apply(this, arguments);
-            attachBadaNoteHelper(this);
+            const result = origOnNodeCreated ? origOnNodeCreated.apply(this, arguments) : undefined;
+            scheduleAttachBadaNoteHelper(this);
+            return result;
         };
     }
 });
