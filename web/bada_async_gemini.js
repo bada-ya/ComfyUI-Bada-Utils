@@ -742,7 +742,7 @@ app.registerExtension({
             accBtn.style.fontSize = "11px";
             accBtn.style.fontWeight = "700";
             accBtn.style.cursor = "pointer";
-            accBtn.innerHTML = `<span id="bada-acc-title">${isKo ? "⚙️ 커스텀 시스템 지시사항 (선택 사항)" : "⚙️ Custom System Directives (Optional)"}</span><span id="bada-acc-arrow">▼</span>`;
+            
 
             const accBody = document.createElement("div");
             accBody.style.display = "none";
@@ -752,6 +752,7 @@ app.registerExtension({
             const customDirectivesInput = document.createElement("textarea");
             customDirectivesInput.className = "bada-textarea";
             customDirectivesInput.rows = 2;
+
             customDirectivesInput.placeholder = isKo ? "이번 생성에만 강제 주입할 커스텀 시스템 지시사항이 있다면 입력하세요..." : "Enter custom system directives to override for this generation only...";
             accBody.appendChild(customDirectivesInput);
 
