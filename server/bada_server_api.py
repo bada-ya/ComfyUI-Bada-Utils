@@ -5,6 +5,7 @@ ComfyUI-Bada-Utils: Unified Backend REST API Routes
 - Auto Model & LoRA Discovery API
 """
 
+import asyncio
 import os
 import sys
 import re
@@ -13,11 +14,17 @@ import json
 import logging
 import base64
 import html
+import time
 import urllib.parse
 import urllib.request
 from aiohttp import web
 from server import PromptServer
 import folder_paths
+from ..translation_runtime import (
+    TRANSLATION_ATTEMPT_TIMEOUT_SECONDS,
+    TRANSLATION_TIMEOUT_SECONDS,
+    submit_translation,
+)
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 
@@ -807,15 +814,22 @@ def register_bada_api_routes():
                     ),
                 ]
 
-                loop = PromptServer.instance.loop
+                deadline = time.monotonic() + TRANSLATION_TIMEOUT_SECONDS
+
                 def fetch_translation_with_failover():
                     direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
                     last_err = None
                     for base_url, params in strategies:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise TimeoutError("Translation exceeded the 20-second overall timeout")
                         try:
                             url = f"{base_url}?{urllib.parse.urlencode(params)}"
                             req = urllib.request.Request(url, headers=headers)
-                            with direct_opener.open(req, timeout=10) as response:
+                            with direct_opener.open(
+                                req,
+                                timeout=min(TRANSLATION_ATTEMPT_TIMEOUT_SECONDS, remaining),
+                            ) as response:
                                 raw_bytes = response.read()
                                 res_json = json.loads(raw_bytes.decode('utf-8'))
                                 chunks = []
@@ -831,11 +845,34 @@ def register_bada_api_routes():
                             last_err = err
                             logger.warning(f"[Bada-Utils] Note Helper translate endpoint {base_url} ({params.get('client')}) failover: {err}")
                             continue
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Translation exceeded the 20-second overall timeout")
                     if last_err:
                         raise last_err
                     return protected_text
 
-                raw_translated = await loop.run_in_executor(None, fetch_translation_with_failover)
+                future = submit_translation(fetch_translation_with_failover)
+                if future is None:
+                    return web.json_response({
+                        "success": False,
+                        "error": "번역 요청이 많습니다. 잠시 후 다시 시도해 주세요.",
+                    }, status=429)
+                try:
+                    raw_translated = await asyncio.wait_for(
+                        asyncio.wrap_future(future),
+                        timeout=TRANSLATION_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    future.cancel()
+                    return web.json_response({
+                        "success": False,
+                        "error": "번역 시간이 20초를 초과했습니다. 잠시 후 다시 시도해 주세요.",
+                    }, status=504)
+                except TimeoutError:
+                    return web.json_response({
+                        "success": False,
+                        "error": "번역 시간이 20초를 초과했습니다. 잠시 후 다시 시도해 주세요.",
+                    }, status=504)
                 translated_text = html.unescape(raw_translated) if raw_translated else protected_text
 
                 def restore_match(match):
@@ -1163,8 +1200,15 @@ def register_bada_api_routes():
                 root_dir = get_workflows_root_dir()
                 raw_path = ""
                 image_bytes = None
+                max_upload_bytes = 50 * 1024 * 1024
+                max_json_bytes = ((max_upload_bytes + 2) // 3) * 4 + 128 * 1024
+                is_multipart = request.content_type.startswith("multipart/")
+                request_limit = max_upload_bytes + 128 * 1024 if is_multipart else max_json_bytes
 
-                if request.content_type.startswith("multipart/"):
+                if request.content_length is not None and request.content_length > request_limit:
+                    raise web.HTTPRequestEntityTooLarge(max_size=request_limit, actual_size=request.content_length)
+
+                if is_multipart:
                     reader = await request.multipart()
                     while True:
                         part = await reader.next()
@@ -1173,15 +1217,47 @@ def register_bada_api_routes():
                         if part.name == "path":
                             raw_path = (await part.text()).strip()
                         elif part.name in ["file", "image"]:
-                            image_bytes = await part.read()
+                            chunks = []
+                            part_size = 0
+                            while True:
+                                chunk = await part.read_chunk(size=64 * 1024)
+                                if not chunk:
+                                    break
+                                part_size += len(chunk)
+                                if part_size > max_upload_bytes:
+                                    raise web.HTTPRequestEntityTooLarge(max_size=max_upload_bytes, actual_size=part_size)
+                                chunks.append(chunk)
+                            image_bytes = b"".join(chunks)
                 else:
-                    body = await request.json()
-                    raw_path = (body.get("path") or "").strip()
+                    chunks = []
+                    body_size = 0
+                    async for chunk in request.content.iter_chunked(64 * 1024):
+                        body_size += len(chunk)
+                        if body_size > max_json_bytes:
+                            raise web.HTTPRequestEntityTooLarge(max_size=max_json_bytes, actual_size=body_size)
+                        chunks.append(chunk)
+                    body = json.loads(b"".join(chunks))
+                    if not isinstance(body, dict):
+                        return web.json_response({"success": False, "error": "Invalid request body"}, status=400)
+                    raw_path = body.get("path") or ""
+                    if not isinstance(raw_path, str):
+                        return web.json_response({"success": False, "error": "Invalid workflow path"}, status=400)
+                    raw_path = raw_path.strip()
                     img_data = body.get("image_base64") or body.get("image") or ""
                     if img_data:
+                        if not isinstance(img_data, str):
+                            return web.json_response({"success": False, "error": "Invalid image data"}, status=400)
                         if "," in img_data:
                             img_data = img_data.split(",", 1)[1]
-                        image_bytes = base64.b64decode(img_data)
+                        max_encoded_bytes = ((max_upload_bytes + 2) // 3) * 4 + 128 * 1024
+                        if len(img_data) > max_encoded_bytes:
+                            raise web.HTTPRequestEntityTooLarge(max_size=max_encoded_bytes, actual_size=len(img_data))
+                        try:
+                            image_bytes = base64.b64decode(img_data, validate=True)
+                        except Exception:
+                            return web.json_response({"success": False, "error": "Invalid base64 image data"}, status=400)
+                        if len(image_bytes) > max_upload_bytes:
+                            raise web.HTTPRequestEntityTooLarge(max_size=max_upload_bytes, actual_size=len(image_bytes))
 
                 raw_path = raw_path.replace("\\", "/").lstrip("/")
                 if not raw_path:
@@ -1205,10 +1281,18 @@ def register_bada_api_routes():
                 if not is_safe_path(root_dir, thumb_full):
                     return web.json_response({"success": False, "error": "Invalid thumbnail destination"}, status=403)
 
-                # Ensure thumbnail is resized to max 640px and optimized to ~100KB
+                # Validate and re-encode before writing; never save source bytes as a thumbnail.
                 try:
-                    from PIL import Image
+                    from PIL import Image, UnidentifiedImageError
                     import io
+                    max_pixels = 40_000_000
+                    with Image.open(io.BytesIO(image_bytes)) as probe:
+                        if probe.format not in {"JPEG", "PNG", "WEBP"}:
+                            return web.json_response({"success": False, "error": "Unsupported image format. Use PNG, JPEG, or WebP."}, status=400)
+                        if probe.width <= 0 or probe.height <= 0 or probe.width * probe.height > max_pixels:
+                            return web.json_response({"success": False, "error": "Image dimensions exceed the safe limit of 40 megapixels."}, status=413)
+                        probe.verify()
+
                     im = Image.open(io.BytesIO(image_bytes))
                     max_dim = 640
                     if im.width > max_dim or im.height > max_dim:
@@ -1219,12 +1303,22 @@ def register_bada_api_routes():
                         im.save(out_buf, format="PNG", optimize=True)
                     else:
                         im.convert("RGB").save(out_buf, format="PNG", optimize=True)
-                    image_bytes = out_buf.getvalue()
+                    thumbnail_bytes = out_buf.getvalue()
+                    im.close()
+                    if not thumbnail_bytes:
+                        raise ValueError("Thumbnail conversion produced no data")
+                except UnidentifiedImageError as opt_err:
+                    logger.warning(f"[Bada-Utils] Invalid thumbnail image: {opt_err}")
+                    return web.json_response({"success": False, "error": "The uploaded file is not a valid supported image."}, status=400)
+                except Image.DecompressionBombError as opt_err:
+                    logger.warning(f"[Bada-Utils] Thumbnail image exceeds pixel safety limit: {opt_err}")
+                    return web.json_response({"success": False, "error": "Image dimensions exceed the safe pixel limit."}, status=413)
                 except Exception as opt_err:
-                    logger.warning(f"[Bada-Utils] Thumbnail optimization warning: {opt_err}")
+                    logger.warning(f"[Bada-Utils] Thumbnail conversion failed: {opt_err}")
+                    return web.json_response({"success": False, "error": "Image validation or thumbnail conversion failed."}, status=400)
 
                 with open(thumb_full, "wb") as f:
-                    f.write(image_bytes)
+                    f.write(thumbnail_bytes)
 
                 thumb_rel = os.path.relpath(thumb_full, root_dir).replace("\\", "/")
 
@@ -1242,6 +1336,8 @@ def register_bada_api_routes():
                     "thumbnail": thumb_rel,
                     "thumbnail_url": thumb_url
                 })
+            except web.HTTPRequestEntityTooLarge:
+                return web.json_response({"success": False, "error": "Thumbnail upload exceeds the 50 MiB file limit."}, status=413)
             except Exception as e:
                 logger.error(f"[Bada-Utils] upload_thumbnail_handler error: {e}")
                 return web.json_response({"success": False, "error": str(e)}, status=500)

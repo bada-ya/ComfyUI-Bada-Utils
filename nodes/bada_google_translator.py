@@ -15,8 +15,16 @@ import html
 import json
 import logging
 import re
+import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import TimeoutError as FutureTimeoutError
+
+from ..translation_runtime import (
+    TRANSLATION_ATTEMPT_TIMEOUT_SECONDS,
+    TRANSLATION_TIMEOUT_SECONDS,
+    submit_translation,
+)
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 
@@ -53,10 +61,11 @@ class BadaGoogleTranslator:
     CATEGORY = "⚓ Bada Utils/Text"
     OUTPUT_NODE = False
 
-    def _fetch_translation(self, query_text, from_lang, to_lang):
+    def _fetch_translation(self, query_text, from_lang, to_lang, deadline=None):
         """
         Execute request with multi-endpoint fallback to bypass 429 Too Many Requests
         """
+        deadline = deadline or (time.monotonic() + TRANSLATION_TIMEOUT_SECONDS)
         strategies = [
             # 1. Google Chrome Extension official client (highest quota, practically immune to 429)
             (
@@ -85,11 +94,17 @@ class BadaGoogleTranslator:
         direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
         for base_url, params in strategies:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Translation exceeded the 20-second overall timeout")
             try:
                 url = f"{base_url}?{urllib.parse.urlencode(params)}"
                 req = urllib.request.Request(url, headers=BROWSER_HEADERS)
 
-                with direct_opener.open(req, timeout=10) as response:
+                with direct_opener.open(
+                    req,
+                    timeout=min(TRANSLATION_ATTEMPT_TIMEOUT_SECONDS, remaining),
+                ) as response:
                     raw_data = response.read().decode("utf-8")
                     res_json = json.loads(raw_data)
 
@@ -111,6 +126,8 @@ class BadaGoogleTranslator:
                 logger.warning(f"[ComfyUI-Bada-Utils] Translation endpoint {base_url} ({params.get('client')}) fallback: {err}")
                 continue
 
+        if time.monotonic() >= deadline:
+            raise TimeoutError("Translation exceeded the 20-second overall timeout")
         if last_error:
             raise last_error
         return query_text
@@ -121,6 +138,12 @@ class BadaGoogleTranslator:
 
         if from_lang != "auto" and from_lang == to_lang:
             return (text,)
+
+        if len(text) > 5000:
+            logger.warning(
+                "[ComfyUI-Bada-Utils] Text exceeds 5,000 characters. "
+                "Translation may take longer or Google may reject it."
+            )
 
         original_text = text
         preserved_map = {}
@@ -140,7 +163,21 @@ class BadaGoogleTranslator:
 
         # 2. Request Translation with Failover
         try:
-            translated_text = self._fetch_translation(processed_text, from_lang, to_lang)
+            deadline = time.monotonic() + TRANSLATION_TIMEOUT_SECONDS
+            future = submit_translation(
+                self._fetch_translation,
+                processed_text,
+                from_lang,
+                to_lang,
+                deadline=deadline,
+            )
+            if future is None:
+                raise RuntimeError("번역 요청이 많습니다. 잠시 후 다시 시도해 주세요.")
+            try:
+                translated_text = future.result(timeout=max(0, deadline - time.monotonic()))
+            except FutureTimeoutError as timeout_error:
+                future.cancel()
+                raise TimeoutError("Translation exceeded the 20-second overall timeout") from timeout_error
 
             # 3. Decode HTML entities (e.g., &quot;, &#39;, &amp;)
             translated_text = html.unescape(translated_text)

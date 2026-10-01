@@ -29,6 +29,7 @@ Includes = [
     "assets",
     "docs",
     "__init__.py",
+    "translation_runtime.py",
     "presets_data.json",
     "node_list.json",
     "config.example.json",

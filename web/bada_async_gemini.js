@@ -1,12 +1,14 @@
 /**
  * ⚓ Bada Async Gemini Studio
- * ComfyUI Web Extension (4-Engine Multi-Mode Edition)
+ * ComfyUI Web Extension (6-Engine Multi-Mode Edition)
  * - 3 Fast & Robust Models: Gemini 2.0 Flash-Lite, Gemini 2.5 Flash-Lite, Gemini 2.5 Flash
  * - 4 Dedicated Engine Tabs:
  *    1. ● MiniMax H3 (5 submodes, duration slider, multimodal vision)
  *    2. ● LTX-Video (5 submodes, duration slider, 6-element DiT)
- *    3. ● KREA 2 (3 submodes: 일반/스타일칩, 시스템프롬프트/지침카드, 스토리보드/컷슬라이더 & 카드뷰)
- *    4. ✨ 무검열 제미나이 (Google AI Studio식 무검열 인터랙티브 챗 & 4대 Gem 페르소나, 실시간 웹검색 그라운딩)
+ *    3. ● KREA 2 (일반/스타일칩, 스토리보드)
+ *    4. ● QWEN2.1 (official T2I / I2I prompt enhancement)
+ *    5. 📜 사용자 시스템 프롬프트
+ *    6. ✨ 무검열 제미나이 (인터랙티브 챗 & Gem 페르소나, 실시간 웹검색)
  * - Excludes 텍스트 가공 도구 as requested
  * - Independent non-blocking execution, Zero VRAM impact, Zero-Refusal 3-Pass pipeline
  * - One-click clipboard copy & direct injection to active CLIP Text Encode nodes
@@ -36,11 +38,13 @@ const EXACT_MODELS = [
     { id: "gemini-3.8-flash", name: "🌟 Gemini 3.8 Flash", name_en: "🌟 Gemini 3.8 Flash", desc: "1,500회/일 • 최신 고성능 Flash", desc_en: "1,500 RPD • High Performance Flash" },
 ];
 
-// 4 Engine Tabs Specification
+// 6 Engine Tabs Specification
 const ENGINES = [
     { id: "minimax", name: "● MiniMax H3", name_en: "● MiniMax H3", tag: "Omni-Modal Video", tag_en: "Omni-Modal Video", color: "#6366f1" },
     { id: "ltx", name: "● LTX-Video", name_en: "● LTX-Video", tag: "6-Element DiT", tag_en: "6-Element DiT", color: "#06b6d4" },
     { id: "krea", name: "● KREA 2", name_en: "● KREA 2", tag: "Photorealism", tag_en: "Photorealism", color: "#10b981" },
+    { id: "qwen21", name: "● QWEN2.1", name_en: "● QWEN2.1", tag: "Image Prompt Enhancer", tag_en: "Image Prompt Enhancer", color: "#f59e0b" },
+    { id: "system_prompt", name: "📜 시스템", name_en: "📜 System", tag: "사용자 시스템 프롬프트", tag_en: "Custom System Prompt", color: "#38bdf8" },
     { id: "uncensored", name: "🔞 제미나이", name_en: "🔞 Gemini", tag: "Zero-Refusal Uncensored Chat", tag_en: "Zero-Refusal Uncensored Chat", color: "#a855f7" },
 ];
 
@@ -65,8 +69,12 @@ const LTX_SUBMODES = [
 // KREA 2 Submodes & Presets
 const KREA_SUBMODES = [
     { id: "general", name: "🌐 일반", name_en: "🌐 General", desc: "KREA 2 화풍 & 스타일 칩", desc_en: "KREA 2 art styles & style chips" },
-    { id: "system_prompt", name: "📜 시스템 프롬프트", name_en: "📜 System Prompt", desc: "등록된 KREA 2 지침 적용", desc_en: "Apply registered KREA 2 directives" },
     { id: "storyboard", name: "🎞️ 스토리보드", name_en: "🎞️ Storyboard", desc: "연속 컷 시퀀스 분할 생성", desc_en: "Sequential cut storyboard prompts" },
+];
+
+const QWEN_SUBMODES = [
+    { id: "t2i", name: "🖼️ T2I", name_en: "🖼️ T2I", desc: "텍스트 기반 이미지 프롬프트 강화", desc_en: "Text-to-image prompt enhancement" },
+    { id: "i2i", name: "🪄 I2I (편집)", name_en: "🪄 I2I (Edit)", desc: "참조 이미지를 바탕으로 편집 프롬프트 생성", desc_en: "Image-edit prompt from reference images" },
 ];
 
 const KREA_STYLES = [
@@ -76,14 +84,6 @@ const KREA_STYLES = [
     { id: "digital_art", name: "디지털 아트", name_en: "Digital Art", icon: "🎨" },
     { id: "3d_render", name: "3D 렌더링", name_en: "3D Render", icon: "🧊" },
     { id: "cyberpunk_anime", name: "사이버펑크", name_en: "Cyberpunk", icon: "🌆" },
-];
-
-const KREA_PRESETS = [
-    { id: "krea_cinematic_photo", name: "시네마틱 35mm 영화 필름 (Anamorphic)", name_en: "Cinematic 35mm Film (Anamorphic)", desc: "35mm 아나모픽 렌즈, 코닥 포트라 400 필름 그레인, 볼류메트릭 림 라이팅, 헐리우드 영화 룩", desc_en: "35mm anamorphic lens, Kodak Portra 400 grain, volumetric rim lighting, Hollywood film aesthetic" },
-    { id: "krea_raw_snapshot", name: "날것의 스마트폰 스냅샷 (Raw UGC)", name_en: "Authentic Smartphone Snapshot (Raw UGC)", desc: "iPhone 15 Pro 무보정 스냅샷, 직광 플래시, 자연스러운 피부 질감 및 리얼리즘", desc_en: "iPhone 15 Pro unretouched snapshot, direct flash, authentic skin texture & realism" },
-    { id: "krea_surreal_3d", name: "초현실 판타지 & 컨셉 아트 (Octane 3D)", name_en: "Surreal Fantasy & Concept Art (Octane 3D)", desc: "언리얼 엔진 5 & 옥테인 3D 렌더링, 레이트레이싱 광원, 8k 하이퍼 디테일", desc_en: "Unreal Engine 5 & Octane 3D render, ray-traced lighting, 8k hyper-detail" },
-    { id: "krea_vintage_polaroid", name: "빈티지 레트로 폴라로이드 (90s Analog)", name_en: "Vintage Retro Polaroid (90s Analog)", desc: "1990년대 폴라로이드 사진, 빛바랜 색감, 아날로그 그레인 및 따뜻한 감성", desc_en: "1990s Polaroid photo, faded colors, analog grain and nostalgic warmth" },
-    { id: "krea_vogue_fashion", name: "하이엔드 패션 & 룩북 (Vogue Editorial)", name_en: "High-End Fashion & Lookbook (Vogue Editorial)", desc: "보그 매거진 화보, 스튜디오 스트로브 조명, 오뜨 꾸뛰르 의상 및 모델 포징", desc_en: "Vogue editorial photoshoot, studio strobe lights, haute couture attire & model poses" },
 ];
 
 // Gem Personas for Uncensored Gemini Chat
@@ -127,12 +127,17 @@ app.registerExtension({
             }
 
             // State
-            let activeEngine = localStorage.getItem("bada_active_engine") || "krea"; // minimax | ltx | krea | uncensored
+            let activeEngine = localStorage.getItem("bada_active_engine") || "krea";
             let minimaxSub = localStorage.getItem("bada_minimax_sub") || "ref2va";
             let ltxSub = localStorage.getItem("bada_ltx_sub") || "ltx_2_5";
-            let kreaSub = localStorage.getItem("bada_krea_sub") || "general"; // general | system_prompt | storyboard
+            let kreaSub = localStorage.getItem("bada_krea_sub") || "general";
+            if (!KREA_SUBMODES.some(submode => submode.id === kreaSub)) kreaSub = "general";
             let kreaStyle = localStorage.getItem("bada_krea_style") || "cinematic_photo";
-            let kreaPresetId = localStorage.getItem("bada_krea_preset") || "krea_cinematic_photo";
+            let qwenSub = localStorage.getItem("bada_qwen_sub") || "t2i";
+            let userSystemPrompts = [];
+            let selectedSystemPromptId = localStorage.getItem("bada_async_system_prompt") || "";
+            let systemPromptsLoaded = false;
+            let systemPromptLoadPromise = null;
             let storyboardCutCount = parseInt(localStorage.getItem("bada_storyboard_cuts") || "4", 10);
             let durationSec = parseInt(localStorage.getItem("bada_duration_sec") || "10", 10);
 
@@ -145,6 +150,7 @@ app.registerExtension({
             let timerInterval = null;
             let lastEnglishPrompt = "";
             let lastKoreanTranslation = "";
+            let lastWhRatio = "";
             let lastStoryboardData = null;
             let currentTab = "english";
 
@@ -231,6 +237,7 @@ app.registerExtension({
                 const now = new Date();
                 const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
                 errorLogs.unshift({ id: Date.now(), time: timeStr, source, msg: String(msg) });
+                if (errorLogs.length > 10) errorLogs.length = 10;
                 unreadErrorCount++;
                 updateBellBadge();
             }
@@ -617,39 +624,6 @@ app.registerExtension({
             });
             promptSection.appendChild(instructionTextarea);
 
-            // Quick Style Tags Bar
-            const quickBar = document.createElement("div");
-            quickBar.className = "bada-quick-bar";
-            const quickTags = [
-                { label: "🎬 35mm Film", label_ko: "🎬 35mm 필름", text: "35mm anamorphic lens, Kodak Portra 400 film grain, dramatic volumetric lighting" },
-                { label: "📸 Raw UGC", label_ko: "📸 리얼 스냅", text: "iPhone 15 Pro raw snapshot, direct flash, authentic skin imperfections, zero filtering" },
-                { label: "🎥 Video Motion", label_ko: "🎥 비디오 모션", text: "dynamic slow-motion tracking shot, atmospheric breeze blowing hair, fluid motion" },
-                { label: "🌧️ Wet Neon", label_ko: "🌧️ 네온 비", text: "wet asphalt rain reflections, neon city lighting, dramatic moody shadows, cyberpunk" },
-                { label: "👗 Vogue Editorial", label_ko: "👗 보그 화보", text: "high-fashion vogue editorial, studio strobe lighting, luxury fabrics" }
-            ];
-
-            function renderQuickBar() {
-                quickBar.innerHTML = "";
-                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
-                quickTags.forEach(tag => {
-                    const pill = document.createElement("button");
-                    pill.type = "button";
-                    pill.className = "bada-pill";
-                    pill.textContent = isKoNow ? tag.label_ko : tag.label;
-                    pill.onclick = (e) => {
-                        e.preventDefault();
-                        if (instructionTextarea.value.trim().length > 0) {
-                            instructionTextarea.value += `, ${tag.text}`;
-                        } else {
-                            instructionTextarea.value = tag.text;
-                        }
-                        instructionTextarea.focus();
-                    };
-                    quickBar.appendChild(pill);
-                });
-            }
-            renderQuickBar();
-            promptSection.appendChild(quickBar);
             promptStudioContainer.appendChild(promptSection);
 
             // Custom Directives Accordion
@@ -996,8 +970,56 @@ app.registerExtension({
                 return false;
             }
 
+            function loadSystemPromptRegistry(force = false) {
+                if (!force && systemPromptsLoaded) return Promise.resolve(userSystemPrompts);
+                if (systemPromptLoadPromise) return systemPromptLoadPromise;
+
+                systemPromptLoadPromise = fetch(`/api/bada/promptgen/registry?ts=${Date.now()}`)
+                    .then(async response => {
+                        const data = await response.json();
+                        if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`);
+                        userSystemPrompts = Array.isArray(data.registry?.user_prompts)
+                            ? data.registry.user_prompts.filter(prompt => prompt && (prompt.text || prompt.system_prompt))
+                            : [];
+                        const selectedExists = userSystemPrompts.some(prompt =>
+                            String(prompt.id || prompt.name) === selectedSystemPromptId
+                        );
+                        if (!selectedExists) {
+                            selectedSystemPromptId = String(userSystemPrompts[0]?.id || userSystemPrompts[0]?.name || "");
+                        }
+                        if (selectedSystemPromptId) localStorage.setItem("bada_async_system_prompt", selectedSystemPromptId);
+                        else localStorage.removeItem("bada_async_system_prompt");
+                        systemPromptsLoaded = true;
+                        return userSystemPrompts;
+                    })
+                    .catch(error => {
+                        systemPromptsLoaded = false;
+                        throw error;
+                    })
+                    .finally(() => { systemPromptLoadPromise = null; });
+                return systemPromptLoadPromise;
+            }
+
+            async function openSystemPromptManager(button) {
+                button.disabled = true;
+                try {
+                    const modal = await import("./bada_promptgen_modal.js");
+                    await modal.openPromptGenModal({
+                        onSaved: async () => {
+                            await loadSystemPromptRegistry(true);
+                            if (activeEngine === "system_prompt") renderSubmodePanel();
+                        },
+                    });
+                } catch (error) {
+                    console.error("[BadaAsyncGemini] system prompt manager failed:", error);
+                    showToast(isKo ? "시스템 프롬프트 관리자를 열지 못했습니다." : "Could not open the system prompt manager.", "error", 4000);
+                } finally {
+                    button.disabled = false;
+                }
+            }
+
             // -------------------------------------------------------------
-            // SUBMODE RENDERING (MiniMax / LTX / KREA)
+            // SUBMODE RENDERING (MiniMax / LTX / KREA / QWEN / System Prompt)
             // -------------------------------------------------------------
             function renderSubmodePanel() {
                 submodePanel.innerHTML = "";
@@ -1130,47 +1152,16 @@ app.registerExtension({
                             chip.className = `bada-chip ${kreaStyle === st.id ? "active" : ""}`;
                             chip.innerHTML = `<span>${st.icon}</span> <span>${isKo ? st.name : (st.name_en || st.name)}</span>`;
                             chip.onclick = () => {
-                                kreaStyle = st.id;
+                                kreaStyle = kreaStyle === st.id ? "" : st.id;
                                 localStorage.setItem("bada_krea_style", kreaStyle);
-                                chipsRow.querySelectorAll(".bada-chip").forEach(c => c.classList.remove("active"));
-                                chip.classList.add("active");
+                                chipsRow.querySelectorAll(".bada-chip").forEach(c => {
+                                    c.classList.toggle("active", c === chip && kreaStyle === st.id);
+                                });
+                                updateInputPlaceholders();
                             };
                             chipsRow.appendChild(chip);
                         });
                         submodePanel.appendChild(chipsRow);
-
-                    } else if (kreaSub === "system_prompt") {
-                        const presetRow = document.createElement("div");
-                        presetRow.className = "bada-preset-row";
-                        const presetSelect = document.createElement("select");
-                        presetSelect.className = "bada-select";
-                        KREA_PRESETS.forEach(p => {
-                            const opt = document.createElement("option");
-                            opt.value = p.id;
-                            opt.textContent = isKo ? p.name : (p.name_en || p.name);
-                            if (p.id === kreaPresetId) opt.selected = true;
-                            presetSelect.appendChild(opt);
-                        });
-                        presetRow.appendChild(presetSelect);
-                        submodePanel.appendChild(presetRow);
-
-                        const activePreset = KREA_PRESETS.find(p => p.id === kreaPresetId) || KREA_PRESETS[0];
-                        const appliedCard = document.createElement("div");
-                        appliedCard.className = "bada-applied-card";
-                        appliedCard.innerHTML = `
-                            <div class="bada-applied-header">
-                                <span>📌 ${isKo ? "적용 지침: " : "Directive: "}${isKo ? activePreset.name : (activePreset.name_en || activePreset.name)}</span>
-                                <span class="bada-badge">KREA-2 Preset</span>
-                            </div>
-                            <div class="bada-applied-desc">${isKo ? activePreset.desc : (activePreset.desc_en || activePreset.desc)}</div>
-                        `;
-                        submodePanel.appendChild(appliedCard);
-
-                        presetSelect.addEventListener("change", (e) => {
-                            kreaPresetId = e.target.value;
-                            localStorage.setItem("bada_krea_preset", kreaPresetId);
-                            renderSubmodePanel();
-                        });
 
                     } else if (kreaSub === "storyboard") {
                         const callout = document.createElement("div");
@@ -1205,14 +1196,127 @@ app.registerExtension({
                             chip.className = `bada-chip ${kreaStyle === st.id ? "active" : ""}`;
                             chip.innerHTML = `<span>${st.icon}</span> <span>${isKo ? st.name : (st.name_en || st.name)}</span>`;
                             chip.onclick = () => {
-                                kreaStyle = st.id;
+                                kreaStyle = kreaStyle === st.id ? "" : st.id;
                                 localStorage.setItem("bada_krea_style", kreaStyle);
-                                chipsRow.querySelectorAll(".bada-chip").forEach(c => c.classList.remove("active"));
-                                chip.classList.add("active");
+                                chipsRow.querySelectorAll(".bada-chip").forEach(c => {
+                                    c.classList.toggle("active", c === chip && kreaStyle === st.id);
+                                });
+                                updateInputPlaceholders();
                             };
                             chipsRow.appendChild(chip);
                         });
                         submodePanel.appendChild(chipsRow);
+                    }
+                } else if (activeEngine === "qwen21") {
+                    const headerRow = document.createElement("div");
+                    headerRow.className = "bada-submode-header";
+                    headerRow.innerHTML = `
+                        <div class="bada-submode-title"><span>🖼️</span><span>${isKo ? "QWEN2.1 이미지 프롬프트" : "QWEN2.1 Image Prompt"}</span></div>
+                        <span class="bada-engine-tag">Official Prompt Enhancer</span>
+                    `;
+                    submodePanel.appendChild(headerRow);
+
+                    const grid = document.createElement("div");
+                    grid.className = "bada-submode-grid cols-2";
+                    QWEN_SUBMODES.forEach(sub => {
+                        const card = document.createElement("div");
+                        card.className = `bada-sub-card qwen-card ${qwenSub === sub.id ? "active" : ""}`;
+                        card.innerHTML = `<span class="bada-sub-name">${isKo ? sub.name : sub.name_en}</span><span class="bada-sub-tag">${isKo ? sub.desc : sub.desc_en}</span>`;
+                        card.onclick = () => {
+                            qwenSub = sub.id;
+                            localStorage.setItem("bada_qwen_sub", qwenSub);
+                            renderSubmodePanel();
+                            updateInputPlaceholders();
+                        };
+                        grid.appendChild(card);
+                    });
+                    submodePanel.appendChild(grid);
+
+                    const callout = document.createElement("div");
+                    callout.className = "bada-callout";
+                    callout.textContent = qwenSub === "i2i"
+                        ? (isKo ? "Qwen-Image-2.1 편집 지침을 적용합니다. 하단에서 참조 이미지를 첨부하세요." : "Applies Qwen-Image-2.1 edit instructions. Attach reference images below.")
+                        : (isKo ? "Qwen-Image-2.1 공식 T2I 프롬프트 강화 지침과 권장 화면 비율을 적용합니다." : "Applies the official Qwen-Image-2.1 T2I prompt enhancer and returns a suggested aspect ratio.");
+                    submodePanel.appendChild(callout);
+                } else if (activeEngine === "system_prompt") {
+                    const headerRow = document.createElement("div");
+                    headerRow.className = "bada-submode-header";
+                    headerRow.innerHTML = `<div class="bada-submode-title"><span>📜</span><span>${isKo ? "시스템 프롬프트 선택" : "System Prompt"}</span></div><span class="bada-engine-tag">Custom Instructions</span>`;
+                    submodePanel.appendChild(headerRow);
+
+                    const controls = document.createElement("div");
+                    controls.className = "bada-preset-row";
+                    const promptSelect = document.createElement("select");
+                    promptSelect.className = "bada-select";
+                    promptSelect.setAttribute("aria-label", isKo ? "시스템 프롬프트 선택" : "Select system prompt");
+                    const manageButton = document.createElement("button");
+                    manageButton.type = "button";
+                    manageButton.className = "bada-btn-text bada-system-prompt-manage";
+                    manageButton.textContent = isKo ? "⚙️ 프롬프트 관리" : "⚙️ Manage Prompts";
+                    manageButton.onclick = () => openSystemPromptManager(manageButton);
+                    controls.append(promptSelect, manageButton);
+                    submodePanel.appendChild(controls);
+
+                    const promptInfo = document.createElement("div");
+                    promptInfo.className = "bada-callout";
+                    submodePanel.appendChild(promptInfo);
+
+                    const renderPromptOptions = () => {
+                        promptSelect.replaceChildren();
+                        if (!userSystemPrompts.length) {
+                            const option = document.createElement("option");
+                            option.value = "";
+                            option.textContent = systemPromptsLoaded
+                                ? (isKo ? "등록된 시스템 프롬프트가 없습니다" : "No system prompts registered")
+                                : (isKo ? "시스템 프롬프트 불러오는 중..." : "Loading system prompts...");
+                            promptSelect.appendChild(option);
+                            promptSelect.disabled = !systemPromptsLoaded;
+                            if (systemPromptsLoaded) {
+                                selectedSystemPromptId = "";
+                                localStorage.removeItem("bada_async_system_prompt");
+                            }
+                            promptInfo.textContent = isKo
+                                ? "프롬프트 관리에서 새 시스템 프롬프트를 등록하세요."
+                                : "Register a system prompt with Manage Prompts to get started.";
+                            return;
+                        }
+
+                        promptSelect.disabled = false;
+                        userSystemPrompts.forEach(prompt => {
+                            const option = document.createElement("option");
+                            option.value = String(prompt.id || prompt.name);
+                            option.textContent = prompt.name || option.value;
+                            promptSelect.appendChild(option);
+                        });
+                        const selected = userSystemPrompts.find(prompt =>
+                            String(prompt.id || prompt.name) === selectedSystemPromptId
+                        ) || userSystemPrompts[0];
+                        selectedSystemPromptId = String(selected.id || selected.name);
+                        promptSelect.value = selectedSystemPromptId;
+                        localStorage.setItem("bada_async_system_prompt", selectedSystemPromptId);
+                        promptInfo.textContent = selected.description || (isKo
+                            ? "선택한 사용자 시스템 프롬프트로 생성합니다."
+                            : "Generation uses the selected custom system prompt.");
+                    };
+
+                    promptSelect.addEventListener("change", () => {
+                        selectedSystemPromptId = promptSelect.value;
+                        localStorage.setItem("bada_async_system_prompt", selectedSystemPromptId);
+                        renderPromptOptions();
+                        updateInputPlaceholders();
+                    });
+                    renderPromptOptions();
+
+                    if (!systemPromptsLoaded && !systemPromptLoadPromise) {
+                        loadSystemPromptRegistry()
+                            .then(() => {
+                                if (activeEngine === "system_prompt") renderSubmodePanel();
+                            })
+                            .catch(() => {
+                                promptInfo.textContent = isKo
+                                    ? "시스템 프롬프트를 불러오지 못했습니다. 관리 버튼을 눌러 다시 시도하세요."
+                                    : "Could not load system prompts. Open the manager to retry.";
+                            });
                     }
                 }
             }
@@ -1248,6 +1352,10 @@ app.registerExtension({
 
             function updateInputPlaceholders() {
                 const label = promptSection.querySelector("#bada-input-label");
+                const isQwen = activeEngine === "qwen21";
+                tabKor.hidden = isQwen;
+                tabAll.hidden = isQwen;
+                if (isQwen && currentTab !== "english") updateActiveTab("english");
                 if (activeEngine === "minimax") {
                     label.textContent = isKo 
                         ? `✍️ MiniMax H3 요청 (${minimaxSub.toUpperCase()} • ${durationSec}초)`
@@ -1277,7 +1385,7 @@ app.registerExtension({
                         generateBtn.className = "bada-btn-generate";
                         generateBtn.innerHTML = `<span>🎞️</span> <span>${isKo ? `${storyboardCutCount}컷 스토리보드 생성 🚀` : `Generate ${storyboardCutCount}-Cut Storyboard 🚀`}</span>`;
                     } else {
-                        const subTag = kreaSub === 'system_prompt' ? (isKo ? '지침 적용' : 'Directive') : kreaStyle;
+                        const subTag = kreaStyle || (isKo ? "스타일 미선택" : "No style preset");
                         label.textContent = isKo ? `✍️ KREA 2 요청 (${subTag})` : `✍️ KREA 2 Prompt (${subTag})`;
                         instructionTextarea.placeholder = isKo
                             ? "KREA 2로 생성할 씬의 아이디어나 스토리들을 자유롭게 입력하세요.\n예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감"
@@ -1285,10 +1393,31 @@ app.registerExtension({
                         generateBtn.className = "bada-btn-generate";
                         generateBtn.innerHTML = `<span>🟢</span> <span>${isKo ? "KREA 2 프롬프트 생성 🚀" : "Generate KREA 2 Prompt 🚀"}</span>`;
                     }
+                } else if (activeEngine === "qwen21") {
+                    const modeName = qwenSub === "i2i" ? "I2I" : "T2I";
+                    label.textContent = isKo ? `✍️ QWEN2.1 ${modeName} 프롬프트 요청` : `✍️ QWEN2.1 ${modeName} Prompt Request`;
+                    instructionTextarea.placeholder = qwenSub === "i2i"
+                        ? (isKo ? "참조 이미지를 첨부하고 원하는 편집 내용을 입력하세요." : "Attach reference images and describe the desired edit.")
+                        : (isKo ? "QWEN2.1로 만들 이미지의 장면과 포함할 텍스트를 설명하세요." : "Describe the image and any exact text to include for QWEN2.1.");
+                    generateBtn.className = "bada-btn-generate qwen";
+                    generateBtn.innerHTML = `<span>🖼️</span> <span>${isKo ? `QWEN2.1 ${modeName} 프롬프트 생성 🚀` : `Generate QWEN2.1 ${modeName} Prompt 🚀`}</span>`;
+                } else if (activeEngine === "system_prompt") {
+                    const selected = userSystemPrompts.find(prompt =>
+                        String(prompt.id || prompt.name) === selectedSystemPromptId
+                    );
+                    label.textContent = isKo
+                        ? `✍️ 시스템 프롬프트 요청${selected ? ` (${selected.name})` : ""}`
+                        : `✍️ System Prompt Request${selected ? ` (${selected.name})` : ""}`;
+                    instructionTextarea.placeholder = isKo
+                        ? "선택한 시스템 프롬프트로 생성할 내용을 입력하세요."
+                        : "Describe what to generate with the selected system prompt.";
+                    generateBtn.className = "bada-btn-generate system-prompt";
+                    generateBtn.innerHTML = `<span>📜</span> <span>${isKo ? "시스템 프롬프트로 생성 🚀" : "Generate with System Prompt 🚀"}</span>`;
                 }
             }
 
             function renderEngineView() {
+                accordion.hidden = activeEngine === "qwen21" || activeEngine === "system_prompt";
                 if (activeEngine === "uncensored") {
                     promptStudioContainer.style.setProperty("display", "none", "important");
                     promptStudioContainer.classList.add("bada-hidden");
@@ -1322,11 +1451,22 @@ app.registerExtension({
                 const instruction = instructionTextarea.value.trim();
                 const key = apiKeyInput.value.trim();
                 const model = modelSelect.value;
-                const customDirectives = customDirectivesInput.value.trim();
+                const customDirectives = activeEngine === "system_prompt" ? "" : customDirectivesInput.value.trim();
 
                 if (!instruction && uploadedImages.length === 0) {
                     showToast(isKo ? "⚠️ 프롬프트 지시사항 또는 참고 이미지를 입력해 주세요." : "⚠️ Please enter prompt directives or attach a reference image.", "error", 3000);
                     instructionTextarea.focus();
+                    return;
+                }
+
+                if (activeEngine === "qwen21" && qwenSub === "i2i" && uploadedImages.length === 0) {
+                    showToast(isKo ? "QWEN2.1 I2I 편집용 참조 이미지를 첨부해 주세요." : "Attach at least one reference image for QWEN2.1 I2I.", "error", 3000);
+                    return;
+                }
+                if (activeEngine === "system_prompt" && !userSystemPrompts.some(prompt =>
+                    String(prompt.id || prompt.name) === selectedSystemPromptId
+                )) {
+                    showToast(isKo ? "먼저 시스템 프롬프트를 등록하고 선택해 주세요." : "Register and select a system prompt first.", "error", 3000);
                     return;
                 }
 
@@ -1351,12 +1491,7 @@ app.registerExtension({
                 // Prepare style / preset
                 let styleParam = "";
                 if (activeEngine === "krea") {
-                    if (kreaSub === "system_prompt") {
-                        const activeP = KREA_PRESETS.find(p => p.id === kreaPresetId) || KREA_PRESETS[0];
-                        styleParam = activeP.desc;
-                    } else {
-                        styleParam = kreaStyle;
-                    }
+                    styleParam = kreaStyle || "none";
                 }
 
                 try {
@@ -1367,7 +1502,9 @@ app.registerExtension({
                             api_key: key,
                             model: model,
                             engine_mode: activeEngine,
-                            submode: activeEngine === "minimax" ? minimaxSub : (activeEngine === "ltx" ? ltxSub : kreaSub),
+                            submode: activeEngine === "minimax"
+                                ? minimaxSub
+                                : (activeEngine === "ltx" ? ltxSub : (activeEngine === "qwen21" ? qwenSub : kreaSub)),
                             style: styleParam,
                             duration: durationSec,
                             cut_count: storyboardCutCount,
@@ -1375,7 +1512,8 @@ app.registerExtension({
                             translate_korean: isTranslate,
                             instruction: instruction,
                             custom_directives: customDirectives,
-                            images: uploadedImages
+                            images: uploadedImages,
+                            system_prompt_id: activeEngine === "system_prompt" ? selectedSystemPromptId : ""
                         }),
                         signal: generateAbortController.signal
                     });
@@ -1387,6 +1525,7 @@ app.registerExtension({
                         dataSuccess = true;
                         lastEnglishPrompt = data.prompt || "";
                         lastKoreanTranslation = data.korean_translation || "";
+                        lastWhRatio = data.wh_ratio || "";
                         lastStoryboardData = data.storyboard || null;
 
                         syncOutputToNodeWidget(lastEnglishPrompt);
@@ -1405,7 +1544,11 @@ app.registerExtension({
                         if (passBadge) {
                             passBadge.style.display = "inline-block";
                             const passText = data.pass_used === 2 ? "🛡️ Pass 2 VFX Override" : (data.pass_used === 3 ? "🎨 Pass 3 Metaphor" : "⚡ Pass 1 Direct");
-                            passBadge.textContent = `${passText} (${data.model || model}) • ⏱️ ${duration}${isKoNow ? "초 완료" : "s done"}`;
+                            const modeLabel = activeEngine === "qwen21"
+                                ? (isKoNow ? "🖼️ QWEN2.1 공식 PE" : "🖼️ QWEN2.1 official PE")
+                                : (activeEngine === "system_prompt" ? (isKoNow ? "📜 사용자 지침" : "📜 Custom Prompt") : "");
+                            const ratioLabel = lastWhRatio ? ` • ${isKoNow ? "화면 비율" : "Aspect ratio"}: ${lastWhRatio}` : "";
+                            passBadge.textContent = `${modeLabel}${modeLabel ? " • " : ""}${passText} (${data.model || model})${ratioLabel} • ⏱️ ${duration}${isKoNow ? "초 완료" : "s done"}`;
                         }
 
                         // Completed state with elapsed time
@@ -1471,31 +1614,59 @@ app.registerExtension({
                 if (sbData.summary) {
                     const sumBox = document.createElement("div");
                     sumBox.className = "bada-callout";
-                    sumBox.innerHTML = `<b>${isKo ? "전체 줄거리" : "Overall Synopsis"}</b>: ${sbData.summary}`;
+                    const summaryTitle = document.createElement("b");
+                    summaryTitle.textContent = isKo ? "전체 줄거리" : "Overall Synopsis";
+                    sumBox.append(summaryTitle, document.createTextNode(`: ${String(sbData.summary)}`));
                     storyboardOutputContainer.appendChild(sumBox);
                 }
 
                 sbData.cuts.forEach(cut => {
                     const card = document.createElement("div");
                     card.className = "bada-story-card";
-                    card.innerHTML = `
-                        <div class="bada-story-header">
-                            <span class="bada-cut-num">Cut #${cut.cutNumber}</span>
-                            <span class="bada-cut-angle">${cut.cameraAngle || 'Standard'}</span>
-                        </div>
-                        <div class="bada-cut-prompt">${cut.englishPrompt}</div>
-                        ${cut.koreanTranslation ? `<div class="bada-cut-trans">${cut.koreanTranslation}</div>` : ''}
-                        <div class="bada-cut-actions">
-                            <button type="button" class="bada-btn-cut-action bada-copy-cut">${isKo ? "📋 복사" : "📋 Copy"}</button>
-                            <button type="button" class="bada-btn-cut-action bada-clip-cut">${isKo ? "➡️ CLIP 전송" : "➡️ Send to CLIP"}</button>
-                        </div>
-                    `;
-                    card.querySelector(".bada-copy-cut").onclick = async () => {
-                        await navigator.clipboard.writeText(cut.englishPrompt);
+                    const englishPrompt = String(cut.englishPrompt ?? "");
+                    const koreanTranslation = String(cut.koreanTranslation ?? "");
+
+                    const storyHeader = document.createElement("div");
+                    storyHeader.className = "bada-story-header";
+                    const cutNumber = document.createElement("span");
+                    cutNumber.className = "bada-cut-num";
+                    cutNumber.textContent = `Cut #${String(cut.cutNumber ?? "")}`;
+                    const cameraAngle = document.createElement("span");
+                    cameraAngle.className = "bada-cut-angle";
+                    cameraAngle.textContent = String(cut.cameraAngle || "Standard");
+                    storyHeader.append(cutNumber, cameraAngle);
+
+                    const promptEl = document.createElement("div");
+                    promptEl.className = "bada-cut-prompt";
+                    promptEl.textContent = englishPrompt;
+                    card.append(storyHeader, promptEl);
+
+                    if (koreanTranslation) {
+                        const translationEl = document.createElement("div");
+                        translationEl.className = "bada-cut-trans";
+                        translationEl.textContent = koreanTranslation;
+                        card.appendChild(translationEl);
+                    }
+
+                    const actions = document.createElement("div");
+                    actions.className = "bada-cut-actions";
+                    const copyButton = document.createElement("button");
+                    copyButton.type = "button";
+                    copyButton.className = "bada-btn-cut-action bada-copy-cut";
+                    copyButton.textContent = isKo ? "📋 복사" : "📋 Copy";
+                    const clipButton = document.createElement("button");
+                    clipButton.type = "button";
+                    clipButton.className = "bada-btn-cut-action bada-clip-cut";
+                    clipButton.textContent = isKo ? "➡️ CLIP 전송" : "➡️ Send to CLIP";
+                    actions.append(copyButton, clipButton);
+                    card.appendChild(actions);
+
+                    copyButton.onclick = async () => {
+                        await navigator.clipboard.writeText(englishPrompt);
                         showToast(isKo ? `Cut #${cut.cutNumber} 영문 프롬프트 복사 완료!` : `Cut #${cut.cutNumber} English prompt copied!`, "success", 1500);
                     };
-                    card.querySelector(".bada-clip-cut").onclick = () => {
-                        sendTextToActiveClip(cut.englishPrompt);
+                    clipButton.onclick = () => {
+                        sendTextToActiveClip(englishPrompt);
                     };
                     storyboardOutputContainer.appendChild(card);
                 });
@@ -1992,7 +2163,6 @@ app.registerExtension({
                 if (errCloseBtnEl) errCloseBtnEl.title = isKo ? "닫기" : "Close";
                 if (errorBellBtnEl) errorBellBtnEl.title = isKo ? "오류 알림 내역" : "Error Notifications";
 
-                renderQuickBar();
                 renderEngineNav();
                 renderEngineView();
                 app.graph?.setDirtyCanvas?.(true, true);
