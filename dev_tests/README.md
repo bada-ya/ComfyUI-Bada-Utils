@@ -14,6 +14,8 @@ $env:BADA_TEST_BASE = "http://127.0.0.1:8199"   # scratch instance (default anyw
 | `bada_promptgen_ui_smoke.py` | Frontend **browser** path (Playwright/Chromium, headless). 49 checks: boot/registration, node header DOM, toggle-card ↔ BOOLEAN widget sync (both directions), cascading `target → submenu`, toast rendering from a websocket `executed` payload, API-key row (mask/reveal/empty-key warning), model select → localStorage + `config.json`, modal CRUD (create/load/reorder/delete), and modal → registry → node `submenu` integration (no restart). |
 | `bada_promptgen_live_check.py` | **Read-only** readiness probe for an already-running instance (defaults to port `8188`). Confirms the registry route answers, `BadaPromptGenerator` is in `/object_info`, and the browser-side assets (`bada_prompt_generator.js` / `.css`, `bada_promptgen_modal.js`, `bada_i18n.js`) are served with the latest markers. Mutates nothing — safe on the daily driver. |
 | `bada_saveas_ui_smoke.py` | Frontend **browser** path for the Save As Folder Picker. 24 checks: extension boot, `ComfyWorkflow.prototype.promptSave` hook, `Comfy.SaveWorkflowAs` opening the Bada dialog, the Windows Explorer-style tree (root row first, first-level folders matching the tree API, a parent expanding with a `▼` chevron and its child appearing at a deeper indent), in-place folder creation + auto-select + breadcrumb, live target-path preview, the real save landing on disk at `<root>/<folder>/<name>.json`, and the Cancel path. Creates a blank temporary workflow first (never renames a real file) and deletes every artifact afterwards, so it is safe on the daily driver. |
+| `bada_folder_rename_test.py` | Workflow+ sidebar **folder** rename/move. 41 checks against the real `server/bada_server_api.py` handlers: the reported 404 regression (renaming a folder from the sidebar context menu), no `.json` suffix on folders, nested renames, folder moves, guard rails (self-subtree 400, duplicate target 409, illegal/reserved Windows names 400, path traversal 400, root protection 403), case-only renames, `.bada_meta.json` note/thumbnail migration for every workflow under the moved folder, and the unchanged workflow-file path. **Hermetic** — it stubs `server.PromptServer` / `folder_paths` and works on a temp directory, so it needs no running instance and never touches your real workflows folder. |
+| `bada_folder_drag_test.js` | Workflow+ sidebar **folder drag & drop + multi-select** (Node, no browser needed). 90 checks that pull the real `WorkflowsPlusManager` class out of `web/workflow_organizer.js` with `vm` and exercise the frontend half: `splitSidebarPath()` on every folder/file path shape, `moveWorkflowFolder()` self/descendant refusal + request payload, `rebaseSidebarStateAfterFolderMove()` (expanded folders / bookmarks / active workflow / selection all follow a folder to its new parent), **Ctrl+Click additive toggle and Shift+Click range selection — with the guarantee that neither modifier opens the workflow, that ranges skip folder rows, and that folders can never join a multi-selection (a modifier click on a folder narrows the selection to that folder alone)**, `resolveDragEntries()` deciding what a drag carries and refusing a mixed batch, and `moveSelectionToFolder()` batch semantics (nested rows ride along with their moved folder, rows already in the target are skipped). Also asserts the drag/click wiring exists, that no stale `attachFileDragEvents` reference survived the refactor, and that the multi-select palette does not imitate the active-workflow highlight. |
 
 > Is your main instance already up to date? `python dev_tests/bada_promptgen_live_check.py`
 > — if it prints `READY`, you only need a browser hard refresh (<kbd>Ctrl</kbd>+<kbd>F5</kbd>);
@@ -38,7 +40,16 @@ Run:
 python dev_tests/bada_promptgen_exec_test.py
 python dev_tests/bada_promptgen_ui_smoke.py      # screenshots -> dev_tests/_shots (gitignored)
 python dev_tests/bada_saveas_ui_smoke.py         # Save As folder picker (safe on 8188)
+python dev_tests/bada_folder_rename_test.py      # folder rename/move (no instance needed)
+node   dev_tests/bada_folder_drag_test.js       # folder drag & drop (no instance needed)
 ```
+
+> `bada_folder_rename_test.py` and `bada_folder_drag_test.js` are the odd ones out: neither
+> talks to a live instance. The Python one imports the real REST handlers with
+> `server.PromptServer` / `folder_paths` stubbed and drives them against a temp directory; the
+> Node one loads the real sidebar class with `vm` and stubs the browser globals. Both are
+> therefore safe to run anywhere and never touch your real workflows folder. The Python script
+> needs `aiohttp` (use the ComfyUI interpreter); the Node script needs only `node`.
 
 Both scripts exit non-zero on the first failed check and print a `PASS/FAIL` line
 per assertion. The UI smoke test is **idempotent**: every prompt it creates is

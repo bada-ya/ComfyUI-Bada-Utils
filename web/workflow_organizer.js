@@ -50,6 +50,10 @@ class WorkflowsPlusManager {
         this.highlightedItem = null;
         this.draggedItem = null;
 
+        // Multi-select state. Keys are "<kind>:<normalised path>", e.g. "folder:A/B".
+        this.selection = new Set();
+        this.selectionAnchor = null;
+
         this.activeWorkflowPath = localStorage.getItem("qol_active_workflow_path") || "";
         this.activeWorkflowName = localStorage.getItem("qol_active_workflow_name") || "";
 
@@ -96,6 +100,7 @@ class WorkflowsPlusManager {
         this.cleanNativeTooltipsAndKeybindings();
         this.setupAutoSyncOnSave();
         this.setupSaveAsFolderPicker();
+        this.setupMultiSelect();
 
         await this.loadFavorites();
         await this.loadTree();
@@ -356,6 +361,30 @@ class WorkflowsPlusManager {
                 outline: 1.5px solid #818cf8 !important;
                 border-radius: 5px !important;
             }
+            /* Folders are draggable into other folders: grab cursor, like the file rows. */
+            .qol-folder-row:not(.dragover) {
+                cursor: grab;
+            }
+            .qol-folder-row:active {
+                cursor: grabbing;
+            }
+            .qol-folder-row.dragging {
+                opacity: 0.4;
+            }
+            /* Multi-select styling lives just above the Active Workflow block — see there. */
+            /* A row that is being dragged as part of a multi-selection. */
+            .qol-folder-row.qol-multi-dragging,
+            .qol-file-row.qol-multi-dragging {
+                opacity: 0.4;
+            }
+            /* Refused drop target: a folder dropped into itself or one of its own children. */
+            .qol-folder-row.dragover.drag-invalid,
+            .qol-children-container.dragover.drag-invalid,
+            #qol-root-dropzone.dragover.drag-invalid {
+                background: rgba(239, 68, 68, 0.22) !important;
+                outline: 1.5px solid #ef4444 !important;
+                cursor: no-drop;
+            }
 
             .qol-chevron {
                 display: flex;
@@ -488,6 +517,34 @@ class WorkflowsPlusManager {
                 flex-shrink: 0;
                 align-self: flex-start;
                 margin-top: 1px;
+            }
+
+            /* Multi-select (Ctrl / Shift + click)
+             *
+             * Deliberately NEUTRAL, and deliberately placed here:
+             *   - after the .qol-file-row:hover rule  -> a selected row keeps its own look on hover
+             *   - before the .active-workflow rule   -> the "you are here" highlight always wins
+             * It must never be confused with the active workflow, so: no indigo, no
+             * gradient, no bold, no white text — just a flat zinc wash and a slim grey bar.
+             * NOTE: never use backticks in this comment — it lives inside a JS template
+             * literal, and a stray one would terminate it and break injectStyles(). */
+            .qol-folder-row.qol-selected,
+            .qol-file-row.qol-selected {
+                background: rgba(63, 63, 70, 0.55) !important;
+                box-shadow: inset 3px 0 0 rgba(161, 161, 170, 0.75) !important;
+                border-radius: 5px;
+            }
+            .qol-folder-row.qol-selected:hover,
+            .qol-file-row.qol-selected:hover {
+                background: rgba(82, 82, 91, 0.6) !important;
+            }
+            .qol-folder-row.qol-selected .qol-folder-name,
+            .qol-file-row.qol-selected .qol-file-name {
+                color: #d4d4d8;
+            }
+            .qol-folder-row.qol-selected .qol-count-badge,
+            .qol-file-row.qol-selected .qol-file-icon {
+                opacity: 0.8;
             }
 
             /* Active Workflow Highlight */
@@ -1587,6 +1644,7 @@ class WorkflowsPlusManager {
                     }
 
                     this.renderPlusTree();
+                    this.applySelectionHighlight();   // rows were rebuilt from scratch
                     return this.treeData;
                 }
             }
@@ -2114,14 +2172,114 @@ class WorkflowsPlusManager {
         }
     }
 
-    attachFileDragEvents(fileRow, file) {
-        fileRow.addEventListener("mousedown", (e) => {
+    /**
+     * Moves a whole FOLDER into `targetFolder` (drag & drop, or any future UI entry point).
+     *
+     * Hits the same endpoint as moveWorkflowFile() — the backend routes by inspecting whether
+     * the source is a directory — so the request is identical apart from the type. Afterwards
+     * the expanded state, bookmarks and active workflow that pointed *inside* the folder have
+     * to follow it, which is what rebaseSidebarStateAfterFolderMove() takes care of.
+     */
+    async moveWorkflowFolder(sourcePath, targetFolder) {
+        if (!sourcePath || targetFolder === undefined) return false;
+
+        const isKo = BadaI18n.lang === "ko";
+        const cleanSource = sourcePath.replace(/\\/g, "/").trim();
+        let cleanTarget = targetFolder.replace(/\\/g, "/").trim();
+        if (!cleanTarget || cleanTarget === ".") cleanTarget = "/";
+
+        const { parent: currentFolder, name: folderName } = this.splitSidebarPath(cleanSource);
+        if (currentFolder === cleanTarget) return false; // already there
+
+        // Refuse the impossible placements up-front instead of letting the server answer 400.
+        const sourceKey = this.normalizePath(cleanSource);
+        const targetKey = this.normalizePath(cleanTarget);
+        if (targetKey && (targetKey === sourceKey || targetKey.startsWith(`${sourceKey}/`))) {
+            this.showToast(isKo ? "폴더를 자기 자신이나 하위 폴더 안으로 옮길 수 없습니다." : "A folder cannot be moved into itself or a subfolder.", true);
+            return false;
+        }
+
+        try {
+            const res = await fetch("/api/qol/workflows/move", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    source_path: cleanSource,
+                    target_folder: cleanTarget,
+                    new_name: "", // keep the current name — only the parent changes
+                    overwrite: false
+                })
+            });
+            const data = await res.json();
+            if (!data.success) {
+                this.showToast(data.error || (isKo ? "이동 실패" : "Failed to move"), true);
+                return false;
+            }
+
+            const targetLabel = cleanTarget === "/" ? (isKo ? "최상위(Root)" : "Root") : `'${cleanTarget}'`;
+            this.showToast(isKo ? `📁 '${folderName}' -> ${targetLabel} 이동 완료!` : `📁 '${folderName}' moved to ${targetLabel}!`);
+
+            // Folder rows are addressed with a leading slash, matching the tree's own paths.
+            const newPath = cleanTarget === "/" ? `/${folderName}` : `${cleanTarget}/${folderName}`;
+            await this.rebaseSidebarStateAfterFolderMove(cleanSource, newPath);
+
+            this.highlightedItem = folderName;
+            await this.loadTree();
+            return true;
+        } catch (e) {
+            this.showToast((isKo ? "이동 오류: " : "Move error: ") + e.message, true);
+            return false;
+        }
+    }
+
+    /**
+     * Sidebar drag & drop, shared by workflow rows and folder rows.
+     *
+     * `kind` ("file" | "folder") is the only difference between the two:
+     *   - the icon shown on the ghost badge,
+     *   - what counts as a target. A workflow can be ordered against a sibling workflow row
+     *     (the top/bottom insert line); a folder cannot — you drop a folder onto a folder, so
+     *     hovering a workflow row means "into the folder that owns that row".
+     *   - the commit call: moveWorkflowFile() vs moveWorkflowFolder().
+     */
+    attachRowDragEvents(rowEl, item, kind) {
+        const isFolder = kind === "folder";
+        const icon = isFolder ? "📁" : "📄";
+        const itemPath = item.path;
+        const itemName = item.name;
+        const sourceKey = this.normalizePath(itemPath);
+
+        /**
+         * A folder may never be dropped into itself or into one of its own descendants.
+         * The backend answers 400 for that, but catching it here keeps the drag honest (the
+         * target turns red and no request is sent) instead of failing after the drop.
+         */
+        const isForbiddenTarget = (targetPath) => {
+            if (!isFolder || !targetPath) return false;
+            const norm = this.normalizePath(targetPath);
+            return !!norm && (norm === sourceKey || norm.startsWith(`${sourceKey}/`));
+        };
+
+        rowEl.addEventListener("mousedown", (e) => {
             if (e.button !== 0) return; // Left mouse only
 
             const startX = e.clientX;
             const startY = e.clientY;
             let hasMoved = false;
             let targetFolder = null;
+
+            // Highlights `el` and records `path` as the drop target, unless the placement is
+            // impossible (folder into itself / its own subtree) — then only the red state
+            // stays and `targetFolder` is left null so nothing is committed on mouseup.
+            const markTarget = (el, path) => {
+                if (el) el.classList.add("dragover");
+                if (isForbiddenTarget(path)) {
+                    if (el) el.classList.add("drag-invalid");
+                    return false;
+                }
+                targetFolder = path;
+                return true;
+            };
 
             const treeScrollEl = document.querySelector("#qol-tree-scroll");
             const rootDropEl = document.querySelector("#qol-root-dropzone");
@@ -2132,9 +2290,9 @@ class WorkflowsPlusManager {
                 if (!hasMoved && dist > 4) {
                     hasMoved = true;
                     this.isCustomDragging = true;
-                    this.draggedPath = file.path;
-                    this.draggedName = file.name;
-                    fileRow.classList.add("dragging");
+                    this.draggedPath = itemPath;
+                    this.draggedName = itemName;
+                    rowEl.classList.add("dragging");
                     document.body.style.cursor = "grabbing";
                     document.body.style.userSelect = "none";
 
@@ -2143,8 +2301,24 @@ class WorkflowsPlusManager {
                     if (!this.dragGhostEl) {
                         this.dragGhostEl = document.createElement("div");
                         this.dragGhostEl.className = "qol-drag-ghost";
-                        this.dragGhostEl.innerHTML = `<span>📄</span> <span>${file.name}</span>`;
+                        const iconEl = document.createElement("span");
+                        iconEl.textContent = icon;
+                        const nameEl = document.createElement("span");
+                        nameEl.textContent = itemName;
+                        this.dragGhostEl.append(iconEl, nameEl);
                         document.body.appendChild(this.dragGhostEl);
+                    }
+
+                    // Carrying more than one row? Say so on the ghost, and dim the others.
+                    const carried = this.resolveDragEntries(kind, itemPath);
+                    if (carried.length > 1) {
+                        this.dragGhostEl.lastElementChild.textContent = `${itemName} +${carried.length - 1}`;
+                        carried.forEach((entry) => {
+                            if (entry.key === key) return;
+                            this.getSelectableRows().forEach((row) => {
+                                if (this.rowSelectionKey(row) === entry.key) row.classList.add("qol-multi-dragging");
+                            });
+                        });
                     }
                 }
 
@@ -2169,48 +2343,56 @@ class WorkflowsPlusManager {
                     const containerHit = hit?.closest(".qol-children-container");
 
                     document.querySelectorAll(".dragover").forEach(el => el.classList.remove("dragover"));
+                    document.querySelectorAll(".drag-invalid").forEach(el => el.classList.remove("drag-invalid"));
                     document.querySelectorAll(".drag-insert-top").forEach(el => el.classList.remove("drag-insert-top"));
                     document.querySelectorAll(".drag-insert-bottom").forEach(el => el.classList.remove("drag-insert-bottom"));
                     targetFolder = null;
 
                     if (rootDropHit) {
-                        rootDropHit.classList.add("dragover");
-                        targetFolder = "/";
+                        markTarget(rootDropHit, "/");
                     } else if (folderRowHit) {
-                        folderRowHit.classList.add("dragover");
-                        targetFolder = folderRowHit.getAttribute("data-path");
+                        const folderPath = folderRowHit.getAttribute("data-path");
+                        const accepted = markTarget(folderRowHit, folderPath);
 
                         // Auto-expand folder if hovered intentionally for 1.2s (1200ms)
-                        if (targetFolder && !this.expandedFolders.has(targetFolder)) {
-                            if (this.hoveredFolder !== targetFolder) {
+                        if (accepted && folderPath && !this.expandedFolders.has(folderPath)) {
+                            if (this.hoveredFolder !== folderPath) {
                                 if (this.hoverExpandTimer) {
                                     clearTimeout(this.hoverExpandTimer);
                                     this.hoverExpandTimer = null;
                                 }
-                                this.hoveredFolder = targetFolder;
+                                this.hoveredFolder = folderPath;
                                 this.hoverExpandTimer = setTimeout(() => {
-                                    if (this.isCustomDragging && this.hoveredFolder === targetFolder) {
-                                        this.expandedFolders.add(targetFolder);
+                                    if (this.isCustomDragging && this.hoveredFolder === folderPath) {
+                                        this.expandedFolders.add(folderPath);
                                         this.renderPlusTree();
                                     }
                                 }, 1200);
                             }
                         }
-                    } else if (fileRowHit && fileRowHit !== fileRow) {
-                        const rect = fileRowHit.getBoundingClientRect();
-                        const isTopHalf = moveEv.clientY < rect.top + rect.height / 2;
-                        
-                        if (isTopHalf) {
-                            fileRowHit.classList.add("drag-insert-top");
+                    } else if (fileRowHit && fileRowHit !== rowEl) {
+                        if (isFolder) {
+                            // A folder is dropped onto a folder, never ordered against a
+                            // sibling workflow — the folder that owns this row is the target.
+                            const owner = fileRowHit.closest(".qol-children-container");
+                            if (owner) {
+                                markTarget(owner, owner.getAttribute("data-folder-path") || "/");
+                            }
                         } else {
-                            fileRowHit.classList.add("drag-insert-bottom");
-                        }
+                            const rect = fileRowHit.getBoundingClientRect();
+                            const isTopHalf = moveEv.clientY < rect.top + rect.height / 2;
 
-                        const hitPath = fileRowHit.getAttribute("data-path") || "";
-                        targetFolder = hitPath.includes("/") ? hitPath.split("/").slice(0, -1).join("/") : "/";
+                            if (isTopHalf) {
+                                fileRowHit.classList.add("drag-insert-top");
+                            } else {
+                                fileRowHit.classList.add("drag-insert-bottom");
+                            }
+
+                            const hitPath = fileRowHit.getAttribute("data-path") || "";
+                            markTarget(null, hitPath.includes("/") ? hitPath.split("/").slice(0, -1).join("/") : "/");
+                        }
                     } else if (containerHit) {
-                        containerHit.classList.add("dragover");
-                        targetFolder = containerHit.getAttribute("data-folder-path") || "/";
+                        markTarget(containerHit, containerHit.getAttribute("data-folder-path") || "/");
                     }
 
                     if (!folderRowHit && this.hoverExpandTimer) {
@@ -2221,7 +2403,7 @@ class WorkflowsPlusManager {
                 }
             };
 
-            const onMouseUp = async (upEv) => {
+            const onMouseUp = async () => {
                 window.removeEventListener("mousemove", onMouseMove, true);
                 window.removeEventListener("mouseup", onMouseUp, true);
 
@@ -2235,8 +2417,10 @@ class WorkflowsPlusManager {
 
                 document.body.style.cursor = "";
                 document.body.style.userSelect = "";
-                fileRow.classList.remove("dragging");
+                rowEl.classList.remove("dragging");
+                document.querySelectorAll(".qol-multi-dragging").forEach(el => el.classList.remove("qol-multi-dragging"));
                 document.querySelectorAll(".dragover").forEach(el => el.classList.remove("dragover"));
+                document.querySelectorAll(".drag-invalid").forEach(el => el.classList.remove("drag-invalid"));
                 document.querySelectorAll(".drag-insert-top").forEach(el => el.classList.remove("drag-insert-top"));
                 document.querySelectorAll(".drag-insert-bottom").forEach(el => el.classList.remove("drag-insert-bottom"));
 
@@ -2252,7 +2436,14 @@ class WorkflowsPlusManager {
                     setTimeout(() => { this.justFinishedDrag = false; }, 200);
 
                     if (targetFolder !== null && targetFolder !== undefined) {
-                        await this.moveWorkflowFile(file.path, targetFolder);
+                        const carried = this.resolveDragEntries(kind, itemPath);
+                        if (carried.length > 1) {
+                            await this.moveSelectionToFolder(carried, targetFolder);
+                        } else if (isFolder) {
+                            await this.moveWorkflowFolder(itemPath, targetFolder);
+                        } else {
+                            await this.moveWorkflowFile(itemPath, targetFolder);
+                        }
                     }
                 }
             };
@@ -2377,6 +2568,7 @@ class WorkflowsPlusManager {
                 const fileRow = document.createElement("div");
                 fileRow.className = "qol-file-row qol-bookmark-row";
                 fileRow.setAttribute("data-path", file.path);
+                fileRow.setAttribute("data-kind", "file");
                 const parentDir = file.path.includes("/") ? file.path.split("/").slice(0, -1).join("/") : "/";
                 fileRow.setAttribute("data-parent-folder", parentDir);
 
@@ -2406,10 +2598,8 @@ class WorkflowsPlusManager {
                     this.cancelHoverPreview();
                 });
 
-                // Click to load
-                fileRow.addEventListener("click", (e) => {
-                    e.stopPropagation();
-                    if (this.justFinishedDrag) return;
+                // Click to load — Ctrl/Shift clicks only multi-select instead.
+                this.attachRowClickEvents(fileRow, "file", file.path, () => {
                     this.loadWorkflowToCanvas(file.path);
                 });
 
@@ -2429,7 +2619,7 @@ class WorkflowsPlusManager {
                 });
 
                 // Drag & drop
-                this.attachFileDragEvents(fileRow, file);
+                this.attachRowDragEvents(fileRow, file, "file");
 
                 bookmarksContainer.appendChild(fileRow);
             });
@@ -2480,6 +2670,7 @@ class WorkflowsPlusManager {
                 const folderRow = document.createElement("div");
                 folderRow.className = "qol-folder-row";
                 folderRow.setAttribute("data-path", folderNode.path);
+                folderRow.setAttribute("data-kind", "folder");
 
                 const chevron = document.createElement("span");
                 chevron.className = `qol-chevron ${isExpanded ? "expanded" : ""}`;
@@ -2502,10 +2693,8 @@ class WorkflowsPlusManager {
                 folderRow.appendChild(name);
                 folderRow.appendChild(countBadge);
 
-                // Expand/Collapse Click
-                folderRow.addEventListener("click", (e) => {
-                    e.stopPropagation();
-                    if (this.justFinishedDrag) return;
+                // Expand/Collapse Click — Ctrl/Shift clicks only multi-select instead.
+                this.attachRowClickEvents(folderRow, "folder", folderNode.path, () => {
                     if (this.expandedFolders.has(folderNode.path)) {
                         this.expandedFolders.delete(folderNode.path);
                     } else {
@@ -2513,6 +2702,9 @@ class WorkflowsPlusManager {
                     }
                     this.renderPlusTree();
                 });
+
+                // Drag & drop
+                this.attachRowDragEvents(folderRow, folderNode, "folder");
 
                 // Context Menu
                 folderRow.addEventListener("contextmenu", (e) => {
@@ -2543,6 +2735,7 @@ class WorkflowsPlusManager {
                     const fileRow = document.createElement("div");
                     fileRow.className = "qol-file-row";
                     fileRow.setAttribute("data-path", file.path);
+                    fileRow.setAttribute("data-kind", "file");
                     const parentDir = file.path.includes("/") ? file.path.split("/").slice(0, -1).join("/") : "/";
                     fileRow.setAttribute("data-parent-folder", parentDir);
 
@@ -2584,12 +2777,10 @@ class WorkflowsPlusManager {
                     });
 
                     // Drag & drop
-                    this.attachFileDragEvents(fileRow, file);
+                    this.attachRowDragEvents(fileRow, file, "file");
 
-                    // Click to load
-                    fileRow.addEventListener("click", (e) => {
-                        e.stopPropagation();
-                        if (this.justFinishedDrag) return;
+                    // Click to load — Ctrl/Shift clicks only multi-select instead.
+                    this.attachRowClickEvents(fileRow, "file", file.path, () => {
                         this.loadWorkflowToCanvas(file.path);
                     });
 
@@ -3319,11 +3510,386 @@ class WorkflowsPlusManager {
         };
     }
 
+    /**
+     * Splits a sidebar path into its parent folder and its own name.
+     *
+     * The tree deliberately uses two different shapes: FOLDER rows keep a leading slash
+     * ("/A/B", "/" for the root) while FILE rows do not ("A/B.json"). A naive
+     * `includes("/") ? split("/").slice(0, -1).join("/") : "/"` therefore yielded "" for a
+     * root-level folder, which then built a wrong destination path.
+     */
+    splitSidebarPath(path) {
+        const parts = String(path || "").replace(/\\/g, "/").split("/").filter(Boolean);
+        const name = parts.pop() || "";
+        return { parent: parts.length ? `/${parts.join("/")}` : "/", name };
+    }
+
+    /**
+     * Expands every ancestor folder of `path`.
+     *
+     * Both the bare ("A/B") and leading-slash ("/A/B") forms are registered because the tree
+     * render matches the latter while several older call sites store the former.
+     */
+    expandAncestorsOf(path) {
+        const parts = String(path || "").replace(/\\/g, "/").split("/").filter(Boolean);
+        parts.pop(); // drop the entry itself, keep only its ancestors
+        let acc = "";
+        for (const p of parts) {
+            acc = acc ? `${acc}/${p}` : p;
+            this.expandedFolders.add(acc);
+            this.expandedFolders.add(`/${acc}`);
+        }
+    }
+
+    // =========================================================================
+    // Multi-select (Ctrl / Shift + click), then drag to move several rows at once
+    // =========================================================================
+
+    /** Selection key for a sidebar row: "<kind>:<normalised path>". */
+    selectionKey(kind, path) {
+        return `${kind}:${this.normalizePath(path)}`;
+    }
+
+    parseSelectionKey(key) {
+        const sep = key.indexOf(":");
+        return { kind: key.slice(0, sep), path: key.slice(sep + 1) };
+    }
+
+    /** Bookmarks and the tree are separate lists, so a range must not span the two. */
+    selectionSectionOf(row) {
+        return row.closest(".qol-bookmarks-container") ? "bookmarks" : "tree";
+    }
+
+    /** Visible selectable rows in visual (DOM) order. */
+    getSelectableRows() {
+        return Array.from(document.querySelectorAll(".qol-folder-row[data-path], .qol-file-row[data-path]"));
+    }
+
+    rowSelectionKey(row) {
+        return this.selectionKey(row.getAttribute("data-kind"), row.getAttribute("data-path"));
+    }
+
+    isSelected(kind, path) {
+        return this.selection.has(this.selectionKey(kind, path));
+    }
+
+    clearSelection() {
+        if (!this.selection.size && !this.selectionAnchor) return;
+        this.selection.clear();
+        this.selectionAnchor = null;
+        this.applySelectionHighlight();
+    }
+
+    /** Re-applies `.qol-selected` to every rendered row (after a re-render or a change). */
+    applySelectionHighlight() {
+        this.getSelectableRows().forEach((row) => {
+            row.classList.toggle("qol-selected", this.selection.has(this.rowSelectionKey(row)));
+        });
+    }
+
+    setSelection(keys, anchor) {
+        this.selection = new Set(keys);
+        this.selectionAnchor = anchor ?? (this.selection.size ? [...this.selection][this.selection.size - 1] : null);
+        this.applySelectionHighlight();
+    }
+
+    /**
+     * Shift+Click: selects every workflow row visible between the anchor and `key`.
+     *
+     * Folder rows are deliberately skipped: a range that ran across them would build the
+     * mixed folder+workflow selection that reads as a bug (a folder plus its own children,
+     * which then travel to the destination twice).
+     */
+    selectRangeTo(key) {
+        const isFileRow = (r) => r.getAttribute("data-kind") === "file";
+        const rows = this.getSelectableRows().filter(isFileRow);
+        const targetRow = rows.find((r) => this.rowSelectionKey(r) === key);
+        // A bookmark and the same workflow in the tree share one selection key, so the anchor
+        // must be looked up inside the section the user actually clicked in.
+        const section = targetRow ? this.selectionSectionOf(targetRow) : null;
+        const inSection = (r) => !section || this.selectionSectionOf(r) === section;
+
+        const anchorRow = rows.find((r) => this.rowSelectionKey(r) === this.selectionAnchor && inSection(r));
+        if (!anchorRow) {
+            this.setSelection([key], key);
+            return;
+        }
+        const list = rows.filter(inSection);
+        const from = list.findIndex((r) => this.rowSelectionKey(r) === this.selectionAnchor);
+        const to = list.findIndex((r) => this.rowSelectionKey(r) === key);
+        if (from < 0 || to < 0) {
+            this.setSelection([key], key);
+            return;
+        }
+        const [lo, hi] = from <= to ? [from, to] : [to, from];
+        this.setSelection(list.slice(lo, hi + 1).map((r) => this.rowSelectionKey(r)), this.selectionAnchor);
+    }
+
+    /**
+     * The single place implementing click semantics for every sidebar row:
+     *   plain click -> select it alone, then run the row's default action (load / expand)
+     *   Ctrl+click  -> toggle it in the selection, default action suppressed
+     *   Shift+click -> select the visible range from the anchor, default action suppressed
+     *
+     * Ctrl/Shift must NOT open the workflow: before this, both simply triggered the plain
+     * click, so every "add to selection" click silently replaced the loaded graph.
+     *
+     * FOLDERS NEVER JOIN A MULTI-SELECTION. A modifier click on a folder row narrows the
+     * selection to that one folder, so a folder can never be mixed with workflows and
+     * folders can never be multi-selected. Without this, selecting a folder together with
+     * some of its own children looks like a bug: the children are dragged out of the
+     * folder while the folder itself is dragged too.
+     */
+    handleRowClick(e, kind, path, runDefaultAction) {
+        e.stopPropagation();
+        if (this.justFinishedDrag) return;
+
+        const key = this.selectionKey(kind, path);
+        const modified = e.ctrlKey || e.metaKey || e.shiftKey;
+
+        if (kind === "folder" && modified) {
+            this.setSelection([key], key);
+            return;
+        }
+
+        if (e.shiftKey && this.selectionAnchor) {
+            this.selectRangeTo(key);
+            return;
+        }
+
+        if (e.ctrlKey || e.metaKey) {
+            if (this.selection.has(key)) this.selection.delete(key);
+            else this.selection.add(key);
+            this.selectionAnchor = key;
+            this.applySelectionHighlight();
+            return;
+        }
+
+        this.setSelection([key], key);
+        if (runDefaultAction) runDefaultAction();
+    }
+
+    attachRowClickEvents(rowEl, kind, path, runDefaultAction) {
+        rowEl.addEventListener("click", (e) => this.handleRowClick(e, kind, path, runDefaultAction));
+    }
+
+    setupMultiSelect() {
+        window.addEventListener("keydown", (e) => {
+            if (e.key !== "Escape") return;
+            const active = document.activeElement;
+            if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable)) return;
+            this.clearSelection();
+        });
+    }
+
+    /**
+     * Turns the current selection into the rows a drag should carry.
+     *
+     * Dragging a row that belongs to a multi-selection carries the whole selection; dragging
+     * an unselected row carries only that row, because a bare click on a workflow opens it
+     * rather than selecting it, and silently dragging a stale selection would be surprising.
+     *
+     * This is the ONLY producer of moveSelectionToFolder() input, so it is also where the
+     * "a multi-selection never contains a folder" rule is enforced a second time: handle-
+     * RowClick() already prevents it, and if a folder ever slipped in anyway we fall back to
+     * dragging just the grabbed row rather than producing a confusing mixed batch.
+     */
+    resolveDragEntries(kind, path) {
+        const key = this.selectionKey(kind, path);
+        if (!this.selection.has(key) || this.selection.size < 2) {
+            return [{ kind, path, key }];
+        }
+        const keys = [...this.selection];
+        if (keys.some((k) => k.startsWith("folder:"))) {
+            return [{ kind, path, key }];
+        }
+        return keys.map((k) => {
+            const parsed = this.parseSelectionKey(k);
+            return { kind: parsed.kind, path: parsed.path, key: k };
+        });
+    }
+
+    /**
+     * Moves several rows into `targetFolder` in a single pass.
+     *
+     * The UI only ever hands this workflows (folders are kept out of multi-selections), but
+     * the guards below stay so the helper is safe for any future caller:
+     *   - rows nested inside another moved folder travel with it and are dropped from the
+     *     batch, since once that parent has moved their old path no longer exists;
+     *   - the target itself, and anything that would end up nested inside itself, is skipped;
+     *   - rows already sitting in the target folder are skipped.
+     * The tree is reloaded once at the end instead of once per item, and each successful move
+     * rebases the sidebar state.
+     */
+    async moveSelectionToFolder(entries, targetFolder) {
+        const isKo = BadaI18n.lang === "ko";
+        const target = String(targetFolder || "/").replace(/\\/g, "/").trim() || "/";
+        const targetKey = this.normalizePath(target);
+
+        const selectedFolderKeys = entries.filter((e) => e.kind === "folder").map((e) => this.normalizePath(e.path));
+        const batch = entries.filter((e) => {
+            const key = this.normalizePath(e.path);
+            if (key === targetKey) return false;
+            // A folder may not be moved into itself or into one of its own subfolders.
+            if (e.kind === "folder" && targetKey.startsWith(`${key}/`)) return false;
+            // Anything inside another selected folder rides along with that folder.
+            if (selectedFolderKeys.some((fk) => key.startsWith(`${fk}/`))) return false;
+            return true;
+        });
+
+        const moved = [];
+        const failed = [];
+        for (const entry of batch) {
+            if (this.splitSidebarPath(entry.path).parent === target) continue; // already there
+            try {
+                const res = await fetch("/api/qol/workflows/move", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        source_path: entry.path,
+                        target_folder: target,
+                        new_name: "",
+                        overwrite: false
+                    })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    failed.push(entry);
+                    continue;
+                }
+                moved.push({ ...entry, newPath: (data.new_path || "").replace(/\\/g, "/") });
+            } catch (e) {
+                failed.push(entry);
+            }
+        }
+
+        if (!moved.length) {
+            if (failed.length) this.showToast(isKo ? "선택한 항목을 이동하지 못했습니다." : "Could not move the selected items.", true);
+            return { moved, failed };
+        }
+
+        // Follow the moved rows with the rest of the sidebar state (expanded folders,
+        // bookmarks, active workflow and the selection itself).
+        for (const entry of moved) {
+            const newPath = entry.newPath || "";
+            if (!newPath) continue;
+            if (entry.kind === "folder") {
+                await this.rebaseSidebarStateAfterFolderMove(entry.path, newPath);
+            } else {
+                if (this.activeWorkflowPath === entry.path) this.setActiveWorkflow(newPath, false);
+                if (this.isFavorited(entry.path)) {
+                    this.favorites.delete(this.normalizePath(entry.path));
+                    this.favorites.delete(entry.path);
+                    this.favorites.add(this.normalizePath(newPath));
+                    await this.saveFavorites();
+                }
+                this.rebaseSelectionPath(entry.path, newPath);
+            }
+        }
+
+        const targetLabel = target === "/" ? (isKo ? "최상위(Root)" : "Root") : `'${target}'`;
+        const failedNote = failed.length ? (isKo ? ` (${failed.length}개 실패)` : ` (${failed.length} failed)`) : "";
+        this.showToast(isKo
+            ? `📦 ${moved.length}개 항목 -> ${targetLabel} 이동 완료!${failedNote}`
+            : `📦 Moved ${moved.length} item(s) to ${targetLabel}${failedNote}`);
+
+        await this.loadTree();
+        this.applySelectionHighlight();
+        return { moved, failed };
+    }
+
+    /** Rewrites one selected row's key after it changed location. */
+    rebaseSelectionPath(oldPath, newPath) {
+        for (const kind of ["file", "folder"]) {
+            const oldKey = this.selectionKey(kind, oldPath);
+            if (!this.selection.has(oldKey)) continue;
+            this.selection.delete(oldKey);
+            this.selection.add(this.selectionKey(kind, newPath));
+            if (this.selectionAnchor === oldKey) this.selectionAnchor = this.selectionKey(kind, newPath);
+        }
+    }
+
+    /**
+     * Re-points every piece of sidebar state that lived under a relocated FOLDER.
+     *
+     * Covers both a rename (same parent, new name) and a drag & drop move (new parent), since
+     * in either case the folder's own path changes while everything nested under it moves
+     * with it. `expandedFolders` stores full paths ("/A", "/A/B"), so without this the folder
+     * would simply collapse right afterwards. Bookmarks and the active workflow may also
+     * point at workflows *inside* the folder — the backend only migrates the on-disk
+     * metadata, never these browser-side lists.
+     */
+    async rebaseSidebarStateAfterFolderMove(oldPath, newPath) {
+        const oldKey = this.normalizePath(oldPath);
+        const newKey = this.normalizePath(newPath);
+        if (!oldKey || !newKey || oldKey === newKey) return;
+
+        // Returns the rewritten path, or null when the entry is not part of the moved folder.
+        const rebase = (value) => {
+            if (value === oldKey) return newKey;
+            if (value.startsWith(`${oldKey}/`)) return `${newKey}/${value.slice(oldKey.length + 1)}`;
+            return null;
+        };
+
+        // 1) Expanded folders — the renamed folder itself stays open so the result is visible.
+        const rebasedFolders = new Set();
+        this.expandedFolders.forEach((p) => {
+            const moved = rebase(this.normalizePath(p));
+            rebasedFolders.add(moved === null ? p : `/${moved}`);
+        });
+        rebasedFolders.add(`/${newKey}`);
+        this.expandedFolders = rebasedFolders;
+        this.expandAncestorsOf(newPath);
+
+        // 2) Bookmarks pointing at workflows inside the folder.
+        const rebasedFavorites = new Set();
+        let favoritesChanged = false;
+        this.favorites.forEach((f) => {
+            const moved = rebase(this.normalizePath(f));
+            if (moved === null) {
+                rebasedFavorites.add(f);
+            } else {
+                rebasedFavorites.add(moved);
+                favoritesChanged = true;
+            }
+        });
+        this.favorites = rebasedFavorites;
+        if (favoritesChanged) await this.saveFavorites();
+
+        // 3) The active workflow may live inside the renamed folder. Written directly instead
+        // of via setActiveWorkflow(), which resolves against the still-stale tree.
+        const movedActive = rebase(this.normalizePath(this.activeWorkflowPath));
+        if (movedActive !== null) {
+            this.activeWorkflowPath = movedActive;
+            this.activeWorkflowName = movedActive.split("/").pop().replace(/\.json$/i, "").trim();
+            localStorage.setItem("qol_active_workflow_path", movedActive);
+            localStorage.setItem("qol_active_workflow_name", this.activeWorkflowName);
+        }
+
+        // 4) Selected rows inside the folder travelled with it.
+        if (this.selection && this.selection.size) {
+            const rebasedSelection = new Set();
+            this.selection.forEach((k) => {
+                const sep = k.indexOf(":");
+                const moved = rebase(k.slice(sep + 1));
+                rebasedSelection.add(moved === null ? k : `${k.slice(0, sep)}:${moved}`);
+            });
+            this.selection = rebasedSelection;
+            if (this.selectionAnchor) {
+                const sep = this.selectionAnchor.indexOf(":");
+                const movedAnchor = rebase(this.selectionAnchor.slice(sep + 1));
+                this.selectionAnchor = movedAnchor === null
+                    ? this.selectionAnchor
+                    : `${this.selectionAnchor.slice(0, sep)}:${movedAnchor}`;
+            }
+        }
+    }
+
     openRenameModal(targetPath, isFolder) {
         const isKo = BadaI18n.lang === "ko";
-        const currentName = targetPath.split("/").pop().replace(/\.json$/i, "");
-        const currentFolder = targetPath.includes("/") ? targetPath.split("/").slice(0, -1).join("/") : "/";
+        const { parent: currentFolder, name: currentName } = this.splitSidebarPath(targetPath);
         const typeLabel = isFolder ? (isKo ? "폴더" : "Folder") : (isKo ? "워크플로우" : "Workflow");
+        const parentLabel = currentFolder === "/" ? (isKo ? "최상위(Root)" : "Root") : currentFolder;
 
         const overlay = document.createElement("div");
         overlay.className = "qol-modal-overlay";
@@ -3334,9 +3900,15 @@ class WorkflowsPlusManager {
                     <span style="cursor:pointer;" id="qol-m-close">&times;</span>
                 </div>
                 <div class="qol-modal-body">
+                    <div style="font-size: 12px; color: #93c5fd; background: #27272a; padding: 6px 10px; border-radius: 5px; word-break: break-all;">
+                        ${isFolder ? "📁" : "📄"} ${this.escapeHtml(parentLabel)}/${this.escapeHtml(currentName)}
+                    </div>
                     <div>
                         <div class="qol-form-label" style="margin-bottom:4px;">${isKo ? "새 이름 입력" : "Enter New Name"}</div>
-                        <input type="text" class="qol-input" id="qol-rename-input" value="${currentName}" autofocus />
+                        <input type="text" class="qol-input" id="qol-rename-input" value="${this.escapeHtml(currentName)}" autofocus />
+                    </div>
+                    <div style="font-size: 11px; color: #a1a1aa; margin-top:6px;">
+                        ${isKo ? "이름만 변경됩니다. 위치는 그대로 유지됩니다." : "Only the name changes — the location stays the same."}
                     </div>
                 </div>
                 <div class="qol-modal-footer">
@@ -3351,12 +3923,16 @@ class WorkflowsPlusManager {
         overlay.querySelector("#qol-m-close").onclick = close;
         overlay.querySelector("#qol-m-cancel").onclick = close;
         overlay.querySelector("#qol-m-confirm").onclick = async () => {
-            const newName = overlay.querySelector("#qol-rename-input").value.trim();
-            if (!newName || newName === currentName) {
+            const rawName = overlay.querySelector("#qol-rename-input").value.trim();
+            // A folder must never gain a ".json" suffix (it would create "MyFolder.json"),
+            // while a workflow must always end with one.
+            const formattedName = isFolder
+                ? rawName.replace(/\.json$/i, "")
+                : (rawName.toLowerCase().endsWith(".json") ? rawName : rawName + ".json");
+            if (!formattedName || formattedName === currentName) {
                 close();
                 return;
             }
-            const formattedName = isFolder ? newName : (newName.endsWith(".json") ? newName : newName + ".json");
             try {
                 const res = await fetch("/api/qol/workflows/move", {
                     method: "POST",
@@ -3370,17 +3946,30 @@ class WorkflowsPlusManager {
                 });
                 const data = await res.json();
                 if (data.success) {
-                    this.showToast(isKo ? `'${newName}' (으)로 변경 완료!` : `Renamed to '${newName}'!`);
+                    this.showToast(isKo ? `'${formattedName}' (으)로 변경 완료!` : `Renamed to '${formattedName}'!`);
                     close();
-                    const newPath = currentFolder === "/" ? formattedName : `${currentFolder}/${formattedName}`;
-                    if (this.activeWorkflowPath === targetPath) {
-                        this.setActiveWorkflow(newPath, false);
-                    }
-                    if (this.isFavorited(targetPath)) {
-                        this.favorites.delete(this.normalizePath(targetPath));
-                        this.favorites.delete(targetPath);
-                        this.favorites.add(this.normalizePath(newPath));
-                        await this.saveFavorites();
+
+                    // Folder rows are addressed with a leading slash, file rows without one,
+                    // and only the server knows the final spelling — prefer its `new_path`.
+                    const serverPath = (data.new_path || "").replace(/\\/g, "/");
+                    const newPath = isFolder
+                        ? (serverPath || (currentFolder === "/" ? `/${formattedName}` : `${currentFolder}/${formattedName}`))
+                        : (currentFolder === "/" ? formattedName : `${currentFolder}/${formattedName}`);
+
+                    if (isFolder) {
+                        // Everything nested under the folder moved with it: expanded state,
+                        // bookmarks and the active workflow all have to follow.
+                        await this.rebaseSidebarStateAfterFolderMove(targetPath, newPath);
+                    } else {
+                        if (this.activeWorkflowPath === targetPath) {
+                            this.setActiveWorkflow(newPath, false);
+                        }
+                        if (this.isFavorited(targetPath)) {
+                            this.favorites.delete(this.normalizePath(targetPath));
+                            this.favorites.delete(targetPath);
+                            this.favorites.add(this.normalizePath(newPath));
+                            await this.saveFavorites();
+                        }
                     }
                     await this.loadTree();
                 } else {

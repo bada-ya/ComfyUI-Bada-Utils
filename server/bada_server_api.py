@@ -159,6 +159,195 @@ def remove_companion_thumbnail(root_dir, rel_wf_path):
         logger.warning(f"[Bada-Utils] remove_companion_thumbnail error for {rel_wf_path}: {e}")
 
 
+# Companion thumbnail extensions recorded in `.bada_meta.json` ("foo.thumb.png").
+THUMB_EXTS = (".thumb.png", ".thumb.webp", ".thumb.jpg", ".thumb.jpeg")
+
+# Windows rejects these inside a file/folder name. Validating up-front turns an opaque
+# `[WinError 123] The filename, directory name, or volume label syntax is incorrect.` (which
+# surfaces as a raw 500 plus a red toast in the sidebar) into a readable 400.
+INVALID_NAME_CHARS = ('<', '>', ':', '"', '/', '\\', '|', '?', '*')
+
+# Reserved DOS device names. Still illegal on Windows even with an extension ("CON.json").
+RESERVED_BASENAMES = (
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def sanitize_entry_name(raw_name):
+    """
+    Validates a user supplied file/folder name and returns a clean basename.
+
+    Returns `(name, error)` where `error` is None on success. Trailing dots and spaces are
+    stripped because Windows silently drops them, which would otherwise make the sidebar
+    report "renamed to X" for a name that does not actually exist on disk.
+    """
+    name = os.path.basename(str(raw_name).replace("\\", "/")).strip()
+    name = name.rstrip(". ")
+    if not name:
+        return None, "Name is required"
+
+    illegal = [c for c in INVALID_NAME_CHARS if c in name]
+    if illegal:
+        return None, f"Name cannot contain {' '.join(illegal)}"
+
+    stem = name.split(".")[0].upper()
+    if stem in RESERVED_BASENAMES:
+        return None, f"'{stem}' is a reserved Windows name"
+
+    if len(name) > 255:
+        return None, "Name is too long (maximum 255 characters)"
+
+    return name, None
+
+
+def force_case_only_rename(src_full, dest_full):
+    """
+    Applies a rename whose only difference is letter case ("photos" -> "Photos").
+
+    Windows resolves both paths to the same directory, so a plain `os.rename()` is a no-op.
+    Routing through a throw-away intermediate name forces NTFS to store the new casing.
+    """
+    temp_path = dest_full + ".__bada_case_tmp__"
+    os.rename(src_full, temp_path)
+    os.rename(temp_path, dest_full)
+
+
+def remap_metadata_for_move(root_dir, src_rel, dest_rel):
+    """
+    Re-points `.bada_meta.json` entries from `src_rel` to `dest_rel`.
+
+    Metadata keys are workflows-root-relative paths ("A/B.json"). Renaming or moving a FOLDER
+    invalidates every key underneath it, so without this migration each workflow inside that
+    folder would silently lose its notes and thumbnail. For a single workflow the companion
+    thumbnail reference is carried over as well. Returns the number of migrated entries.
+    """
+    meta = load_workflow_metadata(root_dir)
+    if not meta:
+        return 0
+
+    src_key = str(src_rel).replace("\\", "/").strip("/")
+    dest_key = str(dest_rel).replace("\\", "/").strip("/")
+    if not src_key or src_key == dest_key:
+        return 0
+
+    src_stem = os.path.splitext(src_key)[0]
+    dest_stem = os.path.splitext(dest_key)[0]
+
+    rebuilt, migrated = {}, 0
+    for key, entry in meta.items():
+        norm_key = str(key).replace("\\", "/").strip("/")
+
+        if norm_key == src_key:
+            new_key = dest_key
+        elif norm_key.startswith(src_key + "/"):
+            new_key = dest_key + norm_key[len(src_key):]
+        else:
+            rebuilt[key] = entry  # unrelated subtree, keep as-is
+            continue
+
+        if isinstance(entry, dict) and entry.get("thumbnail"):
+            entry = dict(entry)
+            thumb_key = str(entry["thumbnail"]).replace("\\", "/").strip("/")
+            for thumb_ext in THUMB_EXTS:
+                if thumb_key == src_stem + thumb_ext:
+                    entry["thumbnail"] = dest_stem + thumb_ext
+                    break
+
+        rebuilt[new_key] = entry
+        migrated += 1
+
+    if migrated:
+        save_workflow_metadata(root_dir, rebuilt)
+    return migrated
+
+
+def move_workflow_folder(root_dir, src_dir, target_folder_rel, new_name, overwrite=False):
+    """
+    Renames and/or moves an entire FOLDER inside the workflows root.
+
+    Kept out of the REST handler because a folder follows different rules than a workflow:
+    no `.json` extension may be appended, moving a folder into its own subtree has to be
+    refused, and every metadata key underneath it has to be re-pointed.
+    """
+    if new_name:
+        folder_name, name_error = sanitize_entry_name(new_name)
+        if name_error:
+            return web.json_response({"success": False, "error": name_error}, status=400)
+    else:
+        folder_name = os.path.basename(src_dir)
+
+    clean_target = str(target_folder_rel or "/").replace("\\", "/").lstrip("/\\")
+    dest_parent = os.path.realpath(os.path.abspath(os.path.join(root_dir, clean_target)))
+    if not is_safe_path(root_dir, dest_parent):
+        return web.json_response({"success": False, "error": "Invalid target directory"}, status=403)
+
+    # Two paths are kept on purpose:
+    #   dest_real    - junction/symlink-resolved, used ONLY for the containment check.
+    #   dest_literal - keeps the exact casing the user typed, used for the actual move.
+    # On Windows `os.path.realpath()` returns the on-disk casing, so comparing realpaths
+    # cannot tell "same folder" from "same folder, spelled differently" and a case-only
+    # rename ("photos" -> "Photos") would be silently dropped.
+    dest_literal = os.path.abspath(os.path.join(dest_parent, folder_name))
+    dest_real = os.path.realpath(dest_literal)
+    if not is_safe_path(root_dir, dest_real) or not is_safe_path(dest_parent, dest_real):
+        return web.json_response({"success": False, "error": "Destination folder escapes the workflows directory"}, status=403)
+
+    src_rel = "/" + os.path.relpath(src_dir, root_dir).replace("\\", "/")
+    dest_rel = "/" + os.path.relpath(dest_literal, root_dir).replace("\\", "/")
+
+    # Case-sensitive compare: identical spelling means there is simply nothing to do.
+    if os.path.abspath(src_dir) == dest_literal:
+        return web.json_response({
+            "success": True,
+            "message": f"Folder '{folder_name}' is already up to date",
+            "new_path": dest_rel,
+            "type": "folder",
+            "metadata_migrated": 0,
+        })
+
+    # Case-insensitive compare: the very same folder, only the spelling differs.
+    same_folder = os.path.normcase(src_dir) == os.path.normcase(dest_literal)
+
+    if not same_folder:
+        # A folder can never live inside itself — moving "/A" into "/A/B" is unsolvable and
+        # `shutil.move` would either recurse or fail with an opaque WinError.
+        if is_safe_path(src_dir, dest_literal):
+            return web.json_response({
+                "success": False,
+                "error": "A folder cannot be moved into itself or into one of its own subfolders",
+            }, status=400)
+
+        if os.path.exists(dest_literal):
+            if not overwrite:
+                return web.json_response({
+                    "success": False,
+                    "error": f"A folder named '{folder_name}' already exists in that location",
+                }, status=409)
+            shutil.rmtree(dest_literal)
+
+    try:
+        os.makedirs(dest_parent, exist_ok=True)
+        if same_folder:
+            force_case_only_rename(src_dir, dest_literal)
+        else:
+            shutil.move(src_dir, dest_literal)
+    except OSError as move_error:
+        logger.error(f"[Bada-Utils] Folder move failed: {move_error}")
+        return web.json_response({"success": False, "error": f"Move failed: {move_error}"}, status=500)
+
+    migrated = remap_metadata_for_move(root_dir, src_rel, dest_rel)
+
+    return web.json_response({
+        "success": True,
+        "message": f"Successfully moved folder '{folder_name}' to '{target_folder_rel or '/'}'",
+        "new_path": dest_rel,
+        "type": "folder",
+        "metadata_migrated": migrated,
+    })
+
+
 def build_workflow_tree(root_dir):
     """
     Recursively scans the user workflows directory and builds a nested tree representation.
@@ -962,7 +1151,10 @@ def register_bada_api_routes():
                 body = await request.json()
                 source_rel = (body.get("source_path") or body.get("source") or "").strip()
                 target_folder_rel = (body.get("target_folder") or body.get("target") or "/").strip()
-                new_name = body.get("new_name", "").strip()
+                new_name = (body.get("new_name") or "").strip()
+                # The sidebar always sends `overwrite: false`; honour an explicit true so an
+                # existing destination is a clean 409 instead of a raw shutil/WinError 500.
+                overwrite = body.get("overwrite") is True
 
                 if not source_rel:
                     return web.json_response({"success": False, "error": "Source path is required"}, status=400)
@@ -972,6 +1164,27 @@ def register_bada_api_routes():
                     return web.json_response({"success": False, "error": "Path traversal characters ('..') are forbidden"}, status=400)
 
                 root_dir = get_workflows_root_dir()
+
+                # --- FOLDER branch -------------------------------------------------
+                # The sidebar posts folder renames and folder moves here too, so the source
+                # kind is detected first. This MUST run before find_file_in_workflows(),
+                # which by design only resolves files and therefore answered
+                # 404 "Source file not found" for every folder rename.
+                clean_source = source_rel.replace("\\", "/").lstrip("/\\")
+                if not clean_source:
+                    # "/" addresses the workflows root itself — never rename or move it.
+                    return web.json_response({"success": False, "error": "Cannot rename the workflows root directory"}, status=403)
+
+                src_dir = os.path.realpath(os.path.abspath(os.path.join(root_dir, clean_source)))
+
+                if os.path.isdir(src_dir):
+                    if not is_safe_path(root_dir, src_dir):
+                        return web.json_response({"success": False, "error": "Source path escapes workflows directory"}, status=403)
+                    if os.path.normcase(src_dir) == os.path.normcase(root_dir):
+                        return web.json_response({"success": False, "error": "Cannot rename the workflows root directory"}, status=403)
+                    return move_workflow_folder(root_dir, src_dir, target_folder_rel, new_name, overwrite)
+
+                # --- FILE branch --------------------------------------------------
                 src_full = find_file_in_workflows(root_dir, source_rel)
 
                 if not src_full or not os.path.isfile(src_full):
@@ -988,53 +1201,79 @@ def register_bada_api_routes():
 
                 # Sanitize file_name: enforce pure basename to prevent traversal
                 raw_name = new_name if new_name else os.path.basename(src_full)
-                file_name = os.path.basename(raw_name.replace("\\", "/"))
-                if not file_name:
-                    return web.json_response({"success": False, "error": "Invalid file name"}, status=400)
+                file_name, name_error = sanitize_entry_name(raw_name)
+                if name_error:
+                    return web.json_response({"success": False, "error": name_error}, status=400)
 
                 if not file_name.endswith(".json") and not file_name.endswith(".png"):
                     file_name += ".json"
 
-                dest_full = os.path.realpath(os.path.abspath(os.path.join(dest_dir, file_name)))
+                # Same split as the folder branch: `dest_real` for the containment check only,
+                # `dest_literal` for the move so the casing the user typed actually sticks
+                # (Windows `realpath()` returns the on-disk casing, which would drop a
+                # case-only rename such as "shot" -> "Shot").
+                dest_literal = os.path.abspath(os.path.join(dest_dir, file_name))
+                dest_real = os.path.realpath(dest_literal)
 
                 # Strict containment check on final destination file path
-                if not is_safe_path(root_dir, dest_full) or not is_safe_path(dest_dir, dest_full):
+                if not is_safe_path(root_dir, dest_real) or not is_safe_path(dest_dir, dest_real):
                     return web.json_response({"success": False, "error": "Destination file path escapes workflows directory"}, status=403)
 
+                # Case-sensitive compare first: identical spelling means nothing to do.
+                unchanged = os.path.abspath(src_full) == dest_literal
+                # Case-insensitive compare: same file, different spelling.
+                same_file = os.path.normcase(src_full) == os.path.normcase(dest_literal)
+
+                if not same_file and os.path.exists(dest_literal):
+                    # Previously `shutil.move` raised here, producing a 500 with a raw
+                    # "Destination path ... already exists" — surface it as a clean 409.
+                    if not overwrite:
+                        return web.json_response({
+                            "success": False,
+                            "error": f"'{file_name}' already exists in that location",
+                        }, status=409)
+                    os.remove(dest_literal)
+
+                dest_full = dest_literal
                 os.makedirs(dest_dir, exist_ok=True)
 
                 # Move file
-                shutil.move(src_full, dest_full)
+                try:
+                    if unchanged:
+                        pass  # already named exactly that
+                    elif same_file:
+                        force_case_only_rename(src_full, dest_full)
+                    else:
+                        shutil.move(src_full, dest_full)
+                except OSError as move_error:
+                    logger.error(f"[Bada-Utils] Workflow move failed: {move_error}")
+                    return web.json_response({"success": False, "error": f"Move failed: {move_error}"}, status=500)
+
                 new_rel_path = "/" + os.path.relpath(dest_full, root_dir).replace("\\", "/")
 
                 # Companion thumbnail and metadata migration
                 try:
                     src_base = os.path.splitext(src_full)[0]
                     dest_base = os.path.splitext(dest_full)[0]
-                    for thumb_ext in [".thumb.png", ".thumb.webp", ".thumb.jpg"]:
+                    for thumb_ext in THUMB_EXTS:
                         src_thumb = src_base + thumb_ext
                         if os.path.isfile(src_thumb):
                             dest_thumb = dest_base + thumb_ext
                             shutil.move(src_thumb, dest_thumb)
 
-                    src_rel_key = os.path.relpath(src_full, root_dir).replace("\\", "/").lstrip("/")
-                    dest_rel_key = os.path.relpath(dest_full, root_dir).replace("\\", "/").lstrip("/")
-                    meta = load_workflow_metadata(root_dir)
-                    if src_rel_key in meta:
-                        entry = meta.pop(src_rel_key)
-                        if entry.get("thumbnail"):
-                            for thumb_ext in [".thumb.png", ".thumb.webp", ".thumb.jpg"]:
-                                if entry["thumbnail"].endswith(thumb_ext):
-                                    entry["thumbnail"] = os.path.splitext(dest_rel_key)[0] + thumb_ext
-                        meta[dest_rel_key] = entry
-                        save_workflow_metadata(root_dir, meta)
+                    remap_metadata_for_move(
+                        root_dir,
+                        os.path.relpath(src_full, root_dir).replace("\\", "/"),
+                        os.path.relpath(dest_full, root_dir).replace("\\", "/"),
+                    )
                 except Exception as meta_e:
                     logger.warning(f"[Bada-Utils] Metadata migration warning on move: {meta_e}")
 
                 return web.json_response({
                     "success": True,
                     "message": f"Successfully moved '{file_name}' to '{target_folder_rel or '/'}'",
-                    "new_path": new_rel_path
+                    "new_path": new_rel_path,
+                    "type": "file",
                 })
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=500)
