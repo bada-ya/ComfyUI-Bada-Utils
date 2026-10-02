@@ -15,6 +15,7 @@ import logging
 import base64
 import html
 import time
+import threading
 import urllib.parse
 import urllib.request
 from aiohttp import web
@@ -434,11 +435,48 @@ def build_workflow_tree(root_dir):
 # 2. Local Models & LoRAs Discovery Engine
 # =========================================================================
 
+# Cached result of the (expensive) full models-directory scan, plus the monotonic time it
+# was produced. The scan walks every model subfolder with os.walk(), which on a large
+# library takes seconds; serving it from the aiohttp thread would freeze the whole server
+# (UI, queue, websockets) for that duration. See get_models_handler().
+MODELS_CACHE_TTL_SECONDS = 300.0
+_CACHED_MODELS = None
+_CACHED_MODELS_AT = 0.0
+_CACHED_MODELS_LOCK = threading.Lock()
+
+
+def get_all_available_models_cached():
+    """
+    TTL-cached wrapper around get_all_available_models().
+
+    Returns (models, cache_hit). A failed scan is never cached, so a transient filesystem
+    error cannot poison the result for the whole TTL.
+    """
+    global _CACHED_MODELS, _CACHED_MODELS_AT
+
+    now = time.monotonic()
+    with _CACHED_MODELS_LOCK:
+        if _CACHED_MODELS is not None and (now - _CACHED_MODELS_AT) < MODELS_CACHE_TTL_SECONDS:
+            return _CACHED_MODELS, True
+
+    models = get_all_available_models()
+    if not models:
+        return models, False
+
+    with _CACHED_MODELS_LOCK:
+        _CACHED_MODELS = models
+        _CACHED_MODELS_AT = time.monotonic()
+    return models, False
+
+
 def get_all_available_models():
     """
     ComfyUI folder_paths를 활용하여 각 카테고리별 로컬 보유 모델 목록을 안전하게 수집합니다.
     표준 카테고리뿐 아니라 시스템 및 서드파티 노드가 등록한 모든 모델 폴더(seedvr2, latent_upscale_models,
     toobusy_flashvsr, llm, sams, ultralytics 등)와 models 디렉토리 내의 실제 서브폴더들까지 동적으로 완전 수집합니다.
+
+    NOTE: this performs a synchronous recursive filesystem walk. Never call it directly from
+    an async handler — use get_all_available_models_cached() through asyncio.to_thread().
     """
     model_categories = {
         "checkpoints": "checkpoints",
@@ -558,16 +596,18 @@ def get_detective_database():
         user_dir = folder_paths.get_user_directory()
         if user_dir:
             search_dirs.append(os.path.join(user_dir, "__manager", "cache"))
-    except Exception:
-        pass
+    except Exception as _ignored_err:
+        logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
 
     try:
         base_dir = getattr(folder_paths, "base_path", None)
         if base_dir:
             search_dirs.append(os.path.join(base_dir, "user", "__manager", "cache"))
             search_dirs.append(os.path.join(base_dir, "custom_nodes", "ComfyUI-Manager"))
-    except Exception:
-        pass
+    except Exception as _ignored_err:
+        logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
 
     # StabilityMatrix packages discovery
     try:
@@ -577,8 +617,9 @@ def get_detective_database():
                 cache_cand = os.path.join(sm_packages_root, pkg, "user", "__manager", "cache")
                 if os.path.isdir(cache_cand) and cache_cand not in search_dirs:
                     search_dirs.append(cache_cand)
-    except Exception:
-        pass
+    except Exception as _ignored_err:
+        logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
 
     # Site-packages
     try:
@@ -587,8 +628,9 @@ def get_detective_database():
             pkg_dir = os.path.dirname(comfyui_manager.__file__)
             if pkg_dir not in search_dirs:
                 search_dirs.append(pkg_dir)
-    except Exception:
-        pass
+    except Exception as _ignored_err:
+        logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
 
     # Discover candidate files
     ext_map_files = []
@@ -664,8 +706,9 @@ def get_detective_database():
                     if pat:
                         try:
                             patterns_list.append((re.compile(pat, re.I), repo_meta[clean_ref]))
-                        except Exception:
-                            pass
+                        except Exception as _ignored_err:
+                            logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
         except Exception as e:
             logger.debug(f"[Bada-Detective] custom-node-list parse note: {e}")
 
@@ -1069,8 +1112,9 @@ def register_bada_api_routes():
                         idx = int(match.group(1))
                         if 0 <= idx < len(protected_items):
                             return protected_items[idx]
-                    except Exception:
-                        pass
+                    except Exception as _ignored_err:
+                        logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
                     return match.group(0)
 
                 restored_text = re.sub(r'__\s*(?:BADA|bada)\s*_\s*(?:PROT|prot)\s*_\s*(\d+)\s*__', restore_match, translated_text)
@@ -1085,12 +1129,16 @@ def register_bada_api_routes():
         # --- B. Auto Model Assigner API ---
         async def get_models_handler(request):
             try:
-                models_data = get_all_available_models()
+                # The scan is a blocking recursive filesystem walk (seconds on a large model
+                # library). Running it inline would stall the whole aiohttp event loop, so it
+                # goes to a worker thread and the result is cached for a few minutes.
+                models_data, cache_hit = await asyncio.to_thread(get_all_available_models_cached)
                 return web.json_response({
                     "status": "success",
                     "models": models_data,
                     "data": models_data,
-                    "count": sum(len(v) for v in models_data.values())
+                    "count": sum(len(v) for v in models_data.values()),
+                    "cached": cache_hit
                 })
             except Exception as e:
                 return web.json_response({"status": "error", "message": str(e)}, status=500)
@@ -1102,7 +1150,9 @@ def register_bada_api_routes():
         async def get_tree_handler(request):
             try:
                 root_dir = get_workflows_root_dir()
-                tree = build_workflow_tree(root_dir)
+                # Same reasoning as the model scan: build_workflow_tree() is a synchronous
+                # recursive os.scandir walk, so keep it off the event loop.
+                tree = await asyncio.to_thread(build_workflow_tree, root_dir)
                 return web.json_response({"success": True, "tree": tree})
             except Exception as e:
                 logger.error(f"[Bada-Utils] get_tree_handler error: {e}")

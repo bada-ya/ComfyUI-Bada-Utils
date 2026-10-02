@@ -156,7 +156,7 @@ app.registerExtension({
         try {
             localStorage.removeItem("ComfyUI_Master_Hub_Presets_v1");
             localStorage.removeItem("ComfyUI_Universal_Hub_Presets_v1");
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
 
         // Initialize Grand Modal Callbacks with synced data across all nodes
         initHubModal({

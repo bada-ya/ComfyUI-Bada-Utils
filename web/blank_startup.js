@@ -176,7 +176,7 @@ export function setupBlankStartup() {
         setTimeout(() => {
             toastObserver.disconnect();
         }, 5000);
-    } catch (e) {}
+    } catch (e) { console.debug("[Bada] ignored:", e); }
 
     console.log("[QoL-Utils] Clean Blank Startup module active.");
 }

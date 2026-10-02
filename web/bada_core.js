@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { escapeHtml } from "./bada_shared.js";
 import { BadaI18n } from "./bada_i18n.js";
 import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary, getGlobalPresetsStore } from "./presets_overview_modal.js";
 import { showToast } from "./presets_modal.js";
@@ -310,15 +311,7 @@ const BADA_UNIFIED_SETTINGS = {
 
 let isPresetsExpanded = true;
 
-function escapeHtml(str) {
-    if (!str) return "";
-    return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
+// escapeHtml now lives in ./bada_shared.js (imported at the top of this file).
 
 // ──────────────────────────────────────────────────────────────────────────────
 //  Compact Spacing & Full-Width CSS Injection
@@ -693,7 +686,7 @@ function buildNoteHelperPanel() {
             const v = app.ui.settings.getSettingValue("BadaUtils.NoteHelper");
             if (v !== undefined) isEnabled = !!v;
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
 
     let blacklistStr = "";
     try {
@@ -703,7 +696,7 @@ function buildNoteHelperPanel() {
                 blacklistStr = str;
             }
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
 
     let whitelistStr = "";
     try {
@@ -713,7 +706,7 @@ function buildNoteHelperPanel() {
                 whitelistStr = str;
             }
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
 
     // Normalize a comma-separated list for duplicate / conflict detection:
     // trim + lowercase + collapse inner whitespace, keep first raw form for display.
@@ -778,7 +771,7 @@ function buildNoteHelperPanel() {
             if (app.ui?.settings?.setSettingValue) {
                 app.ui.settings.setSettingValue("BadaUtils.NoteHelper", val);
             }
-        } catch (_) {}
+        } catch (_) { console.debug("[Bada] ignored:", _); }
         if (window.__BADA_SYNC_NOTE_HELPER_STATE__) {
             window.__BADA_SYNC_NOTE_HELPER_STATE__(val);
         }
@@ -953,7 +946,7 @@ function buildNoteHelperPanel() {
                 app.ui.settings.setSettingValue("BadaUtils.TranslationBlacklist", blInputEl.value.trim());
                 app.ui.settings.setSettingValue("BadaUtils.TranslationWhitelist", wlInputEl.value.trim());
             }
-        } catch (_) {}
+        } catch (_) { console.debug("[Bada] ignored:", _); }
         if (window.__BADA_REAPPLY_NOTE_HELPER_NODES__) {
             window.__BADA_REAPPLY_NOTE_HELPER_NODES__();
         }
@@ -1215,7 +1208,7 @@ app.registerExtension({
                         oldPanel.replaceWith(fresh);
                     }
                 }
-            } catch (_) {}
+            } catch (_) { console.debug("[Bada] ignored:", _); }
             applyBilingualSettingsUI(lang);
         });
 
@@ -1268,14 +1261,14 @@ app.registerExtension({
                     if (window.app?.ui?.settings?.setSettingValue) {
                         window.app.ui.settings.setSettingValue("Comfy.Sidebar.Size", "small");
                     }
-                } catch (_) {}
+                } catch (_) { console.debug("[Bada] ignored:", _); }
             } else {
                 document.body.classList.remove("bada-compact-sidebar");
                 try {
                     if (window.app?.ui?.settings?.setSettingValue) {
                         window.app.ui.settings.setSettingValue("Comfy.Sidebar.Size", "normal");
                     }
-                } catch (_) {}
+                } catch (_) { console.debug("[Bada] ignored:", _); }
             }
         }
 
@@ -1285,11 +1278,11 @@ app.registerExtension({
                     const v = window.app.ui.settings.getSettingValue("BadaUtils.CompactSidebar", true);
                     if (typeof v === "boolean") return v;
                 }
-            } catch (_) {}
+            } catch (_) { console.debug("[Bada] ignored:", _); }
             try {
                 const local = localStorage.getItem("Comfy.Settings.BadaUtils.CompactSidebar");
                 if (local !== null) return JSON.parse(local);
-            } catch (_) {}
+            } catch (_) { console.debug("[Bada] ignored:", _); }
             return true;
         })();
         applyCompactSidebarState(initialCompact);
@@ -1477,12 +1470,12 @@ app.registerExtension({
             if (window.LiteGraph && LiteGraph.registered_node_types) {
                 for (const [type, ctor] of Object.entries(LiteGraph.registered_node_types)) {
                     if (type.startsWith("Bada") || type === "UniversalPresetHub" || (ctor.category && (ctor.category.includes("Bada") || ctor.category.includes("🌊") || ctor.category.includes("🌟")))) {
-                        try { if (ctor.title) ctor.title = ctor.title.replace(/🌊|🌟/g, "⚓"); } catch (_) {}
-                        try { if (ctor.prototype?.title) ctor.prototype.title = ctor.prototype.title.replace(/🌊|🌟/g, "⚓"); } catch (_) {}
-                        try { if (ctor.category) ctor.category = ctor.category.replace(/🌊|🌟/g, "⚓"); } catch (_) {}
+                        try { if (ctor.title) ctor.title = ctor.title.replace(/🌊|🌟/g, "⚓"); } catch (_) { console.debug("[Bada] ignored:", _); }
+                        try { if (ctor.prototype?.title) ctor.prototype.title = ctor.prototype.title.replace(/🌊|🌟/g, "⚓"); } catch (_) { console.debug("[Bada] ignored:", _); }
+                        try { if (ctor.category) ctor.category = ctor.category.replace(/🌊|🌟/g, "⚓"); } catch (_) { console.debug("[Bada] ignored:", _); }
                         if (ctor.nodeData) {
-                            try { if (ctor.nodeData.category) ctor.nodeData.category = ctor.nodeData.category.replace(/🌊|🌟/g, "⚓"); } catch (_) {}
-                            try { if (ctor.nodeData.display_name) ctor.nodeData.display_name = ctor.nodeData.display_name.replace(/🌊|🌟/g, "⚓"); } catch (_) {}
+                            try { if (ctor.nodeData.category) ctor.nodeData.category = ctor.nodeData.category.replace(/🌊|🌟/g, "⚓"); } catch (_) { console.debug("[Bada] ignored:", _); }
+                            try { if (ctor.nodeData.display_name) ctor.nodeData.display_name = ctor.nodeData.display_name.replace(/🌊|🌟/g, "⚓"); } catch (_) { console.debug("[Bada] ignored:", _); }
                         }
                     }
                 }
@@ -1514,6 +1507,20 @@ app.registerExtension({
                             )) {
                                 hasBadaChange = true;
                                 break;
+                            }
+                        }
+                        if (!hasBadaChange) {
+                            // The native UI can re-render the left sidebar and drop our anchor
+                            // icon. Watching for it being removed is what makes the repair
+                            // event-driven instead of needing a polling loop.
+                            for (const node of m.removedNodes) {
+                                if (node.nodeType === 1 && (
+                                    node.matches?.(".bada-nav-anchor") ||
+                                    node.querySelector?.(".bada-nav-anchor")
+                                )) {
+                                    hasBadaChange = true;
+                                    break;
+                                }
                             }
                         }
                         if (hasBadaChange) break;
@@ -1581,22 +1588,26 @@ app.registerExtension({
                 }
             }, true);
 
-            // Scoped dialog detector interval (checks only if [role="dialog"] exists)
-            setInterval(() => {
+            // Event-driven dialog detection.
+            //
+            // This used to be `setInterval(() => document.querySelector('[role="dialog"]'),
+            // 300)` — a DOM query 3.3x/second that ran for the entire page lifetime and was
+            // never cleared (the only such interval in the codebase). It is replaced by a
+            // MutationObserver that does nothing while the page is idle and fires only when a
+            // dialog is actually inserted. The self-healing half of the old poll (restore the
+            // left-sidebar anchor icon if the native UI drops it) now lives in the per-dialog
+            // observer above, which watches removedNodes — so nothing polls at all.
+            const attachIfDialogPresent = () => {
                 const dialog = document.querySelector('[role="dialog"]');
-                if (dialog) {
-                    if (!dialog.__badaObserverAttached) {
-                        observeSettingsDialog();
-                        applyBilingualSettingsUI();
-                    } else {
-                        // Keep anchor icon continuously decorated on the left sidebar
-                        const navLink = dialog.querySelector('[data-nav-id="root/Bada Utils"], [data-nav-id*="Bada"]');
-                        if (navLink && !navLink.querySelector(".bada-nav-anchor")) {
-                            applyBilingualSettingsUI();
-                        }
-                    }
+                if (dialog && !dialog.__badaObserverAttached) {
+                    observeSettingsDialog();
+                    applyBilingualSettingsUI();
                 }
-            }, 300);
+            };
+
+            const dialogWatcher = new MutationObserver(attachIfDialogPresent);
+            dialogWatcher.observe(document.body, { childList: true, subtree: true });
+            attachIfDialogPresent();   // cover a dialog that was already open at install time
 
             // Ghost tooltip pruner removed: was interfering with native PrimeVue tooltips.
         }

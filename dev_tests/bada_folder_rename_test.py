@@ -92,6 +92,13 @@ sys.modules[PKG_NAME] = pkg
 api = importlib.import_module(f"{PKG_NAME}.server.bada_server_api")
 api.register_bada_api_routes()
 
+# Source of the module, so handler bodies can be asserted on (not just their behaviour).
+MODULE_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "server", "bada_server_api.py"
+)
+with open(MODULE_FILE, "r", encoding="utf-8") as fh:
+    path_text = fh.read()
+
 MOVE = ROUTES.table[("POST", "/api/qol/workflows/move")]
 MKDIR = ROUTES.table[("POST", "/api/qol/workflows/create_folder")]
 META = ROUTES.table[("POST", "/api/qol/workflows/metadata")]
@@ -312,6 +319,60 @@ write("note.json")
 call(META, path="note.json", notes="keep me")
 status, body = move("note.json", "/", "note2")
 check("FILE-META-KEPT", read_meta().get("note2.json", {}).get("notes") == "keep me", str(read_meta()))
+
+# ===========================================================================
+print("\n--- 8. W2: model scan must be cached and off the event loop --------")
+# ===========================================================================
+MODELS = ROUTES.table[("GET", "/api/auto-assign/models")]
+TREE = ROUTES.table[("GET", "/api/qol/workflows/tree")]
+
+check("W2-ROUTES-REGISTERED", callable(MODELS) and callable(TREE))
+
+# Count real scans so the TTL cache is observable rather than assumed.
+scan_calls = {"n": 0}
+_real_scan = api.get_all_available_models
+def _counting_scan():
+    scan_calls["n"] += 1
+    return _real_scan()
+api.get_all_available_models = _counting_scan
+
+try:
+    status, body = call(MODELS)
+    check("W2-HANDLER-OK", status == 200 and body.get("status") == "success", f"status={status}")
+    check("W2-FIRST-CALL-IS-COLD", body.get("cached") is False, f"cached={body.get('cached')}")
+    check("W2-SCANNED-ONCE", scan_calls["n"] == 1, f"scans={scan_calls['n']}")
+
+    status, body = call(MODELS)
+    check("W2-SECOND-CALL-IS-WARM", body.get("cached") is True, f"cached={body.get('cached')}")
+    check("W2-NO-RESCAN", scan_calls["n"] == 1, f"scans={scan_calls['n']} (TTL cache should prevent a re-walk)")
+
+    # Expire the TTL and confirm exactly one fresh scan happens.
+    api._CACHED_MODELS_AT -= (api.MODELS_CACHE_TTL_SECONDS + 1)
+    status, body = call(MODELS)
+    check("W2-TTL-EXPIRES", body.get("cached") is False and scan_calls["n"] == 2,
+        f"cached={body.get('cached')} scans={scan_calls['n']}")
+
+    # A failed/empty scan must never be cached.
+    api._CACHED_MODELS = None
+    api._CACHED_MODELS_AT = 0.0
+    api.get_all_available_models = lambda: {}
+    status, body = call(MODELS)
+    check("W2-EMPTY-NOT-CACHED", body.get("cached") is False and api._CACHED_MODELS is None,
+        f"cached={body.get('cached')}")
+
+    api.get_all_available_models = _counting_scan
+
+    # Both handlers must offload their blocking walk with asyncio.to_thread.
+    check("W2-MODELS-USES-TO-THREAD", "asyncio.to_thread(get_all_available_models_cached)" in path_text,
+        "the blocking os.walk scan must not run on the event loop")
+    check("W2-TREE-USES-TO-THREAD", "await asyncio.to_thread(build_workflow_tree, root_dir)" in path_text)
+    check("W2-NO-BARE-SYNC-CALL", "models_data = get_all_available_models()" not in path_text,
+        "the raw blocking call must not remain in the handler")
+
+    status, body = call(TREE)
+    check("W2-TREE-STILL-WORKS", status == 200 and body.get("success") is True, f"status={status}")
+finally:
+    api.get_all_available_models = _real_scan
 
 # ===========================================================================
 shutil.rmtree(TMP_ROOT, ignore_errors=True)

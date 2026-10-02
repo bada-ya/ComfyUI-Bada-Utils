@@ -3,6 +3,7 @@
  * Displays comprehensive summary of all global presets registered across all node types in ComfyUI.
  */
 import { showToast } from "./presets_modal.js";
+import { escapeHtml } from "./bada_shared.js";
 import { BadaI18n } from "./bada_i18n.js";
 
 let overviewModalEl = null;
@@ -240,12 +241,4 @@ function renderOverviewModal() {
     });
 }
 
-function escapeHtml(str) {
-    if (!str) return "";
-    return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
+// escapeHtml now lives in ./bada_shared.js (imported at the top of this file).

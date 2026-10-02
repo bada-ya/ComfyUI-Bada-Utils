@@ -10,6 +10,7 @@
  */
 
 import { app } from "../../scripts/app.js";
+import { escapeHtml } from "./bada_shared.js";
 import { initModal, showPresetModal, closeModal, showToast } from "./presets_modal.js";
 import { hubPresetsStore } from "./hub_node.js";
 import { showHubManageModal } from "./hub_modal.js";
@@ -201,7 +202,7 @@ export function applyNodeState(node, presetData) {
                 if (typeof w.callback === "function") {
                     try {
                         w.callback(w.value);
-                    } catch (e) { }
+                    } catch (e) { console.debug("[Bada] ignored:", e); }
                 }
             }
         }
@@ -241,7 +242,7 @@ export function applyNodeState(node, presetData) {
             if (typeof node.configure === "function") {
                 try {
                     node.configure({ widgets_values: presetData.widgets_values });
-                } catch (e) { }
+                } catch (e) { console.debug("[Bada] ignored:", e); }
             }
         }
 
@@ -279,7 +280,7 @@ export function applyNodeState(node, presetData) {
     if (typeof node.onPropertyChanged === "function") {
         try {
             node.onPropertyChanged();
-        } catch (e) { }
+        } catch (e) { console.debug("[Bada] ignored:", e); }
     }
     app.graph?.setDirtyCanvas(true, true);
 }
@@ -368,14 +369,14 @@ export function getPresetBadgePosition() {
             const val = window.app.ui.settings.getSettingValue("BadaUtils.PresetBadgePosition", "bottom");
             if (val) return val;
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
     try {
         const local = localStorage.getItem("Comfy.Settings.BadaUtils.PresetBadgePosition");
         if (local !== null) {
             const parsed = JSON.parse(local);
             if (parsed) return parsed;
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
     return "bottom";
 }
 
@@ -385,11 +386,11 @@ export function arePresetBadgesEnabled() {
             const val = window.app.ui.settings.getSettingValue("BadaUtils.ShowPresetBadges", true);
             if (typeof val === "boolean") return val;
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
     try {
         const local = localStorage.getItem("Comfy.Settings.BadaUtils.ShowPresetBadges");
         if (local !== null) return JSON.parse(local);
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
     return true;
 }
 
@@ -686,7 +687,7 @@ app.registerExtension({
         try {
             localStorage.removeItem("ComfyUI_Master_Hub_Presets_v1");
             localStorage.removeItem("ComfyUI_Universal_Hub_Presets_v1");
-        } catch (e) { }
+        } catch (e) { console.debug("[Bada] ignored:", e); }
 
         loadStylesheet();
         loadPresetsFromStorage();
@@ -853,7 +854,7 @@ app.registerExtension({
                 const res = origDrawNode.apply(this, arguments);
                 try {
                     drawRoofBadges(node, ctx);
-                } catch (_) {}
+                } catch (_) { console.debug("[Bada] ignored:", _); }
                 return res;
             };
         }
@@ -886,17 +887,8 @@ app.registerExtension({
         }
         try {
             app.graph?.setDirtyCanvas?.(true, true);
-        } catch (_) {}
+        } catch (_) { console.debug("[Bada] ignored:", _); }
     }
 });
-
-function escapeHtml(str) {
-    return String(str || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
 
 console.log("%c[Universal Smart Presets]%c 2-Tier Roof Badges & Tooltips Ready.", "color: #6366f1; font-weight: bold;", "color: inherit;");

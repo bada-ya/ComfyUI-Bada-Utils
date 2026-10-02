@@ -29,7 +29,7 @@ export function isLoadImageFixEnabled() {
             if (val === "false" || val === false) return false;
             if (val === "true" || val === true) return true;
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
 
     // 3. LocalStorage fallback
     try {
@@ -41,7 +41,7 @@ export function isLoadImageFixEnabled() {
             if (parsed === "false" || parsed === false) return false;
             if (parsed === "true" || parsed === true) return true;
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
 
     return true;
 }
@@ -264,7 +264,7 @@ export function setupLoadImageFixer() {
             if (widget && isImageLoadingWidget(this, widget)) {
                 try {
                     protectImageWidgetCombo(this, widget);
-                } catch (e) {}
+                } catch (e) { console.debug("[Bada] ignored:", e); }
             }
             return widget;
         };

@@ -168,8 +168,9 @@ def parse_storyboard_json(raw_text: str):
         data = json.loads(candidate_str)
         if isinstance(data, dict) and "cuts" in data and isinstance(data["cuts"], list):
             return data
-    except Exception:
-        pass
+    except Exception as _ignored_err:
+        logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
 
     return None
 
@@ -854,8 +855,9 @@ def register_gemini_api_routes():
                                             raw_result_text = text3
                                             successful_model = model3
                                             break
-                            except Exception:
-                                pass
+                            except Exception as _ignored_err:
+                                logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
 
                 if not raw_result_text:
                     return web.json_response({

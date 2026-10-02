@@ -79,8 +79,9 @@ def _write_json(path: str, payload: dict) -> None:
         try:
             if os.path.exists(handle.name):
                 os.remove(handle.name)
-        except OSError:
-            pass
+        except OSError as _ignored_err:
+            logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
         raise
 
 

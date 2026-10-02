@@ -491,7 +491,7 @@ export const BadaI18n = {
                     try {
                         localStorage.setItem("BadaUtils_Language", s);
                         localStorage.setItem("BadaUtils.Language", s);
-                    } catch (e) {}
+                    } catch (e) { console.debug("[Bada] ignored:", e); }
                     return s;
                 }
             }
@@ -502,7 +502,7 @@ export const BadaI18n = {
                 const s = String(comfySetting).replace(/"/g, "").trim().toLowerCase();
                 if (s === "ko" || s === "en") return s;
             }
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
 
         // Default to "en" (English First for ComfyUI Manager / Registry Compliance)
         return "en";
@@ -536,7 +536,7 @@ export const BadaI18n = {
                         theApp?.ui?.settings?.setSettingValue?.("BadaUtils.Language", lang);
                     }
                 }
-            } catch (e) {}
+            } catch (e) { console.debug("[Bada] ignored:", e); }
             this.notifyListeners();
         } finally {
             this._isSettingLang = false;
@@ -600,13 +600,13 @@ export const BadaI18n = {
                 try {
                     localStorage.setItem("BadaUtils_Language", lang);
                     localStorage.setItem("BadaUtils.Language", lang);
-                } catch (e) {}
+                } catch (e) { console.debug("[Bada] ignored:", e); }
                 if (BadaI18n._lang !== lang) {
                     BadaI18n.setLanguage(lang, false);
                 }
             }
         }
-    } catch (e) {}
+    } catch (e) { console.debug("[Bada] ignored:", e); }
 })();
 
 window.BadaI18n = BadaI18n;

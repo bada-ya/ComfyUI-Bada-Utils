@@ -67,15 +67,35 @@ const localStorage = {
 // so reassigning `context.fetch` from here would not be visible to it.
 let fetchHandler = async () => ({ ok: true, json: async () => ({}) });
 // A tiny DOM stand-in: the class only needs data-kind / data-path attributes, a classList
-// and `closest(".qol-bookmarks-container")` to resolve Shift ranges.
-const dom = { rows: [] };
+// and `closest(".qol-bookmarks-container")` to resolve Shift ranges. showToast additionally
+// needs createElement/body, so those live here too and are mutated in place (the vm holds a
+// reference to this exact object).
+const dom = { rows: [], toasts: [] };
+
+function makeEl(tag) {
+    return {
+        tagName: tag, textContent: "", innerHTML: "", className: "", style: {},
+        children: [], removed: false,
+        append(...nodes) { this.children.push(...nodes); },
+        appendChild(node) { this.children.push(node); return node; },
+        remove() { this.removed = true; },
+    };
+}
+
 const documentStub = {
+    body: makeEl("body"),
+    head: makeEl("head"),
     querySelector: () => null,
     querySelectorAll: (selector) => {
         if (selector.includes("qol-folder-row") || selector.includes("qol-file-row")) return dom.rows.slice();
         return [];
     },
-    body: null,
+    createElement: (tag) => {
+        const el = makeEl(tag);
+        if (tag === "div") dom.toasts.push(el);
+        return el;
+    },
+    getElementById: () => null,
 };
 
 function makeRow(kind, path, section = "tree") {
@@ -96,6 +116,15 @@ function makeRow(kind, path, section = "tree") {
     };
 }
 
+// Mirrors web/bada_shared.js: the class delegates escapeHtml() to that imported binding,
+// so the vm needs an equivalent free variable for showToast() to be testable at all.
+const escapeHtml = (value) => String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 const context = vm.createContext({
     console,
     setTimeout,
@@ -106,6 +135,7 @@ const context = vm.createContext({
     FONT_SIZE_PRESETS: [{ name: "a" }, { name: "b" }, { name: "c" }, { name: "d" }, { name: "e" }],
     BadaI18n: { lang: "en", t: (k) => k },
     app: { graph: {} },
+    escapeHtml,
     fetch: (...args) => fetchHandler(...args),
 });
 vm.runInContext(`${source.slice(classStart, classEnd)}\nglobalThis.__Manager = WorkflowsPlusManager;`, context);
@@ -517,6 +547,53 @@ async function callMove(mgr, sourcePath, target) {
         check("CSS-ORDER-HOVER-SELECTED-ACTIVE",
             iHover >= 0 && iHover < iSelected && iSelected < iActive,
             `hover=${iHover} selected=${iSelected} active=${iActive}`);
+    }
+
+    console.log("\n--- 10. showToast escapes server-supplied text (XSS) -----------------");
+    {
+        const m = makeManager();
+        delete m.showToast;                       // use the real implementation
+        dom.toasts.length = 0;
+
+        m.showToast("Source file not found: <img src=x onerror=alert(1)>", true);
+        check("TOAST-CREATED", dom.toasts.length === 1, `created=${dom.toasts.length}`);
+        check("TOAST-ESCAPES-MARKUP", !dom.toasts[0].innerHTML.includes("<img"), dom.toasts[0].innerHTML);
+        check("TOAST-KEEPS-TEXT", dom.toasts[0].innerHTML.includes("&lt;img"), dom.toasts[0].innerHTML);
+
+        m.showToast("Plain message");
+        check("TOAST-PLAIN-UNAFFECTED", dom.toasts[1].innerHTML.includes("Plain message"),
+            dom.toasts[1].innerHTML);
+        m.showToast(12345);
+        check("TOAST-HANDLES-NON-STRING", dom.toasts[2].innerHTML.includes("12345"),
+            dom.toasts[2].innerHTML);
+
+        // The escaping chain must exist in exactly one place in web/.
+        const shared = require("fs").readFileSync(path.join(REPO_ROOT, "web", "bada_shared.js"), "utf8");
+        const marker = '.replace(/&/g, "&amp;")';
+        const holders = require("fs").readdirSync(path.join(REPO_ROOT, "web"))
+            .filter((f) => f.endsWith(".js"))
+            .filter((f) => require("fs").readFileSync(path.join(REPO_ROOT, "web", f), "utf8").includes(marker));
+        check("ESCAPEHTML-SINGLE-SOURCE",
+            holders.length === 1 && holders[0] === "bada_shared.js",
+            `escaping chain found in: ${holders.join(", ") || "(none)"}`);
+        check("ESCAPEHTML-EXPORTED", /export function escapeHtml\(/.test(shared));
+    }
+
+    console.log("\n--- 11. no permanent polling left behind -----------------------");
+    {
+        const core = require("fs").readFileSync(path.join(REPO_ROOT, "web", "bada_core.js"), "utf8");
+        check("NO-POLL-IN-SETTINGS-UI", !/setInterval\(\s*\(\)\s*=>\s*\{\s*\n\s*const dialog = document\.querySelector/.test(core),
+            "the 300ms dialog detector must not come back");
+        check("DIALOG-WATCHER-EVENT-DRIVEN", /new MutationObserver\(attachIfDialogPresent\)/.test(core));
+        check("ANCHOR-SELFHEAL-EVENT-DRIVEN", /removedNodes/.test(core),
+            "anchor-icon repair must observe removals, not poll");
+
+        check("RETRY-HELPER-EXISTS", source.includes("const retryUntilSatisfied = (fn, intervalMs"));
+        check("RETRY-IS-SELF-TERMINATING",
+            source.includes("if (ok || waited >= maxMs) {") && source.includes("clearInterval(timer)"),
+            "the 2s/3s probes must stop once satisfied instead of running forever");
+        check("PROBES-REPORT-SATISFIED",
+            source.includes("return !!(tabsContainer && tabsContainer._qolObserved)"));
     }
 
     const passed = results.filter(Boolean).length;

@@ -15,6 +15,7 @@
 
 import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
+import { escapeHtml } from "./bada_shared.js";
 
 const FONT_SIZE_PRESETS = [
     { label: "작게 (A⁻ - 13px)", label_ko: "작게 (A⁻ - 13px)", label_en: "Small (A⁻ - 13px)", icon: "A⁻", name: "compact", fontSize: "13px", folderHeight: "28px", fileHeight: "27px", folderIcon: "14.5px", fileIcon: "13.5px", badgeFont: "11px", badgeHeight: "17px", chevron: "10px" },
@@ -26,15 +27,6 @@ const FONT_SIZE_PRESETS = [
 function getPresetLabel(preset) {
     if (!preset) return "";
     return BadaI18n.lang === "ko" ? (preset.label_ko || preset.label) : (preset.label_en || preset.label);
-}
-
-function escapeHtml(value) {
-    return String(value ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
 }
 
 
@@ -1080,12 +1072,19 @@ class WorkflowsPlusManager {
     showToast(message, isError = false) {
         const toast = document.createElement("div");
         toast.className = "qol-toast";
+        // Escape ONCE, here, rather than at the ~10 call sites: most of them forward
+        // `data.error` straight from the REST API, and those messages embed user-controlled
+        // text (`Source file not found: <path>`, `'<name>' already exists`, `Move failed: <OSError>`).
+        // Without this, a workflow file whose name contains markup runs as HTML. Windows
+        // forbids `<`/`>` in filenames, but Linux/macOS do not, and a shared workflow pack is
+        // an untrusted source. No caller intentionally passes markup into showToast().
+        const safeMessage = this.escapeHtml(message);
         if (isError) {
             toast.style.borderColor = "#ef4444";
             toast.style.color = "#fef2f2";
-            toast.innerHTML = `<span>❌</span> <span>${message}</span>`;
+            toast.innerHTML = `<span>❌</span> <span>${safeMessage}</span>`;
         } else {
-            toast.innerHTML = `<span>✨</span> <span>${message}</span>`;
+            toast.innerHTML = `<span>✨</span> <span>${safeMessage}</span>`;
         }
         document.body.appendChild(toast);
         setTimeout(() => {
@@ -1153,12 +1152,12 @@ class WorkflowsPlusManager {
                         } else {
                             setTimeout(() => self.detectActiveWorkflowFromUI(), 50);
                         }
-                    } catch (e) {}
+                    } catch (e) { console.debug("[Bada] ignored:", e); }
                     return res;
                 };
                 targetApp._qolHooked = true;
             }
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
 
         // 2. Instant Mousedown Interceptor on top workspace tabs (0ms response with auto-scroll)
         document.addEventListener("mousedown", (e) => {
@@ -1183,6 +1182,27 @@ class WorkflowsPlusManager {
             }
         }, true);
 
+        // Retries `fn` every `intervalMs` until it reports success, then stops for good.
+        // Both probes below need a retry because ComfyUI's Vue app (and its pinia store)
+        // may not exist yet when this extension boots — but they must not keep the tab awake
+        // forever once the target shows up. Returns false immediately if the target is
+        // already there, so a warm start never creates a timer at all.
+        const retryUntilSatisfied = (fn, intervalMs, maxMs = 60000) => {
+            let satisfied = false;
+            try { satisfied = fn() === true; } catch (e) { console.debug("[Bada] ignored:", e); }
+            if (satisfied) return;
+            let waited = 0;
+            const timer = setInterval(() => {
+                waited += intervalMs;
+                let ok = false;
+                try { ok = fn() === true; } catch (e) { console.debug("[Bada] ignored:", e); }
+                if (ok || waited >= maxMs) {
+                    clearInterval(timer);
+                    if (!ok) console.warn("[BadaUtils] Gave up attaching after", maxMs, "ms.");
+                }
+            }, intervalMs);
+        };
+
         // 4. MutationObserver on top tabs container for native DOM attribute changes
         const setupTabsObserver = () => {
             const tabsContainer = document.querySelector(".comfyui-tabs, .comfy-tabs, [role='tablist'], .p-tabview-nav, .p-tabmenu-nav");
@@ -1197,9 +1217,9 @@ class WorkflowsPlusManager {
                 });
                 tabsContainer._qolObserved = true;
             }
+            return !!(tabsContainer && tabsContainer._qolObserved);
         };
-        setupTabsObserver();
-        setInterval(setupTabsObserver, 2000);
+        retryUntilSatisfied(setupTabsObserver, 2000);
 
         // 5. Pinia store subscription for memory-speed state change detection
         const setupPiniaSubscription = () => {
@@ -1226,11 +1246,14 @@ class WorkflowsPlusManager {
                         });
                         wfStore._qolSubscribed = true;
                     }
+                    return !!wfStore;
                 }
-            } catch (e) {}
+                return false;
+            } catch (e) {
+                return false;
+            }
         };
-        setupPiniaSubscription();
-        setInterval(setupPiniaSubscription, 3000);
+        retryUntilSatisfied(setupPiniaSubscription, 3000);
 
         // 6. Hook window.fetch for all workflow / userdata save requests
         const origFetch = window.fetch;
@@ -1249,7 +1272,7 @@ class WorkflowsPlusManager {
                         setTimeout(() => self.loadTree(), 1200);
                     }
                 }
-            } catch (e) {}
+            } catch (e) { console.debug("[Bada] ignored:", e); }
             return res;
         };
 
@@ -1294,7 +1317,7 @@ class WorkflowsPlusManager {
                         detected = act.path || act.filename || act.name || "";
                     }
                 }
-            } catch (e) {}
+            } catch (e) { console.debug("[Bada] ignored:", e); }
 
             // 2. Try to read from top tabs in DOM
             if (!detected) {
@@ -1336,7 +1359,7 @@ class WorkflowsPlusManager {
                     this.setActiveWorkflow(detected, true);
                 }
             }
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
     }
 
     getTabLabel() {
@@ -1359,7 +1382,7 @@ class WorkflowsPlusManager {
                 const labelSpan = btn.querySelector(".side-bar-button-label");
                 if (labelSpan) labelSpan.textContent = label;
             }
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
     }
 
     registerSidebarTab() {
@@ -1441,7 +1464,7 @@ class WorkflowsPlusManager {
                 if (app.extensionManager?.sidebarTab?.activeSidebarTab === "bada-workflows-plus") {
                     app.extensionManager.sidebarTab.activeSidebarTab = "workflows";
                 }
-            } catch (e) {}
+            } catch (e) { console.debug("[Bada] ignored:", e); }
         }
         this.reorderSidebarTab();
     }
@@ -1466,7 +1489,7 @@ class WorkflowsPlusManager {
                     });
                     return true;
                 }
-            } catch (e) {}
+            } catch (e) { console.debug("[Bada] ignored:", e); }
             return false;
         };
 
@@ -1906,13 +1929,9 @@ class WorkflowsPlusManager {
         menu.style.display = "block";
     }
 
+    /** Delegates to the shared implementation (web/bada_shared.js). */
     escapeHtml(str) {
-        return String(str || "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+        return escapeHtml(str);
     }
 
     highlightMatch(text, query) {
@@ -1969,7 +1988,7 @@ class WorkflowsPlusManager {
                         favs = data.favorites;
                     }
                 }
-            } catch (e) {}
+            } catch (e) { console.debug("[Bada] ignored:", e); }
 
             // 2. Fallback to /api/qol/workflows/favorites
             if (!favs || favs.length === 0) {
@@ -1981,7 +2000,7 @@ class WorkflowsPlusManager {
                             favs = data2.favorites;
                         }
                     }
-                } catch (e) {}
+                } catch (e) { console.debug("[Bada] ignored:", e); }
             }
 
             if (favs && favs.length > 0) {
@@ -2024,7 +2043,7 @@ class WorkflowsPlusManager {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ favorites: favList })
             });
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
 
         // 3. Immediately sync native ComfyUI Bookmarks UI
         await this.syncNativeBookmarks();
@@ -2068,7 +2087,7 @@ class WorkflowsPlusManager {
                     await bookmarkStore.loadBookmarks();
                 }
             }
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
 
         // 2. Click ONLY the dedicated refresh button if available in DOM (never generic tree buttons)
         try {
@@ -2076,7 +2095,7 @@ class WorkflowsPlusManager {
                 "button[data-testid='workflows-refresh-button'], button:has(>[data-testid='workflows-refresh-icon']), button:has(>i.pi-refresh)"
             );
             refreshBtns.forEach(btn => btn.click());
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
     }
 
     async toggleFavorite(filePath) {
@@ -2943,7 +2962,7 @@ class WorkflowsPlusManager {
                 const data = await res.json();
                 return data.folders || ["/"];
             }
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
         return ["/"];
     }
 
@@ -2964,11 +2983,11 @@ class WorkflowsPlusManager {
         try {
             const v = window.app?.ui?.settings?.getSettingValue?.("BadaUtils.SaveAsFolderPicker");
             if (typeof v === "boolean") return v;
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
         try {
             const local = localStorage.getItem("Comfy.Settings.BadaUtils.SaveAsFolderPicker");
             if (local !== null) return JSON.parse(local);
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
         return true;
     }
 
@@ -2989,7 +3008,7 @@ class WorkflowsPlusManager {
             if (proto?.constructor?.basePath === "workflows/" && typeof proto.promptSave === "function") {
                 return proto;
             }
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
         return null;
     }
 
@@ -3124,7 +3143,7 @@ class WorkflowsPlusManager {
     rememberSaveFolder(folder) {
         try {
             localStorage.setItem("bada_saveas_last_folder", folder || "/");
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
     }
 
     workflowExistsAt(folder, name) {
@@ -3174,7 +3193,7 @@ class WorkflowsPlusManager {
     async openSaveAsModal(wf) {
         const isKo = BadaI18n.lang === "ko";
         if (!this.treeData) {
-            try { await this.loadTree(); } catch (e) {}
+            try { await this.loadTree(); } catch (e) { console.debug("[Bada] ignored:", e); }
         }
 
         let folders = await this.getFolderList();
@@ -3249,7 +3268,7 @@ class WorkflowsPlusManager {
             const finish = (value) => {
                 if (settled) return;
                 settled = true;
-                try { overlay.remove(); } catch (e) {}
+                try { overlay.remove(); } catch (e) { console.debug("[Bada] ignored:", e); }
                 resolve(value);
             };
             const cancel = () => finish(null);
@@ -4044,14 +4063,10 @@ class WorkflowsPlusManager {
         };
     }
 
+    /** Delegates to the shared implementation (web/bada_shared.js). */
     escapeHtml(str) {
         if (!str) return "";
-        return String(str)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+        return escapeHtml(str);
     }
 
     setupHoverPreviewCard() {
@@ -4172,7 +4187,7 @@ class WorkflowsPlusManager {
                     if (json.data.thumbnail !== undefined) currentThumb = json.data.thumbnail;
                 }
             }
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
 
         let pendingImageBase64 = null;
         let isThumbRemoved = false;
@@ -4365,7 +4380,7 @@ class WorkflowsPlusManager {
                                 break;
                             }
                         }
-                    } catch (err) {}
+                    } catch (err) { console.debug("[Bada] ignored:", err); }
                 }
             }
         };
@@ -4481,7 +4496,7 @@ class WorkflowsPlusManager {
                                 }
                             }
                         }
-                    } catch (he) {}
+                    } catch (he) { console.debug("[Bada] ignored:", he); }
                 }
 
                 if (latestImgSrc) {

@@ -10,6 +10,7 @@
  */
 
 import { app } from "../../scripts/app.js";
+import { escapeHtml } from "./bada_shared.js";
 import { extractNodeState } from "./smart_presets.js";
 import { showToast, showGuideModal } from "./presets_modal.js";
 import { BadaI18n } from "./bada_i18n.js";
@@ -844,11 +845,4 @@ function generateMasterDeepMatrixHtml(targets) {
     `;
 }
 
-function escapeHtml(str) {
-    return String(str || "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
+// escapeHtml now lives in ./bada_shared.js (imported at the top of this file).

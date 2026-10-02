@@ -135,7 +135,7 @@ function getBadaLanguage() {
             const val = app.ui.settings.getSettingValue("BadaUtils.Language");
             if (val) return val;
         }
-    } catch (e) {}
+    } catch (e) { console.debug("[Bada] ignored:", e); }
     return (BadaI18n && BadaI18n.lang === "ko") ? "ko" : "en";
 }
 
@@ -146,7 +146,7 @@ function isNoteHelperEnabled() {
             const val = app.ui.settings.getSettingValue("BadaUtils.NoteHelper");
             if (val !== undefined) return !!val;
         }
-    } catch (e) {}
+    } catch (e) { console.debug("[Bada] ignored:", e); }
     return true; // Default Enabled
 }
 
@@ -159,7 +159,7 @@ function getTranslationBlacklist() {
                 return val.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
             }
         }
-    } catch (e) {}
+    } catch (e) { console.debug("[Bada] ignored:", e); }
     return [];
 }
 
@@ -173,7 +173,7 @@ function getTranslationWhitelist() {
                 return val.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
             }
         }
-    } catch (e) {}
+    } catch (e) { console.debug("[Bada] ignored:", e); }
     return [];
 }
 
@@ -293,7 +293,7 @@ function setWidgetText(widget, text) {
         // keeps both in sync; callers guard it with `_badaApplyingTranslation`.
         try {
             control.dispatchEvent(new Event("input", { bubbles: true }));
-        } catch (_) {}
+        } catch (_) { console.debug("[Bada] ignored:", _); }
     }
     if (typeof widget.value === "string") widget.value = text;
 }

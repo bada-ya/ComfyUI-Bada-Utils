@@ -748,7 +748,7 @@ app.registerExtension({
                 if (savedCharPresets) {
                     charPresets = JSON.parse(savedCharPresets);
                 }
-            } catch (e) {}
+            } catch (e) { console.debug("[Bada] ignored:", e); }
             let prefixVal = ART_STYLES[0].prefix;
             let suffixVal = ART_STYLES[0].suffix;
             let areas = [];
@@ -762,7 +762,7 @@ app.registerExtension({
                 if (savedCustomPresets) {
                     customPresets = JSON.parse(savedCustomPresets);
                 }
-            } catch (e) {}
+            } catch (e) { console.debug("[Bada] ignored:", e); }
 
             // Drag selection state
             let isDragging = false;
@@ -1275,7 +1275,7 @@ app.registerExtension({
                 const label = prompt(isEn ? "New character preset name:" : "새 인물 외모 프리셋 이름:", defaultLabel);
                 if (label) {
                     charPresets.push({ label: label.trim(), label_en: label.trim(), ko, en: en || ko });
-                    try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) {}
+                    try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                     renderCharPresetsDropdown();
                     btnQuickSave.innerHTML = `<span>${isEn ? "✅ Done" : "✅ 완료"}</span>`;
                     setTimeout(() => { btnQuickSave.innerHTML = `<span>${isEn ? "⭐ Save" : "⭐ 저장"}</span>`; }, 1200);
@@ -1387,7 +1387,7 @@ app.registerExtension({
                             cp.label = inputTitle.value;
                             if (!cp.label_en) cp.label_en = inputTitle.value;
                         }
-                        try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) {}
+                        try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                         renderCharPresetsDropdown();
                     });
 
@@ -1421,7 +1421,7 @@ app.registerExtension({
                     inputKo.placeholder = isEn ? "KR: Korean character profile" : "KR: 한글 인물 외모";
                     inputKo.addEventListener("input", () => {
                         cp.ko = inputKo.value;
-                        try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) {}
+                        try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                     });
 
                     const inputEn = document.createElement("textarea");
@@ -1432,7 +1432,7 @@ app.registerExtension({
                     inputEn.placeholder = isEn ? "US: English character profile" : "US: 영문 인물 외모";
                     inputEn.addEventListener("input", () => {
                         cp.en = inputEn.value;
-                        try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) {}
+                        try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                     });
 
                     // Inline translate for this preset
@@ -1444,7 +1444,7 @@ app.registerExtension({
                             if (res) {
                                 inputEn.value = res;
                                 cp.en = res;
-                                try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) {}
+                                try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                             }
                         }
                     });
@@ -1505,7 +1505,7 @@ app.registerExtension({
             }
 
             function saveAndRefreshPresets() {
-                try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) {}
+                try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                 renderCharPresetsDropdown();
                 renderCharManagerList();
             }
@@ -1822,7 +1822,7 @@ app.registerExtension({
                 const label = prompt(isEn ? "New custom preset name:" : "새 나만의 프리셋 이름:", defaultLabel);
                 if (label) {
                     customPresets.push({ id: "cp_" + Date.now(), label: label.trim(), label_en: label.trim(), ko, en: en || ko });
-                    try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) {}
+                    try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                     updateCustomSelect();
                     btnQuickSaveCustom.innerHTML = `<span>${isEn ? "✅ Done" : "✅ 완료"}</span>`;
                     setTimeout(() => { btnQuickSaveCustom.innerHTML = `<span>${isEn ? "⭐ Save" : "⭐ 저장"}</span>`; }, 1200);
@@ -1937,7 +1937,7 @@ app.registerExtension({
                             cp.label = inputTitle.value;
                             if (!cp.label_en) cp.label_en = inputTitle.value;
                         }
-                        try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) {}
+                        try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                         updateCustomSelect();
                     });
 
@@ -1971,7 +1971,7 @@ app.registerExtension({
                     inputKo.placeholder = isEn ? "KR: Korean composition/pose" : "KR: 한글 구도/포즈 묘사";
                     inputKo.addEventListener("input", () => {
                         cp.ko = inputKo.value;
-                        try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) {}
+                        try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                     });
 
                     const inputEn = document.createElement("textarea");
@@ -1982,7 +1982,7 @@ app.registerExtension({
                     inputEn.placeholder = isEn ? "US: English composition/pose" : "US: 영문 구도/포즈 묘사";
                     inputEn.addEventListener("input", () => {
                         cp.en = inputEn.value;
-                        try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) {}
+                        try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                     });
 
                     // Inline translate for this preset
@@ -1994,7 +1994,7 @@ app.registerExtension({
                             if (res) {
                                 inputEn.value = res;
                                 cp.en = res;
-                                try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) {}
+                                try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                             }
                         }
                     });
@@ -2054,7 +2054,7 @@ app.registerExtension({
             }
 
             function saveAndRefreshCustomPresets() {
-                try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) {}
+                try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                 updateCustomSelect();
                 renderCustomManagerList();
             }
@@ -2893,7 +2893,7 @@ app.registerExtension({
                         gridBorderCheck.checked = gridBorders;
                         if (charKoInput) charKoInput.value = characterProfileKo || characterProfile;
                         if (charEnInput) charEnInput.value = characterProfile;
-                    } catch (e) {}
+                    } catch (e) { console.debug("[Bada] ignored:", e); }
                 }
                 const prefixW = this.widgets?.find(w => w.name === "prefix_prompt");
                 if (prefixW && prefixW.value) { prefixVal = prefixW.value; prefixInput.value = prefixVal; }
@@ -2961,7 +2961,7 @@ app.registerExtension({
                             updateAllUILanguage();
                             updateCanvasDimensions();
                             renderGrid();
-                        } catch (e) {}
+                        } catch (e) { console.debug("[Bada] ignored:", e); }
                     }
                 }
             });

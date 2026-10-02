@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { escapeHtml } from "./bada_shared.js";
 import { api } from "../../scripts/api.js";
 import { BadaI18n } from "./bada_i18n.js";
 import {
@@ -1208,7 +1209,7 @@ class AutoModelAssigner {
                                         AutoModelAssigner.showToast(isKo ? "🔄 ComfyUI 서버 재시작 중... 잠시 후 새로고침 됩니다." : "Restarting ComfyUI...", "info");
                                         try {
                                             await api.fetchApi("/manager/reboot", { method: "POST" });
-                                        } catch (_) {}
+                                        } catch (_) { console.debug("[Bada] ignored:", _); }
                                         setTimeout(() => window.location.reload(), 3500);
                                     });
 
@@ -1755,15 +1756,7 @@ class AutoModelAssigner {
     }
 }
 
-function escapeHtml(str) {
-    if (!str) return "";
-    return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
+// escapeHtml now lives in ./bada_shared.js (imported at the top of this file).
 
 // ==========================================
 // 🚀 ComfyUI Extension 등록 및 메뉴 최하단 고정

@@ -32,14 +32,14 @@ export function isDetectiveEnabled() {
             const val = app.ui.settings.getSettingValue(SETTING_ID);
             if (typeof val === "boolean") return val;
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
     try {
         const local = localStorage.getItem("Comfy.Settings.BadaUtils.MissingNodeDetective");
         if (local !== null) {
             const parsed = JSON.parse(local);
             if (typeof parsed === "boolean") return parsed;
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
     return true;
 }
 
@@ -173,7 +173,7 @@ export async function installCustomNode(repoUrl, packTitle) {
                 const data = await mgrResp.json();
                 return { success: true, ...data };
             }
-        } catch (_) {}
+        } catch (_) { console.debug("[Bada] ignored:", _); }
 
         // Fallback: Copy clone command & open Manager
         const cmd = `git clone ${repoUrl}`;
@@ -278,7 +278,7 @@ export function openComfyUiManager(searchTerm = "") {
             window.CustomNodesManager.instance.show(mode);
             opened = true;
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
 
     // 1. Modern ComfyUI: Pinia Command Store execution
     try {
@@ -315,7 +315,7 @@ export function openComfyUiManager(searchTerm = "") {
                     opened = true;
                     break;
                 }
-            } catch (_) {}
+            } catch (_) { console.debug("[Bada] ignored:", _); }
         }
     }
 
@@ -643,7 +643,7 @@ export async function showMissingNodeModal(node) {
                             showToast(isKo ? "🔄 ComfyUI 서버 재시작 중... 잠시 후 새로고침 됩니다." : "Restarting ComfyUI...");
                             try {
                                 await api.fetchApi("/manager/reboot", { method: "POST" });
-                            } catch (_) {}
+                            } catch (_) { console.debug("[Bada] ignored:", _); }
                             setTimeout(() => window.location.reload(), 3500);
                         });
                     } else {
@@ -800,7 +800,7 @@ function findDetectiveBadgeAtPos(eOrX, maybeY) {
         if (topEl && topEl !== canvasEl && !canvasEl.contains(topEl)) {
             return null; // A modal, dialog, button, or menu is on top!
         }
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
 
     // 3. Convert screen coordinates to Graph coordinates (Graph Space)
     let gx, gy;
@@ -897,9 +897,9 @@ export function hookLGraphNodePrototypes() {
                     if (this && (isTransparentColor(this.bgcolor) || (isMissingNode(this) && this.type === "Label (rgthree)"))) {
                         return "transparent";
                     }
-                } catch (_) {}
+                } catch (_) { console.debug("[Bada] ignored:", _); }
                 if (origBgGet) {
-                    try { return origBgGet.call(this); } catch (_) {}
+                    try { return origBgGet.call(this); } catch (_) { console.debug("[Bada] ignored:", _); }
                 }
                 return this?.bgcolor || window.LiteGraph?.NODE_DEFAULT_BGCOLOR || "#353535";
             },
@@ -916,9 +916,9 @@ export function hookLGraphNodePrototypes() {
                     if (this && (isTransparentColor(this.color) || (isMissingNode(this) && this.type === "Label (rgthree)"))) {
                         return "transparent";
                     }
-                } catch (_) {}
+                } catch (_) { console.debug("[Bada] ignored:", _); }
                 if (origColorGet) {
-                    try { return origColorGet.call(this); } catch (_) {}
+                    try { return origColorGet.call(this); } catch (_) { console.debug("[Bada] ignored:", _); }
                 }
                 return this?.color || window.LiteGraph?.NODE_DEFAULT_COLOR || "#464646";
             },
@@ -937,9 +937,9 @@ export function hookLGraphNodePrototypes() {
                     if (isMissingNode(this) && this.type === "Label (rgthree)") {
                         return window.LiteGraph?.NO_TITLE ?? 1;
                     }
-                } catch (_) {}
+                } catch (_) { console.debug("[Bada] ignored:", _); }
                 if (origTitleModeGet) {
-                    try { return origTitleModeGet.call(this); } catch (_) {}
+                    try { return origTitleModeGet.call(this); } catch (_) { console.debug("[Bada] ignored:", _); }
                 }
                 return this?.constructor?.title_mode ?? window.LiteGraph?.NORMAL_TITLE ?? 0;
             },
@@ -953,7 +953,7 @@ export function hookLGraphNodePrototypes() {
         const origDrawFg = NodeClass.prototype.onDrawForeground;
         NodeClass.prototype.onDrawForeground = function (ctx) {
             if (origDrawFg) {
-                try { origDrawFg.apply(this, arguments); } catch (_) {}
+                try { origDrawFg.apply(this, arguments); } catch (_) { console.debug("[Bada] ignored:", _); }
             }
             try {
                 if (this && isMissingNode(this) && (this.type === "Label (rgthree)" || this.last_serialization?.type === "Label (rgthree)")) {
@@ -993,7 +993,7 @@ export function hookLGraphNodePrototypes() {
                 }
                 ctx.restore();
             }
-        } catch (_) {}
+        } catch (_) { console.debug("[Bada] ignored:", _); }
     };
 }
 }
@@ -1018,13 +1018,13 @@ app.registerExtension({
         hookLGraphNodePrototypes();
         try {
             app.graph?.setDirtyCanvas?.(true, true);
-        } catch (_) {}
+        } catch (_) { console.debug("[Bada] ignored:", _); }
     },
 
     afterConfigureGraph() {
         hookLGraphNodePrototypes();
         try {
             app.graph?.setDirtyCanvas?.(true, true);
-        } catch (_) {}
+        } catch (_) { console.debug("[Bada] ignored:", _); }
     }
 });

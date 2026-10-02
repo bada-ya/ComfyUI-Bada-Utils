@@ -1,5 +1,8 @@
 import json
+import logging
 import re
+
+logger = logging.getLogger("ComfyUI-Bada-Utils")
 
 PROMPT_TRANSLATIONS = [
     # 1. 복합 샷 & 부위 & 각도 (가장 긴 복합 패턴 우선 매칭)
@@ -235,8 +238,9 @@ def google_translate_robust(text: str) -> str:
                     return res.strip()
             elif isinstance(data, str) and data.strip():
                 return data.strip()
-    except Exception:
-        pass
+    except Exception as _ignored_err:
+        logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
 
     # 2. Google Mobile Web API
     try:
@@ -247,8 +251,9 @@ def google_translate_robust(text: str) -> str:
             m = re.search(r'class="result-container">([^<]+)</div>', html)
             if m and m.group(1).strip():
                 return m.group(1).strip()
-    except Exception:
-        pass
+    except Exception as _ignored_err:
+        logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
 
     # 3. Google GTX API
     try:
@@ -260,8 +265,9 @@ def google_translate_robust(text: str) -> str:
                 api_trans = "".join(item[0] for item in data[0] if item and item[0])
                 if api_trans.strip():
                     return api_trans.strip()
-    except Exception:
-        pass
+    except Exception as _ignored_err:
+        logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
 
     # 4. MyMemory API Fallback
     try:
@@ -272,8 +278,9 @@ def google_translate_robust(text: str) -> str:
             trans = data.get("responseData", {}).get("translatedText")
             if trans and trans.strip():
                 return trans.strip()
-    except Exception:
-        pass
+    except Exception as _ignored_err:
+        logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
 
     return trimmed
 
@@ -324,8 +331,9 @@ try:
             return web.json_response({"translated": translated, "status": "success"})
         except Exception as e:
             return web.json_response({"translated": text, "error": str(e), "status": "error"})
-except Exception:
-    pass
+except Exception as _ignored_err:
+    logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
+
 
 
 def get_natural_spatial_name(c1: int, c2: int, r1: int, r2: int, total_cols: int, total_rows: int) -> str:

@@ -119,7 +119,7 @@
 
     try {
         observer.observe(document.body, { childList: true });
-    } catch (_) {}
+    } catch (_) { console.debug("[Bada] ignored:", _); }
 
     // 5. Clean up on pointerdown, tab switch, and escape
     window.addEventListener("pointerdown", () => {

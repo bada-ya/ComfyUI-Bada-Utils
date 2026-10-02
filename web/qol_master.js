@@ -34,13 +34,13 @@ app.registerExtension({
     async nodeCreated(node) {
         try {
             healImageNode(node);
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
     },
 
     async loadedGraphNode(node, app) {
         try {
             healImageNode(node);
-        } catch (e) {}
+        } catch (e) { console.debug("[Bada] ignored:", e); }
     },
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
@@ -51,7 +51,7 @@ app.registerExtension({
                 const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
                 try {
                     healImageNode(this);
-                } catch (e) {}
+                } catch (e) { console.debug("[Bada] ignored:", e); }
                 return r;
             };
 
@@ -60,7 +60,7 @@ app.registerExtension({
                 const r = onConfigure ? onConfigure.apply(this, arguments) : undefined;
                 try {
                     healImageNode(this);
-                } catch (e) {}
+                } catch (e) { console.debug("[Bada] ignored:", e); }
                 return r;
             };
         }

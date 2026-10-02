@@ -1,83 +1,93 @@
-# Beta Handoff - 2026-10-03
+# Beta Handoff - 2026-10-03 (pre-production audit + fixes)
 
 ## Destination
 
 - Repository: `bada-ya/ComfyUI-Bada-Utils-Beta`
 - Branch: `main`
-- The production repository `bada-ya/ComfyUI-Bada-Utils` must not receive these changes.
-  `origin` was **not** pushed from and stays 16 commits behind local `main`.
+- The production repository `bada-ya/ComfyUI-Bada-Utils` was **not** pushed to and remains at
+  `da6910f`. `origin` is only ever read (`ls-remote`, `--dry-run fetch`), never written.
+
+## Why this batch exists
+
+A full read-through audit of the extension (~18.7k lines of Python/JS/CSS/JSON) was performed
+ahead of promoting the beta work to production. Verdict: **no blockers**, three warnings. This
+batch fixes those three warnings plus the two maintainability items (N1/N3).
+
+Audit result: **0 critical, 3 warnings, 4 informational**, and six areas confirmed clean —
+no `eval` / `new Function` / `subprocess` / `pickle` / `exec`; no SSL-verification bypass; no
+committed secrets; path-traversal defence consistent across every path-taking handler; thumbnail
+upload validated and re-encoded through PIL; thumbnail serving pinned to an image Content-Type;
+the Gemini API key is never returned in full; `translation_runtime.py` has a bounded worker pool
+and queue.
 
 ## Changes
 
-Two independent batches are included: the Workflows+ sidebar work from this session, plus
-prompt-generator work that was still uncommitted in the working tree when the session began
-(commit 1 - authored in an earlier session, pushed as-is).
+### 1. XSS in the sidebar toast (the one that mattered)
 
-### Commit 1 - promptgen: Gemini-only system prompt manager
+`WorkflowsPlusManager.showToast()` built its markup with an unescaped `${message}`, and roughly
+ten call sites forward `data.error` straight from the REST API. Those messages embed
+user-controlled text — `Source file not found: <path>`, `'<name>' already exists`,
+`Move failed: <OSError>`. A workflow file whose name contains markup therefore ran as HTML.
+Windows forbids `<`/`>` in filenames, but Linux/macOS do not, and a shared workflow pack is an
+untrusted source. ComfyUI's local server has no authentication, so XSS there equals full access
+to the local REST API.
 
-- New REST routes in `server/bada_promptgen_api.py`:
-  `POST /api/bada/gemini/prompts/save|delete|move`, CRUD over `engines_registry.json` ->
-  `gemini_prompts`, fully separate from the existing `user_prompts` list.
-- New `web/bada_gemini_prompt_modal.js`: create / edit / delete / reorder modal, lazily
-  imported from `web/bada_async_gemini.js` and wired only into the Gemini tab's uncensored
-  dropdown. Reuses the `bpgm-*` design system by loading `bada_prompt_generator.css` on demand.
-- `engines_registry.json`: new/edited system-prompt text. Contains uncensored-oriented prompt
-  content by design, same as the node's existing uncensored mode.
-- Assorted promptgen / async-studio refinements in `nodes/bada_prompt_generator.py`,
-  `server/gemini_api.py`, `web/bada_prompt_generator.js`, `web/bada_async_gemini.{js,css}`,
-  `README.md`, `README_ko.md`.
+Fixed once at the entry point, so no call site had to change. Every caller was checked first to
+confirm none of them intentionally passes markup.
 
-### Commit 2 - sidebar: folder rename, drag & drop, multi-select
+### 2. Blocking filesystem walk on the aiohttp event loop
 
-**Fix - folder rename always 404'd.** Right-click > Rename on a folder returned
-`404 {"error": "Source file not found: /<folder>"}` and surfaced as a red toast. The rename
-dialog posts folders to the same `POST /api/qol/workflows/move` endpoint as workflows, but the
-handler resolved the source with `find_file_in_workflows()`, which only ever returns files, so
-a directory could never match.
+`get_all_available_models()` runs `os.listdir(models_dir)` plus an `os.walk()` over every model
+subfolder and had **no cache** (the existing `CACHED_DETECTIVE_DB` belongs to the missing-node
+detective and is unrelated). It was called directly from the `async def get_models_handler`, so
+for the duration of the scan the whole server — UI, queue, websockets — stalled.
 
-- `server/bada_server_api.py`:
-  - `move_workflow_folder()` routes directory sources to a folder move/rename branch.
-  - `.json` is no longer forced onto folder names (it would create `MyFolder.json`).
-  - Guard rails: self-subtree 400, duplicate target 409, illegal/reserved Windows names 400,
-    path traversal 400, workflows-root protection 403.
-  - `remap_metadata_for_move()` re-points every `.bada_meta.json` key under a moved folder.
-    Without it, renaming a folder silently dropped the notes/thumbnails of everything inside.
-  - **Windows case-only rename fix**: `os.path.realpath()` returns the on-disk casing, so
-    `photos` -> `Photos` was silently dropped. The destination is now split into `dest_real`
-    (containment check only) and `dest_literal` (the move itself, keeps the typed casing),
-    with a two-step rename for the case-only case.
-  - File branch hardened: an existing destination is a clean 409 instead of a raw shutil 500,
-    and `overwrite` is now honoured.
-- `web/workflow_organizer.js`:
-  - `attachFileDragEvents()` -> `attachRowDragEvents(rowEl, item, kind)`. One drag engine for
-    both row types; `kind` decides the ghost icon, what counts as a valid drop target, and
-    which move helper commits. Folders drop onto folders (Explorer behaviour); hovering a
-    workflow row means "into the folder that owns it".
-  - Impossible drops (a folder into itself or its own subtree) turn the target red with a
-    `no-drop` cursor and never reach the server.
-  - `moveWorkflowFolder()`; `rebaseSidebarStateAfterFolderRename` -> `...AfterFolderMove`
-    (a rename and a move are the same path rewrite, so both now share one helper).
-  - **Multi-select**: Ctrl+Click adds/toggles, Shift+Click selects a visible range, Esc clears.
-    Both modifiers now suppress the row's default action - previously they ran the plain click
-    and silently reopened the workflow.
-  - **Folders never join a multi-selection.** A modifier click on a folder narrows the
-    selection to that folder alone, and Shift ranges skip folder rows. A range running across
-    a folder produced the confusing state where a folder and its own children were both
-    selected and then both dragged. Enforced in `handleRowClick()` and again in
-    `resolveDragEntries()`, the only producer of batch-move input.
-  - `moveSelectionToFolder()` moves the batch in one pass, reloading the tree once instead of
-    once per item, and rebasing expanded folders / bookmarks / active workflow / selection.
-  - Multi-select styling is deliberately neutral (flat zinc wash + slim grey bar; no indigo,
-    no gradient, no bold) so it cannot be mistaken for the active-workflow highlight. The CSS
-    rule is also deliberately placed after `.qol-file-row:hover` and before `.active-workflow`
-    so the "you are here" highlight always wins on a row that is both.
-- Tests: `dev_tests/bada_folder_rename_test.py` (41 checks, Python) and
-  `dev_tests/bada_folder_drag_test.js` (90 checks, Node).
+- Added `get_all_available_models_cached()`: 300 s TTL guarded by a `threading.Lock`. An
+  empty/failed result is deliberately **not** cached, so a transient filesystem error cannot
+  poison the answer for five minutes.
+- `get_models_handler` now awaits `asyncio.to_thread(...)` and reports a `cached` flag.
+- `get_tree_handler` offloads `build_workflow_tree()` the same way.
 
+### 3. Permanent 300 ms polling loop
+
+`web/bada_core.js` ran `setInterval(() => document.querySelector('[role="dialog"]'), 300)` from
+page load to tab close — three DOM queries per second, forever, and the only interval in the
+codebase that was never cleared.
+
+- Replaced with a `MutationObserver` that does nothing while the page is idle.
+- The poll's second job (re-adding the left-sidebar anchor icon when the native UI drops it) was
+  folded into the existing per-dialog observer by watching `removedNodes`, so the repair is now
+  event-driven too. Nothing polls any more.
+- Bonus: the two startup probes in `workflow_organizer.js` (2 s tab observer, 3 s pinia
+  subscription) keep their retry semantics — ComfyUI's Vue app may not exist yet at boot — but
+  now go through `retryUntilSatisfied()` and stop for good once attached, or after 60 s.
+
+### 4. N1 - de-duplicate `escapeHtml()`
+
+Nine copies existed (seven module-level functions plus two `WorkflowsPlusManager` methods) and
+had already drifted: two different apostrophe entities, some with a falsy guard and some
+without. New `web/bada_shared.js` (90 lines) exports `escapeHtml()` and a shared toast
+implementation; the seven duplicates are deleted. The two class methods stay as thin delegating
+wrappers so the many `this.escapeHtml(...)` call sites are untouched.
+
+The four `showToast()` implementations were deliberately **left alone** — each has a
+deliberately different look (e.g. the glassmorphic one in `presets_modal.js`) and there is no
+browser here to verify a visual change. The shared module gives them a migration target.
+
+### 5. N3 - surface silently swallowed errors
+
+Every empty `catch {}` and bare `except: pass` now logs at debug level
+(`console.debug(...)` / `logger.debug(..., exc_info=True)`), which stays silent by default.
+
+- JS: **104** blocks converted. (An earlier line-based count of 60 missed the
+  `catch (e) {` multi-line form — 104 is the accurate figure.)
+- Python: **14** blocks converted. `nodes/bada_regional_prompt.py` had no logger at all, so a
+  `logging` import and a module `logger` were added.
+- The codemods were one-off scripts and have been deleted.
 ## Runtime Notes
 
-- **A ComfyUI restart is required** for the `server/bada_server_api.py` changes.
-- Frontend-only changes need just a browser hard refresh (<kbd>Ctrl</kbd>+<kbd>F5</kbd>).
+- **A ComfyUI restart is required** — `server/bada_server_api.py` changed.
+- The frontend-only parts need a browser hard refresh (<kbd>Ctrl</kbd>+<kbd>F5</kbd>).
 - Verified environment: `D:\StabilityMatrix\Data\Packages\ComfyUI` (NOT `ComfyUI_antig`),
   `user\default\workflows` is a junction to `D:\AI\workflows`, and
   `custom_nodes\ComfyUI-Bada-Utils` is a junction to this repo, so edits apply on restart.
@@ -87,31 +97,45 @@ a directory could never match.
 
 ## Verification
 
-- `node --check` on `web/workflow_organizer.js` and both test scripts: PASS.
-- `python dev_tests/bada_folder_rename_test.py` -> **41/41 PASS**. It stubs `server.PromptServer`
-  and `folder_paths`, imports the **real** handlers and drives them against a temp directory,
-  so it needs no running instance and never touches the real workflows folder.
-- `node dev_tests/bada_folder_drag_test.js` -> **90/90 PASS**. It pulls the real
-  `WorkflowsPlusManager` class out of the ES module with `vm` and stubs the browser globals.
-  No browser or Playwright required.
-- The live bug was reproduced before fixing it: `POST /api/qol/workflows/move` with a folder
-  source answered `404 {"success": false, "error": "Source file not found: /_BadaRenameTest"}`.
-- Two real bugs were caught *by* these tests while writing them, not merely covered:
-  - A backtick inside a CSS comment terminated the `injectStyles()` template literal. It was an
-    even number of backticks, so `node --check` passed while the runtime would have thrown.
-  - Shift-range anchors were resolved against the first row matching the key, so a bookmark and
-    the same workflow in the tree shared one key and the wrong section could win.
-- **Not verified:** anything needing a real browser (visual appearance, actual mouse drag
-  ghosting, drop-target highlighting). Playwright is not installed in this environment.
-  Confirm in a browser before promoting to production.
-- Known scope gaps: the context menu still acts on a single row (no multi delete/move), and
-  multi-select is mouse-only because the custom drag is mouse-driven.
+- `node --check` on **every** file in `web/` and `dev_tests/`: PASS.
+- `py_compile` on every Python file: PASS.
+- `node dev_tests/bada_folder_drag_test.js` -> **103/103 PASS** (was 90).
+  New coverage: the toast escaping a `<img src=x onerror=...>` payload, `escapeHtml()` having
+  exactly one implementation, the absence of the 300 ms poll, the event-driven dialog watcher and
+  anchor self-heal, and the self-terminating startup probes.
+- `python dev_tests/bada_folder_rename_test.py` -> **53/53 PASS** (was 41).
+  New coverage: the model-scan TTL cache cold -> warm -> expiry path, that an empty scan is never
+  cached, and that neither handler still calls the blocking walk inline.
+- Import graph checked for all seven consumers of `bada_shared.js`, and the module was confirmed
+  to actually be served by the running instance (HTTP 200).
+
+### Two mistakes made during this batch, both caught and corrected
+
+1. The JS codemod spliced matches front-to-back, which invalidates the positions of matches not
+   yet processed. Fixed by replacing back-to-front; the 104 conversions are correct.
+2. The Python codemod emitted `except E: as _ignored_err`, breaking compilation. Repaired with a
+   corrective pass rather than reverting, so the audit fixes in the same files survived.
+   `py_compile` is what caught it.
+
+### Not verified
+
+- **No browser testing.** Playwright is not installed here, so nothing requiring a real browser
+  was checked. The `bada_shared.js` import graph is syntactically valid and the module is served
+  over HTTP, but it has not been loaded by a browser. The settings-dialog MutationObserver is
+  likewise unexercised. **Confirm this first before promoting to production.**
+- The new body-level observer fires on every DOM mutation batch. Idle cost is zero, but on a
+  very busy canvas the callback may run more often than the old 300 ms timer did. If drag
+  latency is noticed, narrow the observer to the dialog host element.
+- No memory profiling, no concurrency testing, and the XSS fix was verified by asserting the
+  escaped output rather than by executing a payload in a browser.
 
 ## Follow-up
 
-- Restart the daily driver and re-check folder rename, folder drag and multi-select drag in a
-  real browser.
-- Decide whether the folder "Move" context-menu entry should be exposed (the backend and the
-  drag path already support it; only the menu entry is still hidden for folders).
-- Decide whether multi-select should gain a context-menu multi delete/move.
+- Load the extension in a browser and confirm the sidebar, presets hub, smart presets and settings
+  dialog all still work (this batch touched shared code in seven files).
 - Re-run both sidebar tests after any ComfyUI frontend version bump.
+- Decide whether the folder "Move" context-menu entry should be exposed (the backend and the drag
+  path already support it; only the menu entry is still hidden for folders).
+- Decide whether multi-select should gain a context-menu multi delete/move.
+- Optionally migrate the four remaining `showToast()` implementations onto `bada_shared.js`.
+- Promotion to production (`origin`) is still **not** approved and was never pushed to.
