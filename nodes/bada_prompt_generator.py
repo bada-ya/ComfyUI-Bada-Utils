@@ -10,8 +10,9 @@ TRUE queue-executing node:
 
 Highlights
 ----------
-* Multi-image inputs `image_1`..`image_5` with per-submenu usage rules
+* Multi-image inputs `image_1`..`image_6` with per-submenu usage rules
   (`none` / `single` / `pair` / `multi`) and automatic `<imageN>` reference injection.
+  The web extension reveals only (connected + 1) slots so the node stays slim.
 * Per-submenu system prompts: built-in builders reused from `server/gemini_api.py`
   (KREA 2 / MiniMax H3 / LTX-Video) and the OFFICIAL Qwen-Image-2.1 PE prompts
   (T2I / I2I) bundled in `engines_registry.json`.
@@ -70,6 +71,17 @@ PRIMARY_MODEL_TIMEOUT = 8
 FALLBACK_MODEL_TIMEOUT = 5
 
 MAX_IMAGE_EDGE = 1536  # keep inline payloads small while preserving caption fidelity
+# Gemini's inline_data is the bandwidth bottleneck for multi-image runs. A 1536px PNG
+# encodes to ~3-6 MB of base64; the same pixels as JPEG q85 land at ~150-300 KB (~20x
+# smaller) with no visible loss for prompt-analysis work, which is all this node does.
+# (Distinct from web/bada_async_gemini.js, which additionally caps at 1024px.)
+IMAGE_JPEG_QUALITY = 85
+
+# Hard cap on how many image slots a single run may send. Matches
+# server/gemini_api.py::MAX_QWEN_I2I_IMAGES and the Studio node's MAX_IMAGES_I2I.
+# resolve_images() already trims `single`/`pair` submenus on its own; this only
+# bounds the `multi` ones so a huge workflow cannot blow the 20 MB request ceiling.
+MAX_IMAGES_PER_RUN = 6
 
 # ---------------------------------------------------------------------------
 # Shared helpers reused from server/gemini_api.py (no duplication of prompts)
@@ -222,7 +234,7 @@ def resolve_model(registry: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# IMAGE tensor -> inline base64 PNG (ComfyUI IMAGE = float32 [B,H,W,C] in 0..1)
+# IMAGE tensor -> inline base64 JPEG (ComfyUI IMAGE = float32 [B,H,W,C] in 0..1)
 # ---------------------------------------------------------------------------
 def tensor_to_base64(tensor, max_edge: int = MAX_IMAGE_EDGE):
     """Convert a ComfyUI IMAGE batch to a `(mime, base64)` tuple (first frame only)."""
@@ -253,9 +265,19 @@ def tensor_to_base64(tensor, max_edge: int = MAX_IMAGE_EDGE):
             img = img.resize((max(1, int(img.width * scale)), max(1, int(img.height * scale))),
                              Image.Resampling.LANCZOS)
 
+        # JPEG has no alpha channel, so flatten onto white first — converting straight
+        # to RGB would turn transparent areas black and mislead the captioning model.
+        if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
+            img = img.convert("RGBA")
+            flat = Image.new("RGB", img.size, (255, 255, 255))
+            flat.paste(img, mask=img.split()[-1])
+            img = flat
+        else:
+            img = img.convert("RGB")
+
         buf = io.BytesIO()
-        img.convert("RGB").save(buf, format="PNG", optimize=True)
-        return ("image/png", base64.b64encode(buf.getvalue()).decode("ascii"))
+        img.save(buf, format="JPEG", quality=IMAGE_JPEG_QUALITY, optimize=True)
+        return ("image/jpeg", base64.b64encode(buf.getvalue()).decode("ascii"))
     except Exception as exc:  # noqa: BLE001
         logger.warning("[BadaPromptGen] Image conversion failed: %s", exc)
         return None
@@ -476,7 +498,9 @@ def resolve_images(submenu: dict, tensors: list) -> tuple:
         return (present[:1], max(0, len(present) - 1))
     if mode == "pair":
         return (present[:2], max(0, len(present) - 2))
-    return (present, 0)  # multi
+    # "multi": the UI only ever reveals up to MAX_IMAGES_PER_RUN slots, but a saved
+    # workflow (or a direct API/queue call) can still hand us more, so clamp here.
+    return (present[:MAX_IMAGES_PER_RUN], max(0, len(present) - MAX_IMAGES_PER_RUN))
 
 
 # ---------------------------------------------------------------------------
@@ -714,7 +738,7 @@ class BadaPromptGenerator:
     RETURN_NAMES = ("generated_text", "wh_ratio")
     OUTPUT_NODE = False
     DESCRIPTION = (
-        "Queue-synchronous Gemini prompt compiler. Reads image_1~image_5 and the request text, "
+        "Queue-synchronous Gemini prompt compiler. Reads image_1~image_6 and the request text, "
         "then emits an optimized prompt for the selected target model tab."
     )
 
@@ -798,8 +822,10 @@ class BadaPromptGenerator:
                                      "min": 1, "max": 30, "step": 1,
                                      "tooltip": "Duration in seconds for video models (MINIMAX H3 / LTX2.5)."}),
                 "ui_language": ("STRING", {"default": "en"}),
+                # Progressive UI: the web extension shows only (connected + 1) of these
+                # slots, so the node stays slim until more images are actually wired in.
                 "image_1": ("IMAGE",), "image_2": ("IMAGE",), "image_3": ("IMAGE",),
-                "image_4": ("IMAGE",), "image_5": ("IMAGE",),
+                "image_4": ("IMAGE",), "image_5": ("IMAGE",), "image_6": ("IMAGE",),
             },
             "hidden": {"unique_id": "UNIQUE_ID"},
         }
@@ -813,7 +839,7 @@ class BadaPromptGenerator:
     #   ComfyUI calls it through `get_input_data(..., execution_list=None)`
     #   (execution.py ~L1083 and, for IS_CHANGED, L95), which marks every
     #   *linked* input as `(None,)`.  A validator therefore can never see
-    #   `image_1..5` and would reject "image only" runs; worse, because the
+    #   `image_1..6` and would reject "image only" runs; worse, because the
     #   validator declares `**kwargs`, ComfyUI repeats the same message on every
     #   input -> "8 errors" noise.  The guard now lives in `generate()`.
     @classmethod
@@ -821,7 +847,7 @@ class BadaPromptGenerator:
         """Always re-execute.
 
         `IS_CHANGED` is evaluated with `execution_list=None`, so linked inputs
-        (`image_1..image_5`) always arrive as `None` there — hashing them is
+        (`image_1..image_6`) always arrive as `None` there — hashing them is
         impossible.  Any text-only hash would therefore be *identical* for
         "no image" and "image attached", ComfyUI would reuse the cached output
         and the freshly attached image would be silently ignored.
@@ -833,7 +859,7 @@ class BadaPromptGenerator:
     # -- execution ----------------------------------------------------------
     def generate(self, enhance=True, uncensored=True, target=None, submenu=None,
                  request_text="", duration=10, image_1=None, image_2=None, image_3=None,
-                 image_4=None, image_5=None, unique_id=None, ui_language="en", **kwargs):
+                 image_4=None, image_5=None, image_6=None, unique_id=None, ui_language="en", **kwargs):
         ui_language = "ko" if ui_language == "ko" else "en"
         registry = load_registry()
         toasts = []
@@ -856,13 +882,13 @@ class BadaPromptGenerator:
             )
 
         # ---- image slot resolution ---------------------------------------
-        tensors = [image_1, image_2, image_3, image_4, image_5]
+        tensors = [image_1, image_2, image_3, image_4, image_5, image_6]
         tensors_present = any(t is not None for t in tensors)
         used_tensors, dropped = resolve_images(submenu_obj, tensors)
         mode = (submenu_obj.get("images") or {}).get("mode", "single")
 
         # This used to live in VALIDATE_INPUTS, but ComfyUI evaluates that with
-        # `execution_list=None`, i.e. linked `image_1..5` always arrive there as
+        # `execution_list=None`, i.e. linked `image_1..6` always arrive there as
         # None — an image-only run was rejected with "Invalid input" (+ the same
         # message repeated on every input, hence the "8 errors" list).
         if not (request_text or "").strip() and not tensors_present:

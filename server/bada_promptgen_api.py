@@ -11,7 +11,14 @@ GET  /api/bada/promptgen/registry            read registry (+ live gemini model 
 POST /api/bada/promptgen/user_prompts/save   create / update a custom system prompt
 POST /api/bada/promptgen/user_prompts/delete remove a custom system prompt
 POST /api/bada/promptgen/user_prompts/move   reorder a custom system prompt
+POST /api/bada/gemini/prompts/save           create / update a Gemini-only system prompt
+POST /api/bada/gemini/prompts/delete         remove a Gemini-only system prompt
+POST /api/bada/gemini/prompts/move           reorder a Gemini-only system prompt
 POST /api/bada/promptgen/defaults            persist the node default widget values
+
+`user_prompts` drives the 📜 시스템 프롬프트 engine tab, while `gemini_prompts`
+is a completely separate list used ONLY by the 🔞 제미나이 chat tab
+(consumed by server/gemini_api.py::find_gemini_chat_prompt).
 
 The registry file is written atomically and a `.bak` snapshot is kept, because
 `nodes/bada_prompt_generator.py::load_registry()` caches by mtime and therefore
@@ -89,6 +96,7 @@ def _registry_payload() -> dict:
         registry = {}
     registry = dict(registry)
     registry.setdefault("user_prompts", [])
+    registry.setdefault("gemini_prompts", [])
     registry.setdefault("targets", [])
 
     config = _read_json(CONFIG_FILE, {})
@@ -253,6 +261,112 @@ def register_promptgen_api_routes():
             return web.json_response({"success": True, "moved": True, "registry": _registry_payload()})
         except Exception as exc:  # noqa: BLE001
             logger.exception("[BadaPromptGen] move failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    @routes.post("/api/bada/gemini/prompts/save")
+    async def save_gemini_prompt(request):
+        """Create / update a Gemini-only system prompt (🔞 제미나이 탭 전용)."""
+        try:
+            body = await request.json()
+            name = (body.get("name") or "").strip()
+            system_prompt = (body.get("system_prompt") or body.get("text") or "").strip()
+            if not name:
+                return web.json_response({"success": False, "error": "이름을 입력해 주세요."}, status=400)
+            if not system_prompt:
+                return web.json_response({"success": False, "error": "시스템 프롬프트 내용을 입력해 주세요."}, status=400)
+
+            registry = _read_json(REGISTRY_FILE, {})
+            if not isinstance(registry, dict):
+                registry = {}
+            prompts = registry.get("gemini_prompts")
+            if not isinstance(prompts, list):
+                prompts = []
+
+            entry_id = (body.get("id") or "").strip()
+            entry = {
+                "id": entry_id or f"gem-{_slugify(name)}-{uuid.uuid4().hex[:6]}",
+                "name": name,
+                "text": system_prompt,
+                "description": (body.get("description") or "").strip(),
+            }
+
+            index = _find_prompt_index(prompts, entry_id) if entry_id else _find_prompt_index(prompts, name)
+            if index >= 0:
+                merged = dict(prompts[index])
+                merged.update(entry)
+                merged["id"] = prompts[index].get("id") or entry["id"]
+                prompts[index] = merged
+                stored = merged
+                action = "updated"
+            else:
+                while _find_prompt_index(prompts, entry["id"]) >= 0:
+                    entry["id"] = f"gem-{_slugify(name)}-{uuid.uuid4().hex[:6]}"
+                prompts.append(entry)
+                stored = entry
+                action = "created"
+
+            registry["gemini_prompts"] = prompts
+            _write_json(REGISTRY_FILE, registry)
+            logger.info("[BadaPromptGen] gemini prompt %s: %s", action, name)
+            return web.json_response({
+                "success": True,
+                "action": action,
+                "entry": stored,
+                "registry": _registry_payload(),
+            })
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaPromptGen] gemini prompt save failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    @routes.post("/api/bada/gemini/prompts/delete")
+    async def delete_gemini_prompt(request):
+        try:
+            body = await request.json()
+            key = (body.get("id") or body.get("name") or "").strip()
+            registry = _read_json(REGISTRY_FILE, {})
+            prompts = registry.get("gemini_prompts") if isinstance(registry, dict) else None
+            if not isinstance(prompts, list) or not prompts:
+                return web.json_response({"success": False, "error": "저장된 제미나이 프롬프트가 없습니다."}, status=404)
+
+            index = _find_prompt_index(prompts, key)
+            if index < 0:
+                return web.json_response({"success": False, "error": f"'{key}' 항목을 찾을 수 없습니다."}, status=404)
+
+            removed = prompts.pop(index)
+            registry["gemini_prompts"] = prompts
+            _write_json(REGISTRY_FILE, registry)
+            return web.json_response({"success": True, "removed": removed, "registry": _registry_payload()})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaPromptGen] gemini prompt delete failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    @routes.post("/api/bada/gemini/prompts/move")
+    async def move_gemini_prompt(request):
+        try:
+            body = await request.json()
+            key = (body.get("id") or body.get("name") or "").strip()
+            direction = (body.get("direction") or "").strip().lower()
+            if direction not in ("up", "down"):
+                return web.json_response({"success": False, "error": "direction 은 up 또는 down 이어야 합니다."}, status=400)
+
+            registry = _read_json(REGISTRY_FILE, {})
+            prompts = registry.get("gemini_prompts") if isinstance(registry, dict) else None
+            if not isinstance(prompts, list) or not prompts:
+                return web.json_response({"success": False, "error": "저장된 제미나이 프롬프트가 없습니다."}, status=404)
+
+            index = _find_prompt_index(prompts, key)
+            if index < 0:
+                return web.json_response({"success": False, "error": f"'{key}' 항목을 찾을 수 없습니다."}, status=404)
+            target_index = index - 1 if direction == "up" else index + 1
+            if target_index < 0 or target_index >= len(prompts):
+                return web.json_response({"success": True, "moved": False, "registry": _registry_payload()})
+
+            prompts[index], prompts[target_index] = prompts[target_index], prompts[index]
+            registry["gemini_prompts"] = prompts
+            _write_json(REGISTRY_FILE, registry)
+            return web.json_response({"success": True, "moved": True, "registry": _registry_payload()})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaPromptGen] gemini prompt move failed")
             return web.json_response({"success": False, "error": str(exc)}, status=500)
 
     @routes.post("/api/bada/promptgen/defaults")

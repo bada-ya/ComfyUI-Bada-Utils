@@ -6,7 +6,7 @@ Ported from https://bada-ya.github.io/AI-Prompt-Studio-and-Text-Transformer/:
 - 5-Category BLOCK_NONE Uncensored Safety Settings
 - 3-Pass Zero-Refusal Pipeline (Direct Compilation -> 3D VFX Technical Override -> Cinematic Metaphor Bridge)
 - Storyboard Multi-Cut JSON generation & parsing
-- Interactive Chat Engine with Web Search Grounding (Google Search) & Gem Personas
+- Interactive Chat Engine with Gem Personas & Gemini-only Custom System Prompts
 """
 import os
 import re
@@ -75,6 +75,40 @@ GEM_PERSONAS = {
         )
     }
 }
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Gemini-only system prompts (engines_registry.json :: gemini_prompts)
+#
+# These are user-authored prompts that are ONLY reachable from the 🔞 제미나이 chat
+# tab — they are stored in a dedicated registry list, separate from `user_prompts`
+# (which feeds the 📜 시스템 프롬프트 engine tab).
+# ──────────────────────────────────────────────────────────────────────────────
+def load_gemini_chat_prompts():
+    """Read `gemini_prompts` from the registry. Returns [] on any problem."""
+    try:
+        with open(REGISTRY_FILE, "r", encoding="utf-8") as handle:
+            registry = json.load(handle)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"[bada-AsyncGemini] failed to read gemini_prompts: {exc}")
+        return []
+    if not isinstance(registry, dict):
+        return []
+    prompts = registry.get("gemini_prompts")
+    return prompts if isinstance(prompts, list) else []
+
+
+def find_gemini_chat_prompt(prompt_id: str) -> str:
+    """Resolve a Gemini-only system prompt id to its instruction text ('' when unknown)."""
+    key = (prompt_id or "").strip()
+    if not key:
+        return ""
+    for entry in load_gemini_chat_prompts():
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("id") or "") == key:
+            return str(entry.get("text") or entry.get("system_prompt") or "").strip()
+    return ""
+
 
 # Refusal detection regex patterns
 REFUSAL_REGEXES = [
@@ -178,6 +212,10 @@ def clean_base64_image(image_str):
 
 # Output frame (aspect ratio) choices accepted from the frontend picker.
 # Keep in sync with web/bada_async_gemini.js::ASPECT_RATIOS ("" = let the AI decide).
+# Also: how many reference images QWEN2.1 I2I accepts. The browser already
+# downscales to 1024px JPEG (web/bada_async_gemini.js::IMAGE_ANALYSIS_MAX_EDGE),
+# so 6 images stay far below Gemini's 20 MB inline_data ceiling.
+MAX_QWEN_I2I_IMAGES = 6
 ASPECT_RATIO_CHOICES = (
     "1:1", "3:2", "2:3", "4:3", "3:4", "5:4", "4:5",
     "16:9", "9:16", "21:9", "9:21", "2:1", "1:2",
@@ -573,6 +611,10 @@ def register_gemini_api_routes():
                         return web.json_response({"success": False, "error": "Attach at least one image for QWEN2.1 I2I editing."}, status=400)
                     if submode == "t2i":
                         images = images[:1]
+                    elif submode == "i2i":
+                        # 프론트는 6장으로 제한하지만, API 를 직접 호출하거나 오래된
+                        # 탭이 남아 있을 수 있으므로 서버에서도 한 번 더 방어한다.
+                        images = images[:MAX_QWEN_I2I_IMAGES]
                     final_system_p1, structured_schema = build_qwen_system_instruction(submode, len(images), aspect_ratio)
                 elif engine_mode == "system_prompt":
                     try:
@@ -865,7 +907,7 @@ def register_gemini_api_routes():
         @routes.post("/api/bada/gemini/chat")
         async def chat_handler(request):
             """
-            Interactive Uncensored Gemini Chat with Web Search Grounding and Persona support.
+            Interactive Uncensored Gemini Chat with Gem Persona + Gemini-only system prompt support.
             """
             try:
                 body = await request.json()
@@ -884,13 +926,20 @@ def register_gemini_api_routes():
                     model = "gemini-3.5-flash-lite"
                 messages = body.get("messages", []) # Array of {role: "user"|"model", text: "...", images: [...]}
                 persona_id = body.get("persona", "universal")
-                web_search_enabled = body.get("web_search", False)
+                # Gemini-only system prompt (engines_registry.json :: gemini_prompts). Empty = built-in persona.
+                system_prompt_id = (body.get("system_prompt_id") or "").strip()
 
                 if not messages:
                     return web.json_response({"success": False, "error": "대화 메시지가 없습니다."}, status=400)
 
                 persona_info = GEM_PERSONAS.get(persona_id, GEM_PERSONAS["universal"])
                 system_text = persona_info["instruction"]
+                if system_prompt_id:
+                    custom_text = find_gemini_chat_prompt(system_prompt_id)
+                    if custom_text:
+                        system_text = custom_text
+                    else:
+                        logger.info("[bada-AsyncGemini] unknown gemini system prompt id: %s", system_prompt_id)
 
                 # Build Gemini contents structure
                 contents = []
@@ -922,10 +971,6 @@ def register_gemini_api_routes():
                     "generationConfig": {"temperature": 0.7, "maxOutputTokens": 8192}
                 }
 
-                # Optional Web Search Grounding
-                if web_search_enabled:
-                    payload["tools"] = [{"googleSearch": {}}]
-
                 candidate_pool = [
                     model,
                     "gemini-3.5-flash-lite",
@@ -941,8 +986,6 @@ def register_gemini_api_routes():
                 last_err = "No response"
                 reply_text = None
                 successful_model = None
-                grounding_sources = []
-                search_queries = []
 
                 async with aiohttp.ClientSession(timeout=client_timeout) as session:
                     for cur_model in models_to_try:
@@ -954,19 +997,6 @@ def register_gemini_api_routes():
                                     candidate = data.get("candidates", [{}])[0]
                                     parts = candidate.get("content", {}).get("parts", [])
                                     reply_text = "".join([p.get("text", "") for p in parts]).strip()
-
-                                    # Extract Grounding Metadata (sources & search queries)
-                                    grounding_meta = candidate.get("groundingMetadata", {})
-                                    if grounding_meta:
-                                        search_queries = grounding_meta.get("webSearchQueries", [])
-                                        chunks = grounding_meta.get("groundingChunks", [])
-                                        for ch in chunks:
-                                            web_info = ch.get("web", {})
-                                            if web_info:
-                                                grounding_sources.append({
-                                                    "title": web_info.get("title", ""),
-                                                    "uri": web_info.get("uri", "")
-                                                })
                                     successful_model = cur_model
                                     break
                                 else:
@@ -982,8 +1012,6 @@ def register_gemini_api_routes():
                         "success": True,
                         "reply": reply_text,
                         "model": successful_model,
-                        "search_queries": search_queries,
-                        "grounding_sources": grounding_sources
                     })
                 else:
                     return web.json_response({

@@ -657,7 +657,7 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   line-height: 1.35;
 }
 
-/* Options Row: slim toggles (left) + expandable Aspect Ratio picker (right) */
+/* Options Row: slim toggles (left) + Aspect Ratio dropdown (right) */
 .bada-options-row {
   display: flex;
   align-items: flex-start;
@@ -701,10 +701,11 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   white-space: nowrap;
 }
 
-/* Aspect Ratio picker (accordion that expands downward) */
+/* Aspect Ratio picker (overlay dropdown menu, like the model selector) */
 .bada-aspect-picker {
   flex: 1 1 220px;
   min-width: 0;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -756,24 +757,30 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   color: var(--bada-text-dim);
 }
 
-.bada-aspect-body {
+/* Aspect ratio dropdown: a floating overlay menu (mirrors the model selector look).
+   While open, JS reparents it to <body> and sets left/top in viewport px, so it is
+   never clipped by the node. position:fixed also keeps it out of document flow, which
+   means opening/closing it can never resize the node or shift the canvas. */
+.bada-aspect-menu {
   display: none;
+  position: fixed;
+  width: max-content;
+  min-width: 168px;
+  max-width: 320px;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   background: var(--bada-bg-input);
   border: 1px solid var(--bada-border);
   border-radius: var(--bada-radius-md);
   padding: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  z-index: 10000;
+  max-height: 320px;
+  overflow-y: auto;
 }
 
-.bada-aspect-body.open {
+.bada-aspect-menu.open {
   display: flex;
-}
-
-.bada-aspect-chips {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
-  gap: 4px;
 }
 
 .bada-aspect-chip {
@@ -798,12 +805,6 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   background: #4a4a4a;
   border-color: #aaaaaa;
   color: #fff;
-}
-
-.bada-aspect-note {
-  font-size: 9px;
-  color: var(--bada-text-dim);
-  line-height: 1.35;
 }
 
 .bada-toggle-badge {
@@ -1082,6 +1083,12 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   font-family: inherit;
   font-size: 12px;
   line-height: 1.5;
+  /* The placeholder is a multi-line hint (up to 5 lines), so reserve enough room for
+     it to render in full instead of being clipped mid-sentence. The manual resize
+     grip at the bottom-right is kept, so the user can still drag it either way. */
+  min-height: 110px;
+  /* Never let the flex column squeeze it below min-height when the node is short. */
+  flex-shrink: 0;
   resize: vertical;
   outline: none;
   transition: border-color 0.2s;
@@ -1471,7 +1478,7 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
 }
 
 .bada-chat-topbar {
-  flex: 0 0 auto !important;    /* 상단 페르소나/웹검색/새채팅 바 고정 */
+  flex: 0 0 auto !important;    /* 상단 페르소나/프롬프트 선택 · 프롬프트 관리 · 새채팅 바 고정 */
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1495,26 +1502,132 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   cursor: pointer;
 }
 
-.bada-websearch-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--bada-border);
-  color: var(--bada-text-muted);
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 10.5px;
-  font-weight: 700;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.15s;
+/* ── 페르소나 · 제미나이 전용 시스템 프롬프트 펼침式 드롭다운 ── */
+.bada-gem-picker {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.bada-websearch-btn.active {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: #3b82f6;
-  color: #60a5fa;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+.bada-gem-picker-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+}
+
+.bada-gem-picker-trigger:hover,
+.bada-gem-picker-trigger.open {
+  border-color: rgba(168, 85, 247, 0.7);
+  background: rgba(168, 85, 247, 0.12);
+}
+
+.bada-gem-picker-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bada-gem-picker-arrow {
+  flex: 0 0 auto;
+  font-size: 8px;
+  opacity: 0.75;
+}
+
+.bada-gem-picker-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 240px;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bada-bg-surface-elevated);
+  border: 1px solid var(--bada-border-hover);
+  border-radius: var(--bada-radius-md);
+  padding: 6px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+}
+
+.bada-gem-picker-menu.open {
+  display: flex;
+}
+
+.bada-gem-picker-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bada-gem-picker-group + .bada-gem-picker-group {
+  border-top: 1px solid var(--bada-border);
+  padding-top: 6px;
+}
+
+.bada-gem-picker-group-title {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  color: var(--bada-text-dim);
+  text-transform: uppercase;
+  padding: 0 4px 2px;
+}
+
+.bada-gem-picker-item {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--bada-radius-sm);
+  color: var(--bada-text-muted);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-align: left;
+  padding: 5px 7px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: all 0.14s;
+}
+
+.bada-gem-picker-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.bada-gem-picker-item.active {
+  background: rgba(168, 85, 247, 0.22);
+  border-color: rgba(168, 85, 247, 0.55);
+  color: #f3e8ff;
+}
+
+.bada-gem-picker-item.custom.active {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #e0f2fe;
+}
+
+.bada-gem-picker-empty {
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: var(--bada-text-dim);
+  padding: 6px 4px;
+  white-space: normal;
+}
+
+.bada-gem-prompt-manage {
+  flex: 0 0 auto;
 }
 
 .bada-chat-thread {
@@ -1609,35 +1722,6 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   background: #3b82f6;
   color: #fff;
   border-color: #3b82f6;
-}
-
-/* Grounding Box */
-.bada-grounding-box {
-  margin-top: 6px;
-  padding: 6px 8px;
-  background: rgba(59, 130, 246, 0.08);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-  border-radius: 6px;
-  font-size: 10px;
-}
-
-.bada-sources-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 4px;
-}
-
-.bada-source-link {
-  color: #93c5fd;
-  text-decoration: none;
-  background: rgba(0, 0, 0, 0.3);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.bada-source-link:hover {
-  text-decoration: underline;
 }
 
 /* Chat Input Bar & Attachments (Fixed non-shrinking, strictly docked at bottom) */

@@ -8,7 +8,7 @@
  *    3. ● MiniMax H3 (5 submodes, duration slider, multimodal vision)
  *    4. ● LTX-Video (5 submodes, duration slider, 6-element DiT)
  *    5. 📜 사용자 시스템 프롬프트
- *    6. ✨ 무검열 제미나이 (인터랙티브 챗 & Gem 페르소나, 실시간 웹검색)
+ *    6. ✨ 무검열 제미나이 (인터랙티브 챗 & Gem 페르소나, 제미나이 전용 시스템 프롬프트)
  * - Excludes 텍스트 가공 도구 as requested
  * - Independent non-blocking execution, Zero VRAM impact, Zero-Refusal 3-Pass pipeline
  * - One-click clipboard copy & direct injection to active CLIP Text Encode nodes
@@ -86,13 +86,15 @@ const LTX_SUBMODES = [
 ];
 
 // KREA 2 Submodes & Presets
+// 주의: `id` 는 localStorage 호환을 위해 절대 바꾸지 않는다 (general / storyboard).
 const KREA_SUBMODES = [
-    { id: "general", name: "🌐 일반", name_en: "🌐 General", desc: "KREA 2 포토리얼 화풍 렌더링", desc_en: "KREA 2 photorealism rendering" },
+    { id: "general", name: "🖼️ T2I · 이미지 분석", name_en: "🖼️ T2I · Image Analysis", desc: "KREA 2 포토리얼 화풍 렌더링", desc_en: "KREA 2 photorealism rendering" },
     { id: "storyboard", name: "🎞️ 스토리보드", name_en: "🎞️ Storyboard", desc: "연속 컷 시퀀스 분할 생성", desc_en: "Sequential cut storyboard prompts" },
 ];
 
+// 주의: `id` 는 localStorage 호환을 위해 절대 바꾸지 않는다 (t2i / i2i).
 const QWEN_SUBMODES = [
-    { id: "t2i", name: "🖼️ T2I", name_en: "🖼️ T2I", desc: "텍스트 기반 이미지 프롬프트 강화", desc_en: "Text-to-image prompt enhancement" },
+    { id: "t2i", name: "🖼️ T2I · 이미지 분석", name_en: "🖼️ T2I · Image Analysis", desc: "텍스트 기반 이미지 프롬프트 강화", desc_en: "Text-to-image prompt enhancement" },
     { id: "i2i", name: "🪄 I2I (편집)", name_en: "🪄 I2I (Edit)", desc: "참조 이미지를 바탕으로 편집 프롬프트 생성", desc_en: "Image-edit prompt from reference images" },
 ];
 
@@ -103,6 +105,93 @@ const GEM_PERSONAS_LIST = [
     { id: "fashion_lookbook", name: "👗 하이패션 & 룩북 마스터", name_en: "👗 High-Fashion & Lookbook Master" },
     { id: "scenario_writer", name: "🧠 심층 기획 & 시나리오 작가", name_en: "🧠 Deep Scenario & Narrative Writer" },
 ];
+
+// ============================================================================
+//  IMAGE HANDLING CONSTANTS
+//  Gemini `inline_data` caps a single image at 20 MB, and a raw 4K DataURL
+//  expands to ~25 MB once base64-encoded — which is why the studio used to
+//  fail on large uploads. Mirroring nodes/bada_prompt_generator.py
+//  (MAX_IMAGE_EDGE), we downscale in the browser before ever hitting the wire.
+// ============================================================================
+const IMAGE_ANALYSIS_MAX_EDGE = 1024;   // long-edge cap for vision/prompt work
+const IMAGE_ANALYSIS_JPEG_QUALITY = 0.82;
+const MAX_IMAGES_T2I = 1;               // KREA2 general, QWEN2.1 T2I, storyboard…
+const MAX_IMAGES_I2I = 6;               // QWEN2.1 I2I (reference set)
+
+/**
+ * Downscale + recompress a single image to a Gemini-friendly DataURL.
+ * Small images are returned untouched so we never add needless JPEG artifacts.
+ */
+function downscaleImageForGemini(dataUrl, maxEdge = IMAGE_ANALYSIS_MAX_EDGE) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const longEdge = Math.max(img.naturalWidth, img.naturalHeight);
+            if (!longEdge || longEdge <= maxEdge) { resolve({ dataUrl, resized: false }); return; }
+            const scale = maxEdge / longEdge;
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+            canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+            const ctx = canvas.getContext("2d");
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve({ dataUrl: canvas.toDataURL("image/jpeg", IMAGE_ANALYSIS_JPEG_QUALITY), resized: true });
+        };
+        img.onerror = () => resolve({ dataUrl, resized: false });
+        img.src = dataUrl;
+    });
+}
+
+/** How many images the active engine/submode accepts. */
+function currentImageLimit(engine, qwenSubMode) {
+    if (engine === "qwen21") return qwenSubMode === "i2i" ? MAX_IMAGES_I2I : MAX_IMAGES_T2I;
+    if (engine === "uncensored") return Infinity;   // chat tab has its own picker
+    return MAX_IMAGES_T2I;                        // krea / minimax / ltx / system
+}
+
+// ============================================================================
+//  PROMPT INPUT PLACEHOLDER
+//
+//  All of the per-engine guidance used to live in separate `.bada-callout`
+//  boxes stacked inside the submode panel, which wasted ~150-200px of vertical
+//  space. Those boxes are gone; every line of guidance now composes into the
+//  input textarea's placeholder instead — same position for every tab, one DOM
+//  node fewer per hint, and the user reads it right where they type.
+//  Layers (in order): engine note → how-to / limits → example → optional tail.
+// ============================================================================
+function composePlaceholder(layers) {
+    return layers
+        .filter(line => line && String(line).trim())
+        .map(line => String(line).trim())
+        .join("\n");
+}
+
+// ── 이미지 분석 안내 (KREA2 일반 · QWEN2.1 T2I 공통) ─────────────────────────
+function imageAnalysisHint(isKo) {
+    return isKo
+        ? [
+            "🖼️ 이미지만 첨부하면 이미지를 분석해 프롬프트를 생성합니다.",
+            "🖼️ 이미지 첨부(최대 1장)와 요청사항을 텍스트로 입력하면 함께 반영하여 프롬프트를 생성합니다.",
+        ]
+        : [
+            "🖼️ Attach an image only and the prompt is generated from analyzing it.",
+            "🖼️ Attach an image (up to 1) plus a text request and both are combined into the prompt.",
+        ];
+}
+
+// ── 다중 참조 이미지 안내 (QWEN2.1 I2I) ─────────────────────────────────────
+function multiImageHint(isKo) {
+    return isKo
+        ? [
+            "🪄 참조 이미지는 최대 6장까지 첨부할 수 있습니다.",
+            "📐 참고 이미지는 전송 효율을 위해 자동으로 1024px로 리사이즈되어 전송된 후 분석됩니다.",
+        ]
+        : [
+            "🪄 Up to 6 reference images can be attached.",
+            "📐 Reference images are automatically resized to 1024px for efficient transmission, then analyzed.",
+        ];
+}
 
 app.registerExtension({
     name: "bada.AsyncGeminiStudio",
@@ -118,7 +207,9 @@ app.registerExtension({
 
             const node = this;
             node.title = "⚓ Bada Async Gemini Studio";
-            node.setSize([520, 820]);
+            // 크기는 여기서 강제하지 않는다. onConfigure(워크플로우 복원) 가 저장된 크기를
+            // 그대로 적용해야 하므로, 여기서 setSize 하면 사용자의 창 크기가 매번 초기화된다.
+            // 초기 크기는 아래 LAYOUT ENGINE 이 userPreferredHeight 를 보고 결정한다.
 
             // The backend no longer exposes an output socket (RETURN_TYPES is empty). A node
             // instance restored from a saved workflow can still carry the old slot, so drop it
@@ -151,6 +242,8 @@ app.registerExtension({
             if (!KREA_SUBMODES.some(submode => submode.id === kreaSub)) kreaSub = "general";
             let qwenSub = localStorage.getItem("bada_qwen_sub") || "t2i";
             let userSystemPrompts = [];
+            // 📜 시스템 탭의 상태 안내문구 (예전 promptInfo 박스의 내용을 placeholder 로 이관)
+            let systemHintText = "";
             let selectedSystemPromptId = localStorage.getItem("bada_async_system_prompt") || "";
             let systemPromptsLoaded = false;
             let systemPromptLoadPromise = null;
@@ -173,11 +266,18 @@ app.registerExtension({
             let currentTab = "english";
 
             // Chat State (Uncensored Gemini Tab)
+            // `bada_web_search` 는 실시간 웹검색 제거 이전 잔여 키라서 1회 정리한다.
+            localStorage.removeItem("bada_web_search");
             let selectedGemPersona = localStorage.getItem("bada_gem_persona") || "universal";
-            let webSearchEnabled = localStorage.getItem("bada_web_search") === "true";
+            // 제미나이 탭 전용 시스템 프롬프트 (engines_registry.json :: gemini_prompts)
+            let gemChatPrompts = [];
+            let selectedGemPromptId = localStorage.getItem("bada_gem_chat_prompt") || "";
+            let gemChatPromptsLoaded = false;
+            let gemChatPromptsLoadPromise = null;
             let chatMessages = [];
             let chatUploadedImages = [];
             let isChatSending = false;
+            let chatPersonaCleanup = null;
             let errorLogs = [];
             let unreadErrorCount = 0;
             let generateAbortController = null;
@@ -579,7 +679,7 @@ app.registerExtension({
             submodePanel.className = "bada-submode-panel";
             promptStudioContainer.appendChild(submodePanel);
 
-            // Options Row: slim NSFW / Korean toggles (left) + expandable Aspect Ratio picker (right)
+            // Options Row: slim NSFW / Korean toggles (left) + Aspect Ratio dropdown (right)
             const optionsGrid = document.createElement("div");
             optionsGrid.className = "bada-options-row";
             optionsGrid.innerHTML = `
@@ -594,15 +694,12 @@ app.registerExtension({
                     </div>
                 </div>
                 <div class="bada-aspect-picker" id="bada-aspect-picker">
-                    <button type="button" class="bada-aspect-trigger" id="bada-aspect-trigger" aria-expanded="false" aria-controls="bada-aspect-body">
+                    <button type="button" class="bada-aspect-trigger" id="bada-aspect-trigger" aria-expanded="false" aria-haspopup="listbox">
                         <span class="bada-aspect-trigger-label" id="bada-aspect-label">${isKo ? "화면 비율 선택" : "Aspect Ratio"}</span>
                         <span class="bada-aspect-trigger-value" id="bada-aspect-value">${activeAspectLabel()}</span>
                         <span class="bada-aspect-arrow" id="bada-aspect-arrow">▼</span>
                     </button>
-                    <div class="bada-aspect-body" id="bada-aspect-body">
-                        <div class="bada-aspect-chips" id="bada-aspect-chips"></div>
-                        <div class="bada-aspect-note" id="bada-aspect-note">${isKo ? "선택한 비율이 프롬프트 생성 AI에 반영됩니다." : "The selected ratio is applied to the prompt generation AI."}</div>
-                    </div>
+                    <div class="bada-aspect-menu" id="bada-aspect-menu" role="listbox"></div>
                 </div>
             `;
             promptStudioContainer.appendChild(optionsGrid);
@@ -612,8 +709,7 @@ app.registerExtension({
             // -------------------------------------------------------------
             const aspectPicker = optionsGrid.querySelector("#bada-aspect-picker");
             const aspectTrigger = optionsGrid.querySelector("#bada-aspect-trigger");
-            const aspectBody = optionsGrid.querySelector("#bada-aspect-body");
-            const aspectChips = optionsGrid.querySelector("#bada-aspect-chips");
+            const aspectMenu = optionsGrid.querySelector("#bada-aspect-menu");
 
             function activeAspectLabel() {
                 const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
@@ -623,7 +719,7 @@ app.registerExtension({
 
             function renderAspectChips() {
                 const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
-                aspectChips.innerHTML = "";
+                aspectMenu.innerHTML = "";
                 ASPECT_RATIOS.forEach(ratio => {
                     const chip = document.createElement("button");
                     chip.type = "button";
@@ -637,10 +733,8 @@ app.registerExtension({
                         localStorage.setItem("bada_aspect_ratio", aspectRatio);
                         syncAspectPicker();
                         setAspectPickerOpen(false);
-                        const label = activeAspectLabel();
-                        showToast(isKo ? `🖼️ 화면 비율: ${label}` : `🖼️ Aspect ratio: ${label}`, "info", 1500);
                     };
-                    aspectChips.appendChild(chip);
+                    aspectMenu.appendChild(chip);
                 });
             }
 
@@ -648,32 +742,64 @@ app.registerExtension({
                 const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                 const labelEl = optionsGrid.querySelector("#bada-aspect-label");
                 const valueEl = optionsGrid.querySelector("#bada-aspect-value");
-                const noteEl = optionsGrid.querySelector("#bada-aspect-note");
                 if (labelEl) labelEl.textContent = isKoNow ? "화면 비율 선택" : "Aspect Ratio";
                 if (valueEl) valueEl.textContent = activeAspectLabel();
-                if (noteEl) noteEl.textContent = isKoNow
-                    ? "선택한 비율이 프롬프트 생성 AI에 반영됩니다."
-                    : "The selected ratio is applied to the prompt generation AI.";
                 renderAspectChips();
+            }
+
+            function positionAspectMenu() {
+                const rect = aspectTrigger.getBoundingClientRect();
+                const width = aspectMenu.offsetWidth || 200;
+                const height = aspectMenu.offsetHeight || 200;
+                const margin = 6;
+                let left = rect.left;
+                let top = rect.bottom + 4;
+                // Flip up / clamp so the menu always stays inside the viewport.
+                if (left + width > window.innerWidth - margin) left = window.innerWidth - width - margin;
+                if (left < margin) left = margin;
+                if (top + height > window.innerHeight - margin) {
+                    const above = rect.top - height - 4;
+                    top = above > margin ? above : Math.max(margin, window.innerHeight - height - margin);
+                }
+                aspectMenu.style.left = `${Math.round(left)}px`;
+                aspectMenu.style.top = `${Math.round(top)}px`;
             }
 
             function setAspectPickerOpen(open) {
                 const isOpen = !!open;
-                aspectBody.classList.toggle("open", isOpen);
                 aspectTrigger.classList.toggle("open", isOpen);
                 aspectTrigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
                 const arrow = optionsGrid.querySelector("#bada-aspect-arrow");
                 if (arrow) arrow.textContent = isOpen ? "▲" : "▼";
-                // The row grew or shrank -> re-measure the node frame.
-                setTimeout(fitToContent, 0);
+                if (!isOpen) {
+                    aspectMenu.classList.remove("open");
+                    if (aspectMenu.parentNode !== aspectPicker) aspectPicker.appendChild(aspectMenu);
+                    return;
+                }
+                // Move the menu to <body> so no ancestor overflow/transform can clip it,
+                // then measure and place it. This is a pure overlay: the node keeps its
+                // exact size and position, so the canvas never jolts. (Previously the
+                // in-flow accordion called fitToContent(), which grew the node on open and
+                // shrank it on close -> the big vertical shake reported by the user.)
+                if (aspectMenu.parentNode !== document.body) document.body.appendChild(aspectMenu);
+                aspectMenu.classList.add("open");
+                positionAspectMenu();
             }
 
-            aspectTrigger.onclick = () => setAspectPickerOpen(!aspectBody.classList.contains("open"));
+            aspectTrigger.onclick = () => setAspectPickerOpen(!aspectMenu.classList.contains("open"));
             const onAspectOutsidePointerDown = (e) => {
-                if (!aspectBody.classList.contains("open")) return;
-                if (!aspectPicker.contains(e.target)) setAspectPickerOpen(false);
+                if (!aspectMenu.classList.contains("open")) return;
+                if (!aspectPicker.contains(e.target) && !aspectMenu.contains(e.target)) {
+                    setAspectPickerOpen(false);
+                }
             };
             document.addEventListener("pointerdown", onAspectOutsidePointerDown);
+            // Keep the menu pinned to the trigger while the canvas is panned/zoomed.
+            const onAspectViewportChange = () => {
+                if (aspectMenu.classList.contains("open")) positionAspectMenu();
+            };
+            window.addEventListener("resize", onAspectViewportChange);
+            window.addEventListener("scroll", onAspectViewportChange, true);
             syncAspectPicker();
 
             const nsfwToggle = optionsGrid.querySelector("#bada-toggle-nsfw");
@@ -707,7 +833,7 @@ app.registerExtension({
             `;
             const instructionTextarea = document.createElement("textarea");
             instructionTextarea.className = "bada-textarea";
-            instructionTextarea.rows = 3;
+            instructionTextarea.rows = 5;
             instructionTextarea.placeholder = isKo 
                 ? "생성하고자 하는 장면, 인물, 구도, 조명 등을 자세히 적어보세요..." 
                 : "Describe the scene, character, composition, lighting in detail...";
@@ -791,15 +917,51 @@ app.registerExtension({
             imgSection.appendChild(thumbContainer);
             promptStudioContainer.appendChild(imgSection);
 
-            function handleFiles(files) {
-                Array.from(files).forEach(file => {
-                    if (!file.type.startsWith("image/")) return;
+            // 이미지 첨부: 모드별 장수 제한을 먼저 걸고, Gemini 전송 전에 브라우저에서
+            // 1024px/JPEG 로 축소한다 (원본 그대로면 base64 변환 후 20MB 를 넘어 실패한다).
+            async function handleFiles(files) {
+                const incoming = Array.from(files).filter(f => f && f.type && f.type.startsWith("image/"));
+                if (!incoming.length) return;
+
+                const limit = currentImageLimit(activeEngine, qwenSub);
+                let resizedCount = 0;
+
+                for (const file of incoming) {
+                    if (uploadedImages.length >= limit) {
+                        showToast(
+                            isKo
+                                ? `⚠️ ${activeEngine === "qwen21" && qwenSub === "i2i" ? "I2I" : "현재 모드"}는 최대 ${limit}장까지 첨부할 수 있습니다.`
+                                : `⚠️ This mode accepts up to ${limit} image(s).`,
+                            "error", 3500,
+                        );
+                        break;
+                    }
+                    try {
+                        const rawDataUrl = await readFileAsDataUrl(file);
+                        const { dataUrl, resized } = await downscaleImageForGemini(rawDataUrl);
+                        if (resized) resizedCount += 1;
+                        uploadedImages.push(dataUrl);
+                    } catch (err) {
+                        console.warn("[BadaAsyncGemini] image attach failed:", err);
+                        showToast(isKo ? "⚠️ 이미지를 읽을 수 없습니다." : "⚠️ Could not read the image.", "error", 2500);
+                    }
+                }
+
+                renderThumbnails();
+                if (uploadedImages.length > 0) {
+                    const base = isKo ? `🖼️ 참고 이미지 ${uploadedImages.length}장 첨부 완료` : `🖼️ ${uploadedImages.length} reference image(s) attached`;
+                    const note = resizedCount > 0
+                        ? (isKo ? ` (1024px로 축소 ${resizedCount}장)` : ` (${resizedCount} resized to 1024px)`)
+                        : "";
+                    showToast(base + note, "success", 1800);
+                }
+            }
+
+            function readFileAsDataUrl(file) {
+                return new Promise((resolve, reject) => {
                     const reader = new FileReader();
-                    reader.onload = (e) => {
-                        uploadedImages.push(e.target.result);
-                        renderThumbnails();
-                        showToast(isKo ? `🖼️ 참고 이미지 #${uploadedImages.length} 첨부 완료` : `🖼️ Reference image #${uploadedImages.length} attached`, "success", 1500);
-                    };
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = () => reject(reader.error || new Error("FileReader error"));
                     reader.readAsDataURL(file);
                 });
             }
@@ -1068,6 +1230,57 @@ app.registerExtension({
             }
 
             // -------------------------------------------------------------
+            // 제미나이 탭 전용 시스템 프롬프트 (engines_registry.json :: gemini_prompts)
+            // `user_prompts` 와 완전히 분리되어 있어, 이 목록은 오직 🔞 제미나이 탭에서만 사용된다.
+            // -------------------------------------------------------------
+            function loadGemChatPrompts(force = false) {
+                if (!force && gemChatPromptsLoaded) return Promise.resolve(gemChatPrompts);
+                if (gemChatPromptsLoadPromise) return gemChatPromptsLoadPromise;
+
+                gemChatPromptsLoadPromise = fetch(`/api/bada/promptgen/registry?ts=${Date.now()}`)
+                    .then(async response => {
+                        const data = await response.json();
+                        if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`);
+                        gemChatPrompts = Array.isArray(data.registry?.gemini_prompts)
+                            ? data.registry.gemini_prompts.filter(prompt => prompt && (prompt.text || prompt.system_prompt) && prompt.id)
+                            : [];
+                        const selectedExists = gemChatPrompts.some(prompt =>
+                            String(prompt.id) === selectedGemPromptId
+                        );
+                        if (!selectedExists) {
+                            selectedGemPromptId = "";
+                            localStorage.removeItem("bada_gem_chat_prompt");
+                        }
+                        gemChatPromptsLoaded = true;
+                        return gemChatPrompts;
+                    })
+                    .catch(error => {
+                        gemChatPromptsLoaded = false;
+                        throw error;
+                    })
+                    .finally(() => { gemChatPromptsLoadPromise = null; });
+                return gemChatPromptsLoadPromise;
+            }
+
+            async function openGemPromptManager(button) {
+                button.disabled = true;
+                try {
+                    const modal = await import("./bada_gemini_prompt_modal.js");
+                    await modal.openGeminiPromptModal({
+                        onSaved: async () => {
+                            await loadGemChatPrompts(true);
+                            if (activeEngine === "uncensored") renderChatStudio();
+                        },
+                    });
+                } catch (error) {
+                    console.error("[BadaAsyncGemini] gemini prompt manager failed:", error);
+                    showToast(isKo ? "제미나이 프롬프트 관리자를 열지 못했습니다." : "Could not open the Gemini prompt manager.", "error", 4000);
+                } finally {
+                    button.disabled = false;
+                }
+            }
+
+            // -------------------------------------------------------------
             // SUBMODE RENDERING (MiniMax / LTX / KREA / QWEN / System Prompt)
             // -------------------------------------------------------------
             function renderSubmodePanel() {
@@ -1103,15 +1316,6 @@ app.registerExtension({
                     });
                     submodePanel.appendChild(grid);
 
-                    const activeSub = MINIMAX_SUBMODES.find(s => s.id === minimaxSub) || MINIMAX_SUBMODES[0];
-                    const callout = document.createElement("div");
-                    callout.className = "bada-callout";
-                    const subName = isKo ? activeSub.name : (activeSub.name_en || activeSub.name);
-                    const subTag = isKo ? activeSub.tag : (activeSub.tag_en || activeSub.tag);
-                    const subDesc = isKo ? activeSub.desc : (activeSub.desc_en || activeSub.desc);
-                    callout.innerHTML = `⚡ <b>${subName} (${subTag})</b>: ${subDesc}`;
-                    submodePanel.appendChild(callout);
-
                     renderDurationSlider();
 
                 } else if (activeEngine === "ltx") {
@@ -1143,15 +1347,6 @@ app.registerExtension({
                         grid.appendChild(card);
                     });
                     submodePanel.appendChild(grid);
-
-                    const activeSub = LTX_SUBMODES.find(s => s.id === ltxSub) || LTX_SUBMODES[0];
-                    const callout = document.createElement("div");
-                    callout.className = "bada-callout";
-                    const subName = isKo ? activeSub.name : (activeSub.name_en || activeSub.name);
-                    const subTag = isKo ? activeSub.tag : (activeSub.tag_en || activeSub.tag);
-                    const subDesc = isKo ? activeSub.desc : (activeSub.desc_en || activeSub.desc);
-                    callout.innerHTML = `⚡ <b>${subName} (${subTag})</b>: ${subDesc}`;
-                    submodePanel.appendChild(callout);
 
                     renderDurationSlider();
 
@@ -1185,17 +1380,7 @@ app.registerExtension({
                     });
                     submodePanel.appendChild(grid);
 
-                    if (kreaSub === "general") {
-                        const callout = document.createElement("div");
-                        callout.className = "bada-callout";
-                        callout.innerHTML = `ℹ️ <b>${isKo ? "일반 모드" : "General Mode"}</b>: ${isKo ? "KREA 2의 최신 포토리얼 화풍 렌더링 규칙을 적용합니다." : "Applies KREA 2 photorealism rendering rules."}`;
-                        submodePanel.appendChild(callout);
-                    } else if (kreaSub === "storyboard") {
-                        const callout = document.createElement("div");
-                        callout.className = "bada-callout";
-                        callout.innerHTML = `🎞️ <b>${isKo ? "스토리보드 생성기" : "Storyboard Generator"}</b>: ${isKo ? "상황을 분석하여 일관된 인물/공간을 유지하는 연속 컷 시퀀스를 작성합니다." : "Generates sequential cut prompts maintaining character & scene consistency."}`;
-                        submodePanel.appendChild(callout);
-
+                    if (kreaSub === "storyboard") {
                         const cutSliderRow = document.createElement("div");
                         cutSliderRow.className = "bada-duration-row";
                         cutSliderRow.innerHTML = `
@@ -1219,7 +1404,7 @@ app.registerExtension({
                     const headerRow = document.createElement("div");
                     headerRow.className = "bada-submode-header";
                     headerRow.innerHTML = `
-                        <div class="bada-submode-title"><span>🖼️</span><span>${isKo ? "QWEN2.1 이미지 프롬프트" : "QWEN2.1 Image Prompt"}</span></div>
+                        <div class="bada-submode-title"><span>🖼️</span><span>${isKo ? "QWEN2.1 세부 모드 선택" : "QWEN2.1 Submodes"}</span></div>
                         <span class="bada-engine-tag">Official Prompt Enhancer</span>
                     `;
                     submodePanel.appendChild(headerRow);
@@ -1239,13 +1424,6 @@ app.registerExtension({
                         grid.appendChild(card);
                     });
                     submodePanel.appendChild(grid);
-
-                    const callout = document.createElement("div");
-                    callout.className = "bada-callout";
-                    callout.textContent = qwenSub === "i2i"
-                        ? (isKo ? "Qwen-Image-2.1 편집 지침을 적용합니다. 하단에서 참조 이미지를 첨부하세요." : "Applies Qwen-Image-2.1 edit instructions. Attach reference images below.")
-                        : (isKo ? "Qwen-Image-2.1 공식 T2I 프롬프트 강화 지침과 권장 화면 비율을 적용합니다." : "Applies the official Qwen-Image-2.1 T2I prompt enhancer and returns a suggested aspect ratio.");
-                    submodePanel.appendChild(callout);
                 } else if (activeEngine === "system_prompt") {
                     const headerRow = document.createElement("div");
                     headerRow.className = "bada-submode-header";
@@ -1265,9 +1443,11 @@ app.registerExtension({
                     controls.append(promptSelect, manageButton);
                     submodePanel.appendChild(controls);
 
-                    const promptInfo = document.createElement("div");
-                    promptInfo.className = "bada-callout";
-                    submodePanel.appendChild(promptInfo);
+                    // 안내문구는 입력창 placeholder 로 옮겨 DOM 을 가볍게 유지한다.
+                    const setSystemHint = (text) => {
+                        systemHintText = text || "";
+                        if (activeEngine === "system_prompt") updateInputPlaceholders();
+                    };
 
                     const renderPromptOptions = () => {
                         promptSelect.replaceChildren();
@@ -1283,9 +1463,9 @@ app.registerExtension({
                                 selectedSystemPromptId = "";
                                 localStorage.removeItem("bada_async_system_prompt");
                             }
-                            promptInfo.textContent = isKo
+                            setSystemHint(isKo
                                 ? "프롬프트 관리에서 새 시스템 프롬프트를 등록하세요."
-                                : "Register a system prompt with Manage Prompts to get started.";
+                                : "Register a system prompt with Manage Prompts to get started.");
                             return;
                         }
 
@@ -1302,9 +1482,9 @@ app.registerExtension({
                         selectedSystemPromptId = String(selected.id || selected.name);
                         promptSelect.value = selectedSystemPromptId;
                         localStorage.setItem("bada_async_system_prompt", selectedSystemPromptId);
-                        promptInfo.textContent = selected.description || (isKo
+                        setSystemHint(selected.description || (isKo
                             ? "선택한 사용자 시스템 프롬프트로 생성합니다."
-                            : "Generation uses the selected custom system prompt.");
+                            : "Generation uses the selected custom system prompt."));
                     };
 
                     promptSelect.addEventListener("change", () => {
@@ -1321,9 +1501,9 @@ app.registerExtension({
                                 if (activeEngine === "system_prompt") renderSubmodePanel();
                             })
                             .catch(() => {
-                                promptInfo.textContent = isKo
+                                setSystemHint(isKo
                                     ? "시스템 프롬프트를 불러오지 못했습니다. 관리 버튼을 눌러 다시 시도하세요."
-                                    : "Could not load system prompts. Open the manager to retry.";
+                                    : "Could not load system prompts. Open the manager to retry.");
                             });
                     }
                 }
@@ -1361,21 +1541,39 @@ app.registerExtension({
             function updateInputPlaceholders() {
                 const label = promptSection.querySelector("#bada-input-label");
                 if (activeEngine === "minimax") {
-                    label.textContent = isKo 
+                    const sub = MINIMAX_SUBMODES.find(s => s.id === minimaxSub) || MINIMAX_SUBMODES[0];
+                    label.textContent = isKo
                         ? `✍️ MiniMax H3 요청 (${minimaxSub.toUpperCase()} • ${durationSec}초)`
                         : `✍️ MiniMax H3 Prompt (${minimaxSub.toUpperCase()} • ${durationSec}s)`;
-                    instructionTextarea.placeholder = isKo
-                        ? "MiniMax H3로 생성할 영상 씬과 동작을 입력하세요.\n예: 사이버펑크 네온 비를 맞으며 걷는 여성, 35mm 영화 필름 룩, 자연스러운 카메라 트래킹"
-                        : "Describe the video scene and motion for MiniMax H3.\ne.g. Woman walking in cyberpunk neon rain, 35mm film aesthetic, fluid tracking shot";
+                    instructionTextarea.placeholder = composePlaceholder([
+                        isKo
+                            ? `⚡ ${sub.name} (${sub.tag}): ${sub.desc}`
+                            : `⚡ ${sub.name_en || sub.name} (${sub.tag_en || sub.tag}): ${sub.desc_en || sub.desc}`,
+                        isKo
+                            ? "MiniMax H3로 생성할 영상 씬과 동작을 입력하세요."
+                            : "Describe the video scene and motion for MiniMax H3.",
+                        isKo
+                            ? "예: 사이버펑크 네온 비를 맞으며 걷는 여성, 35mm 영화 필름 룩, 자연스러운 카메라 트래킹"
+                            : "e.g. Woman walking in cyberpunk neon rain, 35mm film aesthetic, fluid tracking shot",
+                    ]);
                     generateBtn.className = "bada-btn-generate minimax";
                     generateBtn.innerHTML = `<span>🎬</span> <span>${isKo ? "MiniMax H3 프롬프트 생성 🚀" : "Generate MiniMax H3 Prompt 🚀"}</span>`;
                 } else if (activeEngine === "ltx") {
+                    const sub = LTX_SUBMODES.find(s => s.id === ltxSub) || LTX_SUBMODES[0];
                     label.textContent = isKo
                         ? `✍️ LTX-Video 요청 (${ltxSub.toUpperCase()} • ${durationSec}초)`
                         : `✍️ LTX-Video Prompt (${ltxSub.toUpperCase()} • ${durationSec}s)`;
-                    instructionTextarea.placeholder = isKo
-                        ? "LTX-Video 2.5로 생성할 비디오 씬을 입력하세요.\n예: 천천히 돌리 인하는 카메라, 인물의 감정적인 표정 변화, 따뜻한 림 라이트와 앰비언트 사운드"
-                        : "Describe the video scene for LTX-Video 2.5.\ne.g. Slow camera dolly in, subtle facial emotions, warm rim lighting and ambient sound";
+                    instructionTextarea.placeholder = composePlaceholder([
+                        isKo
+                            ? `⚡ ${sub.name} (${sub.tag}): ${sub.desc}`
+                            : `⚡ ${sub.name_en || sub.name} (${sub.tag_en || sub.tag}): ${sub.desc_en || sub.desc}`,
+                        isKo
+                            ? "LTX-Video 2.5로 생성할 비디오 씬을 입력하세요."
+                            : "Describe the video scene for LTX-Video 2.5.",
+                        isKo
+                            ? "예: 천천히 돌리 인하는 카메라, 인물의 감정적인 표정 변화, 따뜻한 림 라이트와 앰비언트 사운드"
+                            : "e.g. Slow camera dolly in, subtle facial emotions, warm rim lighting and ambient sound",
+                    ]);
                     generateBtn.className = "bada-btn-generate ltx";
                     generateBtn.innerHTML = `<span>🎥</span> <span>${isKo ? "LTX-Video 프롬프트 생성 🚀" : "Generate LTX-Video Prompt 🚀"}</span>`;
                 } else if (activeEngine === "krea") {
@@ -1383,16 +1581,33 @@ app.registerExtension({
                         label.textContent = isKo
                             ? `✍️ KREA 2 스토리보드 요청 (${storyboardCutCount}컷)`
                             : `✍️ KREA 2 Storyboard Prompt (${storyboardCutCount} Cuts)`;
-                        instructionTextarea.placeholder = isKo
-                            ? "스토리보드로 분할할 전체 시나리오나 스토리 개요를 입력하세요.\n예: 골목길에서 버려진 안드로이드를 수리하는 소녀, 기동 후 서로 미소를 짓는 4단계 시퀀스"
-                            : "Enter narrative or scenario outline to divide into storyboard cuts.\ne.g. Girl repairing an android in an alleyway, 4-step sequence ending in a shared smile";
+                        instructionTextarea.placeholder = composePlaceholder([
+                            isKo
+                                ? "🎞️ 상황을 분석하여 일관된 인물/공간을 유지하는 연속 컷 시퀀스를 작성합니다."
+                                : "🎞️ Generates sequential cut prompts maintaining character & scene consistency.",
+                            isKo
+                                ? "스토리보드로 분할할 전체 시나리오나 스토리 개요를 입력하세요."
+                                : "Enter narrative or scenario outline to divide into storyboard cuts.",
+                            isKo
+                                ? "예: 골목길에서 버려진 안드로이드를 수리하는 소녀, 기동 후 서로 미소를 짓는 4단계 시퀀스"
+                                : "e.g. Girl repairing an android in an alleyway, 4-step sequence ending in a shared smile",
+                        ]);
                         generateBtn.className = "bada-btn-generate";
                         generateBtn.innerHTML = `<span>🎞️</span> <span>${isKo ? `${storyboardCutCount}컷 스토리보드 생성 🚀` : `Generate ${storyboardCutCount}-Cut Storyboard 🚀`}</span>`;
                     } else {
                         label.textContent = isKo ? "✍️ KREA 2 요청" : "✍️ KREA 2 Prompt";
-                        instructionTextarea.placeholder = isKo
-                            ? "KREA 2로 생성할 씬의 아이디어나 스토리들을 자유롭게 입력하세요.\n예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감"
-                            : "Enter ideas or scenes to generate with KREA 2.\ne.g. Cyberpunk city with wet asphalt reflecting neon lights, photorealistic texture";
+                        instructionTextarea.placeholder = composePlaceholder([
+                            isKo
+                                ? "ℹ️ KREA 2의 최신 포토리얼 화풍 렌더링 규칙을 적용합니다."
+                                : "ℹ️ Applies KREA 2 photorealism rendering rules.",
+                            isKo
+                                ? "KREA 2로 생성할 씬의 아이디어나 스토리텔을 자유롭게 입력하세요."
+                                : "Enter the idea or storyline you want to generate with KREA 2.",
+                            isKo
+                                ? "예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감"
+                                : "e.g. Cyberpunk city with wet asphalt reflecting neon lights, photorealistic texture",
+                            ...imageAnalysisHint(isKo),
+                        ]);
                         generateBtn.className = "bada-btn-generate";
                         generateBtn.innerHTML = `<span>🟢</span> <span>${isKo ? "KREA 2 프롬프트 생성 🚀" : "Generate KREA 2 Prompt 🚀"}</span>`;
                     }
@@ -1400,10 +1615,30 @@ app.registerExtension({
                     const modeName = qwenSub === "i2i" ? "I2I" : "T2I";
                     label.textContent = isKo ? `✍️ QWEN2.1 ${modeName} 프롬프트 요청` : `✍️ QWEN2.1 ${modeName} Prompt Request`;
                     instructionTextarea.placeholder = qwenSub === "i2i"
-                        ? (isKo ? "참조 이미지를 첨부하고 원하는 편집 내용을 입력하세요." : "Attach reference images and describe the desired edit.")
-                        : (isKo ? "QWEN2.1로 만들 이미지의 장면과 포함할 텍스트를 설명하세요." : "Describe the image and any exact text to include for QWEN2.1.");
+                        ? composePlaceholder([
+                            isKo
+                                ? "ℹ️ Qwen-Image-2.1 편집 지침을 적용합니다."
+                                : "ℹ️ Applies Qwen-Image-2.1 edit instructions.",
+                            isKo
+                                ? "참조 이미지를 첨부하고 원하는 편집 내용을 입력하세요."
+                                : "Attach reference images and describe the desired edit.",
+                            ...multiImageHint(isKo),
+                        ])
+                        : composePlaceholder([
+                            isKo
+                                ? "ℹ️ Qwen-Image-2.1 공식 T2I 프롬프트 강화 지침과 권장 화면 비율을 적용합니다."
+                                : "ℹ️ Applies the official Qwen-Image-2.1 T2I prompt enhancer and returns a suggested aspect ratio.",
+                            isKo
+                                ? "QWEN2.1로 생성할 씬의 아이디어나 스토리텔을 자유롭게 입력하세요."
+                                : "Enter the idea or storyline you want to generate with QWEN2.1.",
+                            isKo
+                                ? "예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감"
+                                : "e.g. Cyberpunk city with wet asphalt reflecting neon lights, photorealistic texture",
+                            ...imageAnalysisHint(isKo),
+                        ]);
                     generateBtn.className = "bada-btn-generate qwen";
-                    generateBtn.innerHTML = `<span>🖼️</span> <span>${isKo ? `QWEN2.1 ${modeName} 프롬프트 생성 🚀` : `Generate QWEN2.1 ${modeName} Prompt 🚀`}</span>`;
+                    // 버튼 라벨에서 모드 접미사는 뺀다 (세부분등 카드에서 이미 T2I/I2I 가 표시됨)
+                    generateBtn.innerHTML = `<span>🖼️</span> <span>${isKo ? "QWEN2.1 프롬프트 생성 🚀" : "Generate QWEN2.1 Prompt 🚀"}</span>`;
                 } else if (activeEngine === "system_prompt") {
                     const selected = userSystemPrompts.find(prompt =>
                         String(prompt.id || prompt.name) === selectedSystemPromptId
@@ -1411,9 +1646,11 @@ app.registerExtension({
                     label.textContent = isKo
                         ? `✍️ 시스템 프롬프트 요청${selected ? ` (${selected.name})` : ""}`
                         : `✍️ System Prompt Request${selected ? ` (${selected.name})` : ""}`;
-                    instructionTextarea.placeholder = isKo
-                        ? "선택한 시스템 프롬프트로 생성할 내용을 입력하세요."
-                        : "Describe what to generate with the selected system prompt.";
+                    instructionTextarea.placeholder = composePlaceholder([
+                        isKo ? "ℹ️ 선택한 사용자 시스템 프롬프트로 생성합니다." : "ℹ️ Generation uses the selected custom system prompt.",
+                        systemHintText,
+                        isKo ? "생성할 내용을 입력하세요." : "Describe what to generate with the selected system prompt.",
+                    ]);
                     generateBtn.className = "bada-btn-generate system-prompt";
                     generateBtn.innerHTML = `<span>📜</span> <span>${isKo ? "시스템 프롬프트로 생성 🚀" : "Generate with System Prompt 🚀"}</span>`;
                 }
@@ -1682,35 +1919,30 @@ app.registerExtension({
                 const chatTopbar = document.createElement("div");
                 chatTopbar.className = "bada-chat-topbar";
 
-                const personaSelect = document.createElement("select");
-                personaSelect.className = "bada-gem-select";
-                GEM_PERSONAS_LIST.forEach(p => {
-                    const opt = document.createElement("option");
-                    opt.value = p.id;
-                    opt.textContent = isKo ? p.name : (p.name_en || p.name);
-                    if (p.id === selectedGemPersona) opt.selected = true;
-                    personaSelect.appendChild(opt);
-                });
-                personaSelect.addEventListener("change", (e) => {
-                    selectedGemPersona = e.target.value;
-                    localStorage.setItem("bada_gem_persona", selectedGemPersona);
-                    showToast((isKo ? "페르소나 변경: " : "Persona changed: ") + personaSelect.options[personaSelect.selectedIndex].text, "info", 1500);
-                });
+                // ── 페르소나 + 제미나이 전용 시스템 프롬프트 선택 (펼침式 드롭다운) ──
+                // "만능 무검열 제미나이" 버튼을 누르면 아래 목록이 펼쳐지고,
+                // Gem 페르소나 또는 사용자가 등록한 제미나이 전용 프롬프트를 고른다.
+                const personaPicker = document.createElement("div");
+                personaPicker.className = "bada-gem-picker";
 
-                const webSearchBtn = document.createElement("button");
-                webSearchBtn.type = "button";
-                webSearchBtn.className = `bada-websearch-btn ${webSearchEnabled ? 'active' : ''}`;
-                webSearchBtn.innerHTML = `<span>🔍 ${isKo ? "실시간 웹검색" : "Live Web Search"}</span>`;
-                webSearchBtn.onclick = () => {
-                    webSearchEnabled = !webSearchEnabled;
-                    localStorage.setItem("bada_web_search", webSearchEnabled);
-                    webSearchBtn.classList.toggle("active", webSearchEnabled);
-                    showToast(isKo ? `실시간 웹검색(Google Search): ${webSearchEnabled ? 'ON' : 'OFF'}` : `Live Web Search (Google): ${webSearchEnabled ? 'ON' : 'OFF'}`, "info", 1500);
-                };
+                const personaTrigger = document.createElement("button");
+                personaTrigger.type = "button";
+                personaTrigger.className = "bada-gem-select bada-gem-picker-trigger";
+                personaTrigger.setAttribute("aria-expanded", "false");
+
+                const personaTriggerLabel = document.createElement("span");
+                personaTriggerLabel.className = "bada-gem-picker-label";
+                const personaTriggerArrow = document.createElement("span");
+                personaTriggerArrow.className = "bada-gem-picker-arrow";
+                personaTriggerArrow.textContent = "▼";
+                personaTrigger.append(personaTriggerLabel, personaTriggerArrow);
+
+                const personaMenu = document.createElement("div");
+                personaMenu.className = "bada-gem-picker-menu";
 
                 const newChatBtn = document.createElement("button");
                 newChatBtn.type = "button";
-                newChatBtn.className = "bada-pill";
+                newChatBtn.className = "bada-pill bada-gem-new-chat";
                 newChatBtn.innerHTML = isKo ? "✏️ 새 채팅" : "✏️ New Chat";
                 newChatBtn.onclick = () => {
                     chatMessages = [];
@@ -1718,10 +1950,140 @@ app.registerExtension({
                     showToast(isKo ? "대화가 초기화되었습니다." : "Conversation reset.", "info", 1500);
                 };
 
-                chatTopbar.appendChild(personaSelect);
-                chatTopbar.appendChild(webSearchBtn);
+                const managePromptsBtn = document.createElement("button");
+                managePromptsBtn.type = "button";
+                managePromptsBtn.className = "bada-pill bada-gem-prompt-manage";
+                managePromptsBtn.textContent = isKo ? "⚙️ 프롬프트 관리" : "⚙️ Manage Prompts";
+                managePromptsBtn.title = isKo
+                    ? "제미나이 탭 전용 시스템 프롬프트 작성 · 수정 · 삭제 · 순서 이동"
+                    : "Create / edit / delete / reorder Gemini-only system prompts";
+                managePromptsBtn.onclick = () => openGemPromptManager(managePromptsBtn);
+
+                personaPicker.append(personaTrigger, personaMenu);
+                chatTopbar.append(personaPicker);
+                chatTopbar.appendChild(managePromptsBtn);
                 chatTopbar.appendChild(newChatBtn);
                 chatStudioContainer.appendChild(chatTopbar);
+
+                // 현재 선택된 항목의 표시 이름
+                function activeGemPromptLabel() {
+                    const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                    if (selectedGemPromptId) {
+                        const found = gemChatPrompts.find(p => String(p.id) === selectedGemPromptId);
+                        if (found) return `📜 ${found.name || found.id}`;
+                    }
+                    const persona = GEM_PERSONAS_LIST.find(p => p.id === selectedGemPersona) || GEM_PERSONAS_LIST[0];
+                    return isKoNow ? persona.name : (persona.name_en || persona.name);
+                }
+
+                function setPersonaMenuOpen(open) {
+                    const isOpen = !!open;
+                    personaMenu.classList.toggle("open", isOpen);
+                    personaTrigger.classList.toggle("open", isOpen);
+                    personaTrigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+                    personaTriggerArrow.textContent = isOpen ? "▲" : "▼";
+                }
+
+                function applyGemPromptSelection({ personaId = "", promptId = "" }) {
+                    if (promptId) {
+                        selectedGemPromptId = String(promptId);
+                        localStorage.setItem("bada_gem_chat_prompt", selectedGemPromptId);
+                    } else {
+                        selectedGemPromptId = "";
+                        localStorage.removeItem("bada_gem_chat_prompt");
+                    }
+                    if (personaId) {
+                        selectedGemPersona = personaId;
+                        localStorage.setItem("bada_gem_persona", selectedGemPersona);
+                    }
+                    personaTriggerLabel.textContent = activeGemPromptLabel();
+                    renderPersonaMenu();
+                    setPersonaMenuOpen(false);
+                    showToast((isKo ? "📜 적용됨: " : "📜 Applied: ") + activeGemPromptLabel(), "info", 1500);
+                }
+
+                function renderPersonaMenu() {
+                    const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                    personaMenu.innerHTML = "";
+
+                    // 1) 내장 Gem 페르소나
+                    const personaGroup = document.createElement("div");
+                    personaGroup.className = "bada-gem-picker-group";
+                    GEM_PERSONAS_LIST.forEach(p => {
+                        const item = document.createElement("button");
+                        item.type = "button";
+                        const isActive = !selectedGemPromptId && p.id === selectedGemPersona;
+                        item.className = `bada-gem-picker-item persona ${isActive ? "active" : ""}`;
+                        item.textContent = isKoNow ? p.name : (p.name_en || p.name);
+                        item.onclick = () => applyGemPromptSelection({ personaId: p.id });
+                        personaGroup.appendChild(item);
+                    });
+                    personaMenu.appendChild(personaGroup);
+
+                    // 2) 제미나이 탭 전용 사용자 시스템 프롬프트
+                    const userGroup = document.createElement("div");
+                    userGroup.className = "bada-gem-picker-group";
+                    const userHead = document.createElement("div");
+                    userHead.className = "bada-gem-picker-group-title";
+                    userHead.textContent = isKoNow
+                        ? "📜 제미나이 전용 시스템 프롬프트"
+                        : "📜 Gemini-only System Prompts";
+                    userGroup.appendChild(userHead);
+
+                    if (!gemChatPrompts.length) {
+                        const empty = document.createElement("div");
+                        empty.className = "bada-gem-picker-empty";
+                        empty.textContent = gemChatPromptsLoaded
+                            ? (isKoNow
+                                ? "등록된 프롬프트가 없습니다. 「⚙️ 프롬프트 관리」로 추가하세요."
+                                : "No prompts yet. Use “⚙️ Manage Prompts” to add one.")
+                            : (isKoNow ? "불러오는 중..." : "Loading...");
+                        userGroup.appendChild(empty);
+                    } else {
+                        gemChatPrompts.forEach(prompt => {
+                            const key = String(prompt.id);
+                            const isActive = selectedGemPromptId === key;
+                            const item = document.createElement("button");
+                            item.type = "button";
+                            item.className = `bada-gem-picker-item custom ${isActive ? "active" : ""}`;
+                            item.textContent = `📜 ${prompt.name || key}`;
+                            if (prompt.description) item.title = prompt.description;
+                            item.onclick = () => applyGemPromptSelection({ promptId: key });
+                            userGroup.appendChild(item);
+                        });
+                    }
+                    personaMenu.appendChild(userGroup);
+                }
+
+                personaTrigger.onclick = () => {
+                    const willOpen = !personaMenu.classList.contains("open");
+                    if (willOpen) renderPersonaMenu();
+                    setPersonaMenuOpen(willOpen);
+                };
+                const onPersonaOutsidePointerDown = (e) => {
+                    if (!personaMenu.classList.contains("open")) return;
+                    if (!personaPicker.contains(e.target)) setPersonaMenuOpen(false);
+                };
+                // renderChatStudio() 는 탭 전환마다 다시 호출되므로 이전 리스너를 정리한다.
+                chatPersonaCleanup?.();
+                document.addEventListener("pointerdown", onPersonaOutsidePointerDown);
+                chatPersonaCleanup = () => {
+                    document.removeEventListener("pointerdown", onPersonaOutsidePointerDown);
+                    chatPersonaCleanup = null;
+                };
+
+                personaTriggerLabel.textContent = activeGemPromptLabel();
+                renderPersonaMenu();
+                if (!gemChatPromptsLoaded && !gemChatPromptsLoadPromise) {
+                    loadGemChatPrompts()
+                        .then(() => {
+                            personaTriggerLabel.textContent = activeGemPromptLabel();
+                            renderPersonaMenu();
+                        })
+                        .catch((error) => {
+                            console.warn("[BadaAsyncGemini] gemini chat prompts load failed:", error);
+                        });
+                }
 
                 // Message Thread
                 const thread = document.createElement("div");
@@ -1888,25 +2250,6 @@ app.registerExtension({
                             }
 
                             bubble.appendChild(actRow);
-
-                            // Grounding sources
-                            if (msg.grounding_sources && msg.grounding_sources.length > 0) {
-                                const gBox = document.createElement("div");
-                                gBox.className = "bada-grounding-box";
-                                gBox.innerHTML = `<div>🔍 <b>${isKoNow ? "웹 검색 출처:" : "Web Sources:"}</b></div>`;
-                                const sList = document.createElement("div");
-                                sList.className = "bada-sources-list";
-                                msg.grounding_sources.forEach(src => {
-                                    const link = document.createElement("a");
-                                    link.className = "bada-source-link";
-                                    link.href = src.uri;
-                                    link.target = "_blank";
-                                    link.textContent = src.title || src.uri;
-                                    sList.appendChild(link);
-                                });
-                                gBox.appendChild(sList);
-                                bubble.appendChild(gBox);
-                            }
                         }
 
                         row.appendChild(bubble);
@@ -1990,7 +2333,7 @@ app.registerExtension({
                                 api_key: key,
                                 model: model,
                                 persona: selectedGemPersona,
-                                web_search: webSearchEnabled,
+                                system_prompt_id: selectedGemPromptId,
                                 messages: chatMessages
                             }),
                             signal: chatAbortController.signal
@@ -2005,7 +2348,6 @@ app.registerExtension({
                             chatMessages.push({
                                 role: "model",
                                 text: data.reply,
-                                grounding_sources: data.grounding_sources || [],
                                 duration: duration
                             });
                             renderChatMessages();
@@ -2046,29 +2388,20 @@ app.registerExtension({
                 if (!items) return;
 
                 let imageFound = false;
+                const pasteFiles = [];
                 for (let item of items) {
                     if (item.type.startsWith("image/")) {
                         const blob = item.getAsFile();
-                        if (blob) {
-                            imageFound = true;
-                            const reader = new FileReader();
-                            reader.onload = (ev) => {
-                                if (activeEngine === "uncensored") {
-                                    chatUploadedImages.push(ev.target.result);
-                                    if (chatStudioContainer.querySelector(".bada-thumbnails-grid")) {
-                                        chatStudioContainer.querySelector(".bada-thumbnails-grid").style.display = "grid";
-                                    }
-                                } else {
-                                    uploadedImages.push(ev.target.result);
-                                    renderThumbnails();
-                                }
-                                showToast(isKo ? "📸 클립보드 이미지 첨부 완료!" : "📸 Clipboard image attached!", "success", 2000);
-                            };
-                            reader.readAsDataURL(blob);
-                        }
+                        if (blob) { imageFound = true; pasteFiles.push(blob); }
                     }
                 }
-                if (imageFound) e.preventDefault();
+                if (imageFound) {
+                    e.preventDefault();
+                    // 붙여넣기도 첨부 경로와 동일한 축소/장수 제한을 탄다.
+                    handleFiles(pasteFiles).then(() => {
+                        showToast(isKo ? "📸 클립보드 이미지 첨부 완료!" : "📸 Clipboard image attached!", "success", 2000);
+                    });
+                }
             };
 
             // Dynamic live bilingual updater when BadaUtils.Language changes
@@ -2156,6 +2489,27 @@ app.registerExtension({
                 if (errCloseBtnEl) errCloseBtnEl.title = isKo ? "닫기" : "Close";
                 if (errorBellBtnEl) errorBellBtnEl.title = isKo ? "오류 알림 내역" : "Error Notifications";
 
+                // Gemini chat topbar (페르소나/프롬프트 드롭다운 · 프롬프트 관리 · 새 채팅)
+                const gemManageBtn = chatStudioContainer.querySelector(".bada-gem-prompt-manage");
+                if (gemManageBtn) {
+                    gemManageBtn.textContent = isKo ? "⚙️ 프롬프트 관리" : "⚙️ Manage Prompts";
+                    gemManageBtn.title = isKo
+                        ? "제미나이 탭 전용 시스템 프롬프트 작성 · 수정 · 삭제 · 순서 이동"
+                        : "Create / edit / delete / reorder Gemini-only system prompts";
+                }
+                const gemNewChatBtn = chatStudioContainer.querySelector(".bada-gem-new-chat");
+                if (gemNewChatBtn) gemNewChatBtn.innerHTML = isKo ? "✏️ 새 채팅" : "✏️ New Chat";
+                const gemTriggerLabel = chatStudioContainer.querySelector(".bada-gem-picker-label");
+                if (gemTriggerLabel) {
+                    const persona = GEM_PERSONAS_LIST.find(p => p.id === selectedGemPersona) || GEM_PERSONAS_LIST[0];
+                    const picked = selectedGemPromptId
+                        ? gemChatPrompts.find(p => String(p.id) === selectedGemPromptId)
+                        : null;
+                    gemTriggerLabel.textContent = picked
+                        ? `📜 ${picked.name || picked.id}`
+                        : (isKo ? persona.name : (persona.name_en || persona.name));
+                }
+
                 renderEngineNav();
                 renderEngineView();
                 app.graph?.setDirtyCanvas?.(true, true);
@@ -2213,11 +2567,20 @@ app.registerExtension({
                 const w = Math.max(400, node.size[0] - 20);
                 const h = Math.max(380, node.size[1] - 46);
 
-                root.style.width = w + "px";
-                root.style.maxWidth = w + "px";
-                root.style.height = h + "px";
-                root.style.maxHeight = h + "px";
-                root.style.overflow = "hidden";
+                // onDrawForeground 에서 매 프레임 호출되므로, 값이 실제로 바뀔 때만
+                // style 을 쓴다. (매 프레임 style 쓰기는 reflow 를 유발해 캔버스 조작이
+                //  "끌리는" 원인이었다 — 노드가 순간적으로 작아 보이는 진짜 이유.)
+                if (root.__badaW !== w) {
+                    root.__badaW = w;
+                    root.style.width = w + "px";
+                    root.style.maxWidth = w + "px";
+                }
+                if (root.__badaH !== h) {
+                    root.__badaH = h;
+                    root.style.height = h + "px";
+                    root.style.maxHeight = h + "px";
+                    root.style.overflow = "hidden";
+                }
 
                 root.classList.toggle("bada-compact-width", w < 380);
                 root.classList.toggle("bada-ultra-compact", w < 340);
@@ -2226,18 +2589,33 @@ app.registerExtension({
             const NODE_MIN_HEIGHT = 420;
             const NODE_MAX_HEIGHT = 1600;
 
-            // FIX: `node.size[1] - 46` alone starved the inner content area.
-            // `.bada-prompt-studio-container` needs 763px but only receives
-            // ~577px (root minus header/rows) -> its own vertical scrollbar and
-            // the squashed frame reported by the user. Grow the node until the
-            // content area fits.  Runs only on mount / configure / language
-            // switch — never inside `onDrawForeground`, because measuring there
-            // forces a reflow on every frame.
+            // setSize() 로 인한 내부 리사이즈와 사용자 드래그를 구분하기 위한 플래그.
+            let isInternalResize = false;
+            function setSizeInternal(w, h) {
+                isInternalResize = true;
+                try { node.setSize([w, h]); } finally { isInternalResize = false; }
+            }
+
+            // 사용자가 마우스로 직접 리사이즈한 높이 (0 = 아직 리사이즈 안 함)
+            // setSize()는 onResize()를 호출하지 않으므로 onResize에서만 기록됨.
+            // 이 높이는 절대 줄이지 않으며, 자동 조정은 grow만 수행한다.
+            const USER_HEIGHT_KEY = "bada_async_gemini_user_height";
+            let userPreferredHeight = 0;
+            let isUserResizing = false;
+            let resizeEndTimer = null;
+            try {
+                const saved = parseInt(localStorage.getItem(USER_HEIGHT_KEY) || "0", 10);
+                if (Number.isFinite(saved) && saved >= NODE_MIN_HEIGHT) userPreferredHeight = saved;
+            } catch (e) { /* localStorage 사용 불가 환경 */ }
+
             function fitToContent() {
                 if (!root || !node || !node.size) return;
                 syncContainerSize();
                 const area = root.querySelector(".bada-prompt-studio-container");
                 if (!area) return;
+
+                // 사용자가 직접 리사이즈 중이거나, 명시적으로 지정한 높이가 있으면 존중한다.
+                if (isUserResizing || userPreferredHeight > 0) return;
 
                 // The uncensored (제미나이) chat tab hides the prompt-studio container, so its
                 // measurements are 0 x 0 and any auto-resize would collapse the node down to the
@@ -2245,43 +2623,19 @@ app.registerExtension({
                 if (activeEngine === "uncensored") return;
 
                 // 1) Grow the node until the inner content fits.
+                //    Never shrinks — a taller frame is harmless (the panel scrolls), a
+                //    shorter one is not, so growing is the only safe auto-adjustment.
                 let overflow = area.scrollHeight - area.clientHeight;
                 let steps = 0;
                 while (overflow > 1 && steps < 5 && node.size[1] < NODE_MAX_HEIGHT) {
                     steps += 1;
-                    node.setSize([node.size[0],
-                                  Math.min(NODE_MAX_HEIGHT, node.size[1] + overflow + 8)]);
+                    setSizeInternal(node.size[0],
+                                    Math.min(NODE_MAX_HEIGHT, node.size[1] + overflow + 8));
                     syncContainerSize();
                     overflow = area.scrollHeight - area.clientHeight;
                 }
 
-                // 2) Shrink back while the content still fits, so a short output box produces a
-                //    short node frame (the user no longer drags a resize grip by hand).
-                let shrinkSteps = 0;
-                while (node.size[1] > NODE_MIN_HEIGHT && shrinkSteps < 30) {
-                    const before = node.size[1];
-                    const next = Math.max(NODE_MIN_HEIGHT, before - 40);
-                    if (next >= before) break;
-                    node.setSize([node.size[0], next]);
-                    syncContainerSize();
-                    if (area.scrollHeight - area.clientHeight > 0) {
-                        // that step clipped the content -> restore the last fitting height
-                        node.setSize([node.size[0], before]);
-                        syncContainerSize();
-                        break;
-                    }
-                    shrinkSteps += 1;
-                }
-                overflow = area.scrollHeight - area.clientHeight;
-
-                // debug probe (readable from the console / test harness)
-                window.__badaFit = {
-                    overflow, steps, shrinkSteps,
-                    size: node.size.slice(),
-                    area: [area.clientHeight, area.scrollHeight],
-                    runs: (window.__badaFit && window.__badaFit.runs || 0) + 1,
-                };
-                if ((steps || shrinkSteps) && appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
+                if (steps && appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
             }
 
             window.addEventListener("paste", onGlobalPaste);
@@ -2293,9 +2647,17 @@ app.registerExtension({
             node.onRemoved = function () {
                 window.removeEventListener("paste", onGlobalPaste);
                 document.removeEventListener("pointerdown", onAspectOutsidePointerDown);
+                window.removeEventListener("resize", onAspectViewportChange);
+                window.removeEventListener("scroll", onAspectViewportChange, true);
+                // The aspect menu can be re-parented to <body> while open; make sure it
+                // never survives the node that owns it.
+                if (aspectMenu && aspectMenu.parentNode === document.body) aspectMenu.remove();
+                chatPersonaCleanup?.();
                 window.removeEventListener("visibilitychange", onVisChange);
                 window.removeEventListener("focus", onVisChange);
                 if (timerInterval) clearInterval(timerInterval);
+                if (resizeEndTimer) clearTimeout(resizeEndTimer);
+                if (outputRefitTimer) clearTimeout(outputRefitTimer);
                 BadaI18n.unsubscribe(langSubscription);
                 onRemoved?.apply(this, arguments);
             };
@@ -2309,11 +2671,13 @@ app.registerExtension({
                 hideOnZoom: false,
             });
 
-            // Minimum size boundary (Regional Prompt 방식과 동일)
+            // Minimum size boundary (Regional Prompt 방식과 동일).
+            // 크기를 강제로 되돌리지 않는다 — 하한만 보장한다. (여기가 노드를 강제로
+            // 420x420으로 만들어 "창이 갑자기 줄어드는" 경험의 또 다른 원인이었다.)
             node.computeSize = function (out) {
                 out = out || [0, 0];
-                out[0] = 420;
-                out[1] = 420;
+                out[0] = Math.max(out[0] || 0, 420);
+                out[1] = Math.max(out[1] || 0, NODE_MIN_HEIGHT);
                 return out;
             };
 
@@ -2322,6 +2686,18 @@ app.registerExtension({
                 if (size[0] < 420) size[0] = 420;
                 if (size[1] < 420) size[1] = 420;
                 origResize?.apply(this, arguments);
+
+                // onResize 는 사용자가 마우스로 노드를 드래그할 때만 호출된다
+                // (setSize() 는 이 훅을 건드리지 않는다). 그래서 이 값을
+                // "사용자가 원하는 높이"로 간주해 자동 축소를 영구히 멈춘다.
+                if (!isInternalResize) {
+                    isUserResizing = true;
+                    if (resizeEndTimer) clearTimeout(resizeEndTimer);
+                    resizeEndTimer = setTimeout(() => { isUserResizing = false; }, 220);
+                    userPreferredHeight = this.size[1];
+                    try { localStorage.setItem(USER_HEIGHT_KEY, String(userPreferredHeight)); } catch (e) { /* private mode */ }
+                }
+
                 syncContainerSize();
                 // a width change re-wraps the text -> re-fit the output box afterwards
                 scheduleOutputRefit(120);
@@ -2333,6 +2709,11 @@ app.registerExtension({
                 hideAllBackendWidgets(this);
                 if (this.size && this.size[0] < 420) this.size[0] = 520;
                 if (this.size && this.size[1] < 420) this.size[1] = 780;
+                // 사용자가 직접 정한 높이가 있으면 워크플로우에 저장된 값보다 우선한다.
+                // (다른 노드가 실행되며 그래프가 리로드될 때 이 노드가 "확 줄어드는" 원인 제거)
+                if (userPreferredHeight > 0 && this.size && this.size[1] !== userPreferredHeight) {
+                    this.size[1] = userPreferredHeight;
+                }
                 setTimeout(() => {
                     hideAllBackendWidgets(this);
                     fitToContent();
@@ -2355,9 +2736,12 @@ app.registerExtension({
                 origDrawFg?.apply(this, arguments);
             };
 
-            // 초기 크기 설정
+            // 초기 크기 설정 — 사용자가 지정한 높이가 있으면 그 값을 최우선으로 복원한다.
+            const initialHeight = userPreferredHeight > 0 ? userPreferredHeight : 820;
             if (!node.size || node.size[0] < 420 || node.size[1] < 520) {
-                node.setSize([520, 820]);
+                setSizeInternal(520, initialHeight);
+            } else if (userPreferredHeight > 0 && node.size[1] !== userPreferredHeight) {
+                setSizeInternal(node.size[0], userPreferredHeight);
             }
             syncContainerSize();
             // first honest measurement once the panel is in the DOM

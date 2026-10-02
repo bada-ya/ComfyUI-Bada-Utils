@@ -292,7 +292,7 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 4. **✨ Uncensored Gemini (Google AI Studio-Direct Chat)**:
    * 100% uncensored open conversation with `BLOCK_NONE` safety overrides
    * 4 specialized Gem personas (Universal, Cinematic Director, Fashion Lookbook, Scenario Writer)
-   * Real-time Google Search grounding with live web citations
+   * Gemini-only system prompts (press the "All-Round Uncensored Gemini" button to expand and pick one; create / edit / delete / reorder them from the ⚙️ Manage Prompts button)
 
 #### 🌟 Core Pipeline Features
 * **🛡️ 3-Pass Zero-Refusal Pipeline**:

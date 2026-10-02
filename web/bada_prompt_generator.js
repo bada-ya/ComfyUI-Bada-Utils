@@ -537,6 +537,200 @@ function buildHeader(node, widgets) {
 // ---------------------------------------------------------------------------
 // Cascading combo (target -> submenu)
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Progressive image sockets
+// ---------------------------------------------------------------------------
+// The node declares image_1..image_6 but only ever *reveals* the sockets the
+// user can actually use right now:
+//
+//     0 connected  ->  image_1                       (one empty socket to fill)
+//     image_1      ->  image_1, image_2
+//     image_1..2   ->  image_1, image_2, image_3
+//     ...up to     ->  image_1 .. image_6
+//
+// Only ever-trailing, always-unwired sockets are removed, so every surviving
+// socket keeps its array index and every link keeps its target. That makes this
+// safe: hiding cannot orphan a connection, and a hidden socket can never be
+// clicked because it is not in the array at all.
+//
+// Loading a workflow makes LiteGraph rebuild node.inputs from the node definition,
+// which replaces every socket with a *new* object. Any socket stashed earlier is
+// then stale, so syncImageSlots() repairs by name (dedupe -> ensure -> restore ->
+// sort) rather than trusting object identity. The image_1..image_6 name space is
+// enforced as a hard ceiling, so a 7th row can never appear however many times this
+// runs. Sockets inside 1..6 that carry a link are never force-removed.
+const IMAGE_SLOT_RE = /^image_(\d+)$/;
+const TOTAL_IMAGE_SLOTS = 6;
+
+function imageSlotIndex(slot) {
+    const m = IMAGE_SLOT_RE.exec((slot && slot.name) || "");
+    return m ? parseInt(m[1], 10) - 1 : -1;
+}
+
+const isImageSlot = (s) => IMAGE_SLOT_RE.test((s && s.name) || "");
+
+/** Remove sockets that repeat a name, keeping the wired one. */
+function dedupeImageSlots(node) {
+    const byName = new Map();
+    const doomed = [];
+    for (const slot of node.inputs.slice()) {
+        if (!isImageSlot(slot)) continue;
+        const prev = byName.get(slot.name);
+        if (prev === undefined) { byName.set(slot.name, slot); continue; }
+        // A wired socket always beats an unwired one; otherwise the earlier wins.
+        if (prev.link == null && slot.link != null) {
+            byName.set(slot.name, slot);
+            doomed.push(prev);
+        } else {
+            doomed.push(slot);
+        }
+    }
+    doomed.forEach((slot) => {
+        const at = node.inputs.indexOf(slot);
+        if (at !== -1) node.inputs.splice(at, 1);
+    });
+    return doomed.length;
+}
+
+/**
+ * Put image_N back into ascending N order. The image block is rebuilt in place at the
+ * position the first image socket already occupied, so other inputs (clip, mask, ...)
+ * keep their relative order instead of being shuffled to the back.
+ */
+function sortImageSlots(node) {
+    const images = node.inputs.filter(isImageSlot);
+    if (images.length < 2) return false;
+    const sorted = images.slice().sort((a, b) => imageSlotIndex(a) - imageSlotIndex(b));
+    const anchor = node.inputs.indexOf(images[0]);
+    if (anchor === -1) return false;
+    let changed = false;
+    for (let i = 0; i < sorted.length; i++) {
+        if (node.inputs[anchor + i] === sorted[i]) continue;
+        const at = node.inputs.indexOf(sorted[i]);
+        if (at === -1) continue;
+        node.inputs.splice(at, 1);
+        node.inputs.splice(anchor + i, 0, sorted[i]);
+        changed = true;
+    }
+    return changed;
+}
+
+/** Guarantee image_1..image_6 all exist (LiteGraph rebuilds inputs on workflow load). */
+function ensureImageSlots(node) {
+    let added = false;
+    for (let i = 1; i <= TOTAL_IMAGE_SLOTS; i++) {
+        const name = `image_${i}`;
+        if (node.inputs.some((s) => s && s.name === name)) continue;
+        // Inherit the rendering flags from a sibling so it looks identical.
+        const sibling = node.inputs.find(isImageSlot);
+        const slot = { name, type: "IMAGE", link: null };
+        if (sibling) {
+            if (sibling.shape !== undefined) slot.shape = sibling.shape;
+            if (sibling.color_off !== undefined) slot.color_off = sibling.color_off;
+        }
+        node.inputs.push(slot);
+        added = true;
+    }
+    return added;
+}
+
+function syncImageSlots(node) {
+    if (!node || !Array.isArray(node.inputs)) return;
+    let changed = false;
+
+    // 0) Repair first. Loading a workflow makes LiteGraph rebuild node.inputs from the
+    //    node definition, so sockets we stashed earlier are stale objects that are no
+    //    longer part of this array -- blindly re-inserting them produced visible
+    //    duplicates (image_2, image_2, image_2 ...). So: de-duplicate by name, then
+    //    only restore a stashed socket when its name is genuinely missing.
+    changed = dedupeImageSlots(node) > 0 || changed;
+    changed = ensureImageSlots(node) || changed;
+
+    const present = new Set(node.inputs.filter(isImageSlot).map((s) => s.name));
+    const stash = node.__bpgHiddenImageSlots || (node.__bpgHiddenImageSlots = []);
+    for (let i = stash.length - 1; i >= 0; i--) {
+        const slot = stash[i];
+        if (!isImageSlot(slot) || present.has(slot.name)) { stash.splice(i, 1); continue; }
+        node.inputs.push(slot);
+        present.add(slot.name);
+    }
+
+    changed = sortImageSlots(node) || changed;
+
+    // 1) Enforce the name space: the node definition only ever declares image_1..image_6,
+    //    so a socket numbered above that cannot be legitimate and is dropped. (Sockets
+    //    inside 1..6 are never force-removed — dropping one would destroy a live link.)
+    //    This is what stops a 7th row from ever appearing.
+    const stray = node.inputs.filter((s) => isImageSlot(s) && imageSlotIndex(s) >= TOTAL_IMAGE_SLOTS);
+    stray.forEach((slot) => {
+        const at = node.inputs.indexOf(slot);
+        if (at === -1) return;
+        node.inputs.splice(at, 1);
+        stash.push(slot);
+        changed = true;
+    });
+
+    const slots = node.inputs.filter(isImageSlot);
+    if (!slots.length) return;
+
+    // 2) Reveal up to the last wired socket, plus one spare to wire next.
+    let lastWired = -1;
+    slots.forEach((s, i) => { if (s.link != null) lastWired = i; });
+    const visible = lastWired < 0 ? 1 : Math.min(slots.length, lastWired + 2);
+
+    // 3) Hide the tail. Everything past `lastWired` is unwired by construction, so this
+    //    can never drop a live connection.
+    for (let i = visible; i < slots.length; i++) {
+        const slot = slots[i];
+        if (slot.link != null) continue;
+        const at = node.inputs.indexOf(slot);
+        if (at === -1) continue;
+        node.inputs.splice(at, 1);
+        stash.push(slot);
+        changed = true;
+    }
+
+    if (changed) {
+        node.__bpgVisibleImageSlots = visible;
+        refitForSlots(node);
+    }
+}
+
+/**
+ * Re-fit the frame after sockets appear/disappear. Runs only on an actual socket
+ * count change (never on a timer or a draw), so it cannot fight a manual resize.
+ * Like the header calibrator it is a one-shot per change and floors at
+ * computeSize() so the node never clips its own content.
+ */
+function refitForSlots(node) {
+    setTimeout(() => {
+        if (!node || !node.size || !node.inputs) return;
+        const need = node.computeSize ? node.computeSize() : null;
+        if (!need) return;
+        const height = Math.max(need[1], Math.ceil(need[1]) + 40);
+        if (Math.abs(height - node.size[1]) > 2) {
+            node.setSize([node.size[0], height]);
+        }
+        node.__bpgSyncHeaderWidth?.();
+        node.setDirtyCanvas?.(true, true);
+    }, 0);
+}
+
+function hookImageSlots(node) {
+    if (!node || node.__bpgImageSlotsHooked) return;
+    node.__bpgImageSlotsHooked = true;
+
+    // Fires on every connect/disconnect. Chain to any previous handler so we never
+    // clobber another extension's hook.
+    const prev = node.onConnectionsChange;
+    node.onConnectionsChange = function () {
+        const r = syncImageSlots(this);
+        return prev ? prev.apply(this, arguments) : r;
+    };
+
+    syncImageSlots(node);
+}
+
 function widgetByName(node, name) {
     return (node.widgets || []).find((w) => w.name === name);
 }
@@ -749,6 +943,7 @@ function setupNode(node) {
     };
 
     syncSubmenuFor(node, true);
+    hookImageSlots(node);
     app.graph?.setDirtyCanvas?.(true, true);
 }
 
@@ -789,6 +984,10 @@ app.registerExtension({
             setTimeout(() => {
                 try {
                     syncSubmenuFor(this, true);
+                    // Workflow load rebuilds every socket as a brand-new object, so the
+                    // previous stash is stale. Drop it and re-derive from the live array.
+                    this.__bpgHiddenImageSlots = [];
+                    syncImageSlots(this);
                     this.__bpgSyncHeaderWidth?.();
                     const header = this.__bpgHeader;
                     if (header?.cards) Object.values(header.cards).forEach((c) => c.paint());
