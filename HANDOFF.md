@@ -1,6 +1,19 @@
-# Beta Handoff - 2026-10-03 (pre-production audit + fixes)
+# Beta Handoff — 2026-10-03 (v0.1-beta5: Async Studio panel + Prompt Generator UI)
 
-## How to verify a change (read this first)
+## Current state
+
+| | |
+| --- | --- |
+| Beta remote | `bada-ya/ComfyUI-Bada-Utils-Beta`, branch `main` |
+| Beta head | `3752032` — *fix(async): unclip the options row, drop toggle banners, auto-grow the composer* |
+| Production | `bada-ya/ComfyUI-Bada-Utils` — **untouched, still `da6910f`** |
+| Delta vs production | 20 commits, 54 files, +13,256 / −1,320 |
+| Browser-verified | yes, by the user, on the daily driver |
+
+Beta is **20 commits ahead of production** and is the only thing that has been touched this session.
+`origin` is read-only (`ls-remote`); the single write this session was `git push beta main`.
+
+## What you must do to see a change (read this first)
 
 ComfyUI loads the two halves of this extension at different times, so **what you must do to see a
 change depends on which files were touched**. Getting this wrong is silent — the UI keeps working
@@ -38,16 +51,95 @@ Also worth knowing:
 
 ## Why this batch exists
 
-A full read-through audit of the extension (~18.7k lines of Python/JS/CSS/JSON) was performed
-ahead of promoting the beta work to production. Verdict: **no blockers**, three warnings. This
-batch fixes those three warnings plus the two maintainability items (N1/N3).
+A UI polish + bug-fix pass over the two Gemini-facing nodes, driven by what the user saw on the
+daily driver. Every item below was a visible defect, not a refactor: three of them made the panel
+physically reshape itself on interaction.
 
-Audit result: **0 critical, 3 warnings, 4 informational**, and six areas confirmed clean —
-no `eval` / `new Function` / `subprocess` / `pickle` / `exec`; no SSL-verification bypass; no
-committed secrets; path-traversal defence consistent across every path-taking handler; thumbnail
-upload validated and re-encoded through PIL; thumbnail serving pinned to an image Content-Type;
-the Gemini API key is never returned in full; `translation_runtime.py` has a bounded worker pool
-and queue.
+## Changes (v0.1-beta5)
+
+### 1. Async Studio options row was clipped in both languages
+
+The NSFW / Korean-translation toggles rendered as `Allow NS…` and `한국어 변…`. Cause: each card
+held an `ON`/`OFF` chip worth ~45px + an 8px gap, inside a three-column row that only had 474px
+to work with (node 520px − 20 chrome − 24 padding). Chips removed (**+106px**), the toggle group
+now takes first claim on the width (`flex: 0 1 auto` → `1 1 auto`), and `.bada-options-row` gained
+`flex-wrap: wrap` so dragging the node narrower moves the aspect picker onto its own line instead
+of truncating. Measured after: **386px (ko) / 378px (en) against 474px**.
+
+The pressed state moved onto the card itself — `.bada-toggle-card.on`, amber for NSFW, green for
+translation — instead of a text chip, and keeps a 1px border in both states so toggling never
+reflows the row. Visible labels shortened (`성인용 콘텐츠 (NSFW)` / `Allow NSFW`); the full wording
+lives in `aria-label` and the tooltip. Toggles also gained `role="button"`, `tabindex="0"`,
+`aria-pressed`, a `:focus-visible` ring and Enter/Space activation.
+
+### 2. Toggle clicks popped a banner over the panel
+
+`showToast()` in the NSFW / Korean handlers fired on every click, in both languages, on **both
+enable and disable**. `.bada-toast` is a block child of the card's flex column, so it shoved the
+layout down rather than floating over it. Removed — the card's own border/background change is
+the feedback.
+
+Same fix for the Gemini persona menu: all six entries (4 Gem personas + the Gemini-only system
+prompts) funnelled through `applyGemPromptSelection()` and fired `📜 적용됨` on every pick. The
+trigger label already shows the selection, so nothing is lost. **Error** toasts (manager-open
+failures) are deliberately untouched — only the confirmation banners went.
+
+### 3. Chat composer was pinned to one line
+
+`rows = 1` plus a CSS `max-height: 80px` with no resize logic. Now 3 lines at rest, growing upward
+while typing to a 5-line cap, then scrolling the text upward inside the box; sending resets it to
+3. Implemented with the existing `autoFitOutputTextarea()` pattern (reset to `auto`, measure
+`scrollHeight`) so JS and CSS cannot disagree about the cap. `max-height` was removed from CSS
+because it fought the auto-grow; `line-height: 1.5` is now explicit so the 5-line maths is
+reliable. Enter still sends, Shift+Enter still newlines.
+
+### 4. Earlier in the same branch
+
+- **KREA2 / QWEN2.1** menu labels, `name_en` display support in `engines_registry.json`. The
+  registry `name` stays the **backend value**; only the presentation is localized.
+- Shared **aspect-ratio picker** injected into Gemini, plus panel-height re-measurement when the
+  language or node width changes — the 영상 길이 row was being clipped (hidden entirely in English,
+  which wraps one row more).
+- `LocalStorage 자동 저장` wording removed; system-prompt button moved right; stray control icons
+  dropped.
+- Async Studio output socket stripped in **both** `onNodeCreated` and `onConfigure` (LiteGraph
+  restores serialized `outputs` *after* construction, so `onNodeCreated` alone let a saved
+  workflow's `prompt` socket survive a refresh).
+- 🔔 bell relocated into the API-key label row; `.bada-toast` generation banners removed.
+
+## Tests
+
+| Suite | Result |
+| --- | --- |
+| `node dev_tests/bada_async_gemini_layout_test.js` | **78/78 PASS** (new file) |
+| `node dev_tests/bada_promptgen_ratio_test.js` | PASS (new file) |
+| `python dev_tests/bada_promptgen_registry_test.py` | PASS (new file) |
+| `node dev_tests/bada_folder_drag_test.js` | 103/103 PASS |
+| `python dev_tests/bada_folder_rename_test.py` | 53/53 PASS |
+| `node --check` on every file in `web/` | PASS |
+| `py_compile` on every Python file | PASS |
+| CSS brace balance (`bada_async_gemini.css`) | 211/211 |
+
+`bada_async_gemini_layout_test.js` pins the six banner removals, the output-socket strip in both
+hooks, the ON/OFF chip removal, the persona-menu toast removal and the composer's 3→5-line growth.
+Short **action** toasts (copy / attach / key check) are kept on purpose, so the no-banner assertion
+is scoped to generation wording rather than banning `showToast` outright.
+
+## Not verified
+
+- **No browser automation here** (no Playwright). Layout claims are backed by the width model in
+  the commit body plus the user's manual confirmation on the daily driver.
+- Node height after a **language switch** in the Async Studio was not re-checked visually; the
+  recalibration code is in place but unexercised.
+- `fitToContent()` only ever **grows** the node and `userPreferredHeight` is persisted to
+  localStorage, so a user who manually made the node very tall cannot get it back automatically.
+  The 5-line composer cap keeps this bounded, but the behaviour is deliberate — do not "fix" it
+  into an auto-shrink without reading this first.
+
+## Previous batch — v0.1-beta4 audit fixes (`d498f35` and earlier)
+
+Retained for context: the XSS fix and the two performance items below are already on Beta and
+are part of the delta against production. Nothing here was touched in v0.1-beta5.
 
 ## Changes
 
