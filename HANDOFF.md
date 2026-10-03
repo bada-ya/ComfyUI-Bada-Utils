@@ -57,8 +57,12 @@ New checks are verified by breaking the code deliberately: reverting `resolvedLa
 deleting the late-sync block → red, removing each of the five language mounts → red.
 `bada_manager_cache_test.js` → **77/77**, all files pass the ESM parse.
 
-Still unverified in a browser — the user asked us not to launch ComfyUI. The startup-language
-fix in particular is reasoned from the code, not measured.
+**VERIFIED IN THE BROWSER (2026-10-04).** The user confirmed on a live instance, after
+`Ctrl+F5`: the new category opens in the correct language on a fresh start (no Korean-then-
+back-to-English toggle needed), and switching English ↔ Korean relabels the three presets
+buttons and the Manager cache "지금 갱신 / Refresh now" button together with every native row.
+The legacy category is gone from the sidebar, as intended. So the two startup causes above are
+confirmed fixed in practice, not just on paper.
 
 ---
 
