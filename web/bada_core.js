@@ -4,6 +4,9 @@ import { BadaI18n } from "./bada_i18n.js";
 import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary, getGlobalPresetsStore } from "./presets_overview_modal.js";
 import { showToast } from "./presets_modal.js";
 import "./tooltip_fixer.js";
+// Legacy Manager node-name cache warm-up. Must be imported here so it registers
+// its own app extension; it self-gates on the active Manager UI.
+import { refreshLegacyManagerCache, getLastRefreshDate, getManagerUiMode } from "./bada_manager_cache.js";
 
 /**
  * ComfyUI-Bada-Utils · bada_core.js
@@ -79,6 +82,9 @@ const BADA_SETTINGS_TEXTS = {
         saveAsName: "💾 Save As Folder Picker (Choose & Create Folders)",
         saveAsDesc: "Adds folder selection and one-click folder creation to the native File ▸ Save As dialog, so workflows can be saved into any subfolder of the workflows root.",
 
+        legacyManagerCacheName: "🧩 Legacy Manager Node-Name Cache Refresh",
+        legacyManagerCacheDesc: "Rebuilds ComfyUI-Manager's node-name index so newly registered custom node names become searchable in the legacy Manager UI. Runs once a day at startup, or on demand with the button below.",
+
     },
     ko: {
         category: "Bada Utils",
@@ -128,6 +134,9 @@ const BADA_SETTINGS_TEXTS = {
         translationWhitelistDesc: "자동감지되지 않는 노드명을 쉼표(,)로 구분하여 입력하세요. 번역 버튼이 강제로 추가됩니다.",
         saveAsName: "💾 다른 이름으로 저장 폴더 선택기",
         saveAsDesc: "순정 '다른 이름으로 저장' 창에 폴더 선택과 새 폴더 생성을 추가하여, 워크플로우 루트 안의 원하는 하위 폴더에 바로 저장할 수 있게 합니다.",
+
+        legacyManagerCacheName: "🧩 구형 메니저 커스텀 노드명 캐시 갱신",
+        legacyManagerCacheDesc: "구형 메니저에서 새로 등록된 커스텀 노드명이 검색되도록 노드명 인덱스를 다시 만듭니다. 시작 시 하루 1회 자동 실행되며, 아래 버튼으로 언제든지 직접 갱신할 수 있습니다.",
 
     }
 };
@@ -227,6 +236,19 @@ const BADA_UNIFIED_SETTINGS = {
         name: "📁 Sidebar Workflows+ Folder Management",
         type: "boolean",
         sortOrder: 800,
+        defaultValue: true
+    },
+    // Legacy Manager cache warm-up. The default is true for BOTH manager UIs on
+    // purpose: bada_manager_cache.js gates on /v2/manager/is_legacy_manager_ui and
+    // hides this row entirely when the modern UI is active, so a shared default
+    // avoids clobbering a stored value on every boot and keeps the two modes
+    // independent — no forced overwrite is needed.
+    legacyManagerCache: {
+        id: "BadaUtils.LegacyManagerCacheRefresh",
+        category: ["Bada Utils", "ManagerCache"],
+        name: "🧩 Legacy Manager Node-Name Cache Refresh",
+        type: "boolean",
+        sortOrder: 820,
         defaultValue: true
     },
     saveAsFolderPicker: {
@@ -390,7 +412,23 @@ let isPresetsExpanded = true;
             justify-content: center !important;
         }
 
-        /* 1. Drastically reduce vertical gaps between Bada Utils setting groups */
+        /* 1. Reduce vertical gaps between Bada Utils setting groups.
+
+           All values below were measured with Playwright against the live dialog
+           (dev_tests/probe_dividers.cjs), not guessed:
+             - container class is setting-group (SINGULAR), confirmed via DOM walk
+             - Bada ships 15 separate wrappers, one per row
+             - .setting-item itself has no border, but ComfyUI drops a forced
+               "my-8 border-t border-border-default" rule INSIDE each wrapper, which is
+               why the vertical rhythm has to be tuned here at all
+
+           .setting-item:last-child never matched (the last row is nested inside the
+           panels column, not a sibling of the rest), which is why trailing space survived.
+           Use :last-of-type on the parent instead.
+
+           NOTE: never put a backtick inside this block. It lives inside a JS template
+           literal, and a stray backtick closes the string early, which throws a
+           SyntaxError and prevents the ENTIRE bada_core.js from loading. */
         .setting-group:has([data-setting-id^="BadaUtils"]) {
             margin-bottom: 0 !important;
         }
@@ -399,27 +437,60 @@ let isPresetsExpanded = true;
             margin-bottom: 8px !important;
             border-color: rgba(255, 255, 255, 0.08) !important;
         }
-        .setting-group:has([data-setting-id^="BadaUtils"]) h3 {
+        /* The Global-Presets block is ONE feature: the "글로벌 프리셋" toggle, its
+           "프리셋 뱃지 위치" dropdown and the presets panel all belong together, so no
+           rule should cut through them. ComfyUI forces a divider above EVERY row (a
+           my-8 border-t border-border-default div, confirmed as a DIRECT child of
+           .setting-group via dev_tests/probe_direct_children.cjs), which left the two
+           stray lines the user circled on both sides of the 프리셋 뱃지 위치 row.
+           Remove only the painted line and keep the 8px rhythm, so the block stays
+           continuous without collapsing the row spacing.
+           NOTE: no backticks allowed in this block (JS template literal). */
+        .setting-group:has([data-setting-id="BadaUtils.PresetBadgePosition"]) > .my-8,
+        .setting-group:has([data-setting-id="BadaUtils.GlobalPresetsPanel"]) > .my-8 {
+            border-top-color: transparent !important;
+        }
+        /* Sub-group headings such as "Language", "NoteHelper", "Sidebar" are internal
+           grouping labels that duplicate the row title right below them, so they were
+           always meant to be hidden. Distinguish the two kinds of h3 by class, measured
+           in the live dialog (dev_tests/probe_settings_dom.cjs):
+             - text-xs font-bold text-text-secondary uppercase -> the CATEGORY MENU
+               (General / Other / ...). Must stay visible.
+             - text-base                               -> per-subgroup label.
+               Hidden; a blanket h3 display:none would kill the menu too.
+           NOTE: no backticks allowed in this block (JS template literal). */
+        .setting-group:has([data-setting-id^="BadaUtils"]) > h3.text-base {
             display: none !important;
         }
         .setting-group:has([data-setting-id^="BadaUtils"]) .setting-item {
-            margin-bottom: 14px !important;
-            padding-bottom: 12px !important;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
-        }
-        .setting-group:has([data-setting-id^="BadaUtils"]) .setting-item:last-child {
+            margin-bottom: 8px !important;
+            padding-bottom: 0 !important;
             border-bottom: none !important;
+        }
+        /* The real tail of the list. :last-child fails here because the final item sits
+           in a different container than its siblings. */
+        .setting-group:has([data-setting-id^="BadaUtils"]) > .setting-item:last-of-type {
+            margin-bottom: 0 !important;
+            padding-bottom: 0 !important;
         }
         .setting-group:has([data-setting-id^="BadaUtils"]) .flex.min-h-8 {
             min-height: 34px !important;
-            align-items: flex-start !important;
+            align-items: center !important;
         }
         .setting-group:has([data-setting-id^="BadaUtils"]) .form-label {
+            /* REGRESSION FIX: this rule used to say align-items: center. The JS layer below
+               turns .form-label into a column flex container (title span + description),
+               and an !important "center" on the cross axis overrode the inline flex-start
+               and pushed BOTH the title and the description into the horizontal middle of
+               the row (measured live: spanLeft 367 / descLeft 228 inside a 822px label).
+               flex-start restores the original left alignment; text-align: left is a
+               belt-and-braces guard for the text itself. */
             align-items: flex-start !important;
-            margin-top: 2px !important;
+            text-align: left !important;
+            margin-top: 0 !important;
         }
         .setting-group:has([data-setting-id^="BadaUtils"]) .form-input {
-            margin-top: 2px !important;
+            margin-top: 0 !important;
         }
 
         /* 2. Full-width styling for Bada Global Presets panel */
@@ -466,13 +537,28 @@ let isPresetsExpanded = true;
             max-width: 100% !important;
             display: block !important;
         }
-        div[data-setting-id="BadaUtils.TranslationBlacklist"] {
+        /* The two translator lists moved INTO the NoteHelper panel, so their original rows
+           must disappear completely - row AND wrapper.
+
+           ComfyUI forces one divider per category: its SettingGroup component renders a
+           "my-8 border-t border-border-default" div as the FIRST child of every
+           .setting-group (confirmed in the frontend bundle settingStore-*.js and by
+           measurement: 14 rules for 15 groups). Hiding only the inner
+           [data-setting-id] div therefore left the wrapper alive with nothing but that
+           divider, stacking THREE rules back to back (measured top=185/194/203) between
+           the translator panel and the sidebar row - the empty band the user flagged.
+           Hiding the wrapper removes its divider too, so the run collapses 3 lines -> 1.
+
+           NOTE: no backticks allowed in this block (JS template literal). */
+        .setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]),
+        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) {
             display: none !important;
         }
+        div[data-setting-id="BadaUtils.TranslationBlacklist"],
         div[data-setting-id="BadaUtils.TranslationWhitelist"] {
             display: none !important;
         }
-        .bada-trans-row { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+        .bada-trans-row { display: flex; gap: 8px; align-items: center; }
         .bada-trans-row .bada-trans-input { flex: 1 1 auto; min-width: 0; }
         .bada-trans-row .bada-trans-input.dup {
             border-color: #ef4444 !important;
@@ -515,7 +601,7 @@ function buildInlinePresetsPanel() {
 
     const panel = document.createElement("div");
     panel.id = "bada-inline-presets-panel";
-    panel.style.cssText = "width: 100%; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box;";
+    panel.style.cssText = "width: 100%; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box;";
 
     // Header Controls Bar (Summary + Badges + Toggle Button)
     const headerBar = document.createElement("div");
@@ -546,7 +632,7 @@ function buildInlinePresetsPanel() {
     // Collapsible Body
     const body = document.createElement("div");
     body.id = "bada-inline-presets-body";
-    body.style.cssText = `display: ${isPresetsExpanded ? "flex" : "none"}; flex-direction: column; gap: 12px;`;
+    body.style.cssText = `display: ${isPresetsExpanded ? "flex" : "none"}; flex-direction: column; gap: 8px;`;
 
     // Presets Cards Grid (or Empty State)
     const cardsContainer = document.createElement("div");
@@ -563,8 +649,11 @@ function buildInlinePresetsPanel() {
             </div>
         `;
     } else {
+        // No max-height here: the panel is already collapsed/expanded by the header toggle,
+        // so capping the grid just leaves a band of dead space under the last row whenever
+        // the presets do not fill it. overflow-y:auto then never engages.
         const grid = document.createElement("div");
-        grid.style.cssText = "display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; max-height: 280px; overflow-y: auto; padding-right: 4px;";
+        grid.style.cssText = "display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; align-content: start;";
         summary.nodeSummaries.forEach(node => {
             const card = document.createElement("div");
             card.style.cssText = "background: rgba(25, 32, 54, 0.85); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0;";
@@ -588,7 +677,9 @@ function buildInlinePresetsPanel() {
 
     // Action Bar (Backup, Import, Full Popup)
     const actions = document.createElement("div");
-    actions.style.cssText = "display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px;";
+    // No border-top: the grid above already ends the content block, so the rule added a
+    // lone horizontal line floating between the cards and the buttons.
+    actions.style.cssText = "display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 2px;";
     actions.innerHTML = `
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
             <button type="button" id="bada-inline-export-btn" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
@@ -675,6 +766,153 @@ function buildInlinePresetsPanel() {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+//  Legacy Manager Cache — status line + manual refresh button
+// ──────────────────────────────────────────────────────────────────────────────
+// This is deliberately NOT a custom setting renderer (`type: () => ...`). Two separate
+// freeze bugs came from doing that:
+//
+//   1. Calling app.ui.settings.setSettingValue() while BUILDING a row re-triggers the
+//      settings rebuild, which rebuilds the row again -> the whole "Bada Utils" category
+//      vanished from the settings list.
+//   2. Subscribing to BadaI18n from inside the builder is fatal. notifyListeners() does
+//      `for (const listener of this.listeners)`, and JS for..of visits elements ADDED
+//      during iteration. Rebuilding the panel inside its own listener therefore re-queued
+//      itself forever and froze Chrome whenever the language was switched.
+//
+// So: the setting stays a plain boolean switch (native, stable), and this function mounts
+// one extra widget into the row's own DOM from applyBilingualSettingsUI(). No settings
+// writes at build time, no i18n subscription, and every DOM write is guarded by an
+// existence/content check so re-running it is a no-op.
+const MANAGER_CACHE_WIDGET_ID = "bada-manager-cache-widget";
+
+function mountManagerCacheWidget(row) {
+    if (!row) return;
+    const existing = row.querySelector("#" + MANAGER_CACHE_WIDGET_ID);
+    if (existing) {
+        // Already mounted — only refresh the volatile text, never rebuild.
+        paintManagerCacheWidget(existing);
+        return;
+    }
+
+    // Mount into the ROW, not into .form-input. .form-input is the narrow right-hand
+    // column sized for a toggle, so anything placed there is squeezed into ~11rem and
+    // wraps into three ragged lines. The row itself spans the full dialog width, which
+    // puts this on its own row below the title/description and lines up with them.
+    const wrap = document.createElement("div");
+    wrap.id = MANAGER_CACHE_WIDGET_ID;
+    wrap.style.cssText = "display: flex; align-items: center; justify-content: space-between;"
+        + " flex-wrap: wrap; gap: 10px; width: 100%; box-sizing: border-box;"
+        + " margin-top: 6px; padding: 8px 10px; border-radius: 6px;"
+        + " background: rgba(148, 163, 184, 0.06);";
+
+    // Single text column: timestamp on top, Manager-mode note underneath. flex:1 +
+    // min-width:0 lets the long Korean note wrap inside the row instead of forcing
+    // the button onto a second line.
+    const left = document.createElement("div");
+    left.style.cssText = "display: flex; flex-direction: column; gap: 3px; flex: 1 1 260px; min-width: 0;";
+
+    const stampEl = document.createElement("span");
+    stampEl.style.cssText = "font-size: 11.5px; color: #cbd5e1; line-height: 1.4;"
+        + " font-variant-numeric: tabular-nums; white-space: nowrap;";
+    left.appendChild(stampEl);
+
+    const modeEl = document.createElement("span");
+    modeEl.style.cssText = "font-size: 10.5px; color: #94a3b8; line-height: 1.45;";
+    left.appendChild(modeEl);
+
+    const BTN_IDLE = "background: rgba(59,130,246,0.16); border: 1px solid rgba(59,130,246,0.45); color: #93c5fd;";
+    const BTN_BASE = " padding: 5px 13px; border-radius: 6px; font-size: 11px; font-weight: 700;"
+        + " cursor: pointer; white-space: nowrap; flex: 0 0 auto; transition: background 0.15s;";
+
+    const refreshBtn = document.createElement("button");
+    refreshBtn.type = "button";
+    refreshBtn.style.cssText = BTN_IDLE + BTN_BASE;
+    refreshBtn.onmouseenter = () => { if (!refreshBtn.disabled) refreshBtn.style.background = "rgba(59,130,246,0.28)"; };
+    refreshBtn.onmouseleave = () => { if (!refreshBtn.disabled) refreshBtn.style.background = "rgba(59,130,246,0.16)"; };
+
+    const idleText = () => (BadaI18n.lang === "ko" ? "🔄 지금 갱신" : "🔄 Refresh now");
+    refreshBtn.textContent = idleText();
+
+    wrap.append(left, refreshBtn);
+
+    // .form-input sits above us in the row's flex order; insert right after it so the
+    // status strip reads directly beneath the toggle column it belongs to.
+    const formInput = row.querySelector(".form-input");
+    if (formInput && formInput.parentNode === row) {
+        row.insertBefore(wrap, formInput.nextSibling);
+    } else {
+        row.appendChild(wrap);
+    }
+    // Let the status strip span the full row width even though the row is a flex line.
+    wrap.style.flexBasis = "100%";
+    paintManagerCacheWidget(wrap);
+
+    // The only user-triggered write path. Nothing below runs during a settings rebuild.
+    // force = skip today's guard; requireLegacy = false so the button also works on the
+    // modern UI, where only extension-node-map.json is reachable (getlist is legacy-only).
+    refreshBtn.onclick = async () => {
+        if (refreshBtn.disabled) return;
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = BadaI18n.lang === "ko" ? "⏳ 갱신 중…" : "⏳ Refreshing…";
+        refreshBtn.style.background = "rgba(100,116,139,0.25)";
+        refreshBtn.style.color = "#cbd5e1";
+        refreshBtn.style.borderColor = "rgba(148,163,184,0.45)";
+        let ok = false;
+        try {
+            const res = await refreshLegacyManagerCache({ force: true, requireLegacy: false });
+            ok = !!res?.ok;
+        } catch (err) {
+            console.warn("[Bada ManagerCache] manual refresh failed:", err);
+            ok = false;
+        }
+        paintManagerCacheWidget(wrap);
+        refreshBtn.textContent = ok
+            ? (BadaI18n.lang === "ko" ? "✓ 완료" : "✓ Done")
+            : (BadaI18n.lang === "ko" ? "⚠ 실패" : "⚠ Failed");
+        refreshBtn.style.background = ok ? "rgba(16,185,129,0.22)" : "rgba(239,68,68,0.18)";
+        refreshBtn.style.color = ok ? "#6ee7b7" : "#fca5a5";
+        refreshBtn.style.borderColor = ok ? "rgba(16,185,129,0.55)" : "rgba(239,68,68,0.5)";
+        setTimeout(() => {
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = idleText();
+            refreshBtn.style.cssText = BTN_IDLE + BTN_BASE;
+        }, 2000);
+    };
+}
+
+/** Update only the volatile text inside an already-mounted widget. */
+function paintManagerCacheWidget(wrap) {
+    const spans = wrap.querySelectorAll("span");
+    const stampEl = spans[0];
+    const modeEl = spans[1];
+    const isKo = BadaI18n.lang === "ko";
+
+    const last = getLastRefreshDate?.();
+    let stampText;
+    if (!last) {
+        stampText = isKo ? "마지막 갱신: 기록 없음" : "Last refreshed: never";
+    } else {
+        const pad = (n) => String(n).padStart(2, "0");
+        const when = `${last.getFullYear()}-${pad(last.getMonth() + 1)}-${pad(last.getDate())} `
+            + `${pad(last.getHours())}:${pad(last.getMinutes())}:${pad(last.getSeconds())}`;
+        stampText = (isKo ? "마지막 갱신: " : "Last refreshed: ") + when;
+    }
+    if (stampEl && stampEl.textContent !== stampText) stampEl.textContent = stampText;
+
+    if (modeEl) {
+        // Only the legacy Manager needs the boot-time refresh; say which mode is running
+        // so the switch never looks broken on the modern UI. Kept to one short line —
+        // the full explanation already lives in the row description above.
+        getManagerUiMode?.().then((legacy) => {
+            const text = legacy
+                ? (isKo ? "구형 메니저 · 스위치는 시작 시 자동 갱신" : "Legacy Manager · switch runs the startup refresh")
+                : (isKo ? "신형 메니저 · 자동 갱신 없이 버튼으로만 실행" : "Modern Manager · button-only, no automatic refresh");
+            if (modeEl.textContent !== text) modeEl.textContent = text;
+        }).catch(() => {});
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 //  Build Rich Full-Width Note Helper & Translator Panel
 // ──────────────────────────────────────────────────────────────────────────────
 function buildNoteHelperPanel() {
@@ -728,8 +966,11 @@ function buildNoteHelperPanel() {
     panel.style.cssText = "width: 100%; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 4px 0;";
 
     // Header (Title + Toggle Switch)
+    // justify-content: flex-start (not space-between): the toggle belongs to this panel,
+    // not to the far edge of the settings dialog. Spacing them apart pushed the switch
+    // ~1200px away from its own title and cost a whole visual line.
     const headerRow = document.createElement("div");
-    headerRow.style.cssText = "display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 12px;";
+    headerRow.style.cssText = "display: flex; align-items: center; justify-content: flex-start; width: 100%; gap: 10px;";
 
     const titleEl = document.createElement("div");
     titleEl.style.cssText = "font-size: 13px; font-weight: 600; color: #f8fafc; display: flex; align-items: center; gap: 6px;";
@@ -815,7 +1056,9 @@ function buildNoteHelperPanel() {
         label.textContent = text;
         label.style.cssText = [
             "display: flex; align-items: center; justify-content: center;",
-            "flex: 0 0 96px; min-height: 34px; box-sizing: border-box;",
+            // Narrower than the old 96px so BOTH label+input+apply groups fit on one line.
+            // The input carries flex:1 + min-width:0, so it absorbs whatever is left over.
+            "flex: 0 0 84px; min-height: 34px; box-sizing: border-box;",
             "border: 1px solid currentColor; border-radius: 6px;",
             "font-size: 12px; font-weight: 700; white-space: nowrap;",
             `color: ${color}; background: ${background};`
@@ -882,7 +1125,7 @@ function buildNoteHelperPanel() {
 
     const transHintEl = document.createElement("div");
     transHintEl.className = "bada-trans-hint";
-    transHintEl.style.cssText = "font-size: 11px; line-height: 1.5; margin-top: 4px; color: #94a3b8;";
+    transHintEl.style.cssText = "font-size: 11px; line-height: 1.4; margin-top: 3px; color: #94a3b8;";
 
     const setInputMark = (input, state) => {
         input.classList.remove("dup", "conflict");
@@ -980,24 +1223,31 @@ function buildNoteHelperPanel() {
         }
     });
 
+    // Both lists share ONE row. They were stacked as two full-width rows, which made this
+    // panel three visual lines (header + exclude + force-add). flex-wrap keeps them usable
+    // on a narrow dialog instead of forcing a second line via a fixed min-width.
     const blRow = document.createElement("div");
     blRow.className = "bada-trans-row";
-    blRow.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 4px;";
-    blRow.appendChild(blLabel);
-    blRow.appendChild(blInputEl);
-    blRow.appendChild(applyBtn);
+    blRow.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 2px; flex-wrap: wrap;";
 
-    const wlRow = document.createElement("div");
-    wlRow.className = "bada-trans-row";
-    wlRow.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 6px;";
-    wlRow.appendChild(wlLabel);
-    wlRow.appendChild(wlInputEl);
-    wlRow.appendChild(applyBtn2);
+    const blGroup = document.createElement("div");
+    blGroup.style.cssText = "display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0;";
+    blGroup.appendChild(blLabel);
+    blGroup.appendChild(blInputEl);
+    blGroup.appendChild(applyBtn);
+
+    const wlGroup = document.createElement("div");
+    wlGroup.style.cssText = "display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0;";
+    wlGroup.appendChild(wlLabel);
+    wlGroup.appendChild(wlInputEl);
+    wlGroup.appendChild(applyBtn2);
+
+    blRow.appendChild(blGroup);
+    blRow.appendChild(wlGroup);
 
     panel.appendChild(headerRow);
     panel.appendChild(descEl);
     panel.appendChild(blRow);
-    panel.appendChild(wlRow);
     panel.appendChild(transHintEl);
 
     refreshTransHint();
@@ -1012,6 +1262,10 @@ let isApplyingBilingualUI = false;
 function applyBilingualSettingsUI(targetLang) {
     if (isApplyingBilingualUI) return;
     isApplyingBilingualUI = true;
+    // Mirror the flag onto window so the settings-dialog MutationObserver can ignore the
+    // DOM writes we make below. Without this, our own mutations re-trigger the observer,
+    // which calls this function again in a loop and freezes the settings tab.
+    window.__BADA_APPLYING_UI__ = true;
     try {
         const lang = targetLang || BadaI18n.lang || "en";
         const isKo = lang === "ko";
@@ -1022,7 +1276,18 @@ function applyBilingualSettingsUI(targetLang) {
         const settingRows = document.querySelectorAll('[data-setting-id^="BadaUtils"], [data-setting-id^="⚓ Bada"]');
         settingRows.forEach(row => {
             const id = row.getAttribute("data-setting-id");
+            // The Manager cache row is a plain boolean switch again, so it needs its bilingual
+            // title/description like every other Bada row. mountManagerCacheWidget() is
+            // invoked right after that, and it is idempotent, so this stays loop-safe.
             if (id === BADA_UNIFIED_SETTINGS.presetsPanel.id) return;
+            // Idempotence guard: the settings-dialog MutationObserver treats any added
+            // node inside a BadaUtils row as a trigger to call this function again. If we
+            // ever re-append the description node unconditionally, that re-entry becomes an
+            // endless append -> observe -> append loop and the tab freezes. Both writes
+            // below are therefore content-guarded (desc is only created when absent, and
+            // only rewritten when the text actually changes), so a second pass is a no-op.
+            if (row.__badaDescApplied === `${targetLang || lang}|${isKo}`) return;
+            row.__badaDescApplied = `${targetLang || lang}|${isKo}`;
 
             const formLabel = row.querySelector(".form-label, label");
             if (!formLabel) return;
@@ -1069,6 +1334,9 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (BADA_UNIFIED_SETTINGS.terminalHub && id === BADA_UNIFIED_SETTINGS.terminalHub.id) {
                 targetTitle = texts.terminalHubTitle;
                 targetDesc = texts.terminalHubDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.legacyManagerCache.id) {
+                targetTitle = texts.legacyManagerCacheName;
+                targetDesc = texts.legacyManagerCacheDesc;
             } else if (id === BADA_UNIFIED_SETTINGS.missingDetective.id) {
                 targetTitle = texts.detectiveName;
                 targetDesc = texts.detectiveDesc;
@@ -1111,6 +1379,17 @@ function applyBilingualSettingsUI(targetLang) {
                 descEl.__badaDesc = targetDesc;
                 descEl.innerHTML = targetDesc;
             }
+
+            // Attach the last-refresh timestamp + "Refresh now" button under the switch.
+            // Placed AFTER the description writes so it must not be skipped by the
+            // idempotence guard above, and it is itself idempotent (mountManagerCacheWidget
+            // returns immediately when #bada-manager-cache-widget is already present), so
+            // the dialog's MutationObserver cannot drive it into an append loop.
+            if (id === BADA_UNIFIED_SETTINGS.legacyManagerCache.id) {
+                try {
+                    mountManagerCacheWidget(row);
+                } catch (_) { console.debug("[Bada ManagerCache] widget mount skipped:", _); }
+            }
         });
 
         // 3. Clean left sidebar nav item: Distinctive Anchor ⚓ icon (replaces generic plug 🔌)
@@ -1138,6 +1417,7 @@ function applyBilingualSettingsUI(targetLang) {
         console.warn("[ComfyUI-Bada-Utils] Safe bilingual UI updater handled exception:", e);
     } finally {
         isApplyingBilingualUI = false;
+        window.__BADA_APPLYING_UI__ = false;
     }
 }
 window.__badaApplySettingsUI = applyBilingualSettingsUI;
@@ -1400,6 +1680,23 @@ app.registerExtension({
             defaultValue: BADA_UNIFIED_SETTINGS.translationWhitelist.defaultValue
         });
 
+        // ⑦-d Legacy Manager Node-Name Cache Refresh
+        // A plain boolean switch on purpose. It used to be a custom renderer
+        // (`type: () => buildManagerCachePanel()`), which caused two separate freezes:
+        // building the row wrote a setting value (re-triggering the row rebuild), and the
+        // builder subscribed to BadaI18n — notifyListeners() iterates a Set with for..of,
+        // which visits listeners ADDED mid-iteration, so the rebuilt panel re-queued itself
+        // forever and hung the browser on every language switch. The switch alone is safe;
+        // the timestamp + "Refresh now" button are mounted separately by
+        // mountManagerCacheWidget(), which never writes settings and never subscribes.
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.legacyManagerCache.id,
+            category: [texts.category, "ManagerCache"],
+            name: texts.legacyManagerCacheName,
+            type: BADA_UNIFIED_SETTINGS.legacyManagerCache.type,
+            defaultValue: BADA_UNIFIED_SETTINGS.legacyManagerCache.defaultValue
+        });
+
 
 
         // ⑧ Missing Node Detective (Real Name & GitHub Finder)
@@ -1497,7 +1794,11 @@ app.registerExtension({
 
                 let scheduled = false;
                 const observer = new MutationObserver((mutations) => {
-                    // Detect Bada setting rows or settings sidebar nav items
+                    // Detect Bada setting rows or settings sidebar nav items.
+                    // Ignore mutations we caused ourselves: applyBilingualSettingsUI() writes
+                    // into these rows, so without this check the observer re-triggers itself
+                    // forever and the settings tab locks the renderer up.
+                    if (window.__BADA_APPLYING_UI__) return;
                     let hasBadaChange = false;
                     for (const m of mutations) {
                         for (const node of m.addedNodes) {

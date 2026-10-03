@@ -11,4 +11,16 @@ config.json
 favorites_data.json
 *.bak
 dev_tests/_shots/
+dev_tests/_dividers_shot.png
+dev_tests/_badge_zone.png
+dev_tests/_*.txt
 
+
+# Playwright verification harness
+node_modules/
+package-lock.json
+_verify_settings.png
+_verify.log
+
+_verify.log.err
+*.log.err
