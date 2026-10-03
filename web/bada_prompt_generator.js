@@ -20,22 +20,22 @@ const KEY_LS = "bada_gemini_api_key";
 const MODEL_LS = "bada_gemini_model";
 
 const FALLBACK_MODELS = [
-    { id: "gemini-3.5-flash-lite", name: "🚀 Gemini 3.5 Flash-Lite (권장 ⭐)", name_en: "🚀 Gemini 3.5 Flash-Lite (Recommended ⭐)" },
-    { id: "gemini-3.6-flash", name: "⚡ Gemini 3.6 Flash", name_en: "⚡ Gemini 3.6 Flash" },
-    { id: "gemini-3.8-flash", name: "🌟 Gemini 3.8 Flash", name_en: "🌟 Gemini 3.8 Flash" },
+    { id: "gemini-3.5-flash-lite", name: "Gemini 3.5 Flash-Lite (권장 ⭐)", name_en: "Gemini 3.5 Flash-Lite (Recommended ⭐)" },
+    { id: "gemini-3.6-flash", name: "Gemini 3.6 Flash", name_en: "Gemini 3.6 Flash" },
+    { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", name_en: "Gemini 3.8 Flash" },
 ];
 
 const I18N = {
     ko: {
-        enhance: "🔥 증강",
-        uncensored: "🔓 무검열",
+        enhance: "증강",
+        uncensored: "무검열",
         target: "모델",
         submenu: "서브메뉴",
         request_text: "요청사항 입력란",
         requestPlaceholder: "요청사항을 입력하세요 (이미지만으로도 생성 가능)",
         duration: "영상 길이 (초)",
         durationTip: "영상 모델(MINIMAX H3 / LTX2.5)의 초 단위 길이입니다.",
-        apiHeader: "🔑 API Key & 우선순위 모델 선택",
+        apiHeader: "API Key & 우선순위 모델 선택",
         keyPlaceholder: "Gemini API 키 입력",
         showKey: "API 키 표시",
         hideKey: "API 키 숨기기",
@@ -43,8 +43,7 @@ const I18N = {
         getKey: "발급",
         checkKey: "연결확인",
         testing: "확인중...",
-        lsNotice: "LocalStorage 자동 저장",
-        manage: "⚙️ 시스템 프롬프트 관리",
+        manage: "⚙️ 시스템 프롬프트",
         keyRequired: "Gemini API 키를 먼저 입력해 주세요.",
         keyOk: "✅ API 연결 정상",
         keyFail: "❌ API 연결 실패",
@@ -56,18 +55,22 @@ const I18N = {
         targetTip: "프롬프트를 최적화할 대상 모델을 선택하세요.",
         submenuTip: "선택한 모델에서 사용할 기능(서브모드)을 선택하세요.",
         noPrompts: "(등록된 프롬프트 없음)",
+        aspectRatio: "화면 비율",
+        aspectRatioAuto: "자동",
+        aspectRatioTip: "선택한 화면비가 모든 메뉴(KREA2 / QWEN2.1 / MINIMAX H3 / LTX2.5 / 시스템 프롬프트)에 공통 적용되어 Gemini가 분석에 활용합니다.",
+        aspectRatioBroken: "⚠️ 화면비 값이 전달되지 않습니다. ComfyUI를 재시작해 주세요.",
         general: "일반",
     },
     en: {
-        enhance: "🔥 Enhance",
-        uncensored: "🔓 Uncensored",
+        enhance: "Enhance",
+        uncensored: "Uncensored",
         target: "Target Model",
         submenu: "Submenu",
         request_text: "Request / Instruction",
         requestPlaceholder: "Enter a request (or connect images only)",
         duration: "Duration (sec)",
         durationTip: "Duration in seconds for video models (MINIMAX H3 / LTX2.5).",
-        apiHeader: "🔑 API Key & Priority Model",
+        apiHeader: "API Key & Priority Model",
         keyPlaceholder: "Enter Gemini API key",
         showKey: "Show API key",
         hideKey: "Hide API key",
@@ -75,8 +78,7 @@ const I18N = {
         getKey: "Get Key",
         checkKey: "Check",
         testing: "Testing...",
-        lsNotice: "Auto-saved to LocalStorage",
-        manage: "⚙️ System Prompt Manager",
+        manage: "⚙️ System Prompt",
         keyRequired: "Please enter your Gemini API key first.",
         keyOk: "✅ API connected",
         keyFail: "❌ API connection failed",
@@ -88,6 +90,10 @@ const I18N = {
         targetTip: "Choose the downstream model to optimize the prompt for.",
         submenuTip: "Choose the capability of the selected model.",
         noPrompts: "(No prompts registered)",
+        aspectRatio: "Aspect Ratio",
+        aspectRatioAuto: "Auto",
+        aspectRatioTip: "The selected aspect ratio applies to every tab (KREA2 / QWEN2.1 / MINIMAX H3 / LTX2.5 / System Prompt) and is given to Gemini for analysis.",
+        aspectRatioBroken: "⚠️ The aspect ratio is not reaching Gemini. Please restart ComfyUI.",
         general: "General",
     },
 };
@@ -114,17 +120,25 @@ async function fetchRegistry(force = false) {
     return REGISTRY;
 }
 
+function localizedLabel(entry, fallback) {
+    // `name` is the widget VALUE and the key the backend matches on; `name_en` is display
+    // only. Keeping them separate is what lets the header follow the Bada UI-language
+    // setting without changing what gets queued.
+    if (BadaI18n.lang === "en" && entry?.name_en) return entry.name_en;
+    return entry?.name || fallback;
+}
+
 function submenuNamesFor(registry, targetName) {
     if (!registry) return null;
     const targets = registry.targets || [];
     const target = targets.find((x) => x.name === targetName) || targets.find((x) => x.id === targetName);
     if (!target) return null;
     if (target.dynamic === "user_prompts") {
-        const names = (registry.user_prompts || []).map((p) => p.name).filter(Boolean);
-        return names.length ? names : [t("noPrompts")];
+        const entries = (registry.user_prompts || []).filter((p) => p.name);
+        return entries.length ? entries : [{ name: t("noPrompts") }];
     }
-    const names = (target.submenus || []).map((s) => s.name).filter(Boolean);
-    return names.length ? names : [t("general")];
+    const entries = (target.submenus || []).filter((s) => s.name);
+    return entries.length ? entries : [{ name: t("general") }];
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +277,12 @@ async function verifyKey(key) {
 // LiteGraph layout engine can never enter a size feedback loop)
 // ---------------------------------------------------------------------------
 const HEADER_WIDTH = 380;
-const HEADER_HEIGHT = 138;
+// Initial estimate only — `calibrateHeight()` measures the real rendered height and
+// corrects it (up *and* down) within two frames. Sized above the tallest realistic layout
+// (≈250px with both picker groups) so the very first paint cannot overlap the native
+// widget rows underneath; if calibration were ever to fail, the failure mode is a harmless
+// gap rather than a hidden row.
+const HEADER_HEIGHT = 262;
 const NODE_WIDTH_INSET = 20;
 
 function el(tag, cls, text) {
@@ -346,8 +365,6 @@ function buildHeader(node, widgets) {
     // -- priority model row --------------------------------------------------
     const row2 = el("div", "bpg-row");
     const modelSel = el("select", "bpg-select");
-    const notice = el("span", "bpg-notice", t("lsNotice"));
-    notice.dataset.i18n = "lsNotice";
 
     function fillModels() {
         const current = readModel() || (REGISTRY && REGISTRY.gemini_model) || FALLBACK_MODELS[0].id;
@@ -368,7 +385,34 @@ function buildHeader(node, widgets) {
         pushToServer(undefined, model);
         showToast(`${t("saved")} · ${model}`, "ok", 1800);
     });
-    row2.append(modelSel, notice);
+    row2.appendChild(modelSel);
+
+    // 시스템 프롬프트 관리 sits next to the model select (where the old
+    // "LocalStorage 자동 저장" notice was) so the toggle row below only has to
+    // fit three controls instead of four on a narrow node.
+    const manageBtn = el("button", "bpg-btn bpg-btn--manage", t("manage"));
+    manageBtn.type = "button";
+    manageBtn.dataset.i18n = "manage";
+    manageBtn.title = t("manageTip");
+    manageBtn.addEventListener("click", async () => {
+        manageBtn.disabled = true;
+        try {
+            const mod = await import("./bada_promptgen_modal.js");
+            await mod.openPromptGenModal({
+                registry: REGISTRY,
+                onSaved: async () => {
+                    await fetchRegistry(true);
+                    refreshAllNodes();
+                },
+            });
+        } catch (err) {
+            console.error("[BadaPromptGen] modal load failed:", err);
+            showToast(t("manageLoadFail"), "err", 5000);
+        } finally {
+            manageBtn.disabled = false;
+        }
+    });
+    row2.appendChild(manageBtn);
     root.appendChild(row2);
 
     // -- toggle + manage row -------------------------------------------------
@@ -402,29 +446,70 @@ function buildHeader(node, widgets) {
     row3.appendChild(makeCard("enhance", "enhance", "enhanceTip"));
     row3.appendChild(makeCard("uncensored", "uncensored", "uncensoredTip"));
 
-    const manageBtn = el("button", "bpg-btn bpg-btn--manage", t("manage"));
-    manageBtn.type = "button";
-    manageBtn.dataset.i18n = "manage";
-    manageBtn.title = t("manageTip");
-    manageBtn.addEventListener("click", async () => {
-        manageBtn.disabled = true;
-        try {
-            const mod = await import("./bada_promptgen_modal.js");
-            await mod.openPromptGenModal({
-                registry: REGISTRY,
-                onSaved: async () => {
-                    await fetchRegistry(true);
-                    refreshAllNodes();
-                },
-            });
-        } catch (err) {
-            console.error("[BadaPromptGen] modal load failed:", err);
-            showToast(t("manageLoadFail"), "err", 5000);
-        } finally {
-            manageBtn.disabled = false;
+    // -- aspect ratio picker (sits to the right of 무검열) --------------------
+    // Mirrors the native `aspect_ratio` combo widget so the hidden widget and this
+    // control can never drift. Empty value = "let the AI decide".
+    const ratioWidget = widgets.aspect_ratio;
+    if (!ratioWidget) {
+        // The node exposes `aspect_ratio` in INPUT_TYPES. If that widget is missing the
+        // running ComfyUI has the OLD node module loaded and never restart-picked it up,
+        // so the picker below would look functional while sending nothing. Fail loudly
+        // instead of silently dropping the user's choice.
+        console.warn(
+            "[BadaPromptGen] `aspect_ratio` widget not found — ComfyUI is running the old "
+            + "node module. Restart ComfyUI, otherwise the 화면 비율 선택 value is discarded.",
+        );
+    }
+    const ASPECT_RATIOS = [
+        "1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "9:21", "21:9",
+    ];
+    const ratioBox = el("div", "bpg-card bpg-card--ratio");
+    const ratioLabel = el("span", "bpg-card-label", t("aspectRatio"));
+    ratioLabel.dataset.i18n = "aspectRatio";
+    const ratioSel = el("select", "bpg-ratio-select");
+    for (const value of ASPECT_RATIOS) {
+        const opt = el("option", null, value);
+        opt.value = value;
+        ratioSel.appendChild(opt);
+    }
+    const AUTO_RATIO = "";
+    const autoOpt = el("option", null, t("aspectRatioAuto"));
+    autoOpt.value = AUTO_RATIO;
+    ratioSel.insertBefore(autoOpt, ratioSel.firstChild);
+    ratioBox.append(ratioLabel, ratioSel);
+
+    function syncRatio() {
+        const current = ratioWidget ? String(ratioWidget.value ?? AUTO_RATIO) : AUTO_RATIO;
+        ratioSel.value = [...ratioSel.options].some((o) => o.value === current) ? current : AUTO_RATIO;
+        ratioBox.title = t("aspectRatioTip");
+        // The auto option is not [data-i18n], so relabel it explicitly on a language switch.
+        autoOpt.textContent = t("aspectRatioAuto");
+        const chosen = ratioSel.value;
+        ratioBox.classList.toggle("bpg-card--on", !!chosen);
+        // Label stays "화면 비율" whatever is picked: the <select> beside it already
+        // shows the value, and appending it here overflowed the card.
+        ratioBox.dataset.ratio = chosen;
+    }
+
+    ratioSel.addEventListener("change", () => {
+        if (!ratioWidget) {
+            // Surface it on screen too; a console warning alone is easy to miss and the
+            // control would otherwise look like it had taken the value.
+            ratioBox.classList.add("bpg-card--broken");
+            ratioBox.title = t("aspectRatioBroken");
+            showToast(t("aspectRatioBroken"), "err", 6000);
+            syncRatio();
+            return;
         }
+        ratioWidget.value = ratioSel.value;
+        if (node.onWidgetChanged) {
+            node.onWidgetChanged(ratioWidget.name, ratioSel.value, ratioWidget.options?.indexOf?.(ratioSel.value), ratioWidget);
+        }
+        syncRatio();
+        node.setDirtyCanvas?.(true, true);
     });
-    row3.appendChild(manageBtn);
+    syncRatio();
+    row3.appendChild(ratioBox);
     root.appendChild(row3);
 
     const targetGroup = el("div", "bpg-picker-group");
@@ -455,7 +540,7 @@ function buildHeader(node, widgets) {
         const items = registryTargets.length
             ? registryTargets.map((target) => ({
                 value: target.name || target.id,
-                label: BadaI18n.lang === "en" && target.name === "시스템 프롬프트" ? "System Prompt" : (target.name || target.id),
+                label: localizedLabel(target, target.name || target.id),
             }))
             : (widgets.target?.options?.values || []).map((value) => ({ value, label: value }));
         addChoiceButtons(targetButtons, items, widgets.target?.value, (value) => {
@@ -468,8 +553,9 @@ function buildHeader(node, widgets) {
     }
 
     function renderSubmenuButtons() {
-        const values = submenuNamesFor(REGISTRY, widgets.target?.value) || widgets.submenu?.options?.values || [];
-        const items = values.map((value) => ({ value, label: value }));
+        const entries = submenuNamesFor(REGISTRY, widgets.target?.value)
+            || (widgets.submenu?.options?.values || []).map((name) => ({ name }));
+        const items = entries.map((entry) => ({ value: entry.name, label: localizedLabel(entry, entry.name) }));
         addChoiceButtons(submenuButtons, items, widgets.submenu?.value, (value) => {
             widgets.submenu.value = value;
             widgets.submenu.callback?.call(widgets.submenu, value, app.canvas, node, null, {});
@@ -514,6 +600,7 @@ function buildHeader(node, widgets) {
             target.textContent = t(target.dataset.i18n);
         });
         Object.values(cards).forEach((c) => c.paint());
+        syncRatio();
         fillModels();
         localize();
         renderTargetButtons();
@@ -522,6 +609,9 @@ function buildHeader(node, widgets) {
     };
     localize();
     BadaI18n.subscribe(langSub);
+    // A language switch changes label widths, so the rows wrap differently and the panel
+    // needs re-measuring — otherwise the leftover height clips the rows underneath.
+    node.__bpgRecalibrate?.();
 
     const onRemoved = node.onRemoved;
     node.onRemoved = function () {
@@ -761,7 +851,7 @@ function syncSubmenuFor(node, preserve = true) {
     const targetW = widgetByName(node, "target");
     const subW = widgetByName(node, "submenu");
     if (!targetW || !subW) return;
-    const names = submenuNamesFor(REGISTRY, targetW.value);
+    const names = (submenuNamesFor(REGISTRY, targetW.value) || []).map((entry) => entry.name);
     if (!names) return;
     subW.options = subW.options || {};
     subW.options.values = names;
@@ -793,7 +883,7 @@ function refreshAllNodes() {
 }
 
 function setupNode(node) {
-    const widgetNames = ["enhance", "uncensored", "target", "submenu", "request_text", "duration", "ui_language"];
+    const widgetNames = ["enhance", "uncensored", "target", "submenu", "request_text", "duration", "ui_language", "aspect_ratio"];
     const widgets = {};
     for (const name of widgetNames) widgets[name] = widgetByName(node, name);
     if (!widgets.target || !widgets.submenu) {
@@ -816,6 +906,13 @@ function setupNode(node) {
         widgets.ui_language.type = "hidden";
         if (widgets.ui_language.computeSize) widgets.ui_language.computeSize = () => [0, -4];
     }
+    // The native aspect_ratio combo is driven by the DOM picker in the header; keep the
+    // widget so the value still serializes into the prompt, but stop drawing it twice.
+    if (widgets.aspect_ratio) {
+        widgets.aspect_ratio.hidden = true;
+        widgets.aspect_ratio.type = "hidden";
+        if (widgets.aspect_ratio.computeSize) widgets.aspect_ratio.computeSize = () => [0, -4];
+    }
     syncDurationFor(node);
 
     const header = buildHeader(node, widgets);
@@ -834,6 +931,54 @@ function setupNode(node) {
     let domWidth = HEADER_WIDTH;
     domWidget.computeSize = () => [domWidth, domHeight];
 
+    // ---- height calibration (overlap guard) --------------------------------
+    // Measure what the panel actually renders, plus the slack the DOM-widget wrapper
+    // eats, and report *that* to LiteGraph, so the canvas box and the panel always match.
+    //
+    // The panel's height depends on its WIDTH: `.bpg-row` wraps, so narrowing the node
+    // grows the content. The pass budget is therefore reset on every width change (and on
+    // every language switch) — a budget spent at one width says nothing about the next.
+    // Without that reset, narrowing the node left the budget spent, the panel kept its old
+    // height and painted over the native widget rows underneath — the 영상 길이 (초) row
+    // was clipped in Korean and fully hidden in English, which wraps one row more.
+    let calibrations = 0;
+    let calibrationTimer = null;
+
+    const calibrateHeight = () => {
+        if (calibrations >= 3) return;
+        const wrap = header.root.parentElement;
+        if (!wrap) return;
+        const scale = (app.canvas && app.canvas.ds && app.canvas.ds.scale) || 1;
+        const contentH = Math.ceil(header.root.getBoundingClientRect().height / scale);
+        const wrapH = Math.round(wrap.getBoundingClientRect().height / scale);
+        if (contentH < 8 || wrapH < 8) return;
+        const slack = Math.max(0, domHeight - wrapH);   // label strip the wrapper eats
+        const next = contentH + slack;
+        if (Math.abs(next - domHeight) <= 1) return;
+        domHeight = next;
+        calibrations += 1;
+        const need = node.computeSize ? node.computeSize() : [HEADER_WIDTH + 26, 520];
+        if (node.size[0] + 1 < need[0] || node.size[1] + 1 < need[1]) {
+            node.setSize([Math.max(node.size[0], need[0]), Math.max(node.size[1], need[1])]);
+        }
+        node.setDirtyCanvas?.(true, true);
+    };
+
+    const scheduleCalibration = (delay = 0) => {
+        if (calibrationTimer !== null) clearTimeout(calibrationTimer);
+        calibrationTimer = setTimeout(() => {
+            calibrationTimer = null;
+            calibrateHeight();
+        }, delay);
+    };
+
+    // Exposed so the header can re-measure itself after a language switch, which also
+    // changes how much the rows wrap.
+    node.__bpgRecalibrate = () => {
+        calibrations = 0;
+        scheduleCalibration(0);
+    };
+
     const syncHeaderWidth = () => {
         if (!node.size) return;
         const nextWidth = Math.max(HEADER_WIDTH, node.size[0] - NODE_WIDTH_INSET);
@@ -841,6 +986,8 @@ function setupNode(node) {
         domWidth = nextWidth;
         header.root.style.width = `${domWidth}px`;
         header.root.style.maxWidth = `${domWidth}px`;
+        calibrations = 0;      // new width -> new wrap layout -> new required height
+        scheduleCalibration(0);
     };
 
     // Arrange widget visual order: domWidget -> duration -> request_text -> rest
@@ -898,35 +1045,11 @@ function setupNode(node) {
     };
     node.__bpgSyncHeaderWidth = syncHeaderWidth;
 
-    // ---- height calibration (overlap guard) --------------------------------
-    // Measure what the panel actually renders, plus the slack the DOM-widget
-    // wrapper eats, and report *that* to LiteGraph.  Self-correcting but
-    // deliberately bounded (3 passes, only on a >1px delta) so it can never
-    // enter the documented size feedback loop.
-    let calibrations = 0;
-    const calibrateHeight = () => {
-        if (calibrations >= 3) return;
-        const wrap = header.root.parentElement;
-        if (!wrap) return;
-        const scale = (app.canvas && app.canvas.ds && app.canvas.ds.scale) || 1;
-        const contentH = Math.ceil(header.root.getBoundingClientRect().height / scale);
-        const wrapH = Math.round(wrap.getBoundingClientRect().height / scale);
-        if (contentH < 8 || wrapH < 8) return;
-        const slack = Math.max(0, domHeight - wrapH);   // label strip the wrapper eats
-        const next = contentH + slack;
-        if (Math.abs(next - domHeight) <= 1) return;
-        domHeight = next;
-        calibrations += 1;
-        const need = node.computeSize ? node.computeSize() : [HEADER_WIDTH + 26, 520];
-        if (node.size[0] + 1 < need[0] || node.size[1] + 1 < need[1]) {
-            node.setSize([Math.max(node.size[0], need[0]), Math.max(node.size[1], need[1])]);
-        }
-        node.setDirtyCanvas?.(true, true);
-    };
-    const onContentResize = () => setTimeout(calibrateHeight, 0);
     let resizeObserver = null;
     if (typeof ResizeObserver !== "undefined") {
-        resizeObserver = new ResizeObserver(onContentResize);
+        // The observer reports content growth (wrapped rows, longer labels); re-measure
+        // through the scheduler so bursts collapse into one calibration.
+        resizeObserver = new ResizeObserver(() => scheduleCalibration(0));
         resizeObserver.observe(header.root);
     }
     requestAnimationFrame(() => requestAnimationFrame(calibrateHeight));
@@ -938,7 +1061,12 @@ function setupNode(node) {
             resizeObserver.disconnect();
             resizeObserver = null;
         }
+        if (calibrationTimer !== null) {
+            clearTimeout(calibrationTimer);
+            calibrationTimer = null;
+        }
         delete this.__bpgSyncHeaderWidth;
+        delete this.__bpgRecalibrate;
         return removeBefore ? removeBefore.apply(this, arguments) : undefined;
     };
 

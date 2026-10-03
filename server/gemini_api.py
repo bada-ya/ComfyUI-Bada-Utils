@@ -25,9 +25,9 @@ REGISTRY_FILE = os.path.join(PARENT_DIR, "engines_registry.json")
 
 # 3 Fast & Robust Verified Gemini Models
 EXACT_MODELS = [
-    {"id": "gemini-3.5-flash-lite", "name": "🚀 Gemini 3.5 Flash-Lite (권장 ⭐)", "desc": "1,500회/일 • 최신 초고속 영작/실시간 챗"},
-    {"id": "gemini-3.6-flash", "name": "⚡ Gemini 3.6 Flash", "desc": "1,500회/일 • 표준 올라운더 Flash"},
-    {"id": "gemini-3.8-flash", "name": "🌟 Gemini 3.8 Flash", "desc": "1,500회/일 • 최신 고성능 Flash"},
+    {"id": "gemini-3.5-flash-lite", "name": "Gemini 3.5 Flash-Lite (권장 ⭐)", "name_en": "Gemini 3.5 Flash-Lite (Recommended ⭐)", "desc": "1,500회/일 • 최신 초고속 영작/실시간 챗"},
+    {"id": "gemini-3.6-flash", "name": "Gemini 3.6 Flash", "name_en": "Gemini 3.6 Flash", "desc": "1,500회/일 • 표준 올라운더 Flash"},
+    {"id": "gemini-3.8-flash", "name": "Gemini 3.8 Flash", "name_en": "Gemini 3.8 Flash", "desc": "1,500회/일 • 최신 고성능 Flash"},
 ]
 
 # 5-Category BLOCK_NONE Uncensored Safety Settings

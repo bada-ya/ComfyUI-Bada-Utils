@@ -1,5 +1,34 @@
 # Beta Handoff - 2026-10-03 (pre-production audit + fixes)
 
+## How to verify a change (read this first)
+
+ComfyUI loads the two halves of this extension at different times, so **what you must do to see a
+change depends on which files were touched**. Getting this wrong is silent — the UI keeps working
+and simply ignores your input.
+
+| Touched | What to do | Why |
+| --- | --- | --- |
+| `web/*.js`, `web/*.css` | **Ctrl+F5** in the browser (nothing else) | Served straight off disk; the browser is the only cache. A plain F5 is not enough — ComfyUI serves extensions with long cache headers. |
+| `engines_registry.json`, any `user_prompts` / `gemini_prompts` list | **Ctrl+F5** | `GET /api/bada/promptgen/registry` reads the file per request and `load_registry()` caches by **mtime**, so a rename shows up without a restart. |
+| `nodes/*.py`, `server/*.py` | **Restart ComfyUI, then Ctrl+F5** | Python is imported once at node registration. `INPUT_TYPES` is built at that moment, so a **new widget does not exist** until the process restarts. |
+
+### The failure mode worth memorising
+
+Adding a widget to `INPUT_TYPES` and only doing Ctrl+F5 gives you a frontend that renders the
+control perfectly and sends the value **nowhere**. Nothing errors; the value is just dropped.
+
+`BadaPromptGenerator` guards this: if the `aspect_ratio` widget is missing the picker turns red and
+toasts *"⚠️ 화면비 값이 전달되지 않습니다. ComfyUI를 재시작해 주세요."* plus a console warning. That
+message means **restart, do not refresh**.
+
+Also worth knowing:
+
+- Restart the **daily driver**, not `ComfyUI_antig`.
+- If a node's *layout* looks stale after a restart, do Ctrl+F5 **again** — a restart alone re-fetches
+  the extension JS only for newly loaded nodes.
+- Changes never require `pip install`; the only Python dependency this extension has beyond
+  ComfyUI's own (`aiohttp` ships with ComfyUI itself) is optional.
+
 ## Destination
 
 - Repository: `bada-ya/ComfyUI-Bada-Utils-Beta`

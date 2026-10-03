@@ -69,17 +69,7 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   box-sizing: border-box !important;
 }
 
-/* Header & Engine Nav: Fixed non-shrinking */
-.bada-header,
-.bada-gemini-header {
-  flex: 0 0 auto !important;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--bada-border);
-}
-
+/* Engine Nav: Fixed non-shrinking */
 .bada-engine-nav {
   flex: 0 0 auto !important;
 }
@@ -104,38 +94,12 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   display: none !important;
 }
 
-.bada-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: -0.3px;
-  color: #fff;
-}
-
-.bada-badges-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.bada-badge {
-  font-family: 'Fira Code', monospace;
-  font-size: 9.5px;
-  font-weight: 800;
-  padding: 2px 7px;
-  border-radius: 20px;
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.bada-badge.uncensored {
-  background: rgba(236, 72, 153, 0.15);
-  color: #f472b6;
-  border-color: rgba(236, 72, 153, 0.35);
-}
+/* The header row — `.bada-header` / `.bada-gemini-header`, `.bada-badges-group`,
+   `.bada-badge` — was removed along with the duplicate ⚓ title and the
+   ZERO-REFUSAL / NON-BLOCKING badges. Do not reintroduce it: once the title went it was
+   an empty full-width box costing a whole row in a panel that has to scroll.
+   (`.bada-toggle-badge` — the NSFW / Korean-translation ON chips — is a different class
+   and is unrelated.) */
 
 /* Notification Bell & Error Log Modal */
 .bada-bell-btn {
@@ -407,7 +371,10 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
 
 .bada-engine-btn {
   background: transparent;
-  border: none;
+  /* Every tab carries the same 1px box so the six engines stay separable when none is
+     selected. Same thickness as the active state on purpose — a 0px->1px difference would
+     make the whole row reflow the instant a tab is selected. */
+  border: 1px solid var(--bada-border);
   color: var(--bada-text-muted);
   padding: 6px 2px;
   border-radius: var(--bada-radius-sm);
@@ -428,6 +395,7 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
 
 .bada-engine-btn:hover {
   background: rgba(255, 255, 255, 0.06);
+  border-color: #555555;
   color: #fff;
 }
 
@@ -657,20 +625,26 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   line-height: 1.35;
 }
 
-/* Options Row: slim toggles (left) + Aspect Ratio dropdown (right) */
+/* Options Row: slim toggles (left) + Aspect Ratio dropdown (right)
+   `flex-wrap: wrap` is the safety net: if the node is dragged narrower than the three
+   columns need, the Aspect Ratio picker drops onto its own line instead of crushing the
+   toggle labels into "Allow NS…". At the default 520px everything fits on one line. */
 .bada-options-row {
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  flex-wrap: wrap;
   min-width: 0;
   width: 100%;
 }
 
+/* `flex: 1 1 auto` (was `0 1 auto`) so the toggles get first claim on the row's width. With
+   the ON/OFF chips removed there is finally room for the labels to render in full. */
 .bada-options-toggles {
   display: flex;
   align-items: stretch;
   gap: 6px;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -681,7 +655,7 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   padding: 6px 8px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   cursor: pointer;
   min-width: 0;
@@ -690,6 +664,30 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
 
 .bada-toggle-card:hover {
   border-color: var(--bada-border-hover);
+}
+
+/* Keyboard focus ring — these are role="button" + tabindex="0", so they must show focus. */
+.bada-toggle-card:focus-visible {
+  outline: 2px solid var(--bada-border-focus);
+  outline-offset: 1px;
+}
+
+/* Pressed state, now carried by the card instead of an ON/OFF chip: an accent border plus a
+   tinted fill reads unmistakably at a glance and costs zero horizontal space. Border
+   thickness stays 1px in both states so the row never reflows on toggle. */
+.bada-toggle-card.on {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: #c4c4c4;
+}
+
+#bada-toggle-nsfw.on {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.75);
+}
+
+#bada-toggle-trans.on {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.70);
 }
 
 .bada-toggle-title {
@@ -701,9 +699,11 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   white-space: nowrap;
 }
 
-/* Aspect Ratio picker (overlay dropdown menu, like the model selector) */
+/* Aspect Ratio picker (overlay dropdown menu, like the model selector).
+   `flex: 1 1 210px` (was `220px`) leaves the freed chip width to the toggles; the row's
+   `flex-wrap: wrap` puts this on its own line if the node gets too narrow regardless. */
 .bada-aspect-picker {
-  flex: 1 1 220px;
+  flex: 1 1 210px;
   min-width: 0;
   position: relative;
   display: flex;
@@ -807,28 +807,10 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   color: #fff;
 }
 
-.bada-toggle-badge {
-  font-family: 'Fira Code', monospace;
-  font-size: 10px;
-  font-weight: 800;
-  padding: 2px 7px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--bada-border);
-  color: var(--bada-text-dim);
-}
-
-.bada-toggle-badge.amber {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
-  border-color: rgba(245, 158, 11, 0.35);
-}
-
-.bada-toggle-badge.green {
-  background: #404040;
-  color: #eeeeee;
-  border-color: #555555;
-}
+/* The ON/OFF chips (`.bada-toggle-badge` / `.amber` / `.green`) were removed together with the
+   markup that used them. Their pressed state now lives on `.bada-toggle-card.on` above —
+   do not reintroduce a text chip here: it costs ~45px + an 8px gap in a three-column row and
+   that missing width is what ellipsised the labels beside it in both Korean and English. */
 
 /* Sections & Form Controls */
 .bada-section {
@@ -965,6 +947,15 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   font-size: 10px;
   color: var(--bada-text-dim);
   white-space: nowrap;
+}
+
+/* The 🔔 bell now lives in the API-key label row (it used to sit in the header next to
+   the badges). `margin-left: auto` keeps it in the right-hand corner it occupied there. */
+.bada-config-bell-slot {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 6px;
 }
 
 /* Stop / Cancel Buttons */
@@ -1742,6 +1733,9 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   box-sizing: border-box !important;
 }
 
+/* Height is driven by autoGrowChatTextarea() in JS (3 lines -> grows -> 5 line cap).
+   The old `max-height: 80px` was a hard ceiling of roughly three lines and fought the
+   auto-grow; the cap now lives in CHAT_TEXTAREA_MAX_LINES so JS and CSS cannot disagree. */
 .bada-chat-textarea {
   flex: 1;
   background: transparent;
@@ -1749,9 +1743,11 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   color: #fff;
   font-family: inherit;
   font-size: 12px;
+  line-height: 1.5;
   outline: none;
   resize: none;
-  max-height: 80px;
+  overflow-y: hidden;
+  min-height: 54px;   /* 3 lines at 12px * 1.5, so the composer never collapses to one line */
 }
 
 .bada-chat-send-btn {

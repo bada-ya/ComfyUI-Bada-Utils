@@ -3,10 +3,10 @@
  * ComfyUI Web Extension (6-Engine Multi-Mode Edition)
  * - 3 Fast & Robust Models: Gemini 2.0 Flash-Lite, Gemini 2.5 Flash-Lite, Gemini 2.5 Flash
  * - 6 Dedicated Engine Tabs (left → right):
- *    1. ● KREA 2 (일반 / 스토리보드)
- *    2. ● QWEN2.1 (official T2I / I2I prompt enhancement)
- *    3. ● MiniMax H3 (5 submodes, duration slider, multimodal vision)
- *    4. ● LTX-Video (5 submodes, duration slider, 6-element DiT)
+ *    1. KREA 2 (일반 / 스토리보드)
+ *    2. QWEN2.1 (official T2I / I2I prompt enhancement)
+ *    3. MiniMax H3 (5 submodes, duration slider, multimodal vision)
+ *    4. LTX-Video (5 submodes, duration slider, 6-element DiT)
  *    5. 📜 사용자 시스템 프롬프트
  *    6. ✨ 무검열 제미나이 (인터랙티브 챗 & Gem 페르소나, 제미나이 전용 시스템 프롬프트)
  * - Excludes 텍스트 가공 도구 as requested
@@ -40,10 +40,10 @@ const EXACT_MODELS = [
 
 // 6 Engine Tabs Specification (left → right order)
 const ENGINES = [
-    { id: "krea", name: "● KREA 2", name_en: "● KREA 2", tag: "Photorealism", tag_en: "Photorealism", color: "#10b981" },
-    { id: "qwen21", name: "● QWEN2.1", name_en: "● QWEN2.1", tag: "Image Prompt Enhancer", tag_en: "Image Prompt Enhancer", color: "#f59e0b" },
-    { id: "minimax", name: "● MiniMax H3", name_en: "● MiniMax H3", tag: "Omni-Modal Video", tag_en: "Omni-Modal Video", color: "#6366f1" },
-    { id: "ltx", name: "● LTX-Video", name_en: "● LTX-Video", tag: "6-Element DiT", tag_en: "6-Element DiT", color: "#06b6d4" },
+    { id: "krea", name: "KREA 2", name_en: "KREA 2", tag: "Photorealism", tag_en: "Photorealism", color: "#10b981" },
+    { id: "qwen21", name: "QWEN2.1", name_en: "QWEN2.1", tag: "Image Prompt Enhancer", tag_en: "Image Prompt Enhancer", color: "#f59e0b" },
+    { id: "minimax", name: "MiniMax H3", name_en: "MiniMax H3", tag: "Omni-Modal Video", tag_en: "Omni-Modal Video", color: "#6366f1" },
+    { id: "ltx", name: "LTX-Video", name_en: "LTX-Video", tag: "6-Element DiT", tag_en: "6-Element DiT", color: "#06b6d4" },
     { id: "system_prompt", name: "📜 시스템", name_en: "📜 System", tag: "사용자 시스템 프롬프트", tag_en: "Custom System Prompt", color: "#38bdf8" },
     { id: "uncensored", name: "🔞 제미나이", name_en: "🔞 Gemini", tag: "Zero-Refusal Uncensored Chat", tag_en: "Zero-Refusal Uncensored Chat", color: "#a855f7" },
 ];
@@ -261,7 +261,6 @@ app.registerExtension({
             let timerInterval = null;
             let lastEnglishPrompt = "";
             let lastKoreanTranslation = "";
-            let lastWhRatio = "";
             let lastStoryboardData = null;
             let currentTab = "english";
 
@@ -287,24 +286,10 @@ app.registerExtension({
             const root = document.createElement("div");
             root.className = "bada-gemini-card bada-async-gemini-root";
 
-            // 1. Header
-            const header = document.createElement("div");
-            header.className = "bada-header bada-gemini-header";
-            header.innerHTML = `
-                <div class="bada-title">
-                    <span>⚓</span>
-                    <span>Bada Async Gemini Studio</span>
-                </div>
-                <div class="bada-badges-group">
-                    <span class="bada-badge uncensored" title="5대 카테고리 BLOCK_NONE 및 3-Pass 제로 거부">🛡️ ZERO-REFUSAL</span>
-                    <span class="bada-badge">NON-BLOCKING ⚡</span>
-                    <button type="button" id="bada-error-bell" class="bada-bell-btn" title="${isKo ? "오류 알림 내역" : "Error Notification Log"}">
-                        <span class="bada-bell-icon">🔔</span>
-                        <span class="bada-bell-badge" id="bada-bell-badge" style="display: none;">0</span>
-                    </button>
-                </div>
-            `;
-            root.appendChild(header);
+            // The header row (duplicate ⚓ title + ZERO-REFUSAL / NON-BLOCKING badges) was
+            // removed: it duplicated the node title directly above it and, once the title
+            // went, was left as an empty full-width box costing a row. The 🔔 bell already
+            // lives in the API-key label row.
 
             // Error Log Modal
             const errorModalOverlay = document.createElement("div");
@@ -360,9 +345,12 @@ app.registerExtension({
                 updateBellBadge();
             }
 
-            function updateBellBadge() {
-                const bellBtn = header.querySelector("#bada-error-bell");
-                const badgeEl = header.querySelector("#bada-bell-badge");
+            // The in-panel "⚓ Bada Async Gemini Studio" title duplicated the node title directly
+// above it, costing a whole row. The 🔔 bell moved down into the API-key label row
+// (where the "LocalStorage 자동 저장" text used to sit), removing one more row.
+function updateBellBadge() {
+                const bellBtn = root.querySelector("#bada-error-bell");
+                const badgeEl = root.querySelector("#bada-bell-badge");
                 if (!badgeEl || !bellBtn) return;
                 if (unreadErrorCount > 0) {
                     badgeEl.textContent = unreadErrorCount > 99 ? "99+" : unreadErrorCount;
@@ -372,18 +360,6 @@ app.registerExtension({
                     badgeEl.style.display = "none";
                     bellBtn.classList.remove("has-unread");
                 }
-            }
-
-            const errorBellBtn = header.querySelector("#bada-error-bell");
-            if (errorBellBtn) {
-                errorBellBtn.onclick = (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    unreadErrorCount = 0;
-                    updateBellBadge();
-                    renderErrorList();
-                    errorModalOverlay.classList.remove("bada-hidden");
-                };
             }
 
             const errCloseBtn = errorModalOverlay.querySelector("#bada-err-close-btn");
@@ -440,7 +416,12 @@ app.registerExtension({
                             </button>
                         </div>
                     </div>
-                    <span class="bada-subtext">${isKo ? "LocalStorage 자동 저장" : "Stored in LocalStorage"}</span>
+                    <span class="bada-config-bell-slot">
+                        <button type="button" id="bada-error-bell" class="bada-bell-btn" title="${isKo ? "오류 알림 내역" : "Error Notification Log"}">
+                            <span class="bada-bell-icon">🔔</span>
+                            <span class="bada-bell-badge" id="bada-bell-badge" style="display: none;">0</span>
+                        </button>
+                    </span>
                 </div>
             `;
             const configRow = document.createElement("div");
@@ -491,6 +472,21 @@ app.registerExtension({
             configRow.appendChild(modelSelect);
             configSection.appendChild(configRow);
             root.appendChild(configSection);
+
+            // Wired here, not next to the header: the bell now lives in the config label row,
+            // which only exists once configSection has been built.
+            const errorBellBtn = root.querySelector("#bada-error-bell");
+            if (errorBellBtn) {
+                errorBellBtn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    unreadErrorCount = 0;
+                    updateBellBadge();
+                    renderErrorList();
+                    errorModalOverlay.classList.remove("bada-hidden");
+                };
+                updateBellBadge();
+            }
 
             // Button Event Handlers: 발급 (AI Studio 새 탭) & 연결확인 (API Test)
             const getKeyBtn = configSection.querySelector("#bada-btn-get-key");
@@ -679,18 +675,21 @@ app.registerExtension({
             submodePanel.className = "bada-submode-panel";
             promptStudioContainer.appendChild(submodePanel);
 
-            // Options Row: slim NSFW / Korean toggles (left) + Aspect Ratio dropdown (right)
+            // Options Row: slim NSFW / Korean toggles (left) + Aspect Ratio dropdown (right).
+            // The ON/OFF chips that used to sit inside each toggle card are gone: they ate
+            // ~45px + an 8px gap apiece in a three-column row, and that missing width is what
+            // ellipsised the labels next to them ("Allow NS…", "한국어 변…") in BOTH languages.
+            // The pressed state now lives on the card itself (`.on` -> accent border + fill),
+            // which reads at a glance and costs zero horizontal space.
             const optionsGrid = document.createElement("div");
             optionsGrid.className = "bada-options-row";
             optionsGrid.innerHTML = `
                 <div class="bada-options-toggles">
-                    <div class="bada-toggle-card" id="bada-toggle-nsfw" title="${isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes"}">
-                        <span class="bada-toggle-title">${isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content"}</span>
-                        <span class="bada-toggle-badge ${isNSFW ? 'amber' : ''}" id="bada-badge-nsfw">${isNSFW ? 'ON' : 'OFF'}</span>
+                    <div class="bada-toggle-card${isNSFW ? ' on' : ''}" id="bada-toggle-nsfw" role="button" tabindex="0" aria-pressed="${isNSFW ? 'true' : 'false'}" aria-label="${isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content"}" title="${isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes"}">
+                        <span class="bada-toggle-title">${isKo ? "성인용 콘텐츠 (NSFW)" : "Allow NSFW"}</span>
                     </div>
-                    <div class="bada-toggle-card" id="bada-toggle-trans" title="${isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes"}">
-                        <span class="bada-toggle-title">${isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes"}</span>
-                        <span class="bada-toggle-badge ${isTranslate ? 'green' : ''}" id="bada-badge-trans">${isTranslate ? 'ON' : 'OFF'}</span>
+                    <div class="bada-toggle-card${isTranslate ? ' on' : ''}" id="bada-toggle-trans" role="button" tabindex="0" aria-pressed="${isTranslate ? 'true' : 'false'}" aria-label="${isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes"}" title="${isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes"}">
+                        <span class="bada-toggle-title">${isKo ? "한국어 번역" : "Korean Translation"}</span>
                     </div>
                 </div>
                 <div class="bada-aspect-picker" id="bada-aspect-picker">
@@ -802,25 +801,45 @@ app.registerExtension({
             window.addEventListener("scroll", onAspectViewportChange, true);
             syncAspectPicker();
 
+            // Both toggles now report their state through the card itself instead of an ON/OFF chip
+            // and a toast. The toast was the yellow-highlighted banner: `.bada-toast` is a
+            // block child of the card's flex column, so firing it on every click shoved the
+            // whole panel down — and it fired on BOTH enable and disable, in both languages.
+            // Nothing is lost: the card's border/background change is the confirmation.
             const nsfwToggle = optionsGrid.querySelector("#bada-toggle-nsfw");
-            const nsfwBadge = optionsGrid.querySelector("#bada-badge-nsfw");
+            const transToggle = optionsGrid.querySelector("#bada-toggle-trans");
+
+            // Shared visual sync for both cards. aria-pressed keeps the state readable by
+            // assistive tech now that the visible ON/OFF text is gone.
+            function syncToggleCards() {
+                nsfwToggle.classList.toggle("on", isNSFW);
+                nsfwToggle.setAttribute("aria-pressed", isNSFW ? "true" : "false");
+                transToggle.classList.toggle("on", isTranslate);
+                transToggle.setAttribute("aria-pressed", isTranslate ? "true" : "false");
+            }
+
             nsfwToggle.onclick = () => {
                 isNSFW = !isNSFW;
                 localStorage.setItem("bada_is_nsfw", isNSFW);
-                nsfwBadge.textContent = isNSFW ? "ON" : "OFF";
-                nsfwBadge.className = `bada-toggle-badge ${isNSFW ? 'amber' : ''}`;
-                showToast(isKo ? `성인용 콘텐츠(NSFW) 허용: ${isNSFW ? 'ON' : 'OFF'}` : `Allow NSFW Content: ${isNSFW ? 'ON' : 'OFF'}`, "info", 1500);
+                syncToggleCards();
             };
 
-            const transToggle = optionsGrid.querySelector("#bada-toggle-trans");
-            const transBadge = optionsGrid.querySelector("#bada-badge-trans");
             transToggle.onclick = () => {
                 isTranslate = !isTranslate;
                 localStorage.setItem("bada_is_translate", isTranslate);
-                transBadge.textContent = isTranslate ? "ON" : "OFF";
-                transBadge.className = `bada-toggle-badge ${isTranslate ? 'green' : ''}`;
-                showToast(isKo ? `한국어 번역 및 해설: ${isTranslate ? 'ON' : 'OFF'}` : `Korean Translation & Notes: ${isTranslate ? 'ON' : 'OFF'}`, "info", 1500);
+                syncToggleCards();
             };
+
+            // These are role="button" now, so Enter/Space must activate them — a div with
+            // onclick alone is unreachable by keyboard and screen readers skip it.
+            [nsfwToggle, transToggle].forEach((card) => {
+                card.onkeydown = (e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    card.click();
+                };
+            });
+            syncToggleCards();
 
             // Prompt Instruction Section
             const promptSection = document.createElement("div");
@@ -1012,7 +1031,6 @@ app.registerExtension({
             outputSection.innerHTML = `
                 <div class="bada-label">
                     <span id="bada-output-title">${isKo ? "✨ 생성된 프롬프트 결과" : "✨ Generated Output"}</span>
-                    <span class="bada-badge" id="bada-pass-status" style="display: none;"></span>
                 </div>
             `;
             const tabsHeader = document.createElement("div");
@@ -1724,7 +1742,11 @@ app.registerExtension({
                     generateBtn.innerHTML = `<span class="bada-spinner"></span> <span>${genLoadingText} ⏱️ ${elapsed}s <b style="margin-left:6px;background:rgba(0,0,0,0.35);padding:1.5px 6px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);">⏹️ ${isKoNow ? "중단" : "Stop"}</b></span>`;
                 }, 100);
 
-                showToast(isKoNow ? `🚀 ${activeEngine.toUpperCase()} 작업 중... (중단하려면 버튼 클릭)` : `🚀 ${activeEngine.toUpperCase()} working... (Click to Stop)`, "info", 2500);
+            // No "working" toast here on purpose: like the completion banner,
+            // `.bada-toast` is a block child of the card's flex column, so it inserted
+            // a full-width banner above the config section and shoved the panel down
+            // mid-generation. The generate button already shows a spinner, the elapsed
+            // timer and a Stop control.
 
                 try {
                     const resp = await fetch("/api/bada/gemini/generate", {
@@ -1756,7 +1778,6 @@ app.registerExtension({
                         dataSuccess = true;
                         lastEnglishPrompt = data.prompt || "";
                         lastKoreanTranslation = data.korean_translation || "";
-                        lastWhRatio = data.wh_ratio || aspectRatio;
                         lastStoryboardData = data.storyboard || null;
 
                         syncOutputToNodeWidget(lastEnglishPrompt);
@@ -1777,24 +1798,16 @@ app.registerExtension({
                             updateActiveTab("english");
                         }
 
-                        const passBadge = root.querySelector("#bada-pass-status");
-                        if (passBadge) {
-                            passBadge.style.display = "inline-block";
-                            const passText = data.pass_used === 2 ? "🛡️ Pass 2 VFX Override" : (data.pass_used === 3 ? "🎨 Pass 3 Metaphor" : "⚡ Pass 1 Direct");
-                            const modeLabel = activeEngine === "qwen21"
-                                ? (isKoNow ? "🖼️ QWEN2.1 공식 PE" : "🖼️ QWEN2.1 official PE")
-                                : (activeEngine === "system_prompt" ? (isKoNow ? "📜 사용자 지침" : "📜 Custom Prompt") : "");
-                            const ratioLabel = lastWhRatio ? ` • ${isKoNow ? "화면 비율" : "Aspect ratio"}: ${lastWhRatio}` : "";
-                            passBadge.textContent = `${modeLabel}${modeLabel ? " • " : ""}${passText} (${data.model || model})${ratioLabel} • ⏱️ ${duration}${isKoNow ? "초 완료" : "s done"}`;
-                        }
-
                         // Completed state with elapsed time
                         generateBtn.innerHTML = `<span>✨</span> <span>${isKoNow ? `생성 완료! (${duration}초)` : `Completed! (${duration}s)`}</span>`;
                         setTimeout(() => {
                             if (!isGenerating) updateInputPlaceholders();
                         }, 3500);
 
-                        showToast(isKoNow ? `✨ ${activeEngine.toUpperCase()} 생성 완료! (소요 시간: ${duration}초)` : `✨ ${activeEngine.toUpperCase()} completed in ${duration}s!`, "success", 3000);
+                        // No success toast here on purpose: `.bada-toast` is a block child of the
+                        // card's flex column, so showing it inserted a full-width banner ABOVE the
+                        // config section and shoved the whole panel — every engine tab included —
+                        // downwards. The generate button already reads "생성 완료! (N초)".
                     } else {
                         const errMsg = data.error || (isKoNow ? "알 수 없는 오류가 발생했습니다." : "An unknown error occurred.");
                         showToast(`❌ ${isKoNow ? "오류" : "Error"}: ${errMsg}`, "error", 5000);
@@ -1999,7 +2012,10 @@ app.registerExtension({
                     personaTriggerLabel.textContent = activeGemPromptLabel();
                     renderPersonaMenu();
                     setPersonaMenuOpen(false);
-                    showToast((isKo ? "📜 적용됨: " : "📜 Applied: ") + activeGemPromptLabel(), "info", 1500);
+                    // No toast here: every item in this menu funnels through
+                    // applyGemPromptSelection(), so firing one popped the banner over the panel
+                    // on every persona / system-prompt pick. The trigger label above already
+                    // shows the new selection, so nothing is lost.
                 }
 
                 function renderPersonaMenu() {
@@ -2123,10 +2139,34 @@ app.registerExtension({
 
                 const chatTextarea = document.createElement("textarea");
                 chatTextarea.className = "bada-chat-textarea";
-                chatTextarea.rows = 1;
+                chatTextarea.rows = 3;
                 chatTextarea.placeholder = isKo 
                     ? "무검열 제미나이에게 메시지 보내기... (Enter로 전송, Shift+Enter 줄바꿈)"
                     : "Send message to Uncensored Gemini... (Enter to send, Shift+Enter for newline)";
+
+                // Auto-grow composer: starts at 3 lines and grows upward as you type, up to
+                // CHAT_TEXTAREA_MAX_LINES. Past that it stops growing and scrolls internally, so
+                // a long message stays readable without the box swallowing the conversation.
+                // `rows = 3` alone cannot do this — it only sets the *initial* height, and the
+                // old CSS `max-height: 80px` capped growth at ~3 lines anyway, which is why the
+                // composer looked stuck at a single line.
+                const CHAT_TEXTAREA_MAX_LINES = 5;
+
+                function autoGrowChatTextarea() {
+                    if (!chatTextarea) return;
+                    const computed = window.getComputedStyle(chatTextarea);
+                    const lineHeight = parseFloat(computed.lineHeight)
+                        || (parseFloat(computed.fontSize) || 12) * 1.5;
+                    // Reset first: a textarea only reports the height it *needs* when it is
+                    // allowed to shrink back to `auto`, otherwise scrollHeight stays pinned at
+                    // the previous (taller) size and the box would never come back down.
+                    chatTextarea.style.height = "auto";
+                    const maxHeight = lineHeight * CHAT_TEXTAREA_MAX_LINES;
+                    const contentHeight = chatTextarea.scrollHeight;
+                    chatTextarea.style.height = Math.min(contentHeight, maxHeight) + "px";
+                    chatTextarea.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+                }
+                chatTextarea.addEventListener("input", autoGrowChatTextarea);
 
                 chatTextarea.addEventListener("keydown", (e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -2142,6 +2182,10 @@ app.registerExtension({
                 chatSendBtn.innerHTML = "🚀";
                 chatSendBtn.onclick = () => sendChatMessage();
                 chatInputBar.appendChild(chatSendBtn);
+
+                // Paint the initial 3-line height once the bar is in the DOM. `rows = 3` is only
+                // the pre-layout hint; measuring here is what actually reserves the space.
+                setTimeout(() => autoGrowChatTextarea(), 0);
 
                 // Chat Attach Preview Row
                 const chatImagesPreviewRow = document.createElement("div");
@@ -2281,6 +2325,9 @@ app.registerExtension({
                     };
                     chatMessages.push(userMsg);
                     chatTextarea.value = "";
+                    // Reset the composer to its 3-line rest height — otherwise the box stays
+                    // tall at its previous size until the next keystroke re-measures it.
+                    autoGrowChatTextarea();
                     chatUploadedImages = [];
                     renderChatImagesPreview();
                     renderChatMessages();
@@ -2351,7 +2398,10 @@ app.registerExtension({
                                 duration: duration
                             });
                             renderChatMessages();
-                            showToast(isKoNow ? `✨ 답변 생성 완료! (${duration}초 소요)` : `✨ Reply completed in ${duration}s!`, "success", 2500);
+                        // No completion toast here on purpose: `.bada-toast` is a block
+                        // child of the card's flex column, so it inserted a full-width
+                        // banner above the API-key row and pushed the panel down. The
+                        // reply bubble already renders "⏱️ N.N초 완료" inline.
                         } else {
                             const errDesc = data.error || (isKoNow ? '응답 실패' : 'No response');
                             showToast((isKoNow ? "❌ 채팅 오류: " : "❌ Chat error: ") + errDesc, "error", 4000);
@@ -2410,11 +2460,13 @@ app.registerExtension({
 
                 // Options row (slim toggles + aspect ratio picker)
                 const nsfwTitle = optionsGrid.querySelector("#bada-toggle-nsfw .bada-toggle-title");
-                if (nsfwTitle) nsfwTitle.textContent = isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content";
+                if (nsfwTitle) nsfwTitle.textContent = isKo ? "성인용 콘텐츠 (NSFW)" : "Allow NSFW";
+                nsfwToggle.setAttribute("aria-label", isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content");
                 nsfwToggle.title = isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes";
 
                 const transTitle = optionsGrid.querySelector("#bada-toggle-trans .bada-toggle-title");
-                if (transTitle) transTitle.textContent = isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes";
+                if (transTitle) transTitle.textContent = isKo ? "한국어 번역" : "Korean Translation";
+                transToggle.setAttribute("aria-label", isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes");
                 transToggle.title = isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes";
 
                 // Aspect ratio picker labels + chips (rebuild for the active language)
@@ -2422,9 +2474,7 @@ app.registerExtension({
 
                 // Config section
                 const cfgTitle = configSection.querySelector(".bada-config-title-text");
-                const cfgSub = configSection.querySelector(".bada-subtext");
                 if (cfgTitle) cfgTitle.textContent = isKo ? "🔑 API Key & 우선순위 모델 선택" : "🔑 API Key & Priority Model";
-                if (cfgSub) cfgSub.textContent = isKo ? "LocalStorage 자동 저장" : "Stored in LocalStorage";
 
                 const curGetKeyBtn = configSection.querySelector("#bada-btn-get-key");
                 const curTestKeyBtn = configSection.querySelector("#bada-btn-test-key");
@@ -2483,7 +2533,7 @@ app.registerExtension({
                 const errTitleEl = errorModalOverlay.querySelector("#bada-err-title");
                 const errClearBtnEl = errorModalOverlay.querySelector("#bada-err-clear-btn");
                 const errCloseBtnEl = errorModalOverlay.querySelector("#bada-err-close-btn");
-                const errorBellBtnEl = header.querySelector("#bada-error-bell");
+                const errorBellBtnEl = root.querySelector("#bada-error-bell");
                 if (errTitleEl) errTitleEl.textContent = isKo ? "오류 알림 내역" : "Error Notification Log";
                 if (errClearBtnEl) errClearBtnEl.textContent = isKo ? "🗑️ 비우기" : "🗑️ Clear";
                 if (errCloseBtnEl) errCloseBtnEl.title = isKo ? "닫기" : "Close";
@@ -2706,6 +2756,14 @@ app.registerExtension({
             const origConfigure = node.onConfigure;
             node.onConfigure = function (data) {
                 const r = origConfigure ? origConfigure.apply(this, arguments) : undefined;
+                // Must ALSO be stripped here, not only in onNodeCreated. LiteGraph's
+                // configure() restores the serialized `outputs` array *after* the node is
+                // constructed, so any workflow saved while the socket still existed brought
+                // the "prompt" output straight back on load — surviving a plain refresh and
+                // making the node look connectable when it is UI-only.
+                while (this.outputs && this.outputs.length > 0) {
+                    this.removeOutput(0);
+                }
                 hideAllBackendWidgets(this);
                 if (this.size && this.size[0] < 420) this.size[0] = 520;
                 if (this.size && this.size[1] < 420) this.size[1] = 780;

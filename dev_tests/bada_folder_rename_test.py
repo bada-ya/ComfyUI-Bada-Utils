@@ -79,6 +79,39 @@ server_stub = types.ModuleType("server")
 server_stub.PromptServer = types.SimpleNamespace(instance=types.SimpleNamespace(routes=ROUTES))
 sys.modules["server"] = server_stub
 
+# aiohttp is only touched at import time for route decorators and response factories.
+# Stub it so this test runs on interpreters that do not ship aiohttp (e.g. the
+# standalone Python on the build box) instead of failing at `from aiohttp import web`.
+class _Response:
+    """Stand-in exposing only what `call()` reads: `.status` and `.text`."""
+
+    def __init__(self, text="", status=200):
+        self.status = status
+        self.text = text
+
+
+class _Web:
+    """Minimal stand-in for the handful of `web.*` names the server module uses."""
+
+    @staticmethod
+    def json_response(data=None, status=200, **kwargs):
+        return _Response(json.dumps(data if data is not None else {}, ensure_ascii=False), status)
+
+    @staticmethod
+    def FileResponse(path=None, **kwargs):
+        # Only existence/status semantics matter here, never the bytes.
+        return _Response("", 200 if path and os.path.exists(path) else 404)
+
+    class HTTPRequestEntityTooLarge(Exception):
+        """Raised by ComfyUI's upload handler; the server catches it to emit a 413."""
+
+        status = 413
+
+
+aiohttp_stub = types.ModuleType("aiohttp")
+aiohttp_stub.web = _Web()
+sys.modules["aiohttp"] = aiohttp_stub
+
 folder_paths_stub = types.ModuleType("folder_paths")
 folder_paths_stub.get_user_directory = lambda: USER_DIR
 folder_paths_stub.models_dir = os.path.join(TMP_ROOT, "models")

@@ -83,12 +83,23 @@ IMAGE_JPEG_QUALITY = 85
 # bounds the `multi` ones so a huge workflow cannot blow the 20 MB request ceiling.
 MAX_IMAGES_PER_RUN = 6
 
+# Output frame (aspect ratio) offered by the node's "화면 비율 선택" picker.
+# A single selection applies to EVERY tab (KREA2 / QWEN2.1 / MINIMAX H3 / LTX2.5 /
+# 시스템 프롬프트) and is injected into the system instruction so Gemini composes the shot
+# for that shape. The empty string means "no ratio chosen" -> no directive is injected and
+# the model decides, which is what keeps workflows saved before this widget existed
+# behaving exactly as before.
+NODE_ASPECT_RATIOS = (
+    "1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "9:21", "21:9",
+)
+
 # ---------------------------------------------------------------------------
 # Shared helpers reused from server/gemini_api.py (no duplication of prompts)
 # ---------------------------------------------------------------------------
 try:  # normal package import (ComfyUI loads custom nodes as packages)
     from ..server.gemini_api import (  # type: ignore
         SAFETY_SETTINGS_BLOCK_NONE,
+        build_aspect_ratio_directive,
         build_engine_system_instruction,
         is_refusal_response,
         split_english_and_korean,
@@ -102,6 +113,7 @@ except Exception:  # pragma: no cover - fallback for flat module loading
     _spec.loader.exec_module(_shared)
     SAFETY_SETTINGS_BLOCK_NONE = _shared.SAFETY_SETTINGS_BLOCK_NONE
     build_engine_system_instruction = _shared.build_engine_system_instruction
+    build_aspect_ratio_directive = _shared.build_aspect_ratio_directive
     is_refusal_response = _shared.is_refusal_response
     split_english_and_korean = _shared.split_english_and_korean
 
@@ -367,13 +379,20 @@ def _json_directive(schema_fields: list) -> str:
 
 
 def build_system_prompt(registry: dict, submenu: dict, image_count: int,
-                        duration: int = 10, uncensored: bool = True) -> str:
-    """Assemble the final system instruction for the resolved submenu."""
+                        duration: int = 10, uncensored: bool = True,
+                        aspect_ratio: str = "") -> str:
+    """Assemble the final system instruction for the resolved submenu.
+
+    `aspect_ratio` is applied to every submenu kind, so one picker value covers the builtin
+    engines, the official Qwen prompts and the user's own 시스템 프롬프트 alike.
+    """
     spec = (submenu or {}).get("system_prompt", {}) or {}
     kind = spec.get("type", "literal")
     base = ""
+    ratio = str(aspect_ratio or "").strip()
 
     if kind == "builtin":
+        # build_engine_system_instruction() appends the ratio directive for every engine.
         base = build_engine_system_instruction(
             spec.get("engine", "krea"),
             spec.get("submode", "general"),
@@ -382,12 +401,15 @@ def build_system_prompt(registry: dict, submenu: dict, image_count: int,
             is_nsfw=uncensored,
             translate_korean=False,
             cut_count=4,
+            aspect_ratio=ratio,
         )
     elif kind == "official":
         prompt = (registry.get("official_prompts", {}) or {}).get(spec.get("key", ""), {})
         base = (prompt.get("text") or "").strip()
+        base += build_aspect_ratio_directive(ratio)
     else:
         base = (spec.get("text") or "").strip()
+        base += build_aspect_ratio_directive(ratio)
 
     images = (submenu or {}).get("images", {}) or {}
     if image_count > 0:
@@ -554,11 +576,12 @@ def _tensor_digest(tensor) -> str:
 
 
 def result_cache_key(registry, target, submenu, request_text, tensors, duration=10,
-                     uncensored=True) -> str:
+                     uncensored=True, aspect_ratio="") -> str:
     digest = hashlib.sha256()
     digest.update(repr((
         (target or {}).get("name"), (submenu or {}).get("name"),
         (request_text or "").strip(), int(duration or 10), bool(uncensored),
+        str(aspect_ratio or "").strip(),
     )).encode("utf-8"))
     digest.update(resolve_model(registry).encode("utf-8"))
     try:
@@ -589,7 +612,8 @@ def _ui_text(ui_language, english, korean):
 
 
 def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, api_key,
-                        duration: int = 10, uncensored: bool = True, ui_language: str = "en"):
+                        duration: int = 10, uncensored: bool = True, ui_language: str = "en",
+                        aspect_ratio: str = ""):
     """Execute the generation pipeline.
 
     Returns `(prompt, wh_ratio, pass_used, model_used, warnings)`.
@@ -609,7 +633,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
                                      "첨부 이미지 한 장을 변환하지 못해 건너뛰었습니다."))
 
     image_count = len(images_b64)
-    system_text = build_system_prompt(registry, submenu, image_count, duration, uncensored)
+    system_text = build_system_prompt(registry, submenu, image_count, duration, uncensored, aspect_ratio)
     user_text = build_user_prompt(request_text, target, submenu, image_count)
     schema = _schema_for(submenu)
 
@@ -801,16 +825,22 @@ class BadaPromptGenerator:
             "required": {
                 "enhance": ("BOOLEAN", {
                     "default": bool(defaults.get("enhance", True)),
-                    "label_on": "🔥 ON", "label_off": "OFF",
+                    "label_on": "ON", "label_off": "OFF",
                     "tooltip": "When OFF, the request passes through unchanged without calling Gemini.",
                 }),
                 "uncensored": ("BOOLEAN", {
                     "default": bool(defaults.get("uncensored", True)),
-                    "label_on": "🔓 ON", "label_off": "OFF",
+                    "label_on": "ON", "label_off": "OFF",
                     "tooltip": "Enables BLOCK_NONE and the 3-pass zero-refusal fallback.",
                 }),
                 "target": (targets, {"default": default_target}),
                 "submenu": (submenus, {"default": default_submenu}),
+                # One picker for every tab; injected into the system instruction so Gemini
+                # frames the shot for that shape. "" keeps the pre-widget behaviour.
+                "aspect_ratio": (list(NODE_ASPECT_RATIOS), {
+                    "default": defaults.get("aspect_ratio", ""),
+                    "tooltip": "Output frame applied to every model tab. Empty = let the AI decide."
+                }),
                 "request_text": ("STRING", {
                     "multiline": True, "default": "",
                     "placeholder": "Enter a request (or connect images only)",
@@ -858,9 +888,15 @@ class BadaPromptGenerator:
 
     # -- execution ----------------------------------------------------------
     def generate(self, enhance=True, uncensored=True, target=None, submenu=None,
-                 request_text="", duration=10, image_1=None, image_2=None, image_3=None,
-                 image_4=None, image_5=None, image_6=None, unique_id=None, ui_language="en", **kwargs):
+                 request_text="", duration=10, aspect_ratio="", image_1=None, image_2=None,
+                 image_3=None, image_4=None, image_5=None, image_6=None, unique_id=None,
+                 ui_language="en", **kwargs):
         ui_language = "ko" if ui_language == "ko" else "en"
+        # Unknown / legacy values are ignored rather than forwarded: the directive builder
+        # validates against the shared choice list anyway.
+        aspect_ratio = str(aspect_ratio or "").strip()
+        if aspect_ratio not in NODE_ASPECT_RATIOS:
+            aspect_ratio = ""
         registry = load_registry()
         toasts = []
 
@@ -951,7 +987,7 @@ class BadaPromptGenerator:
         # produces a new key -> fresh API call.
         cache_key = result_cache_key(registry, target_obj, submenu_obj, request_text,
                                      used_tensors, duration=int(duration or 10),
-                                     uncensored=bool(uncensored))
+                                     uncensored=bool(uncensored), aspect_ratio=aspect_ratio)
         cached = cache_lookup(cache_key)
         if cached:
             toasts.append({"level": "info",
@@ -964,6 +1000,7 @@ class BadaPromptGenerator:
         prompt, wh_ratio, pass_used, model_used, warnings = run_prompt_pipeline(
             registry, target_obj, submenu_obj, request_text, used_tensors, api_key,
             duration=int(duration or 10), uncensored=bool(uncensored), ui_language=ui_language,
+            aspect_ratio=aspect_ratio,
         )
 
         for warning in warnings:

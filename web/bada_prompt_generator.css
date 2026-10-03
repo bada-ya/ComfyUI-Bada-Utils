@@ -51,6 +51,7 @@
     align-items: center;
     gap: 5px;
     min-width: 0;
+    flex-wrap: wrap;
 }
 
 .bpg-row--toggles {
@@ -145,6 +146,14 @@
     border-color: #666666;
 }
 
+/* Model select shares row 2 with the 시스템 프롬프트 관리 button. Cap its width so it
+   cannot starve the button — "🚀 Gemini 3.5 Flash-Lite (권장 ⭐)" still fits inside the
+   cap, and any leftover width goes to the button rather than the dropdown. */
+.bpg-row .bpg-select {
+    flex: 0 1 auto;
+    max-width: 250px;
+}
+
 .bpg-select {
     flex: 1 1 auto;
     cursor: pointer;
@@ -187,6 +196,11 @@
     background: #282828;
     border-color: #444444;
     color: #dddddd;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    /* Row 2 is [model select] [spacer] [manage] — the button is pinned to the right edge
+       regardless of how wide the model name renders. */
+    margin-left: auto;
 }
 
 .bpg-icon-btn {
@@ -197,13 +211,6 @@
 .bpg-icon-btn--on {
     border-color: #777777;
     background: #383838;
-}
-
-.bpg-notice {
-    flex: 0 0 auto;
-    font-size: 9.5px;
-    color: var(--bpg-muted);
-    white-space: nowrap;
 }
 
 /* --------------------------------------------------------------------------
@@ -222,6 +229,12 @@
     border-radius: 8px;
     cursor: pointer;
     transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
+}
+
+/* Below this width the three controls would squeeze "증강 / 무검열 / 화면 비율"
+   into unreadable ellipses, so wrap them onto a second line instead. */
+.bpg-row--toggles .bpg-card {
+    flex: 1 1 116px;
 }
 
 .bpg-card:hover {
@@ -277,6 +290,57 @@
 .bpg-card--on .bpg-switch i {
     transform: translateX(12px);
     background: #ffffff;
+}
+
+/* --------------------------------------------------------------------------
+   Aspect ratio picker (sits to the right of 🔓 무검열)
+   Shares the card look but is not click-to-toggle: the <select> owns the input,
+   so clicks must reach the dropdown rather than flipping a boolean.
+   -------------------------------------------------------------------------- */
+.bpg-card--ratio {
+    flex: 1.5 1 138px;
+    cursor: default;
+    gap: 5px;
+}
+
+.bpg-card--ratio:hover {
+    border-color: #555555;
+}
+
+.bpg-ratio-select {
+    flex: 0 0 auto;
+    max-width: 62px;
+    height: 18px;
+    padding: 0 2px;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-align: center;
+    color: var(--bpg-dim);
+    background: #2a2a2a;
+    border: 1px solid #444444;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.bpg-ratio-select:focus {
+    outline: none;
+    border-color: #6f6f6f;
+}
+
+.bpg-card--ratio.bpg-card--on .bpg-ratio-select {
+    color: #ffffff;
+    background: #383838;
+    border-color: #8a8a8a;
+}
+
+/* Backend widget missing (ComfyUI not restarted): mark the control as dead. */
+.bpg-card--ratio.bpg-card--broken {
+    border-color: #a33a3a;
+    box-shadow: 0 0 0 1px #a33a3a inset;
+}
+
+.bpg-card--ratio.bpg-card--broken .bpg-ratio-select {
+    color: #ff9a9a;
 }
 
 /* --------------------------------------------------------------------------
