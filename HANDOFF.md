@@ -1,3 +1,67 @@
+# Beta Handoff — 2026-10-04 (Phase 3: legacy category deleted + startup language fixed)
+
+## Two separate problems, in one report
+
+The user reported (a) buttons stuck in Korean and (b) suspecting the legacy category was
+responsible. They were different bugs. Deleting legacy did NOT fix the startup symptom, so it
+had to be diagnosed separately — worth recording, because the guess was plausible and wrong.
+
+### (a) STARTUP DREW EVERY ROW IN KOREAN WITH THE LANGUAGE SET TO ENGLISH
+
+Two independent causes, both now fixed in `registerBadaV2Settings()`:
+
+1. **The stored value was ignored.** `defaultValue: lang` took the language from `BadaI18n` at
+   registration time. `getBadaLanguage()` reads **localStorage first**, while the dropdown
+   renders the value ComfyUI restored from its own store — so the two could disagree, giving
+   "dropdown says English, rows say Korean". Now the row reads the actual setting first
+   (`storedLang`) and falls back to the registration-time language.
+2. **The server sync landed too late.** `bada_i18n.js` fetches `/settings` asynchronously at
+   module load, i.e. after the rows are built. `notifyListeners()` fires, but a re-label cannot
+   repaint rows the dialog already rendered. A bounded 4-try poll now replays the same two
+   passes a manual switch runs, and bails when the engine already agrees.
+
+Deleting the legacy category was NOT the cause. It did remove a real duplicate-language-row
+hazard (two rows owning the language, each with its own `onChange`, racing through
+`BadaI18n.setLanguage()`'s reentrancy guard), which is gone now regardless.
+
+### (b) PHASE 3 — the legacy category is deleted
+
+`bada_core.js` went from 1758 to ~1234 lines. Removed: all 16 legacy registrations,
+`toLegacyId()`, both custom-renderer builders (`buildInlinePresetsPanel`,
+`buildNoteHelperPanel`), the `.bada-trans-*` / `#bada-inline-presets-panel` CSS, the
+`BadaLegacy.*` CSS rules, the now-unused presets imports, and the `category` keys in
+`BADA_SETTINGS_TEXTS`.
+
+**Deliberately KEPT** (they look like legacy leftovers but are not):
+- `BADA_SETTINGS_TEXTS` + `BADA_UNIFIED_SETTINGS` — `applyBilingualSettingsUI()` resolves every
+  v2 row's title/description through them. They are v2's label source.
+- `applyCompactSidebarState` + its initial apply — v2 only reacts to `onChange`, so dropping the
+  startup call would leave the mode unapplied until the user toggled the switch.
+- `presets_modal.js` stays loaded via `hub_modal.js` / `smart_presets.js` / the overview modal.
+
+## Test-suite damage worth recording
+
+14 checks failed on deletion because they *asserted the legacy category existed*. Those were
+rewritten as absence checks. Three of my own mistakes along the way, each of which made a test
+fail for the wrong reason:
+
+- `panelBuilder` sliced to `buildNoteHelperPanel`, which no longer exists — `indexOf` returns
+  -1, so `slice(a, -1)` silently produced a garbage region and failed 9 unrelated checks.
+- `stripComments` only stripped **full-line** `//` comments, so a deleted symbol named in a
+  line-closing comment read as a live reference. Now strips trailing `//` too.
+- A blanket line-range deletion ate `mountManagerCacheWidget` along with the two builders.
+  Recovered from a `%TEMP%` copy. **Use anchored index arithmetic, not line numbers, when
+  deleting multi-hundred-line regions.**
+
+New checks are verified by breaking the code deliberately: reverting `resolvedLang` → red,
+deleting the late-sync block → red, removing each of the five language mounts → red.
+`bada_manager_cache_test.js` → **77/77**, all files pass the ESM parse.
+
+Still unverified in a browser — the user asked us not to launch ComfyUI. The startup-language
+fix in particular is reasoned from the code, not measured.
+
+---
+
 # Beta Handoff — 2026-10-03 (round 2: the language switch never reached the custom rows)
 
 ## The bug the previous round missed

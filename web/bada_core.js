@@ -1,14 +1,15 @@
 import { app } from "../../scripts/app.js";
 import { escapeHtml } from "./bada_shared.js";
 import { BadaI18n } from "./bada_i18n.js";
-import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary, getGlobalPresetsStore, exportGlobalPresetsJson, importGlobalPresetsJson } from "./presets_overview_modal.js";
-import { showToast } from "./presets_modal.js";
+// PHASE 3: the presets helpers and showToast were only used by buildInlinePresetsPanel(),
+// deleted with the legacy category. bada_settings_v2.js imports the presets helpers from
+// presets_overview_modal.js directly; presets_modal.js stays registered via its own import.
 import "./tooltip_fixer.js";
 // Legacy Manager node-name cache warm-up. Must be imported here so it registers
 // its own app extension; it self-gates on the active Manager UI.
 import { refreshLegacyManagerCache, getLastRefreshDate, getManagerUiMode } from "./bada_manager_cache.js";
-// Settings v2 (Phase 1 coexistence). Registers the NEW "Bada Utils" category, which now
-// owns the canonical BadaUtils.* setting IDs. See the module header for the migration plan.
+// Settings v2. Registers the ONLY "Bada Utils" category and owns the canonical
+// BadaUtils.* setting IDs. See the module header for the migration plan.
 import { registerBadaV2Settings } from "./bada_settings_v2.js";
 
 /**
@@ -36,21 +37,17 @@ const BADA_ICONS = {
 //  Bilingual Settings Definitions (Title + Sub-description, No Numbers, No Tooltips)
 // ──────────────────────────────────────────────────────────────────────────────
 // ──────────────────────────────────────────────────────────────────────────────
-//  Legacy settings namespace (Phase 1 coexistence)
+//  Bilingual label tables (shared by the single "Bada Utils" category)
 // ──────────────────────────────────────────────────────────────────────────────
-// Settings v2 now owns the canonical `BadaUtils.*` IDs (28+ call sites read them, so the
-// values must stay under those exact keys). The legacy registrations below therefore get
-// remapped to `BadaLegacy.*` — distinct keys, no collision — and their category is
-// relabelled "Bada Utils (Legacy)". Only the REGISTRATION id is remapped; the
-// BADA_UNIFIED_SETTINGS table keeps the canonical id because the bilingual updater and
-// updatePresetBadgePositionOptions() look settings up BY that canonical id.
-function toLegacyId(id) {
-    return "BadaLegacy." + String(id).replace(/^BadaUtils\./, "");
-}
+// PHASE 3 (2026-10-04): the legacy category and its id-remapping helper are deleted. Settings v2
+// (bada_settings_v2.js) is the sole owner of the canonical BadaUtils.* ids — 28+ call sites
+// read them, so those keys never moved. BADA_SETTINGS_TEXTS and BADA_UNIFIED_SETTINGS below
+// stay because applyBilingualSettingsUI() resolves every v2 row's bilingual title and
+// description through BADA_UNIFIED_SETTINGS ids: these tables are v2's label source, not
+// legacy leftovers.
 
 const BADA_SETTINGS_TEXTS = {
     en: {
-        category: "Bada Utils (Legacy)",
         langName: "🌐 UI Language",
         langDesc: "Set display language for Bada nodes, context menus, modals, and Workflows+ sidebar.",
 
@@ -103,7 +100,6 @@ const BADA_SETTINGS_TEXTS = {
 
     },
     ko: {
-        category: "Bada Utils (구)",
         langName: "🌐 UI 언어 설정",
         langDesc: "Bada 모든 노드, 우클릭 메뉴, 모달 창, Workflows+의 표시 언어를 설정합니다.",
 
@@ -463,9 +459,8 @@ let isPresetsExpanded = true;
            generalised to every v2 row.
 
            Only the PAINTED LINE is removed; the 8px margin rhythm from the rule above is
-           kept, so spacing does not collapse. Selector is the BadaUtils PREFIX on purpose:
-           after the Phase 1 remap those ids belong to settings v2, and the frozen
-           "Bada Utils (구)" category (BadaLegacy.*) keeps its original separators.
+           kept, so spacing does not collapse. Selector is the BadaUtils PREFIX, which after
+           Phase 3 covers every Bada row there is.
 
            NOTE: no backticks allowed in this block (JS template literal). */
         .setting-group:has([data-setting-id^="BadaUtils"]) > .my-8 {
@@ -513,7 +508,7 @@ let isPresetsExpanded = true;
 /* Control font size (2026-10-03). Measured at 16px on every v2 control, which made
            the combo boxes and the list inputs shout louder than their own row titles.
            13px matches the row title size so the row reads as one unit. Scoped to the
-           BadaUtils prefix so the frozen BadaLegacy rows keep the old size.
+           BadaUtils prefix, which after Phase 3 is every Bada row.
 
            NOTE the descendant selector: the combo rows are NOT native <select> elements in
            this frontend — they are custom components, so selecting .form-input select only
@@ -577,241 +572,20 @@ let isPresetsExpanded = true;
             width: 100% !important;
         }
 
-        /* 3. Full-width styling for Bada Note Helper & Translator panel
-
-           PHASE 1 REGRESSION FIX (2026-10-03). These rules were written when the translator
-           was a CUSTOM-RENDERER row, so the row's own label and native switch had to be
-           hidden - the rendered panel supplies its own toggle instead.
-
-           The canonical id BadaUtils.NoteHelper now belongs to settings v2, where the row is
-           a PLAIN native boolean. These rules kept matching and therefore suppressed v2's
-           real label, leaving a bare, unlabelled switch (measured: labelDisplay "none",
-           row height 34). Scoped to BadaLegacy.* - the custom-renderer row - so each
-           category gets the treatment it was designed for. */
-        div[data-setting-id="BadaLegacy.NoteHelper"] {
-            width: 100% !important;
-            margin-top: 2px !important;
-        }
-        div[data-setting-id="BadaLegacy.NoteHelper"] > div {
-            flex-direction: column !important;
-            align-items: stretch !important;
-            width: 100% !important;
-        }
-        div[data-setting-id="BadaLegacy.NoteHelper"] .form-label,
-        div[data-setting-id="BadaLegacy.NoteHelper"] .form-input > input[type="checkbox"],
-        div[data-setting-id="BadaLegacy.NoteHelper"] .form-input > .p-inputswitch,
-        div[data-setting-id="BadaLegacy.NoteHelper"] .form-input > label {
-            display: none !important;
-        }
-        div[data-setting-id="BadaLegacy.NoteHelper"] .form-input {
-            width: 100% !important;
-            max-width: 100% !important;
-            display: block !important;
-        }
-        /* The two translator lists moved INTO the NoteHelper panel, so their original rows
-           must disappear completely - row AND wrapper.
-
-           ComfyUI forces one divider per category: its SettingGroup component renders a
-           "my-8 border-t border-border-default" div as the FIRST child of every
-           .setting-group (confirmed in the frontend bundle settingStore-*.js and by
-           measurement: 14 rules for 15 groups). Hiding only the inner
-           [data-setting-id] div therefore left the wrapper alive with nothing but that
-           divider, stacking THREE rules back to back (measured top=185/194/203) between
-           the translator panel and the sidebar row - the empty band the user flagged.
-           Hiding the wrapper removes its divider too, so the run collapses 3 lines -> 1.
-
-           Scoped to BadaLegacy.* for the same reason as above: only the legacy panel has
-           inline list inputs. Settings v2 dropped that panel in Phase 2, so ITS two list
-           rows are the ONLY way to reach those settings and must stay visible - they were
-           measured at groupDisplay "none", height 0, i.e. unreachable.
-
-           NOTE: no backticks allowed in this block (JS template literal). */
-        .setting-group:has([data-setting-id="BadaLegacy.TranslationBlacklist"]),
-        .setting-group:has([data-setting-id="BadaLegacy.TranslationWhitelist"]) {
-            display: none !important;
-        }
-        div[data-setting-id="BadaLegacy.TranslationBlacklist"],
-        div[data-setting-id="BadaLegacy.TranslationWhitelist"] {
-            display: none !important;
-        }
-        .bada-trans-row { display: flex; gap: 8px; align-items: center; }
-        .bada-trans-row .bada-trans-input { flex: 1 1 auto; min-width: 0; }
-        .bada-trans-row .bada-trans-input.dup {
-            border-color: #ef4444 !important;
-            box-shadow: 0 0 0 1px rgba(239,68,68,0.55) !important;
-        }
-        .bada-trans-row .bada-trans-input.conflict {
-            border-color: #f59e0b !important;
-            box-shadow: 0 0 0 1px rgba(245,158,11,0.55) !important;
-        }
-        .bada-trans-hint { font-size: 11px; line-height: 1.5; margin-top: 4px; color: #94a3b8; }
-        .bada-trans-hint.warn { color: #fbbf24; }
-        .bada-trans-hint.error { color: #f87171; }
-        .bada-trans-hint.ok { color: #34d399; }
-
-        #bada-inline-presets-panel button {
-            cursor: pointer;
-            transition: filter 0.15s, transform 0.12s;
-        }
-        #bada-inline-presets-panel button:hover {
-            filter: brightness(1.18);
-            transform: translateY(-1px);
-        }
+        /* PHASE 3: the .bada-trans-* and #bada-inline-presets-panel rules are deleted with the
+           legacy category. They styled DOM only buildNoteHelperPanel() / buildInlinePresetsPanel()
+           produced, and both builders are gone. They were also actively harmful in Phase 1:
+           scoped to BadaLegacy.* they suppressed v2's real NoteHelper label and left a bare
+           unlabelled switch (measured labelDisplay "none", row height 34). v2's rows are native
+           ComfyUI rows, styled by the [data-setting-id^="BadaUtils"] rules above. */
     `;
     document.head.appendChild(style);
 })();
 
-// ──────────────────────────────────────────────────────────────────────────────
-//  Build Rich Full-Width Presets Panel
-// ──────────────────────────────────────────────────────────────────────────────
-function buildInlinePresetsPanel() {
-    const isKo = BadaI18n.lang === "ko";
-    const summary = getGlobalPresetsSummary();
-    const summaryHeader = summary.totalPresets > 0
-        ? (isKo 
-            ? `🎯 총 ${summary.totalPresets}개의 글로벌 프리셋 (${summary.nodeCount}개 노드 타입)`
-            : `🎯 Total Presets: ${summary.totalPresets} across ${summary.nodeCount} Node Types`)
-        : (isKo
-            ? `📭 저장된 글로벌 프리셋이 없습니다`
-            : `📭 No Global Presets Saved Yet`);
-
-    const panel = document.createElement("div");
-    panel.id = "bada-inline-presets-panel";
-    panel.style.cssText = "width: 100%; display: flex; flex-direction: column; gap: 8px; box-sizing: border-box;";
-
-    // Header Controls Bar (Summary + Badges + Toggle Button)
-    const headerBar = document.createElement("div");
-    headerBar.id = "bada-inline-toggle-header";
-    headerBar.style.cssText = [
-        "display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;",
-        "padding: 10px 14px; background: rgba(99, 102, 241, 0.10);",
-        "border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px;",
-        "cursor: pointer; user-select: none; transition: background 0.18s;"
-    ].join("");
-    
-    headerBar.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <span style="font-size: 13px; color: #38bdf8; font-weight: 700;">${summaryHeader}</span>
-            <span style="font-size: 11px; font-weight: 700; color: #a5b4fc; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.4); padding: 1px 8px; border-radius: 10px;">${summary.totalPresets}</span>
-        </div>
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <span style="font-size: 11px; color: #94a3b8;">${isKo ? "※ 모든 워크플로우에서 전역 공유됨" : "※ Shared globally across workflows"}</span>
-            <button type="button" id="bada-inline-toggle-btn" style="background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.18); color: #e2e8f0; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-                <span class="bada-toggle-text">${isPresetsExpanded ? (isKo ? "▲ 접기" : "▲ Collapse") : (isKo ? "▼ 펼치기" : "▼ Expand")}</span>
-            </button>
-        </div>
-    `;
-
-    headerBar.addEventListener("mouseenter", () => { headerBar.style.background = "rgba(99, 102, 241, 0.18)"; });
-    headerBar.addEventListener("mouseleave", () => { headerBar.style.background = "rgba(99, 102, 241, 0.10)"; });
-
-    // Collapsible Body
-    const body = document.createElement("div");
-    body.id = "bada-inline-presets-body";
-    body.style.cssText = `display: ${isPresetsExpanded ? "flex" : "none"}; flex-direction: column; gap: 8px;`;
-
-    // Presets Cards Grid (or Empty State)
-    const cardsContainer = document.createElement("div");
-    if (summary.nodeSummaries.length === 0) {
-        cardsContainer.innerHTML = `
-            <div style="text-align: center; padding: 24px; background: rgba(255, 255, 255, 0.02); border: 1px dashed rgba(255, 255, 255, 0.15); border-radius: 8px; color: #94a3b8; font-size: 12px; line-height: 1.6;">
-                ${isKo ? `
-                    📭 저장된 글로벌 프리셋이 없습니다.<br>
-                    <span style="font-size: 11px; color: #64748b;">(캔버스에서 노드를 우클릭하여 '현재 세팅 글로벌 프리셋으로 저장'을 선택하면 여기에 표시됩니다)</span>
-                ` : `
-                    📭 No global presets saved yet.<br>
-                    <span style="font-size: 11px; color: #64748b;">(Right-click any node on canvas and select 'Save Current Settings as Global Preset' to view them here)</span>
-                `}
-            </div>
-        `;
-    } else {
-        // No max-height here: the panel is already collapsed/expanded by the header toggle,
-        // so capping the grid just leaves a band of dead space under the last row whenever
-        // the presets do not fill it. overflow-y:auto then never engages.
-        const grid = document.createElement("div");
-        grid.style.cssText = "display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; align-content: start;";
-        summary.nodeSummaries.forEach(node => {
-            const card = document.createElement("div");
-            card.style.cssText = "background: rgba(25, 32, 54, 0.85); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0;";
-            const tags = node.presets.map(name =>
-                `<span style="font-size: 11px; color: #cbd5e1; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); padding: 2px 6px; border-radius: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;" title="${escapeHtml(name)}">🏷️ ${escapeHtml(name)}</span>`
-            ).join("");
-            card.innerHTML = `
-                <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255, 255, 255, 0.06); padding-bottom: 6px;">
-                    <span style="font-size: 12px; font-weight: 700; color: #f1f5f9; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(node.nodeType)}">🧩 ${escapeHtml(node.nodeType)}</span>
-                    <span style="font-size: 11px; font-weight: 700; color: #a5b4fc; background: rgba(99, 102, 241, 0.2); padding: 1px 6px; border-radius: 10px;">${node.count}</span>
-                </div>
-                <div style="display: flex; flex-wrap: wrap; gap: 4px; max-height: 80px; overflow-y: auto;">
-                    ${tags}
-                </div>
-            `;
-            grid.appendChild(card);
-        });
-        cardsContainer.appendChild(grid);
-    }
-    body.appendChild(cardsContainer);
-
-    // Action Bar (Backup, Import, Full Popup)
-    const actions = document.createElement("div");
-    // No border-top: the grid above already ends the content block, so the rule added a
-    // lone horizontal line floating between the cards and the buttons.
-    actions.style.cssText = "display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 2px;";
-    actions.innerHTML = `
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button type="button" id="bada-inline-export-btn" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-                ${isKo ? "📤 전체 백업 (JSON)" : "📤 Backup All (JSON)"}
-            </button>
-            <button type="button" id="bada-inline-import-btn" style="background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.15); color: #e2e8f0; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-                ${isKo ? "📥 불러오기" : "📥 Import"}
-            </button>
-        </div>
-        <button type="button" id="bada-inline-popup-btn" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.25); padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(99,102,241,0.3);">
-            ${isKo ? "🌐 전용 팝업으로 크게 보기" : "🌐 Open Presets Manager"}
-        </button>
-    `;
-    body.appendChild(actions);
-
-    // Toggle expand/collapse
-    headerBar.addEventListener("click", () => {
-        isPresetsExpanded = !isPresetsExpanded;
-        body.style.display = isPresetsExpanded ? "flex" : "none";
-        const txt = headerBar.querySelector(".bada-toggle-text");
-        if (txt) txt.textContent = isPresetsExpanded ? (isKo ? "▲ 접기" : "▲ Collapse") : (isKo ? "▼ 펼치기" : "▼ Expand");
-    });
-
-    // Popup button
-    actions.querySelector("#bada-inline-popup-btn")?.addEventListener("click", (e) => {
-        e.stopPropagation();
-        showGlobalPresetsOverviewModal();
-    });
-
-    // Backup / Import now live in presets_overview_modal.js so that settings v2's own presets
-    // row can reuse them. Phase 2 removed the window bridge that used to expose this builder.
-    actions.querySelector("#bada-inline-export-btn")?.addEventListener("click", (e) => {
-        e.stopPropagation();
-        exportGlobalPresetsJson();
-    });
-
-    // Import button
-    actions.querySelector("#bada-inline-import-btn")?.addEventListener("click", (e) => {
-        e.stopPropagation();
-        // Seamlessly update panel in place
-        importGlobalPresetsJson(() => panel.replaceWith(buildInlinePresetsPanel()));
-    });
-
-    panel.appendChild(headerBar);
-    panel.appendChild(body);
-    return panel;
-}
-
-// NOTE: there is deliberately no window bridge out of this builder any more. Settings v2 used
-// to reach it via window.__BADA_BUILD_PRESETS_PANEL__; in Phase 2 v2 renders its own presets
-// row and calls presets_overview_modal.js directly. This function now serves only the
-// legacy "Bada Utils (구)" row, and is deleted in Phase 3 along with that category.
-
-// ──────────────────────────────────────────────────────────────────────────────
-//  Legacy Manager Cache — status line + manual refresh button
-// ──────────────────────────────────────────────────────────────────────────────
+// PHASE 3 (2026-10-04): buildInlinePresetsPanel() and buildNoteHelperPanel() were deleted
+// along with the legacy category that was their only caller. Both were per-row custom
+// renderers — the exact mechanism settings v2 exists to remove. v2 renders its own compact
+// presets row and reaches the same backup/restore through presets_overview_modal.js.// ──────────────────────────────────────────────────────────────────────────────
 // This is deliberately NOT a custom setting renderer (`type: () => ...`). Two separate
 // freeze bugs came from doing that:
 //
@@ -976,347 +750,6 @@ function paintManagerCacheWidget(wrap) {
 
 // ──────────────────────────────────────────────────────────────────────────────
 //  Build Rich Full-Width Note Helper & Translator Panel
-// ──────────────────────────────────────────────────────────────────────────────
-function buildNoteHelperPanel() {
-    const isKo = BadaI18n.lang === "ko";
-
-    let isEnabled = true;
-    try {
-        if (app.ui && app.ui.settings && app.ui.settings.getSettingValue) {
-            const v = app.ui.settings.getSettingValue("BadaUtils.NoteHelper");
-            if (v !== undefined) isEnabled = !!v;
-        }
-    } catch (_) { console.debug("[Bada] ignored:", _); }
-
-    let blacklistStr = "";
-    try {
-        if (app.ui && app.ui.settings && app.ui.settings.getSettingValue) {
-            const str = app.ui.settings.getSettingValue("BadaUtils.TranslationBlacklist");
-            if (typeof str === "string") {
-                blacklistStr = str;
-            }
-        }
-    } catch (_) { console.debug("[Bada] ignored:", _); }
-
-    let whitelistStr = "";
-    try {
-        if (app.ui && app.ui.settings && app.ui.settings.getSettingValue) {
-            const str = app.ui.settings.getSettingValue("BadaUtils.TranslationWhitelist");
-            if (typeof str === "string") {
-                whitelistStr = str;
-            }
-        }
-    } catch (_) { console.debug("[Bada] ignored:", _); }
-
-    // Normalize a comma-separated list for duplicate / conflict detection:
-    // trim + lowercase + collapse inner whitespace, keep first raw form for display.
-    const parseNameList = (raw) => {
-        const items = String(raw || "").split(",")
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .map((rawItem) => ({
-                raw: rawItem,
-                key: rawItem.toLowerCase().replace(/\s+/g, " "),
-            }));
-        const counts = new Map();
-        items.forEach(({ key }) => counts.set(key, (counts.get(key) || 0) + 1));
-        return { items, counts };
-    };
-
-    const panel = document.createElement("div");
-    panel.id = "bada-note-helper-panel";
-    panel.style.cssText = "width: 100%; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box; padding: 4px 0;";
-
-    // Header (Title + Toggle Switch)
-    // justify-content: flex-start (not space-between): the toggle belongs to this panel,
-    // not to the far edge of the settings dialog. Spacing them apart pushed the switch
-    // ~1200px away from its own title and cost a whole visual line.
-    const headerRow = document.createElement("div");
-    headerRow.style.cssText = "display: flex; align-items: center; justify-content: flex-start; width: 100%; gap: 10px;";
-
-    const titleEl = document.createElement("div");
-    titleEl.style.cssText = "font-size: 13px; font-weight: 600; color: #f8fafc; display: flex; align-items: center; gap: 6px;";
-    titleEl.innerHTML = isKo ? "📝 텍스트 & 프롬프트 원클릭 번역기" : "📝 Text & Prompt One-Click Translator";
-
-    // Custom Toggle Switch (iOS / ComfyUI Pill Style)
-    const toggleLabel = document.createElement("label");
-    toggleLabel.style.cssText = "position: relative; display: inline-block; width: 40px; height: 22px; cursor: pointer; flex-shrink: 0; user-select: none;";
-
-    const toggleInput = document.createElement("input");
-    toggleInput.type = "checkbox";
-    toggleInput.checked = isEnabled;
-    toggleInput.style.cssText = "opacity: 0; width: 0; height: 0; position: absolute;";
-
-    const toggleSlider = document.createElement("span");
-    const updateSlider = () => {
-        const checked = toggleInput.checked;
-        toggleSlider.style.cssText = `
-            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-            background-color: ${checked ? "#0284c7" : "#475569"};
-            transition: background-color 0.2s; border-radius: 22px;
-            box-shadow: ${checked ? "0 0 8px rgba(2, 132, 199, 0.4)" : "none"};
-        `;
-        toggleSlider.innerHTML = `
-            <span style="
-                position: absolute; content: ''; height: 16px; width: 16px;
-                left: ${checked ? "21px" : "3px"}; bottom: 3px;
-                background-color: #ffffff; transition: left 0.2s; border-radius: 50%;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            "></span>
-        `;
-    };
-    updateSlider();
-
-    toggleInput.addEventListener("change", () => {
-        const val = toggleInput.checked;
-        updateSlider();
-        try {
-            if (app.ui?.settings?.setSettingValue) {
-                app.ui.settings.setSettingValue("BadaUtils.NoteHelper", val);
-            }
-        } catch (_) { console.debug("[Bada] ignored:", _); }
-        if (window.__BADA_SYNC_NOTE_HELPER_STATE__) {
-            window.__BADA_SYNC_NOTE_HELPER_STATE__(val);
-        }
-        app.graph?.setDirtyCanvas?.(true, true);
-    });
-
-    toggleLabel.appendChild(toggleInput);
-    toggleLabel.appendChild(toggleSlider);
-    headerRow.appendChild(titleEl);
-    headerRow.appendChild(toggleLabel);
-
-    // Shared input style helper
-    const transInputStyle = [
-        "flex: 1; min-width: 0; height: 34px;",
-        "background: rgba(15, 23, 42, 0.85); color: #f8fafc;",
-        "border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 6px;",
-        "padding: 0 12px; font-size: 13px; font-family: monospace, inherit;",
-        "outline: none; transition: border-color 0.15s, box-shadow 0.15s;"
-    ].join("");
-
-    const mkInput = (val, ph) => {
-        const el = document.createElement("input");
-        el.type = "text";
-        el.value = val;
-        el.placeholder = ph;
-        el.className = "bada-trans-input";
-        el.style.cssText = transInputStyle;
-        return el;
-    };
-
-    const blInputEl = mkInput(blacklistStr, isKo ? "제외할 노드명 (쉼표로 구분)" : "Node names to exclude (comma-separated)");
-    const wlInputEl = mkInput(whitelistStr, isKo ? "추가할 노드명 (쉼표로 구분)" : "Node names to force-add (comma-separated)");
-    blInputEl.id = "bada-translation-blacklist-input";
-    blInputEl.setAttribute("aria-label", isKo ? "번역 제외 노드 목록" : "Translation exclude list");
-    wlInputEl.id = "bada-translation-whitelist-input";
-    wlInputEl.setAttribute("aria-label", isKo ? "번역 강제 추가 노드 목록" : "Translation force-add list");
-
-    const mkListLabel = (text, inputId, color, background) => {
-        const label = document.createElement("label");
-        label.htmlFor = inputId;
-        label.textContent = text;
-        label.style.cssText = [
-            "display: flex; align-items: center; justify-content: center;",
-            // Narrower than the old 96px so BOTH label+input+apply groups fit on one line.
-            // The input carries flex:1 + min-width:0, so it absorbs whatever is left over.
-            "flex: 0 0 84px; min-height: 34px; box-sizing: border-box;",
-            "border: 1px solid currentColor; border-radius: 6px;",
-            "font-size: 12px; font-weight: 700; white-space: nowrap;",
-            `color: ${color}; background: ${background};`
-        ].join("");
-        return label;
-    };
-
-    const blLabel = mkListLabel(
-        isKo ? "제외 목록" : "Exclude",
-        blInputEl.id,
-        "#fca5a5",
-        "rgba(127, 29, 29, 0.22)"
-    );
-    const wlLabel = mkListLabel(
-        isKo ? "강제 추가" : "Force add",
-        wlInputEl.id,
-        "#6ee7b7",
-        "rgba(6, 78, 59, 0.22)"
-    );
-
-    const descEl = document.createElement("div");
-    descEl.style.cssText = "font-size: 11px; color: #94a3b8; line-height: 1.4; font-weight: 400;";
-    descEl.textContent = isKo
-        ? "번역 버튼을 자동으로 추가합니다. 제외 / 강제 추가할 노드명을 쉼표(,)로 구분해 입력하세요."
-        : "Auto-adds translation buttons. Enter excluded / forced-add node names, separated by commas.";
-
-    const mkApplyBtn = () => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.textContent = isKo ? "적용" : "Apply";
-        btn.style.cssText = [
-            "height: 34px; padding: 0 18px; min-width: 64px;",
-            "background: rgba(15, 23, 42, 0.9); color: #38bdf8;",
-            "border: 1px solid #38bdf8; border-radius: 6px;",
-            "font-size: 13px; font-weight: 700; cursor: pointer;",
-            "transition: all 0.15s ease; white-space: nowrap; flex-shrink: 0;"
-        ].join("");
-        btn.addEventListener("mouseenter", () => {
-            btn.style.background = "#0284c7";
-            btn.style.color = "#ffffff";
-            btn.style.boxShadow = "0 0 10px rgba(2, 132, 199, 0.4)";
-        });
-        btn.addEventListener("mouseleave", () => {
-            btn.style.background = "rgba(15, 23, 42, 0.9)";
-            btn.style.color = "#38bdf8";
-            btn.style.boxShadow = "none";
-        });
-        return btn;
-    };
-    const applyBtn = mkApplyBtn();
-
-    const flashApplyBtn = (btn) => {
-        btn.textContent = isKo ? "✓ 적용됨" : "✓ Applied";
-        btn.style.borderColor = "#10b981";
-        btn.style.color = "#10b981";
-        setTimeout(() => {
-            btn.textContent = isKo ? "적용" : "Apply";
-            btn.style.borderColor = "#38bdf8";
-            btn.style.color = "#38bdf8";
-        }, 1500);
-    };
-
-    const applyBtn2 = mkApplyBtn();
-
-    const transHintEl = document.createElement("div");
-    transHintEl.className = "bada-trans-hint";
-    transHintEl.style.cssText = "font-size: 11px; line-height: 1.4; margin-top: 3px; color: #94a3b8;";
-
-    const setInputMark = (input, state) => {
-        input.classList.remove("dup", "conflict");
-        if (state === "dup") {
-            input.classList.add("dup");
-            input.style.borderColor = "#ef4444";
-            input.style.boxShadow = "0 0 0 1px rgba(239,68,68,0.55)";
-        } else if (state === "conflict") {
-            input.classList.add("conflict");
-            input.style.borderColor = "#f59e0b";
-            input.style.boxShadow = "0 0 0 1px rgba(245,158,11,0.55)";
-        } else {
-            input.style.borderColor = "rgba(255, 255, 255, 0.25)";
-            input.style.boxShadow = "none";
-        }
-    };
-
-    const refreshTransHint = () => {
-        const bl = parseNameList(blInputEl.value);
-        const wl = parseNameList(wlInputEl.value);
-        const wlKeySet = new Set(wl.items.map((i) => i.key));
-        const msgs = [];
-        let level = "ok";
-        const collectDup = (parsed, tagKo, tagEn) => {
-            const out = [];
-            for (const [key, n] of parsed.counts) {
-                if (n > 1) {
-                    const raws = [...new Set(parsed.items.filter((i) => i.key === key).map((i) => i.raw))];
-                    out.push(key);
-                    const v = raws.length > 1 ? (isKo ? ` (표기 변형: ${raws.join(" / ")})` : ` (variants: ${raws.join(" / ")})`) : "";
-                    msgs.push(isKo ? `⚠️ [${tagKo}] "${raws[0]}" ${n}회 중복${v}` : `⚠️ [${tagEn}] "${raws[0]}" duplicated ${n}x${v}`);
-                    level = "error";
-                }
-            }
-            return out;
-        };
-        const dupBlKeys = collectDup(bl, "제외", "Exclude");
-        const dupWlKeys = collectDup(wl, "추가", "Add");
-        const conflicts = bl.items.map((i) => i.key).filter((k) => wlKeySet.has(k));
-        const uniqConf = [...new Set(conflicts)];
-        uniqConf.forEach((k) => {
-            const raw = bl.items.find((i) => i.key === k)?.raw || k;
-            msgs.push(isKo ? `⛔ "${raw}"가 제외와 추가에 모두 있습니다 — 제외가 우선 적용됩니다` : `⛔ "${raw}" is in both Exclude and Add — Exclude wins`);
-            if (level !== "error") level = "warn";
-        });
-        if (!msgs.length) {
-            const a = bl.items.length, b = wl.items.length;
-            transHintEl.textContent = (a || b) ? (isKo ? `✓ 제외 ${a}개 · 추가 ${b}개 — 중복 없음` : `✓ ${a} excluded · ${b} forced — no duplicates`) : "";
-            transHintEl.className = "bada-trans-hint ok";
-        } else {
-            transHintEl.innerHTML = msgs.map((m) => `<div>${m}</div>`).join("");
-            transHintEl.className = `bada-trans-hint ${level}`;
-        }
-        setInputMark(blInputEl, dupBlKeys.length ? "dup" : (uniqConf.length ? "conflict" : "ok"));
-        setInputMark(wlInputEl, dupWlKeys.length ? "dup" : (uniqConf.length ? "conflict" : "ok"));
-    };
-
-    const persistTransLists = () => {
-        try {
-            if (app.ui?.settings?.setSettingValue) {
-                app.ui.settings.setSettingValue("BadaUtils.TranslationBlacklist", blInputEl.value.trim());
-                app.ui.settings.setSettingValue("BadaUtils.TranslationWhitelist", wlInputEl.value.trim());
-            }
-        } catch (_) { console.debug("[Bada] ignored:", _); }
-        if (window.__BADA_REAPPLY_NOTE_HELPER_NODES__) {
-            window.__BADA_REAPPLY_NOTE_HELPER_NODES__();
-        }
-        app.graph?.setDirtyCanvas?.(true, true);
-    };
-
-    const handleApply = () => {
-        persistTransLists();
-        flashApplyBtn(applyBtn);
-    };
-
-    const handleApply2 = () => {
-        persistTransLists();
-        flashApplyBtn(applyBtn2);
-    };
-
-    applyBtn.addEventListener("click", handleApply);
-    applyBtn2.addEventListener("click", handleApply2);
-    blInputEl.addEventListener("input", refreshTransHint);
-    wlInputEl.addEventListener("input", refreshTransHint);
-    blInputEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-            e.preventDefault();
-            handleApply();
-        }
-    });
-    wlInputEl.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-            e.preventDefault();
-            handleApply2();
-        }
-    });
-
-    // Both lists share ONE row. They were stacked as two full-width rows, which made this
-    // panel three visual lines (header + exclude + force-add). flex-wrap keeps them usable
-    // on a narrow dialog instead of forcing a second line via a fixed min-width.
-    const blRow = document.createElement("div");
-    blRow.className = "bada-trans-row";
-    blRow.style.cssText = "display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 2px; flex-wrap: wrap;";
-
-    const blGroup = document.createElement("div");
-    blGroup.style.cssText = "display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0;";
-    blGroup.appendChild(blLabel);
-    blGroup.appendChild(blInputEl);
-    blGroup.appendChild(applyBtn);
-
-    const wlGroup = document.createElement("div");
-    wlGroup.style.cssText = "display: flex; align-items: center; gap: 8px; flex: 1 1 320px; min-width: 0;";
-    wlGroup.appendChild(wlLabel);
-    wlGroup.appendChild(wlInputEl);
-    wlGroup.appendChild(applyBtn2);
-
-    blRow.appendChild(blGroup);
-    blRow.appendChild(wlGroup);
-
-    panel.appendChild(headerRow);
-    panel.appendChild(descEl);
-    panel.appendChild(blRow);
-    panel.appendChild(transHintEl);
-
-    refreshTransHint();
-
-    return panel;
-}
-
 // ──────────────────────────────────────────────────────────────────────────────
 //  Dynamic Settings Dialog Live Updater (Freeze-Safe & Re-entrant Guarded)
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1513,106 +946,26 @@ app.registerExtension({
             }
         };
 
-        // ── Settings v2: register the NEW "Bada Utils" category FIRST so its nav entry
-        //    lands ABOVE the legacy one (measured rule: the settings nav follows
-        //    registration order, not the alphabet). The legacy category below is
-        //    relabelled "Bada Utils (Legacy)" and remapped to BadaLegacy.* ids so the two
-        //    can coexist: v2 owns the canonical BadaUtils.* keys that 28+ call sites read.
+        // ── Settings v2 owns the ONLY "Bada Utils" category and carries the canonical
+        //    BadaUtils.* keys that 28+ call sites read. PHASE 3: nothing is registered after it.
         registerBadaV2Settings(safeAddSetting, { lang: currentLang });
         // Re-localize the v2 position dropdown. The identical call earlier in setup() ran
-        // before the v2 row existed, so it only touched the legacy table.
+        // before the v2 row existed; with the legacy category gone, this call is the only one.
         updatePresetBadgePositionOptions(currentLang);
 
-        // ① UI Language
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.lang.id),
-            category: [texts.category, "Language"],
-            name: texts.langName,
-            type: BADA_UNIFIED_SETTINGS.lang.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.lang.sortOrder,
-            options: BADA_UNIFIED_SETTINGS.lang.options,
-            defaultValue: currentLang,
-            onChange: (newVal) => {
-                const target = (typeof newVal === "object" && newVal?.value) ? newVal.value : newVal;
-                if (target === "ko" || target === "en") {
-                    BadaI18n.setLanguage(target, false);
-                    applyBilingualSettingsUI(target);
-                    // Same reason as the v2 language row: applyBilingualSettingsUI() cannot see
-                    // our custom-rendered rows, so the Manager cache button and the v2 presets
-                    // row are re-labelled by the idempotent mount.
-                    window.__BADA_MOUNT_LOCALIZED_ROWS__?.();
-                    app.graph?.setDirtyCanvas?.(true, true);
-                }
-            }
-        });
-
-        // Auto-refresh presets inline panel and settings DOM when language switches
+        // PHASE 3: the legacy "Bada Utils (Legacy)" category is GONE. The duplicate UI Language
+        // row it registered was a real bug source, not just clutter: two settings rows both
+        // claimed to own the language, each with its own defaultValue and onChange, and the
+        // reentrancy guard in BadaI18n.setLanguage() silently dropped whichever call lost the
+        // race. That is how the dropdown could read "English" while the rows rendered Korean.
+        // bada_settings_v2.js's BadaUtils.Language is now the single source of truth.
+        // Auto-refresh the settings DOM when the language switches. notifyListeners() fires on
+        // every change, so this is the most direct hook there is for the custom rows —
+        // applyBilingualSettingsUI() cannot reach them (they are not native ComfyUI rows),
+        // hence the mount alongside it.
         BadaI18n.subscribe((lang) => {
-            const existingPanel = document.getElementById("bada-inline-presets-panel");
-            if (existingPanel) {
-                existingPanel.replaceWith(buildInlinePresetsPanel());
-            }
-            // Rebuild the note-helper panel so its bilingual header / placeholders /
-            // duplicate hints follow the new language (it is a custom renderer).
-            // Scoped to BadaLegacy.*: the panel only exists in the legacy category. Settings
-            // v2's BadaUtils.NoteHelper is a plain native boolean with no panel to rebuild.
-            try {
-                const noteRow = document.querySelector('[data-setting-id="BadaLegacy.NoteHelper"]');
-                if (noteRow) {
-                    const host = noteRow.querySelector(".form-input, div");
-                    const oldPanel = document.getElementById("bada-note-helper-panel");
-                    if (host && oldPanel) {
-                        const fresh = buildNoteHelperPanel();
-                        oldPanel.replaceWith(fresh);
-                    }
-                }
-            } catch (_) { console.debug("[Bada] ignored:", _); }
             applyBilingualSettingsUI(lang);
-            // notifyListeners() runs on EVERY language change, so this is the most direct
-            // hook there is for the custom rows. applyBilingualSettingsUI() cannot reach
-            // them (they are not native ComfyUI rows), hence the mount.
             window.__BADA_MOUNT_LOCALIZED_ROWS__?.();
-        });
-
-        // ② Sidebar Workflow Folder Management
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.sidebar.id),
-            category: [texts.category, "Sidebar"],
-            name: texts.sidebarName,
-            type: BADA_UNIFIED_SETTINGS.sidebar.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.sidebar.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.sidebar.defaultValue,
-            onChange: (newVal) => {
-                const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
-                if (window.__BADA_SYNC_SIDEBAR_STATE__) {
-                    window.__BADA_SYNC_SIDEBAR_STATE__(target);
-                }
-            }
-        });
-
-        // ②-1 Save As Folder Picker (ComfyUI File ▸ Save As ▸ 폴더 지정 저장)
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.saveAsFolderPicker.id),
-            category: [texts.category, "SaveAsFolderPicker"],
-            name: texts.saveAsName,
-            type: BADA_UNIFIED_SETTINGS.saveAsFolderPicker.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.saveAsFolderPicker.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.saveAsFolderPicker.defaultValue,
-            onChange: () => {
-                // 훅은 promptSave() 호출 시점에 설정값을 다시 읽으므로 재시도만 걸어 주면 된다.
-                window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__?.setupSaveAsFolderPicker?.();
-            }
-        });
-
-
-        // ③ Smooth Mouse Pan & Wheel Zoom Fixer
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.mouse.id),
-            category: [texts.category, "MouseFix"],
-            name: texts.mouseName,
-            type: BADA_UNIFIED_SETTINGS.mouse.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.mouse.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.mouse.defaultValue
         });
 
         // ③-1 Compact Sidebar Mode (Icon-Only, Scrollbar-Free)
@@ -1649,147 +1002,11 @@ app.registerExtension({
         })();
         applyCompactSidebarState(initialCompact);
 
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.compactSidebar.id),
-            category: [texts.category, "CompactSidebar"],
-            name: texts.compactSidebarName,
-            type: BADA_UNIFIED_SETTINGS.compactSidebar.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.compactSidebar.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.compactSidebar.defaultValue,
-            onChange: (newVal) => {
-                const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? !!newVal.value : !!newVal;
-                applyCompactSidebarState(target);
-            }
-        });
-
-        // ④ Startup Behavior (Clean Blank Canvas Startup)
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.blankStartup.id),
-            category: [texts.category, "BlankStartup"],
-            name: texts.blankName,
-            type: BADA_UNIFIED_SETTINGS.blankStartup.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.blankStartup.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.blankStartup.defaultValue
-        });
-
-        // ⑤-1 Node Preset Badges
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.presetsBadge.id),
-            category: [texts.category, "PresetBadges"],
-            name: texts.presetsBadgeName,
-            type: BADA_UNIFIED_SETTINGS.presetsBadge.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.presetsBadge.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.presetsBadge.defaultValue,
-            onChange: () => {
-                app.graph?.setDirtyCanvas?.(true, true);
-            }
-        });
-
-        // ⑤-1-b Node Preset Badge Position
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.presetsBadgePosition.id),
-            category: [texts.category, "PresetBadgePosition"],
-            name: texts.presetsBadgePosName,
-            type: BADA_UNIFIED_SETTINGS.presetsBadgePosition.type,
-            options: BADA_UNIFIED_SETTINGS.presetsBadgePosition.options,
-            sortOrder: BADA_UNIFIED_SETTINGS.presetsBadgePosition.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.presetsBadgePosition.defaultValue,
-            onChange: () => {
-                app.graph?.setDirtyCanvas?.(true, true);
-            }
-        });
-
-        // ⑤-2 Full-Width Inline Global Presets Overview & Management Panel
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.presetsPanel.id),
-            category: [texts.category, "PresetsPanel"],
-            name: texts.presetsName,
-            sortOrder: BADA_UNIFIED_SETTINGS.presetsPanel.sortOrder,
-            type: () => {
-                return buildInlinePresetsPanel();
-            },
-            defaultValue: null
-        });
-
-        // ⑥ Clipboard & LoadImage Auto-Error Fixer
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.loadImageFix.id),
-            category: [texts.category, "LoadImageFix"],
-            name: texts.loadImageName,
-            type: BADA_UNIFIED_SETTINGS.loadImageFix.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.loadImageFix.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.loadImageFix.defaultValue,
-            onChange: (newVal) => {
-                const isEnabled = (typeof newVal === "object" && newVal !== null && "value" in newVal)
-                    ? !!newVal.value
-                    : (newVal === true || newVal === "true");
-                window._badaLoadImageFixEnabled = isEnabled;
-                if (isEnabled && window.BadaLoadImageFixer?.healAllImageNodes) {
-                    window.BadaLoadImageFixer.healAllImageNodes();
-                }
-            }
-        });
-
-        // ⑦ Markdown Note Helper & Translator Panel (Single Consolidated UI)
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.noteHelper.id),
-            category: [texts.category, "NoteHelper"],
-            name: texts.noteHelperName,
-            sortOrder: BADA_UNIFIED_SETTINGS.noteHelper.sortOrder,
-            type: () => {
-                return buildNoteHelperPanel();
-            },
-            defaultValue: BADA_UNIFIED_SETTINGS.noteHelper.defaultValue
-        });
-
-        // ⑦-b Translation Blacklist Setting (Registered for persistence)
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.translationBlacklist.id),
-            category: [texts.category, "TranslationBlacklist"],
-            name: texts.translationBlacklistName,
-            type: BADA_UNIFIED_SETTINGS.translationBlacklist.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.translationBlacklist.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.translationBlacklist.defaultValue
-        });
-
-        // ⑦-c Translation Whitelist (Forced-add) Setting (Registered for persistence)
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.translationWhitelist.id),
-            category: [texts.category, "TranslationWhitelist"],
-            name: texts.translationWhitelistName,
-            type: BADA_UNIFIED_SETTINGS.translationWhitelist.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.translationWhitelist.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.translationWhitelist.defaultValue
-        });
-
-        // ⑦-d Legacy Manager Node-Name Cache Refresh
-        // A plain boolean switch on purpose. It used to be a custom renderer
-        // (`type: () => buildManagerCachePanel()`), which caused two separate freezes:
-        // building the row wrote a setting value (re-triggering the row rebuild), and the
-        // builder subscribed to BadaI18n — notifyListeners() iterates a Set with for..of,
-        // which visits listeners ADDED mid-iteration, so the rebuilt panel re-queued itself
-        // forever and hung the browser on every language switch. The switch alone is safe;
-        // the timestamp + "Refresh now" button are mounted separately by
-        // mountManagerCacheWidget(), which never writes settings and never subscribes.
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.legacyManagerCache.id),
-            category: [texts.category, "ManagerCache"],
-            name: texts.legacyManagerCacheName,
-            type: BADA_UNIFIED_SETTINGS.legacyManagerCache.type,
-            defaultValue: BADA_UNIFIED_SETTINGS.legacyManagerCache.defaultValue
-        });
-
-
-
-        // ⑧ Missing Node Detective (Real Name & GitHub Finder)
-        safeAddSetting({
-            id: toLegacyId(BADA_UNIFIED_SETTINGS.missingDetective.id),
-            category: [texts.category, "MissingDetective"],
-            name: texts.detectiveName,
-            type: BADA_UNIFIED_SETTINGS.missingDetective.type,
-            sortOrder: BADA_UNIFIED_SETTINGS.missingDetective.sortOrder,
-            defaultValue: BADA_UNIFIED_SETTINGS.missingDetective.defaultValue
-        });
+        // PHASE 3: the legacy registrations below this line are gone. Compact Sidebar keeps
+        // the initial apply above because bada_settings_v2.js only reacts to onChange, so
+        // dropping this would leave the mode unapplied until the user toggled the switch.
+        // ⑦ Markdown Note Helper, ⑦-b/⑦-c translator lists, ⑦-d Manager cache and
+        // ⑧ Missing Node Detective were all removed here; v2 owns those ids natively.
 
         // 4. ⌨️ Global ESC Key Dismissal for All Custom Bada Modals & Dialogs
         if (!window.__BADA_GLOBAL_ESC_INSTALLED__) {

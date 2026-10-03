@@ -417,6 +417,36 @@ function refreshPresetsRowLanguage() {
 export function registerBadaV2Settings(addSetting, opts = {}) {
     const lang = (opts.lang === "ko") ? "ko" : "en";
 
+    // PHASE 3 (2026-10-04) — STARTUP SHOWED THE WRONG LANGUAGE.
+    // Symptom: with BadaUtils.Language persisted as "en", a fresh load drew EVERY row in
+    // Korean, and the user had to switch to Korean and back to English before anything
+    // relabelled. Restarting did not help, which ruled out a stale file.
+    //
+    // Two independent causes, both fixed here:
+    //
+    // 1. THE STORED VALUE WAS IGNORED. `defaultValue: lang` took the language from
+    //    BadaI18n at registration time, not from the user's saved setting. BadaI18n.init()
+    //    reads localStorage FIRST (getBadaLanguage step 1) while the dropdown renders the
+    //    value ComfyUI restored from its own store, so the two could disagree — the
+    //    dropdown said "English" while every row was Korean. Reading the actual setting
+    //    makes the registered default agree with what the user chose.
+    //
+    // 2. THE SERVER SYNC LANDED TOO LATE. bada_i18n.js fetches /settings asynchronously at
+    //    module load. When that resolved to a different language, BadaI18n.setLanguage()
+    //    fired its listeners, but the settings dialog renders its rows once and a plain
+    //    re-label cannot help a row that was already built. So the correction has to be
+    //    pushed through the same bilingual pass that paints the rows.
+    //
+    // Reading the store must not throw during early setup, hence the guarded helper.
+    const storedLang = (() => {
+        try {
+            const v = window.app?.ui?.settings?.getSettingValue?.("BadaUtils.Language");
+            const s = (typeof v === "object" && v !== null && "value" in v) ? v.value : v;
+            return (s === "ko" || s === "en") ? s : null;
+        } catch (_) { return null; }
+    })();
+    const resolvedLang = storedLang || lang;
+
     // The subgroup label itself is hidden by bada_core.js's `> h3.text-base` rule, so the
     // per-row subgroup is invisible in the UI — it exists only to keep the rows distinct.
     const add = (config) => addSetting({
@@ -434,7 +464,9 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
             { value: "en", text: "English" },
             { value: "ko", text: "한국어 (Korean)" },
         ],
-        defaultValue: lang,
+        // The STORED value wins over the registration-time language, so a fresh load opens in
+        // the language the user last chose instead of whatever BadaI18n happened to hold.
+        defaultValue: resolvedLang,
         onChange: (newVal) => {
             const target = (typeof newVal === "object" && newVal !== null && "value" in newVal) ? newVal.value : newVal;
             if (target === "ko" || target === "en") {
@@ -449,6 +481,36 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
             }
         },
     });
+
+    // Cause 2 above: bada_i18n.js's /settings fetch resolves AFTER this module has registered
+    // its rows, and it can report a different language than the one we just registered with.
+    // A bare notifyListeners() cannot repaint rows that are already on screen, so when the
+    // sync lands on a DIFFERENT language we re-run the same two passes a manual switch runs.
+    // Polls briefly rather than once: the fetch may resolve before ComfyUI has even
+    // registered BadaUtils.Language, in which case getSettingValue still reports the default.
+    // Bounded and cheap — four reads, no observers, no interval left running.
+    (() => {
+        let tries = 0;
+        const MAX_TRIES = 4;
+        const timer = setInterval(() => {
+            tries++;
+            let live;
+            try {
+                const v = window.app?.ui?.settings?.getSettingValue?.("BadaUtils.Language");
+                live = (typeof v === "object" && v !== null && "value" in v) ? v.value : v;
+            } catch (_) { live = null; }
+            if (live !== "ko" && live !== "en") {
+                if (tries >= MAX_TRIES) clearInterval(timer);
+                return;
+            }
+            clearInterval(timer);
+            if (live === resolvedLang) return;              // already correct, nothing to do
+            if (BadaI18n.lang === live) return;               // engine agrees, UI already right
+            BadaI18n.setLanguage(live, false);
+            window.__badaApplySettingsUI?.(live);
+            try { mountLocalizedRows(); } catch (_) { console.debug("[Bada v2] ignored:", _); }
+        }, 300);
+    })();
 
     // ② Text & Prompt one-click translator (native toggle; lists are native rows below)
     add({
