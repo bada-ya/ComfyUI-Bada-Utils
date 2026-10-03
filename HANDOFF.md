@@ -1,3 +1,444 @@
+# Beta Handoff — 2026-10-03 (round 2: the language switch never reached the custom rows)
+
+## The bug the previous round missed
+
+The round-1 fix was correct but **not wired to anything that fires on a language change**, so
+the same three buttons stayed Korean and the Manager cache button still read 지금 갱신.
+Restarting ComfyUI changed nothing, which is the tell: nothing was stale on disk, the labels
+were simply never rewritten.
+
+Two independent causes, both the same shape — *custom DOM whose text is written once and
+never repainted*:
+
+1. **The entry point was unreachable.** `mountLocalizedRows()` (which re-labels the presets
+   row) was called only from `triggerUIUpdate()` — dialog open, clicks, Ctrl+comma. The path
+   that actually runs when you pick a language in the dropdown is the dialog MutationObserver,
+   and that callback called `applyBilingualSettingsUI()` alone. Reachable ≠ invoked.
+2. **The widget repaint skipped its own button.** `paintManagerCacheWidget()` refreshed the
+   timestamp and mode spans but never the refresh button, whose label was written once at
+   build time. The screenshot proved it: an English "Last refreshed:" line sitting directly
+   next to a Korean "지금 갱신".
+
+## The fix
+
+- `managerCacheIdleText()` is now module-level (one source of truth), and
+  `paintManagerCacheWidget()` repaints the button too — guarded by `!btn.disabled` so it can
+  never stomp the transient 갱신 중… / ✓ 완료 / ⚠ 실패 states of an in-flight refresh.
+- The mount now runs at **all five** places that relabel native rows: both language
+  `onChange` handlers, the `BadaI18n.subscribe` callback (the most direct hook there is —
+  `notifyListeners()` fires on every switch), the dialog MutationObserver, `triggerUIUpdate`,
+  and `attachIfDialogPresent`.
+
+## Guarding the WIRING, not just the hook
+
+The round-1 checks asserted the per-row refresh existed. That was the wrong unit: the code
+was fine and the tests still passed while the feature was visibly broken. The new check walks
+every `applyBilingualSettingsUI(...)` call site and requires the mount to follow it.
+
+That check was itself wrong twice before it was right — a count-based version
+(`sites >= 3 && withMount >= 3`) passed with a call site deleted, and a `});` boundary regex
+matched the `}` inside an explanatory comment. It now delimits each region at the next call
+site, which is unambiguous. **Verified by deleting each of the five mounts individually and
+confirming the suite goes red — all five are genuinely required, none is decorative.**
+
+Worth knowing: `git checkout -- web/bada_core.js` during that verification wiped the working
+tree back to the last commit. Recovered from a `%TEMP%` copy; re-verify the mount count (5)
+before trusting the file again.
+
+`bada_manager_cache_test.js` → **78/78**, all four files pass the ESM parse.
+
+---
+
+# Beta Handoff — 2026-10-03 (round 1: custom-rendered rows now follow the language switch)
+
+## The bug
+
+With the UI language set to English, the three buttons on the Global Presets row still read
+전체 백업 (JSON) / 불러오기 / 프리셋 관리자 열기.
+
+Cause: `buildPresetsRow()` is a `type` **renderer**, and ComfyUI runs it exactly ONCE, when the
+row is created. The buttons therefore kept whichever language was active at that moment.
+Native rows are re-labelled by `bada_core.js`'s `applyBilingualSettingsUI()`, but a
+custom-rendered row is invisible to that pass — so it silently kept the old language.
+
+## The fix
+
+- The presets row gets an explicit `id="bada-v2-presets-row"` and a `_badaRefreshLanguage()`
+  hook that rewrites the three button labels **and** re-renders the count strip **in place**.
+  In place rather than `replaceWith()`, because ComfyUI still holds a reference to that
+  element as the row's rendered content.
+- `refreshPresetsRowLanguage()` is a no-op when the row is not on screen.
+- The entry point was renamed `mountTranslatorRows()` → **`mountLocalizedRows()`** (global
+  `__BADA_MOUNT_LOCALIZED_ROWS__`) because it now does two jobs: mounting the translator Save
+  buttons, and re-labelling the presets row. `bada_core.js`'s existing settings-UI pass calls
+  it, so language switches are picked up without a dialog reopen.
+
+`bada_manager_cache_test.js` → **75/75**, both files pass the ESM parse.
+
+Note: my first version of the new check asserted a `textContent = ko ? ...` form that does not
+exist — the labels go through a local `set()` helper. The check was wrong, not the code.
+
+---
+
+# Beta Handoff — 2026-10-03 (forced-add list ships the user's own nodes by default)
+
+## Change
+
+`BadaUtils.TranslationWhitelist` default is now:
+
+```
+Show Any, Preview as Text, Show Text
+```
+
+was `show text, show any`. So a **fresh install** of the user's custom-node pack comes up with
+the three nodes already in 번역 강제 추가 노드 목록 — no setup needed. These are the user's own
+custom nodes, which the automatic detector cannot recognise, which is exactly what the
+forced-add list is for.
+
+**This is a default only.** Once the user saves the field, their value wins and the default
+never applies again, so existing profiles are unaffected. Matching is case-insensitive and
+partial (`matchesNameList` uses `includes`), so the casing is for readability only.
+
+`bada_core.js` still carries the old default on `BADA_UNIFIED_SETTINGS`, but that one is
+attached to the legacy `BadaLegacy.TranslationWhitelist` key, which nothing reads. The live
+store key is `BadaUtils.TranslationWhitelist`, owned by `bada_settings_v2.js`.
+
+## Open item — investigated, not reproducible, NOT a settings bug
+
+The user reported: adding nodes works, but after clearing the list one badge (`Show Text`)
+survives until F5, while the others clear. **Analysis was stopped at the user's request** —
+that node always gets the translator anyway.
+
+What was established before stopping, in case it is picked up later:
+
+- Every **state** transition is provably correct. With nodes titled `Show Text` / `Show Any`
+  that auto-detection cannot see, driving the real 💾 button through
+  add → clear gave: store `""`, both `_badaNoteAttached === false`, both
+  `badaNoteState === null`, no exception, and no Bada console errors.
+- `setSettingValue(id, "")` genuinely writes an empty string; the store does **not** fall back
+  to the default, so "the empty write was silently ignored" is ruled out.
+- A first attempt failed to reproduce because the test used `CLIPTextEncode`, which has a
+  text widget and is therefore **auto-detected** — it stays attached after the list is
+  cleared, which looks like the bug but is correct behaviour. `KSampler` is the node type that
+  actually isolates the forced-add path.
+- The badge is painted from `node.onDrawForeground` (installed once on attach, never
+  uninstalled), and `drawHeaderButtons()` bails when `badaNoteState` is null — so clearing the
+  state does stop the paint.
+
+So the remaining suspect is the **canvas repaint while the settings modal is open**, which was
+already measured as suppressed. The Save handler forces two repaints for exactly that reason.
+
+---
+
+# Beta Handoff — 2026-10-03 (translator rows: Save button, widened, no F5 needed)
+
+## The root cause behind "I have to press F5"
+
+Instant apply was implemented first, then removed at the user's request. The important finding
+is that **it never actually failed** — it was invisible:
+
+```
+node badges after the debounce, DIALOG STILL OPEN .... [false, false]   <- state was correct
+canvas hash before typing ............................ 13344c724fac
+canvas hash after typing, DIALOG STILL OPEN .......... 13344c724fac   <- IDENTICAL: no repaint
+canvas hash after closing the dialog ................. abf2849a0dac   <- repainted only here
+```
+
+**ComfyUI suppresses canvas repaints while the settings modal is open.** So a Save button by
+itself would not have fixed anything; what the user actually gains from it is positive
+confirmation that the input was committed. To also remove the F5 reflex, the save handler
+forces the repaint itself.
+
+Repaint cost (measured, 40-node canvas), which is why this is cheap:
+
+| | |
+| --- | --- |
+| forced repaint | avg **31.9 ms**, never over 40 ms (mostly waiting for the next frame) |
+| real F5 | **5713 ms** until the app is usable again |
+| ratio | ~**179x** |
+
+## What was built (all on NATIVE rows, no custom renderer)
+
+`bada_settings_v2.js` augments the already-rendered DOM; `bada_core.js`'s existing
+event-driven settings-UI pass calls `window.__BADA_MOUNT_TRANSLATOR_ROWS__` (idempotent).
+Same pattern as `mountManagerCacheWidget()`.
+
+- **💾 Save button**, 34 px, flush to the right edge (`gapToRightEdge: 0`). Flashes `✓` in
+  green for 1.2 s on save.
+- **Save forces the repaint twice** — immediately, then 120 ms later. The second pass is the
+  part that beats the modal's throttling.
+- **Input widened**: label column 822 px → 300 px, input 176 px → **656 px**.
+- **Font 16 px → 13 px** on every v2 control, matching the row title size.
+- **Duplicate / conflict hints restored** for the native rows (they existed only in the legacy
+  panel). They warn, they do not rewrite the stored value.
+
+`node dev_tests/verify_translator_rows.cjs` → `translatorRowsAccepted: true` (9/9)
+
+## Duplicate / conflict behaviour — verified, not assumed
+
+Tested against two real `CLIPTextEncode` nodes with distinct titles:
+
+| case | input | result |
+| --- | --- | --- |
+| A. same name in both lists | excl=`Alpha,Beta` / add=`Alpha,Beta` | both excluded — **Exclude wins** |
+| B. same name twice in Exclude | excl=`Alpha, Alpha` | Alpha excluded, Beta kept |
+| C. same name twice in Add | add=`Beta, Beta` | both kept |
+
+The behaviour was already correct (`isTargetNoteNode()` tests Exclude first, and matching is a
+membership test so duplicates are harmless). What v2 was missing was only the **warning**, and
+that is now back.
+
+## Trap worth remembering
+
+The combo rows are **not native `<select>` elements** in this frontend. A rule targeting
+`.form-input select` left the language and badge-position dropdowns at 16 px while the text
+inputs were correctly 13 px. It needs a descendant selector (`.form-input *`).
+
+## Regression suites
+
+`verify_phase1.cjs` → true, `verify_phase2.cjs` → true,
+`verify_translator_rows.cjs` → true, `bada_manager_cache_test.js` → **73/73**,
+`bada_folder_drag_test.js` → **103/103**. The frozen `Bada Utils (구)` category is untouched,
+including its own Apply button.
+
+---
+
+# Beta Handoff — 2026-10-03 (instant apply + divider removal; legacy category FROZEN)
+
+## Decision the user made
+
+Option **A (instant apply)** was chosen over "apply when the dialog closes", and the
+`Bada Utils (구)` category is **frozen** — no further work on it until Phase 3 deletes it.
+
+## Two measurements this rests on
+
+Both were taken against the live instance before writing any code, because getting either
+wrong fails *silently*:
+
+1. **A native ComfyUI `text` setting fires `onChange` on every keystroke.** Typing
+   "KSampler,Loader" produced 16 calls; blurring produced none. So reacting while typing needs
+   no extra machinery — the option-B alternative would have required building dialog-close
+   detection from scratch, and would have given no feedback while typing.
+2. **`onChange` runs AFTER the settings store write.** Reading `getSettingValue()` back
+   synchronously inside the callback returned the identical value on every one of those 16
+   calls. Had the order been reversed, the debounced re-apply would have silently re-applied
+   the *previous* value.
+
+## What was implemented
+
+- `bada_settings_v2.js`: `scheduleNoteHelperReapply()` — 300 ms debounce, then
+  `__BADA_REAPPLY_NOTE_HELPER_NODES__()` + `setDirtyCanvas`. Wired as `onChange` on
+  `BadaUtils.TranslationBlacklist` and `BadaUtils.TranslationWhitelist`. **No Apply button.**
+  The value itself is persisted by ComfyUI; this only re-scans the canvas so the badges
+  attach/detach.
+  The debounce is a *cost* control, not a correctness one: the re-apply walks every node.
+- `bada_core.js`: the forced divider rule was `PresetBadgePosition` + `GlobalPresetsPanel`
+  only; it is now the `BadaUtils` **prefix**, so all 15 v2 rows lose their painted line and the
+  category reads as one continuous block. Only the line is removed — the 8 px margin rhythm
+  above it is untouched. The selector is a prefix on purpose, so the frozen `BadaLegacy.*`
+  rows keep their separators.
+
+`node dev_tests/verify_instant_apply.cjs` → `instantApplyAccepted: true` (7/7)
+
+| check | measured |
+| --- | --- |
+| typing re-applies with no Apply button | 11 keystrokes → 0 calls at +120 ms, **1 call** after the debounce |
+| the burst is coalesced | 11 keystrokes → 1 re-apply |
+| value persisted | `ZZProbeNode` |
+| every v2 divider | `rgba(0, 0, 0, 0)` |
+| frozen (구) dividers | `rgb(73, 74, 80)` — unchanged |
+| legacy Apply button | still present |
+| Bada page errors | none |
+
+Regression suites re-run green: `verify_phase1.cjs` → true, `verify_phase2.cjs` → true,
+`bada_manager_cache_test.js` → **69/69**, `bada_folder_drag_test.js` → **103/103**.
+
+## Two mistakes made here, both caught by the suites
+
+1. I wrote a CSS comment inside the injected template literal using **backticks**
+   (`` `my-8 border-t` ``), which broke the module parse — the same class of bug as the stray
+   brace that broke Phase 1. The file already carries a
+   `NOTE: no backticks allowed in this block` warning. Use plain quotes in that block.
+2. My first "legacy Apply button is untouched" check asserted `/function handleApply/`, but
+   the source declares `const handleApply = () => {`. The check was wrong, not the code.
+
+## Not done (deliberately)
+
+- The legacy panel's **duplicate/conflict hint** (`⛔ "X" is in both Exclude and Add`) exists
+  only in `buildNoteHelperPanel()`. v2's native text rows have no such hint. Adding it would
+  mean building a custom renderer, which is exactly what v2 exists to remove — so it is out
+  of scope unless the user asks for a non-renderer version.
+
+---
+
+# Beta Handoff — 2026-10-03 (Settings v2: translator rows invisible — fixed)
+
+## The regression the user reported, and the fix
+
+Symptom: in the new **Bada Utils** category the *텍스트 & 프롬프트 원클릭 번역기* row
+looked empty, and the *번역 제외 / 강제 추가 목록* rows were gone entirely.
+
+Cause: `bada_core.js` carries a block of CSS that **keys on the setting id**. Three of those
+rules were written when the translator was a **custom-renderer** row, where hiding the row's
+own label and native switch is correct because the rendered panel supplies its own toggle:
+
+```css
+div[data-setting-id="BadaUtils.NoteHelper"] .form-label { display: none !important; }
+.setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]) { display: none !important; }
+```
+
+Phase 1 moved the canonical `BadaUtils.*` ids to settings v2, where `NoteHelper` is a **plain
+native boolean** — but the selectors still said `BadaUtils.*`, so they kept matching and
+suppressed v2's real controls. Measured before the fix:
+
+| row | measured |
+| --- | --- |
+| `BadaUtils.NoteHelper` | `labelDisplay: none` — bare unlabelled switch, height 34 |
+| `BadaUtils.TranslationBlacklist` | `groupDisplay: none`, height 0 |
+| `BadaUtils.TranslationWhitelist` | `groupDisplay: none`, height 0 |
+
+Fix: scope those rules (and the language-change panel rebuild at `bada_core.js`'s
+`applyBilingualSettingsUI`) to **`BadaLegacy.*`**, which is where the custom-renderer rows
+actually live now. Measured after:
+
+| row | v2 | legacy |
+| --- | --- | --- |
+| `*.NoteHelper` | height 38, label + toggle visible | height 118, panel intact, label hidden (by design) |
+| `*.TranslationBlacklist/Whitelist` | height 38, visible | hidden (by design — the legacy panel has inline list inputs) |
+
+The v2 list rows **must** stay visible: Phase 2 removed the inline translator panel, so those
+two native rows are the only remaining UI for those settings. Hiding them made them
+unreachable. `dev_tests/bada_manager_cache_test.js` now asserts that no
+`BadaUtils.NoteHelper` / `BadaUtils.Translation*` selector survives in `bada_core.js`.
+
+**Generalisable lesson for Phase 3:** any CSS or JS in `bada_core.js` that selects a setting by
+`[data-setting-id="BadaUtils.…"]` must be audited. The `^="BadaUtils"` prefix selectors are
+still correct (they intentionally target v2), but exact-id ones were written for the custom
+renderers and now follow the canonical ids to the wrong category.
+
+All suites re-run green after the fix: `verify_phase1.cjs` → `phase1Accepted: true`,
+`verify_phase2.cjs` → `phase2Accepted: true`, `bada_manager_cache_test.js` → **65/65**,
+`bada_folder_drag_test.js` → **103/103**.
+
+---
+
+# Beta Handoff — 2026-10-03 (Settings v2 Phase 2: presets row self-owned)
+
+## Phase 2 acceptance: PASS (browser-verified)
+
+`node dev_tests/verify_phase2.cjs` → `phase2Accepted: true`
+
+| check | result |
+| --- | --- |
+| `window.__BADA_BUILD_PRESETS_PANEL__` no longer exists | PASS (`undefined`) |
+| v2 presets row renders its own open / backup / import buttons | PASS |
+| v2 row does **not** reuse the legacy inline panel | PASS |
+| "Open Presets Manager" opens the overview modal | PASS |
+| legacy `(구)` row keeps its old inline panel (no regression) | PASS |
+| no Bada page errors during the flow | PASS |
+
+Also still green: `verify_phase1.cjs` → `phase1Accepted: true`,
+`bada_manager_cache_test.js` → **64/64**, `bada_folder_drag_test.js` → **103/103**.
+
+## What Phase 2 changed
+
+1. **The window bridge is deleted.** v2's `GlobalPresetsPanel` row used to call
+   `window.__BADA_BUILD_PRESETS_PANEL__` — a global pointing back into `bada_core.js`'s
+   `buildInlinePresetsPanel()`. That was the last thing forcing v2 to be a leaf module.
+   `bada_settings_v2.js` now imports `presets_overview_modal.js` directly.
+2. **Backup / restore was extracted, not duplicated.** The JSON export and the merge-on-import
+   (~45 lines) lived inline inside `buildInlinePresetsPanel()`, so v2 could not have reused them.
+   They now live in `presets_overview_modal.js` as `exportGlobalPresetsJson()` and
+   `importGlobalPresetsJson(onDone)`, and **both** the legacy panel and the v2 row call them.
+   File names, merge semantics, the `/api/bada/presets/save` POST and the toasts are unchanged.
+3. **The v2 row is deliberately compact.** The legacy inline panel rendered a full card grid
+   *inside* the settings row — that is what made the old category fifteen tall groups. The
+   overview modal already shows that grid, so v2 shows a count strip (top 12 node types + `+N`)
+   and a button into the modal. Node type names come from an importable JSON file, so they go
+   through `escapeHtml()`.
+
+`buildInlinePresetsPanel()` itself is **kept** — the `(구)` category still renders it. It is
+deleted in Phase 3 along with that category.
+
+---
+
+# Beta Handoff — 2026-10-03 (Settings v2 Phase 1: coexistence verified)
+
+> ⚠️ **Read the "Two blocking bugs found in this session" section below before touching
+> `web/bada_settings_v2.js`.** Both failure modes are completely silent — no exception, no
+> console warning, no error toast.
+
+## Two blocking bugs found in this session
+
+### 1. A stray `}` made the ENTIRE extension fail to load
+
+`web/bada_settings_v2.js` ended with one closing brace too many. Because `bada_core.js`
+imports it, the parse error killed the whole Bada JS bundle: **no Bada settings category
+rendered at all**, and every Bada extension feature was dead in the browser. The Python side
+kept working, so `/object_info` still listed all five Bada nodes — which makes this look like
+a settings-only problem when it is not.
+
+It survived the previous session because `node --check web/*.js` **passed**: run against a
+`.js` path, Node did not parse the file as the ES module the browser actually loads.
+`node --check` only surfaces this class of bug when the file is parsed as a module:
+
+```powershell
+Copy-Item web\bada_settings_v2.js "$env:TEMP\v2.mjs" -Force; node --check "$env:TEMP\v2.mjs"
+```
+
+Every file in `web/` now passes that ESM check. Use it, not the bare `.js` form.
+
+### 2. ComfyUI renders AT MOST ONE SETTING PER `[category, subgroup]` PAIR
+
+This invalidates the original Phase 1 design premise ("put all rows in one `General`
+subgroup so ComfyUI emits zero forced dividers"). Measured with Playwright against the live
+instance at `127.0.0.1:8188`, as a controlled experiment:
+
+| registration | rendered |
+| --- | --- |
+| 3 rows, ONE shared subgroup | `["EXP.A3"]` — 2 of 3 silently lost |
+| 3 rows, one subgroup each | `["EXP.B1","EXP.B2","EXP.B3"]` — all 3 |
+
+Before the fix the new "Bada Utils" category showed **1 of its 15 rows** (the last one
+registered). The legacy category was unaffected, purely because every legacy row already had
+its own subgroup.
+
+**Therefore every v2 row gets its own subgroup** (derived from its id). The subgroup *label*
+stays invisible because `bada_core.js` already hides `> h3.text-base` for
+`[data-setting-id^="BadaUtils"]`, so "no dividers" remains a CSS concern rather than a
+grouping concern. `dev_tests/verify_phase1.cjs` pins `EXPECTED_V2_ROWS = 15` so a shrinking
+row list fails the build instead of passing quietly.
+
+## Phase 1 acceptance: PASS (browser-verified)
+
+`node dev_tests/verify_phase1.cjs` → `phase1Accepted: true`
+
+- Both categories coexist; the new one sits **above** the legacy one (nav follows
+  registration order).
+- New category renders all **15** rows, all with canonical `BadaUtils.*` ids.
+- Legacy category renders all **15** rows, all remapped to `BadaLegacy.*`.
+- `node dev_tests/bada_manager_cache_test.js` → **60/60 PASS**.
+- `node dev_tests/bada_folder_drag_test.js` → **103/103 PASS**.
+- `python dev_tests/bada_folder_rename_test.py` → **not run**: no `python` on PATH in this
+  environment (`py -3` resolves to the Store stub, exit 9009). No Python file was touched.
+
+`verify_phase1.cjs` also had a bug worth noting: it read `[data-setting-id]` as a *descendant*
+of `.setting-item`, but the attribute lives **on** `.setting-item` itself, so `rowIds` was
+always `[]` and the probe asserted nothing about the rows.
+
+## Where the backup actually lives
+
+The pre-migration state is preserved as a **git branch**, not as a separate file in `web/`:
+
+- `backup/pre-settings-v2` (local) and `beta/backup/pre-settings-v2` (pushed) — both at
+  `d1215df`, which is also `main`'s HEAD.
+- Verified: that tree has **no** `BadaLegacy` occurrences and **no** `web/bada_settings_v2.js`.
+
+So the Settings v2 work is currently **uncommitted working-tree changes** on top of that
+snapshot. Restore with `git checkout backup/pre-settings-v2 -- web/`.
+
+---
+
 # Beta Handoff — 2026-10-03 (v0.1-beta5: Async Studio panel + Prompt Generator UI)
 
 ## Current state

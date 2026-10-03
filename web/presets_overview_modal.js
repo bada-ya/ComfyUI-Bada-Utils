@@ -8,10 +8,14 @@ import { BadaI18n } from "./bada_i18n.js";
 
 let overviewModalEl = null;
 
+// localStorage key for the global preset store. Declared here (not next to the backup
+// helpers further down) because getGlobalPresetsStore() below reads it.
+const PRESETS_STORAGE_KEY = "ComfyUI_Universal_Smart_Presets_v1";
+
 export function getGlobalPresetsStore() {
     let store = {};
     try {
-        const local = localStorage.getItem("ComfyUI_Universal_Smart_Presets_v1");
+        const local = localStorage.getItem(PRESETS_STORAGE_KEY);
         if (local) {
             store = JSON.parse(local);
         }
@@ -47,6 +51,69 @@ export function getGlobalPresetsSummary() {
         nodeCount: nodeSummaries.length,
         nodeSummaries
     };
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+//  Shared backup / restore (Phase 2)
+// ──────────────────────────────────────────────────────────────────────────────
+// These two used to live inline inside bada_core.js's buildInlinePresetsPanel(), which made
+// them unreachable to settings v2 without going through the window bridge. Settings v2 now
+// renders its own presets row, so both the legacy inline panel and the v2 row call these.
+// The behaviour (file names, merge semantics, the /api/bada/presets/save POST, the toasts)
+// is unchanged — it was only moved. (PRESETS_STORAGE_KEY is declared at the top of this
+// module, next to getGlobalPresetsStore().)
+
+/** Download the whole global-preset store as a dated JSON backup. */
+export function exportGlobalPresetsJson() {
+    const isKo = BadaI18n.lang === "ko";
+    const store = getGlobalPresetsStore();
+    const blob = new Blob([JSON.stringify(store, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `comfyui_global_presets_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(isKo ? "📤 백업 파일 다운로드 완료" : "📤 Global presets backup JSON downloaded", "success");
+}
+
+/**
+ * Pick a JSON backup and merge it over the current store (per node type, per preset key).
+ * @param {() => void} [onDone] called after a successful import so the caller can re-render.
+ */
+export function importGlobalPresetsJson(onDone) {
+    const isKo = BadaI18n.lang === "ko";
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.onchange = (evt) => {
+        const file = evt.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (re) => {
+            try {
+                const imported = JSON.parse(re.target.result);
+                if (imported && typeof imported === "object") {
+                    const merged = { ...getGlobalPresetsStore() };
+                    for (const [k, v] of Object.entries(imported)) {
+                        merged[k] = { ...(merged[k] || {}), ...v };
+                    }
+                    localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(merged));
+                    fetch("/api/bada/presets/save", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ presets: merged })
+                    }).catch(() => {});
+                    onDone?.();
+                    showToast(isKo ? "📥 글로벌 프리셋 불러오기 완료" : "📥 Global presets imported successfully", "success");
+                }
+            } catch (err) {
+                showToast((isKo ? "⚠️ JSON 파일 형식 오류: " : "⚠️ Failed to parse JSON file: ") + err.message, "warning");
+            }
+        };
+        reader.readAsText(file);
+    };
+    input.click();
 }
 
 export function showGlobalPresetsOverviewModal() {

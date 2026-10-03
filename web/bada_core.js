@@ -1,12 +1,15 @@
 import { app } from "../../scripts/app.js";
 import { escapeHtml } from "./bada_shared.js";
 import { BadaI18n } from "./bada_i18n.js";
-import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary, getGlobalPresetsStore } from "./presets_overview_modal.js";
+import { showGlobalPresetsOverviewModal, getGlobalPresetsSummary, getGlobalPresetsStore, exportGlobalPresetsJson, importGlobalPresetsJson } from "./presets_overview_modal.js";
 import { showToast } from "./presets_modal.js";
 import "./tooltip_fixer.js";
 // Legacy Manager node-name cache warm-up. Must be imported here so it registers
 // its own app extension; it self-gates on the active Manager UI.
 import { refreshLegacyManagerCache, getLastRefreshDate, getManagerUiMode } from "./bada_manager_cache.js";
+// Settings v2 (Phase 1 coexistence). Registers the NEW "Bada Utils" category, which now
+// owns the canonical BadaUtils.* setting IDs. See the module header for the migration plan.
+import { registerBadaV2Settings } from "./bada_settings_v2.js";
 
 /**
  * ComfyUI-Bada-Utils · bada_core.js
@@ -32,9 +35,22 @@ const BADA_ICONS = {
 // ──────────────────────────────────────────────────────────────────────────────
 //  Bilingual Settings Definitions (Title + Sub-description, No Numbers, No Tooltips)
 // ──────────────────────────────────────────────────────────────────────────────
+// ──────────────────────────────────────────────────────────────────────────────
+//  Legacy settings namespace (Phase 1 coexistence)
+// ──────────────────────────────────────────────────────────────────────────────
+// Settings v2 now owns the canonical `BadaUtils.*` IDs (28+ call sites read them, so the
+// values must stay under those exact keys). The legacy registrations below therefore get
+// remapped to `BadaLegacy.*` — distinct keys, no collision — and their category is
+// relabelled "Bada Utils (Legacy)". Only the REGISTRATION id is remapped; the
+// BADA_UNIFIED_SETTINGS table keeps the canonical id because the bilingual updater and
+// updatePresetBadgePositionOptions() look settings up BY that canonical id.
+function toLegacyId(id) {
+    return "BadaLegacy." + String(id).replace(/^BadaUtils\./, "");
+}
+
 const BADA_SETTINGS_TEXTS = {
     en: {
-        category: "Bada Utils",
+        category: "Bada Utils (Legacy)",
         langName: "🌐 UI Language",
         langDesc: "Set display language for Bada nodes, context menus, modals, and Workflows+ sidebar.",
 
@@ -87,7 +103,7 @@ const BADA_SETTINGS_TEXTS = {
 
     },
     ko: {
-        category: "Bada Utils",
+        category: "Bada Utils (구)",
         langName: "🌐 UI 언어 설정",
         langDesc: "Bada 모든 노드, 우클릭 메뉴, 모달 창, Workflows+의 표시 언어를 설정합니다.",
 
@@ -437,17 +453,22 @@ let isPresetsExpanded = true;
             margin-bottom: 8px !important;
             border-color: rgba(255, 255, 255, 0.08) !important;
         }
-        /* The Global-Presets block is ONE feature: the "글로벌 프리셋" toggle, its
-           "프리셋 뱃지 위치" dropdown and the presets panel all belong together, so no
-           rule should cut through them. ComfyUI forces a divider above EVERY row (a
-           my-8 border-t border-border-default div, confirmed as a DIRECT child of
-           .setting-group via dev_tests/probe_direct_children.cjs), which left the two
-           stray lines the user circled on both sides of the 프리셋 뱃지 위치 row.
-           Remove only the painted line and keep the 8px rhythm, so the block stays
-           continuous without collapsing the row spacing.
+        /* Divider removal (2026-10-03). ComfyUI forces a "my-8 border-t border-border-default"
+           div as the FIRST child of every .setting-group, so 15 rows meant 14 painted
+           lines cutting the category into unrelated-looking fragments.
+
+           This used to clear the line for exactly two ids (프리셋 뱃지 위치 and the presets
+           panel), because only that block was then known to belong together. The user asked
+           for the whole new Bada Utils category to read as ONE block, so the rule is
+           generalised to every v2 row.
+
+           Only the PAINTED LINE is removed; the 8px margin rhythm from the rule above is
+           kept, so spacing does not collapse. Selector is the BadaUtils PREFIX on purpose:
+           after the Phase 1 remap those ids belong to settings v2, and the frozen
+           "Bada Utils (구)" category (BadaLegacy.*) keeps its original separators.
+
            NOTE: no backticks allowed in this block (JS template literal). */
-        .setting-group:has([data-setting-id="BadaUtils.PresetBadgePosition"]) > .my-8,
-        .setting-group:has([data-setting-id="BadaUtils.GlobalPresetsPanel"]) > .my-8 {
+        .setting-group:has([data-setting-id^="BadaUtils"]) > .my-8 {
             border-top-color: transparent !important;
         }
         /* Sub-group headings such as "Language", "NoteHelper", "Sidebar" are internal
@@ -489,6 +510,46 @@ let isPresetsExpanded = true;
             text-align: left !important;
             margin-top: 0 !important;
         }
+/* Control font size (2026-10-03). Measured at 16px on every v2 control, which made
+           the combo boxes and the list inputs shout louder than their own row titles.
+           13px matches the row title size so the row reads as one unit. Scoped to the
+           BadaUtils prefix so the frozen BadaLegacy rows keep the old size.
+
+           NOTE the descendant selector: the combo rows are NOT native <select> elements in
+           this frontend — they are custom components, so selecting .form-input select only
+           left the language and badge-position dropdowns at 16px (measured, then fixed). */
+        .setting-group:has([data-setting-id^="BadaUtils"]) .form-input,
+        .setting-group:has([data-setting-id^="BadaUtils"]) .form-input * {
+            font-size: 13px !important;
+        }
+        /* Translator list rows: give the input the space. Measured before the change:
+           label column 822px vs input column 176px, i.e. the two text fields were crammed
+           into a sixth of the row while the description text took the rest. Only these two
+           rows are changed - every other row's label/input balance is already right. */
+        .setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]) .form-label,
+        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) .form-label {
+            flex: 0 1 300px !important;
+            max-width: 300px !important;
+        }
+        .setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]) .form-input,
+        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) .form-input {
+            flex: 1 1 auto !important;
+            max-width: none !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+        }
+        .setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]) .form-input input,
+        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) .form-input input {
+            flex: 1 1 auto !important;
+            width: auto !important;
+            min-width: 0 !important;
+        }
+        /* The Save button sits at the far right of the row; the hint line wraps underneath. */
+        .setting-group:has([data-setting-id^="BadaUtils"]) .setting-item:has(.bada-v2-save-btn) {
+            flex-wrap: wrap !important;
+        }
+        .bada-v2-list-hint { flex-basis: 100%; }
         .setting-group:has([data-setting-id^="BadaUtils"]) .form-input {
             margin-top: 0 !important;
         }
@@ -516,23 +577,33 @@ let isPresetsExpanded = true;
             width: 100% !important;
         }
 
-        /* 3. Full-width styling for Bada Note Helper & Translator panel */
-        div[data-setting-id="BadaUtils.NoteHelper"] {
+        /* 3. Full-width styling for Bada Note Helper & Translator panel
+
+           PHASE 1 REGRESSION FIX (2026-10-03). These rules were written when the translator
+           was a CUSTOM-RENDERER row, so the row's own label and native switch had to be
+           hidden - the rendered panel supplies its own toggle instead.
+
+           The canonical id BadaUtils.NoteHelper now belongs to settings v2, where the row is
+           a PLAIN native boolean. These rules kept matching and therefore suppressed v2's
+           real label, leaving a bare, unlabelled switch (measured: labelDisplay "none",
+           row height 34). Scoped to BadaLegacy.* - the custom-renderer row - so each
+           category gets the treatment it was designed for. */
+        div[data-setting-id="BadaLegacy.NoteHelper"] {
             width: 100% !important;
             margin-top: 2px !important;
         }
-        div[data-setting-id="BadaUtils.NoteHelper"] > div {
+        div[data-setting-id="BadaLegacy.NoteHelper"] > div {
             flex-direction: column !important;
             align-items: stretch !important;
             width: 100% !important;
         }
-        div[data-setting-id="BadaUtils.NoteHelper"] .form-label,
-        div[data-setting-id="BadaUtils.NoteHelper"] .form-input > input[type="checkbox"],
-        div[data-setting-id="BadaUtils.NoteHelper"] .form-input > .p-inputswitch,
-        div[data-setting-id="BadaUtils.NoteHelper"] .form-input > label {
+        div[data-setting-id="BadaLegacy.NoteHelper"] .form-label,
+        div[data-setting-id="BadaLegacy.NoteHelper"] .form-input > input[type="checkbox"],
+        div[data-setting-id="BadaLegacy.NoteHelper"] .form-input > .p-inputswitch,
+        div[data-setting-id="BadaLegacy.NoteHelper"] .form-input > label {
             display: none !important;
         }
-        div[data-setting-id="BadaUtils.NoteHelper"] .form-input {
+        div[data-setting-id="BadaLegacy.NoteHelper"] .form-input {
             width: 100% !important;
             max-width: 100% !important;
             display: block !important;
@@ -549,13 +620,18 @@ let isPresetsExpanded = true;
            the translator panel and the sidebar row - the empty band the user flagged.
            Hiding the wrapper removes its divider too, so the run collapses 3 lines -> 1.
 
+           Scoped to BadaLegacy.* for the same reason as above: only the legacy panel has
+           inline list inputs. Settings v2 dropped that panel in Phase 2, so ITS two list
+           rows are the ONLY way to reach those settings and must stay visible - they were
+           measured at groupDisplay "none", height 0, i.e. unreachable.
+
            NOTE: no backticks allowed in this block (JS template literal). */
-        .setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]),
-        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) {
+        .setting-group:has([data-setting-id="BadaLegacy.TranslationBlacklist"]),
+        .setting-group:has([data-setting-id="BadaLegacy.TranslationWhitelist"]) {
             display: none !important;
         }
-        div[data-setting-id="BadaUtils.TranslationBlacklist"],
-        div[data-setting-id="BadaUtils.TranslationWhitelist"] {
+        div[data-setting-id="BadaLegacy.TranslationBlacklist"],
+        div[data-setting-id="BadaLegacy.TranslationWhitelist"] {
             display: none !important;
         }
         .bada-trans-row { display: flex; gap: 8px; align-items: center; }
@@ -709,61 +785,29 @@ function buildInlinePresetsPanel() {
         showGlobalPresetsOverviewModal();
     });
 
-    // Backup button
+    // Backup / Import now live in presets_overview_modal.js so that settings v2's own presets
+    // row can reuse them. Phase 2 removed the window bridge that used to expose this builder.
     actions.querySelector("#bada-inline-export-btn")?.addEventListener("click", (e) => {
         e.stopPropagation();
-        const store = getGlobalPresetsStore();
-        const blob = new Blob([JSON.stringify(store, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `comfyui_global_presets_backup_${new Date().toISOString().slice(0, 10)}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        showToast(isKo ? "📤 백업 파일 다운로드 완료" : "📤 Global presets backup JSON downloaded", "success");
+        exportGlobalPresetsJson();
     });
 
     // Import button
     actions.querySelector("#bada-inline-import-btn")?.addEventListener("click", (e) => {
         e.stopPropagation();
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept = ".json";
-        input.onchange = (evt) => {
-            const file = evt.target.files?.[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (re) => {
-                try {
-                    const imported = JSON.parse(re.target.result);
-                    if (imported && typeof imported === "object") {
-                        const merged = { ...getGlobalPresetsStore() };
-                        for (const [k, v] of Object.entries(imported)) {
-                            merged[k] = { ...(merged[k] || {}), ...v };
-                        }
-                        localStorage.setItem("ComfyUI_Universal_Smart_Presets_v1", JSON.stringify(merged));
-                        fetch("/api/bada/presets/save", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ presets: merged })
-                        }).catch(() => {});
-                        // Seamlessly update panel in place
-                        panel.replaceWith(buildInlinePresetsPanel());
-                        showToast(isKo ? "📥 글로벌 프리셋 불러오기 완료" : "📥 Global presets imported successfully", "success");
-                    }
-                } catch (err) {
-                    showToast((isKo ? "⚠️ JSON 파일 형식 오류: " : "⚠️ Failed to parse JSON file: ") + err.message, "warning");
-                }
-            };
-            reader.readAsText(file);
-        };
-        input.click();
+        // Seamlessly update panel in place
+        importGlobalPresetsJson(() => panel.replaceWith(buildInlinePresetsPanel()));
     });
 
     panel.appendChild(headerBar);
     panel.appendChild(body);
     return panel;
 }
+
+// NOTE: there is deliberately no window bridge out of this builder any more. Settings v2 used
+// to reach it via window.__BADA_BUILD_PRESETS_PANEL__; in Phase 2 v2 renders its own presets
+// row and calls presets_overview_modal.js directly. This function now serves only the
+// legacy "Bada Utils (구)" row, and is deleted in Phase 3 along with that category.
 
 // ──────────────────────────────────────────────────────────────────────────────
 //  Legacy Manager Cache — status line + manual refresh button
@@ -784,6 +828,14 @@ function buildInlinePresetsPanel() {
 // writes at build time, no i18n subscription, and every DOM write is guarded by an
 // existence/content check so re-running it is a no-op.
 const MANAGER_CACHE_WIDGET_ID = "bada-manager-cache-widget";
+
+/**
+ * Idle label for the manual-refresh button. Module-level because it is needed in TWO
+ * places: once when the widget is built, and again on every repaint (below).
+ */
+function managerCacheIdleText() {
+    return BadaI18n.lang === "ko" ? "🔄 지금 갱신" : "🔄 Refresh now";
+}
 
 function mountManagerCacheWidget(row) {
     if (!row) return;
@@ -830,8 +882,7 @@ function mountManagerCacheWidget(row) {
     refreshBtn.onmouseenter = () => { if (!refreshBtn.disabled) refreshBtn.style.background = "rgba(59,130,246,0.28)"; };
     refreshBtn.onmouseleave = () => { if (!refreshBtn.disabled) refreshBtn.style.background = "rgba(59,130,246,0.16)"; };
 
-    const idleText = () => (BadaI18n.lang === "ko" ? "🔄 지금 갱신" : "🔄 Refresh now");
-    refreshBtn.textContent = idleText();
+    refreshBtn.textContent = managerCacheIdleText();
 
     wrap.append(left, refreshBtn);
 
@@ -874,7 +925,7 @@ function mountManagerCacheWidget(row) {
         refreshBtn.style.borderColor = ok ? "rgba(16,185,129,0.55)" : "rgba(239,68,68,0.5)";
         setTimeout(() => {
             refreshBtn.disabled = false;
-            refreshBtn.textContent = idleText();
+            refreshBtn.textContent = managerCacheIdleText();
             refreshBtn.style.cssText = BTN_IDLE + BTN_BASE;
         }, 2000);
     };
@@ -886,6 +937,17 @@ function paintManagerCacheWidget(wrap) {
     const stampEl = spans[0];
     const modeEl = spans[1];
     const isKo = BadaI18n.lang === "ko";
+
+    // LANGUAGE SWITCH (2026-10-03). The two spans below were always repainted here, but the
+    // refresh BUTTON was not: its label was written once, when the widget was first built.
+    // So switching to English left the row reading an English timestamp next to a Korean
+    // "지금 갱신" button. Repaint it here too, guarded so it cannot stomp the transient
+    // "갱신 중… / ✓ 완료 / ⚠ 실패" states that only exist while a refresh is in flight.
+    const btn = wrap.querySelector("button");
+    if (btn && !btn.disabled) {
+        const btnText = managerCacheIdleText();
+        if (btn.textContent !== btnText) btn.textContent = btnText;
+    }
 
     const last = getLastRefreshDate?.();
     let stampText;
@@ -1451,9 +1513,19 @@ app.registerExtension({
             }
         };
 
+        // ── Settings v2: register the NEW "Bada Utils" category FIRST so its nav entry
+        //    lands ABOVE the legacy one (measured rule: the settings nav follows
+        //    registration order, not the alphabet). The legacy category below is
+        //    relabelled "Bada Utils (Legacy)" and remapped to BadaLegacy.* ids so the two
+        //    can coexist: v2 owns the canonical BadaUtils.* keys that 28+ call sites read.
+        registerBadaV2Settings(safeAddSetting, { lang: currentLang });
+        // Re-localize the v2 position dropdown. The identical call earlier in setup() ran
+        // before the v2 row existed, so it only touched the legacy table.
+        updatePresetBadgePositionOptions(currentLang);
+
         // ① UI Language
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.lang.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.lang.id),
             category: [texts.category, "Language"],
             name: texts.langName,
             type: BADA_UNIFIED_SETTINGS.lang.type,
@@ -1465,6 +1537,10 @@ app.registerExtension({
                 if (target === "ko" || target === "en") {
                     BadaI18n.setLanguage(target, false);
                     applyBilingualSettingsUI(target);
+                    // Same reason as the v2 language row: applyBilingualSettingsUI() cannot see
+                    // our custom-rendered rows, so the Manager cache button and the v2 presets
+                    // row are re-labelled by the idempotent mount.
+                    window.__BADA_MOUNT_LOCALIZED_ROWS__?.();
                     app.graph?.setDirtyCanvas?.(true, true);
                 }
             }
@@ -1478,8 +1554,10 @@ app.registerExtension({
             }
             // Rebuild the note-helper panel so its bilingual header / placeholders /
             // duplicate hints follow the new language (it is a custom renderer).
+            // Scoped to BadaLegacy.*: the panel only exists in the legacy category. Settings
+            // v2's BadaUtils.NoteHelper is a plain native boolean with no panel to rebuild.
             try {
-                const noteRow = document.querySelector('[data-setting-id="BadaUtils.NoteHelper"]');
+                const noteRow = document.querySelector('[data-setting-id="BadaLegacy.NoteHelper"]');
                 if (noteRow) {
                     const host = noteRow.querySelector(".form-input, div");
                     const oldPanel = document.getElementById("bada-note-helper-panel");
@@ -1490,11 +1568,15 @@ app.registerExtension({
                 }
             } catch (_) { console.debug("[Bada] ignored:", _); }
             applyBilingualSettingsUI(lang);
+            // notifyListeners() runs on EVERY language change, so this is the most direct
+            // hook there is for the custom rows. applyBilingualSettingsUI() cannot reach
+            // them (they are not native ComfyUI rows), hence the mount.
+            window.__BADA_MOUNT_LOCALIZED_ROWS__?.();
         });
 
         // ② Sidebar Workflow Folder Management
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.sidebar.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.sidebar.id),
             category: [texts.category, "Sidebar"],
             name: texts.sidebarName,
             type: BADA_UNIFIED_SETTINGS.sidebar.type,
@@ -1510,7 +1592,7 @@ app.registerExtension({
 
         // ②-1 Save As Folder Picker (ComfyUI File ▸ Save As ▸ 폴더 지정 저장)
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.saveAsFolderPicker.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.saveAsFolderPicker.id),
             category: [texts.category, "SaveAsFolderPicker"],
             name: texts.saveAsName,
             type: BADA_UNIFIED_SETTINGS.saveAsFolderPicker.type,
@@ -1525,7 +1607,7 @@ app.registerExtension({
 
         // ③ Smooth Mouse Pan & Wheel Zoom Fixer
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.mouse.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.mouse.id),
             category: [texts.category, "MouseFix"],
             name: texts.mouseName,
             type: BADA_UNIFIED_SETTINGS.mouse.type,
@@ -1568,7 +1650,7 @@ app.registerExtension({
         applyCompactSidebarState(initialCompact);
 
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.compactSidebar.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.compactSidebar.id),
             category: [texts.category, "CompactSidebar"],
             name: texts.compactSidebarName,
             type: BADA_UNIFIED_SETTINGS.compactSidebar.type,
@@ -1582,7 +1664,7 @@ app.registerExtension({
 
         // ④ Startup Behavior (Clean Blank Canvas Startup)
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.blankStartup.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.blankStartup.id),
             category: [texts.category, "BlankStartup"],
             name: texts.blankName,
             type: BADA_UNIFIED_SETTINGS.blankStartup.type,
@@ -1592,7 +1674,7 @@ app.registerExtension({
 
         // ⑤-1 Node Preset Badges
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.presetsBadge.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.presetsBadge.id),
             category: [texts.category, "PresetBadges"],
             name: texts.presetsBadgeName,
             type: BADA_UNIFIED_SETTINGS.presetsBadge.type,
@@ -1605,7 +1687,7 @@ app.registerExtension({
 
         // ⑤-1-b Node Preset Badge Position
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.presetsBadgePosition.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.presetsBadgePosition.id),
             category: [texts.category, "PresetBadgePosition"],
             name: texts.presetsBadgePosName,
             type: BADA_UNIFIED_SETTINGS.presetsBadgePosition.type,
@@ -1619,7 +1701,7 @@ app.registerExtension({
 
         // ⑤-2 Full-Width Inline Global Presets Overview & Management Panel
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.presetsPanel.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.presetsPanel.id),
             category: [texts.category, "PresetsPanel"],
             name: texts.presetsName,
             sortOrder: BADA_UNIFIED_SETTINGS.presetsPanel.sortOrder,
@@ -1631,7 +1713,7 @@ app.registerExtension({
 
         // ⑥ Clipboard & LoadImage Auto-Error Fixer
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.loadImageFix.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.loadImageFix.id),
             category: [texts.category, "LoadImageFix"],
             name: texts.loadImageName,
             type: BADA_UNIFIED_SETTINGS.loadImageFix.type,
@@ -1650,7 +1732,7 @@ app.registerExtension({
 
         // ⑦ Markdown Note Helper & Translator Panel (Single Consolidated UI)
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.noteHelper.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.noteHelper.id),
             category: [texts.category, "NoteHelper"],
             name: texts.noteHelperName,
             sortOrder: BADA_UNIFIED_SETTINGS.noteHelper.sortOrder,
@@ -1662,7 +1744,7 @@ app.registerExtension({
 
         // ⑦-b Translation Blacklist Setting (Registered for persistence)
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.translationBlacklist.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.translationBlacklist.id),
             category: [texts.category, "TranslationBlacklist"],
             name: texts.translationBlacklistName,
             type: BADA_UNIFIED_SETTINGS.translationBlacklist.type,
@@ -1672,7 +1754,7 @@ app.registerExtension({
 
         // ⑦-c Translation Whitelist (Forced-add) Setting (Registered for persistence)
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.translationWhitelist.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.translationWhitelist.id),
             category: [texts.category, "TranslationWhitelist"],
             name: texts.translationWhitelistName,
             type: BADA_UNIFIED_SETTINGS.translationWhitelist.type,
@@ -1690,7 +1772,7 @@ app.registerExtension({
         // the timestamp + "Refresh now" button are mounted separately by
         // mountManagerCacheWidget(), which never writes settings and never subscribes.
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.legacyManagerCache.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.legacyManagerCache.id),
             category: [texts.category, "ManagerCache"],
             name: texts.legacyManagerCacheName,
             type: BADA_UNIFIED_SETTINGS.legacyManagerCache.type,
@@ -1701,7 +1783,7 @@ app.registerExtension({
 
         // ⑧ Missing Node Detective (Real Name & GitHub Finder)
         safeAddSetting({
-            id: BADA_UNIFIED_SETTINGS.missingDetective.id,
+            id: toLegacyId(BADA_UNIFIED_SETTINGS.missingDetective.id),
             category: [texts.category, "MissingDetective"],
             name: texts.detectiveName,
             type: BADA_UNIFIED_SETTINGS.missingDetective.type,
@@ -1833,6 +1915,14 @@ app.registerExtension({
                     requestAnimationFrame(() => {
                         scheduled = false;
                         applyBilingualSettingsUI();
+                        // LANGUAGE SWITCH (2026-10-03). This observer callback is the path that
+                        // actually fires when the user picks a new language in the dropdown —
+                        // it was calling applyBilingualSettingsUI() alone, so the native rows
+                        // were relabelled but our CUSTOM rows were not: the Manager cache
+                        // "지금 갱신" button and the Global Presets 백업/불러오기/관리자 buttons
+                        // kept the old language. The mount is idempotent, so running it here is
+                        // safe; it is what finally made a language switch re-label them.
+                        window.__BADA_MOUNT_LOCALIZED_ROWS__?.();
                     });
                 });
 
@@ -1842,6 +1932,11 @@ app.registerExtension({
             const triggerUIUpdate = () => {
                 observeSettingsDialog();
                 applyBilingualSettingsUI();
+                // Settings v2 augments its two translator rows with a Save button and a
+                // duplicate/conflict hint, and re-labels its custom-rendered presets row after
+                // a language switch. Idempotent, so calling it on every UI pass is safe and
+                // means the buttons reappear after any dialog re-render.
+                window.__BADA_MOUNT_LOCALIZED_ROWS__?.();
             };
 
             // Intercept settings dialog open
@@ -1903,6 +1998,7 @@ app.registerExtension({
                 if (dialog && !dialog.__badaObserverAttached) {
                     observeSettingsDialog();
                     applyBilingualSettingsUI();
+                    window.__BADA_MOUNT_LOCALIZED_ROWS__?.();
                 }
             };
 

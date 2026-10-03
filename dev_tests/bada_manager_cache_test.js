@@ -17,6 +17,11 @@ const ROOT = path.join(__dirname, "..");
 const read = (p) => fs.readFileSync(path.join(ROOT, p), "utf8");
 const JS = read(path.join("web", "bada_manager_cache.js"));
 const CORE = read(path.join("web", "bada_core.js"));
+// Settings v2 (Phase 1) now owns the canonical BadaUtils.* registrations; the legacy block
+// in bada_core.js was remapped to BadaLegacy.*. Guards that asserted "this setting is a
+// plain boolean" must therefore accept EITHER the legacy block (via toLegacyId) or the v2
+// module.
+const V2 = read(path.join("web", "bada_settings_v2.js"));
 
 let fails = 0;
 const check = (label, ok) => {
@@ -143,7 +148,8 @@ check("REGRESSION: no setSettingValue while building the widget",
 // subscribe at all, and the setting must be a plain boolean switch.
 check("REGRESSION: widget never subscribes to BadaI18n", !/BadaI18n\.subscribe/.test(panelBuilder));
 check("REGRESSION: setting is a plain boolean switch, not a custom renderer",
-    /id: BADA_UNIFIED_SETTINGS\.legacyManagerCache\.id,[\s\S]*?type: BADA_UNIFIED_SETTINGS\.legacyManagerCache\.type/.test(CORE)
+    (/id: toLegacyId\(BADA_UNIFIED_SETTINGS\.legacyManagerCache\.id\),[\s\S]*?type: BADA_UNIFIED_SETTINGS\.legacyManagerCache\.type/.test(CORE)
+        || /id: "BadaUtils\.LegacyManagerCacheRefresh",[\s\S]*?type: "boolean"/.test(V2))
     && !/type:\s*\(\)\s*=>\s*\{[\s\S]{0,200}?buildManagerCachePanel/.test(CORE));
 check("REGRESSION: buildManagerCachePanel is fully removed",
     !/function buildManagerCachePanel/.test(CORE));
@@ -195,9 +201,23 @@ check("Bada rows get the tightened 8px / no-padding rhythm",
 // .setting-group wrapper alive holding only ComfyUI's forced divider, so three rules
 // stacked back to back (measured top=185/194/203) between the translator panel and the
 // sidebar row. The wrapper must be hidden as well, which collapses 3 lines -> 1.
+// Scoped to BadaLegacy.* since the Phase 1 id remap: only the LEGACY category has the custom
+// translator panel with its inline list inputs, so only there must these rows disappear.
+// Settings v2's BadaUtils.* list rows are the only UI for those settings and must stay visible.
 check("hidden translator rows drop their forced divider wrapper too",
-    /\.setting-group:has\(\[data-setting-id="BadaUtils\.TranslationBlacklist"\]\),\s*\.setting-group:has\(\[data-setting-id="BadaUtils\.TranslationWhitelist"\]\) \{\s*display: none !important;/.test(CORE)
-    && /div\[data-setting-id="BadaUtils\.TranslationBlacklist"\]/.test(CORE));
+    /\.setting-group:has\(\[data-setting-id="BadaLegacy\.TranslationBlacklist"\]\),\s*\.setting-group:has\(\[data-setting-id="BadaLegacy\.TranslationWhitelist"\]\) \{\s*display: none !important;/.test(CORE)
+    && /div\[data-setting-id="BadaLegacy\.TranslationBlacklist"\]/.test(CORE));
+// REGRESSION (2026-10-03): the label/switch-HIDING rules used to target BadaUtils.*, which
+// after the Phase 1 remap belongs to settings v2 — where NoteHelper is a plain native boolean.
+// They suppressed v2's real label and hid its list rows entirely. Those hiding rules must stay
+// scoped to BadaLegacy.*. Layout rules (the width/flex work added later) MAY target the v2
+// rows on purpose, so they are not what this guard is about.
+check("translator rows are never HIDDEN by BadaUtils.* rules (v2 keeps its native UI)",
+    !/div\[data-setting-id="BadaUtils\.NoteHelper"\]/.test(CORE)
+    && !/BadaUtils\.NoteHelper"\] \) > \.my-8/.test(CORE)
+    && !/data-setting-id="BadaUtils\.TranslationBlacklist"\][\s\S]{0,120}display: none/.test(CORE)
+    && !/data-setting-id="BadaUtils\.TranslationWhitelist"\][\s\S]{0,120}display: none/.test(CORE)
+    && !/querySelector\('\[data-setting-id="BadaUtils\.NoteHelper"\]'\)/.test(CORE));
 
 // REGRESSION: the Global-Presets block is ONE feature (글로벌 프리셋 toggle + its
 // 프리셋 뱃지 위치 dropdown + the presets panel), so ComfyUI's forced divider above the
@@ -206,8 +226,12 @@ check("hidden translator rows drop their forced divider wrapper too",
 // dividerDepth 1 for every Bada row), hence the "> .my-8" combinator. Measured live with
 // dev_tests/verify_badge_lines.cjs: those two rows report border-top-color rgba(0,0,0,0)
 // while every other Bada row stays rgba(255,255,255,0.08).
-check("the two Global-Presets dividers are painted transparent",
-    /\.setting-group:has\(\[data-setting-id="BadaUtils\.PresetBadgePosition"\]\) > \.my-8,\s*\.setting-group:has\(\[data-setting-id="BadaUtils\.GlobalPresetsPanel"\]\) > \.my-8 \{\s*border-top-color: transparent !important;/.test(CORE));
+// 2026-10-03: generalised. The rule was two exact ids; the user then asked for the WHOLE
+// new Bada Utils category to read as one block, so it now covers every BadaUtils row via the
+// prefix selector. The frozen BadaLegacy (구) rows are untouched by it.
+check("every v2 row's forced divider is painted transparent (category reads as one block)",
+    /\.setting-group:has\(\[data-setting-id\^="BadaUtils"\]\) > \.my-8 \{\s*border-top-color: transparent !important;/.test(CORE)
+    && !/data-setting-id="BadaUtils\.PresetBadgePosition"\] \) > \.my-8/.test(CORE));
 
 // REGRESSION: the JS layer turns .form-label into a column flex container (title span +
 // description), so its cross-axis alignment MUST be flex-start. The previous value
@@ -220,6 +244,166 @@ check("Bada row labels stay left-aligned (never re-centered)", (function () {
     return /\.setting-group:has\(\[data-setting-id\^="BadaUtils"\]\) \.form-label \{[^}]*align-items: flex-start !important;/.test(css)
         && !/\.setting-group:has\(\[data-setting-id\^="BadaUtils"\]\) \.form-label \{[^}]*align-items: center/.test(css);
 })());
+
+// --- 7d. Settings v2 coexistence (Phase 1) ----------------------------------
+// The canonical BadaUtils.* IDs moved to web/bada_settings_v2.js; the legacy block in
+// bada_core.js was remapped to BadaLegacy.* and relabelled "Bada Utils (Legacy)". These are
+// inclusions/invariants that nothing else in the suite would catch.
+check("settings v2 module exists and is imported by core",
+    /export function registerBadaV2Settings\(/.test(V2)
+    && /import \{ registerBadaV2Settings \} from "\.\/bada_settings_v2\.js";/.test(CORE));
+// ComfyUI renders AT MOST ONE SETTING PER [category, subgroup] pair (measured with
+// Playwright: 3 rows sharing one subgroup -> only the last rendered). So v2 must give every
+// row its OWN subgroup; a single shared "General" subgroup silently drops 14 of 15 rows.
+check("v2 gives every row its OWN subgroup (shared subgroup would drop rows)",
+    !/BADA_V2_SUBGROUP/.test(V2)
+    && /category: \[BADA_V2_CATEGORY, String\(config\.id\)/.test(V2)
+    && (V2.match(/add\(\{/g) || []).length >= 15);
+check("v2 owns the canonical BadaUtils.* ids",
+    /id: "BadaUtils\.Language"/.test(V2)
+    && /id: "BadaUtils\.NoteHelper"/.test(V2)
+    && /id: "BadaUtils\.GlobalPresetsPanel"/.test(V2));
+check("legacy registrations were remapped to BadaLegacy.*",
+    (CORE.match(/toLegacyId\(/g) || []).length === 16
+    && !/id: BADA_UNIFIED_SETTINGS\.\w+\.id,/.test(CORE));
+check("v2 registers BEFORE the legacy block (nav order == registration order)",
+    CORE.indexOf("registerBadaV2Settings(safeAddSetting") > -1
+    && CORE.indexOf("registerBadaV2Settings(safeAddSetting") < CORE.indexOf("toLegacyId(BADA_UNIFIED_SETTINGS.lang.id)"));
+check("legacy category is relabelled",
+    /category: "Bada Utils \(Legacy\)"/.test(CORE) && /category: "Bada Utils \(구\)"/.test(CORE));
+
+// --- 7e. Settings v2 Phase 2: the Global Presets row is self-owned ----------------
+// Phase 1 routed v2's presets row through window.__BADA_BUILD_PRESETS_PANEL__, a window
+// bridge into bada_core.js. Phase 2 deletes the bridge; v2 imports the overview modal module
+// directly, and the backup/restore logic that used to be inlined in bada_core.js's panel is
+// now shared from presets_overview_modal.js so the two call sites cannot drift.
+const OVERVIEW = read(path.join("web", "presets_overview_modal.js"));
+// Strip comments first: both files still NAME the old bridge in prose explaining that it was
+// removed, and that mention must not read as a live reference.
+const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+check("the __BADA_BUILD_PRESETS_PANEL__ window bridge is gone entirely",
+    !/__BADA_BUILD_PRESETS_PANEL__/.test(stripComments(CORE))
+    && !/__BADA_BUILD_PRESETS_PANEL__/.test(stripComments(V2))
+    && !/__BADA_BUILD_PRESETS_PANEL__/.test(stripComments(OVERVIEW)));
+check("v2 owns its presets row and imports the overview modal directly",
+    /function buildPresetsRow\(\)/.test(V2)
+    && /from "\.\/presets_overview_modal\.js"/.test(V2)
+    && /type: \(\) => buildPresetsRow\(\)/.test(V2));
+check("backup/restore is shared from presets_overview_modal.js (not duplicated)",
+    /export function exportGlobalPresetsJson\(\)/.test(OVERVIEW)
+    && /export function importGlobalPresetsJson\(/.test(OVERVIEW)
+    && /exportGlobalPresetsJson\(\)/.test(V2)
+    && /importGlobalPresetsJson\(/.test(V2)
+    && /exportGlobalPresetsJson\(\)/.test(CORE)
+    && /importGlobalPresetsJson\(/.test(CORE));
+check("the v2 presets row escapes user-controlled node type names",
+    /escapeHtml\(n\.nodeType\)/.test(V2));
+
+// --- 7f. Translator rows: explicit Save, no auto-apply (2026-10-03) -----------------
+// Instant apply was implemented, then removed at the user's request: the state updated
+// immediately but ComfyUI suppresses canvas repaints while the settings modal is open, so
+// it looked like nothing happened. The two rows are now NATIVE rows augmented with a Save
+// button (no custom renderer) that forces the repaint in two passes.
+check("auto-apply is fully removed from the v2 translator rows",
+    !/scheduleNoteHelperReapply/.test(V2)
+    && !/NOTE_HELPER_REAPPLY_DEBOUNCE_MS/.test(V2)
+    && !/onChange: scheduleNoteHelperReapply/.test(V2)
+    && !/clearTimeout\(noteHelperReapplyTimer\)/.test(V2));
+check("the Save button is mounted onto the native rows, with no custom renderer",
+    /export function mountLocalizedRows\(\)/.test(V2)
+    && /window\.__BADA_MOUNT_LOCALIZED_ROWS__ = mountLocalizedRows/.test(V2)
+    && /className = "bada-v2-save-btn"/.test(V2)
+    && /textContent = "💾"/.test(V2)
+    && /type: \(\) =>/g.test(V2) === false || !/id: "BadaUtils\.TranslationBlacklist"[\s\S]{0,200}type: \(\)/.test(V2));
+check("core triggers the idempotent mount from its settings-UI pass",
+    /__BADA_MOUNT_LOCALIZED_ROWS__\?\.\(\)/.test(CORE)
+    && !/__BADA_MOUNT_TRANSLATOR_ROWS__/.test(CORE));
+// LANGUAGE SWITCH (2026-10-03). A `type` renderer runs once at row creation, so a
+// custom-rendered row keeps the language that was active then. The user switched to English
+// and the Global Presets buttons still read 전체 백업 / 불러오기 / 프리셋 관리자 열기,
+// because native rows are relabelled by applyBilingualSettingsUI() but a custom row is
+// invisible to it. The row now carries an in-place refresh invoked from the same UI pass.
+check("the custom-rendered presets row re-labels itself after a language switch",
+    /row\._badaRefreshLanguage = \(\) =>/.test(V2)
+    && /function refreshPresetsRowLanguage\(\)/.test(V2)
+    && /refreshPresetsRowLanguage\(\);/.test(V2)
+    && /row\.id = "bada-v2-presets-row"/.test(V2)
+    // The labels are applied via the local `set()` helper, so match that call shape — an
+    // earlier version of this check assumed a `textContent = ko ? ...` form that never existed.
+    && /set\("bada-v2-presets-export-btn", ko \? "📤 전체 백업 \(JSON\)" : "📤 Backup All \(JSON\)"\)/.test(V2)
+    && /set\("bada-v2-presets-import-btn", ko \? "📥 불러오기" : "📥 Import"\)/.test(V2)
+    && /set\("bada-v2-presets-open-btn", ko \? "🌐 프리셋 관리자 열기" : "🌐 Open Presets Manager"\)/.test(V2));
+// LANGUAGE SWITCH, SECOND ROUND (2026-10-03). The hook above existed and was correct, but
+// nothing that ACTUALLY FIRES ON A LANGUAGE CHANGE ever called it. It was reachable only
+// from triggerUIUpdate (dialog open / click / Ctrl+,), while the path that runs when the
+// user picks a language in the dropdown is the dialog MutationObserver, which called
+// applyBilingualSettingsUI() alone. Result: the presets buttons and the Manager cache
+// button stayed Korean until the dialog was closed and reopened. Guard the wiring, not
+// just the per-row refresh, or this silently regresses again.
+check("REGRESSION: EVERY applyBilingualSettingsUI call site also runs the mount", (function () {
+    // Count-based ("at least N of N") was too weak: deleting one call site still left the
+    // count satisfied. Check each call site individually — every place that relabels the
+    // native rows must also relabel the custom ones, or the two drift apart again.
+    const sites = [...CORE.matchAll(/applyBilingualSettingsUI\([^)]*\);/g)];
+    if (sites.length < 3) return false;
+    // Delimit the search at the NEXT call site rather than with a character window or a brace
+    // regex: a tight window failed sites whose mount sits behind a long comment, a 900-char
+    // window let the next site's mount satisfy this one, and a `});` regex matched the `}`
+    // inside an explanatory comment and cut the region short. "Text between this call and the
+    // next one" is unambiguous.
+    return sites.every((m, i) => {
+        const start = m.index + m[0].length;
+        const end = i + 1 < sites.length ? sites[i + 1].index : CORE.length;
+        return /__BADA_MOUNT_LOCALIZED_ROWS__\?\.\(\);/.test(CORE.slice(start, end));
+    });
+})());
+check("REGRESSION: the v2 language combo re-labels in the same tick", (function () {
+    const onChange = V2.slice(V2.indexOf('id: "BadaUtils.Language"'), V2.indexOf('id: "BadaUtils.NoteHelper"'));
+    return /BadaI18n\.setLanguage\(target, false\)/.test(onChange)
+        && /__badaApplySettingsUI\?\.\(target\)/.test(onChange)
+        && /mountLocalizedRows\(\)/.test(onChange);
+})());
+// The Manager cache widget had the same defect independently: paintManagerCacheWidget()
+// refreshed the timestamp + mode spans but never the refresh BUTTON, whose label was
+// written once at build time. The user saw an English "Last refreshed:" line sitting next
+// to a Korean "지금 갱신" button, which is what finally made the bug obvious.
+check("REGRESSION: the Manager cache refresh button is repainted too", (function () {
+    const paint = CORE.slice(CORE.indexOf("function paintManagerCacheWidget("), CORE.indexOf("function buildNoteHelperPanel("));
+    return /function managerCacheIdleText\(\)/.test(CORE)
+        // The transient in-flight states (갱신 중… / ✓ 완료 / ⚠ 실패) must survive a repaint.
+        && /btn && !btn\.disabled/.test(paint)
+        && /managerCacheIdleText\(\)/.test(paint)
+        && /btn\.textContent !== btnText\) btn\.textContent = btnText/.test(paint)
+        // And the local closure it replaced must be gone, so there is one source of truth.
+        && !/const idleText = \(\) =>/.test(CORE);
+})());
+check("Save forces the repaint in two passes (this is what removes the F5 reflex)",
+    /function applyTranslationLists\(\)/.test(V2)
+    && /__BADA_REAPPLY_NOTE_HELPER_NODES__/.test(V2)
+    && /setDirtyCanvas\?\.\(true, true\)/.test(V2)
+    && /setTimeout\(\(\) => window\.app\?\.graph\?\.setDirtyCanvas/.test(V2)
+    && /TRANSLATOR_REPAINT_RETRY_MS = \d+/.test(V2));
+check("duplicate / conflict warnings are restored for the native rows",
+    /function describeListIssues\(/.test(V2)
+    && /dupBlacklist/.test(V2) && /dupWhitelist/.test(V2) && /conflicts/.test(V2)
+    && /Exclude wins/.test(V2));
+check("the two list inputs are widened and v2 controls use a smaller font",
+    /data-setting-id="BadaUtils\.TranslationBlacklist"\]\) \.form-label,\s*\.setting-group:has\(\[data-setting-id="BadaUtils\.TranslationWhitelist"\]\) \.form-label \{\s*flex: 0 1 300px !important;/.test(CORE)
+    // Must be a DESCENDANT selector: the combo rows are custom components, not <select>,
+    // so a `.form-input select` rule leaves the language/position dropdowns at 16px.
+    && /\.form-input,\s*\.setting-group:has\(\[data-setting-id\^="BadaUtils"\]\) \.form-input \* \{\s*font-size: 13px !important;/.test(CORE));
+// Keep this tolerant of the explanatory comment between the id and the defaultValue.
+check("fresh installs ship the user's own custom nodes pre-filled in the forced-add list",
+    /id: "BadaUtils\.TranslationWhitelist"/.test(V2)
+    && /defaultValue: "Show Any, Preview as Text, Show Text"/.test(V2)
+    && !/show text, show any/.test(V2));
+check("the legacy Apply button is untouched (category frozen until Phase 3)",
+    /const handleApply = \(\) => \{/.test(CORE) && /applyBtn\.addEventListener\("click", handleApply\)/.test(CORE));
+// Divider removal: the transparent-line rule used to name two ids; it must now cover every
+// v2 row so the category reads as one block, while the frozen BadaLegacy rows keep theirs.
+check("every v2 row loses its forced divider line, BadaLegacy keeps them",
+    /\.setting-group:has\(\[data-setting-id\^="BadaUtils"\]\) > \.my-8 \{\s*border-top-color: transparent !important;/.test(CORE)
+    && !/BadaUtils\.PresetBadgePosition"\] \) > \.my-8/.test(CORE));
 
 // REGRESSION (twice): the dialog renders TWO kinds of h3, measured with Playwright:
 //   text-xs font-bold text-text-secondary uppercase -> the CATEGORY MENU (General/Other).
