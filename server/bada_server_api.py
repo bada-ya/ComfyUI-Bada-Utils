@@ -23,7 +23,10 @@ from server import PromptServer
 import folder_paths
 from ..translation_runtime import (
     TRANSLATION_ATTEMPT_TIMEOUT_SECONDS,
+    TRANSLATION_MAX_CHARS,
     TRANSLATION_TIMEOUT_SECONDS,
+    post_translation,
+    parse_translate_response,
     submit_translation,
 )
 
@@ -1000,6 +1003,17 @@ def register_bada_api_routes():
                 if not text or not text.strip():
                     return web.json_response({"success": True, "translated_text": text})
 
+                # Safety net for pathological input (a pasted log, a minified blob). Post fixes the
+                # ~2,300-character failure that motivated the POST transport; this ceiling is a
+                # different concern — refusing input no human would type into a prompt box rather
+                # than letting it sit for 20s and fail with an opaque 500.
+                if len(text) > TRANSLATION_MAX_CHARS:
+                    return web.json_response({
+                        "success": False,
+                        "error": f"텍스트가 너무 깁니다 (최대 {TRANSLATION_MAX_CHARS:,}자). "
+                                 f"현재 {len(text):,}자입니다.",
+                    }, status=413)
+
                 protected_items = []
                 def protect_match(match):
                     idx = len(protected_items)
@@ -1051,6 +1065,38 @@ def register_bada_api_routes():
                 def fetch_translation_with_failover():
                     direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
                     last_err = None
+
+                    # TRANSPORT FIRST (2026-10-04). Every strategy below used to be sent as a GET
+                    # with the text percent-encoded into the query string. Measured: that URL is
+                    # rejected with HTTP 400 once it exceeds ~16.5k characters, which is only
+                    # ~2,300 Korean characters — so "long text doesn't translate" was never a
+                    # translation failure, it was the request being too long to be sent. Try the
+                    # same endpoints as POST first, where the body has no such ceiling (verified
+                    # to 40,000 characters), and keep the GET attempts below as a fallback so no
+                    # endpoint/mirror that used to work can regress.
+                    for base_url, params in strategies:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise TimeoutError("Translation exceeded the 20-second overall timeout")
+                        try:
+                            raw_bytes = post_translation(
+                                base_url,
+                                params,
+                                headers,
+                                min(TRANSLATION_ATTEMPT_TIMEOUT_SECONDS, remaining),
+                            )
+                            res_json = json.loads(raw_bytes.decode('utf-8'))
+                            parsed = parse_translate_response(res_json)
+                            if parsed:
+                                return parsed
+                        except Exception as err:
+                            last_err = err
+                            logger.warning(
+                                f"[Bada-Utils] Note Helper POST {base_url} ({params.get('client')}) "
+                                f"failed, falling back to GET: {err}"
+                            )
+                            continue
+
                     for base_url, params in strategies:
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
@@ -1064,15 +1110,9 @@ def register_bada_api_routes():
                             ) as response:
                                 raw_bytes = response.read()
                                 res_json = json.loads(raw_bytes.decode('utf-8'))
-                                chunks = []
-                                if isinstance(res_json, list) and len(res_json) > 0:
-                                    if isinstance(res_json[0], list) and len(res_json[0]) > 0 and isinstance(res_json[0][0], list):
-                                        for item in res_json[0]:
-                                            if item and isinstance(item, list) and len(item) > 0 and item[0]:
-                                                chunks.append(item[0])
-                                        return "".join(chunks)
-                                    elif isinstance(res_json[0], str):
-                                        return "".join([c for c in res_json if isinstance(c, str)])
+                                parsed = parse_translate_response(res_json)
+                                if parsed:
+                                    return parsed
                         except Exception as err:
                             last_err = err
                             logger.warning(f"[Bada-Utils] Note Helper translate endpoint {base_url} ({params.get('client')}) failover: {err}")

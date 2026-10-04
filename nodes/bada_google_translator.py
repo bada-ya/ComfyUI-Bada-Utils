@@ -22,7 +22,10 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 
 from ..translation_runtime import (
     TRANSLATION_ATTEMPT_TIMEOUT_SECONDS,
+    TRANSLATION_MAX_CHARS,
     TRANSLATION_TIMEOUT_SECONDS,
+    parse_translate_response,
+    post_translation,
     submit_translation,
 )
 
@@ -93,6 +96,34 @@ class BadaGoogleTranslator:
         # Create direct opener (ignoring corrupted local proxies)
         direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
+        # TRANSPORT FIRST (2026-10-04). These requests used to be sent as GET with the text
+        # percent-encoded into the query string; Google rejects that URL with HTTP 400 once it
+        # passes ~16.5k characters (~2,300 Korean characters). Long prompts therefore failed not
+        # because of the translation, but because the request was too long to be sent. POST
+        # carries the same parameters in a body with no such ceiling (verified to 40,000 chars).
+        # GET stays as a fallback so no endpoint that worked before can regress.
+        for base_url, params in strategies:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Translation exceeded the 20-second overall timeout")
+            try:
+                raw_bytes = post_translation(
+                    base_url,
+                    params,
+                    BROWSER_HEADERS,
+                    min(TRANSLATION_ATTEMPT_TIMEOUT_SECONDS, remaining),
+                )
+                parsed = parse_translate_response(json.loads(raw_bytes.decode("utf-8")))
+                if parsed:
+                    return parsed
+            except Exception as err:
+                last_error = err
+                logger.warning(
+                    "[ComfyUI-Bada-Utils] POST %s (%s) failed, falling back to GET: %s",
+                    base_url, params.get("client"), err,
+                )
+                continue
+
         for base_url, params in strategies:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -105,25 +136,16 @@ class BadaGoogleTranslator:
                     req,
                     timeout=min(TRANSLATION_ATTEMPT_TIMEOUT_SECONDS, remaining),
                 ) as response:
-                    raw_data = response.read().decode("utf-8")
-                    res_json = json.loads(raw_data)
-
-                    # Format A: [[["chunk1", "orig1", ...], ["chunk2", "orig2", ...]], ...]
-                    if isinstance(res_json, list) and len(res_json) > 0:
-                        if isinstance(res_json[0], list) and len(res_json[0]) > 0 and isinstance(res_json[0][0], list):
-                            chunks = [
-                                item[0]
-                                for item in res_json[0]
-                                if item and isinstance(item, list) and len(item) > 0 and item[0]
-                            ]
-                            return "".join(chunks)
-                        # Format B: ["chunk1", "chunk2", ...]
-                        elif isinstance(res_json[0], str):
-                            return "".join([c for c in res_json if isinstance(c, str)])
+                    parsed = parse_translate_response(json.loads(response.read().decode("utf-8")))
+                    if parsed:
+                        return parsed
 
             except Exception as err:
                 last_error = err
-                logger.warning(f"[ComfyUI-Bada-Utils] Translation endpoint {base_url} ({params.get('client')}) fallback: {err}")
+                logger.warning(
+                    "[ComfyUI-Bada-Utils] Translation endpoint %s (%s) fallback: %s",
+                    base_url, params.get("client"), err,
+                )
                 continue
 
         if time.monotonic() >= deadline:
