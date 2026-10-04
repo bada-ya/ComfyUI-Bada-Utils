@@ -44,7 +44,7 @@ check("imported from bada_core.js so its extension registers",
     /import \{[^}]*\} from "\.\/bada_manager_cache\.js";/.test(CORE));
 check("registers its own ComfyUI extension",
     /app\.registerExtension\(\{[\s\S]*?name: "BadaUtils\.ManagerCacheRefresh"/.test(JS));
-check("runs from setup()", /async setup\(\) \{[\s\S]*?isLegacyManagerActive\(\)/.test(JS));
+check("runs from setup()", /async setup\(\) \{[\s\S]*?getManagerUiMode\(\)/.test(JS));
 
 // --- 2. gating: modern UI must be a hard no-op -----------------------------
 // Requirement: "신형으로 부팅하면 비활성화". The endpoint is Manager's own
@@ -59,7 +59,8 @@ check("automatic path is legacy-only (requireLegacy defaults true)",
     /const \{ force = false, requireLegacy = true \} = options;/.test(JS)
     && /if \(requireLegacy && !legacy\) \{/.test(JS));
 check("setup() skips the automatic refresh on the modern UI",
-    /if \(await isLegacyManagerActive\(\)\) \{[\s\S]*?await refreshLegacyManagerCache\(\);[\s\S]*?\} else \{/.test(JS));
+    /const mode = await getManagerUiMode\(\);[\s\S]*?if \(mode === MODE_LEGACY\) \{[\s\S]*?await refreshLegacyManagerCache\(\);[\s\S]*?\} else if \(mode === MODE_UNSUPPORTED\)/.test(JS)
+    && /\} else if \(mode === MODE_MODERN\) \{/.test(JS));
 // Requirement update: the row must stay VISIBLE on the modern UI so the manual
 // button is reachable. The earlier display:none lock was deliberately removed.
 check("setting row is NOT hidden on the modern UI anymore",
@@ -112,6 +113,70 @@ check("catalogue fetch is legacy-only (getlist is not a glob route)",
 check("force skips both the date guard and the setting veto",
     /if \(!force && !readSettingEnabled\(\)\)/.test(JS)
     && /if \(!force && alreadyRefreshedToday\(\)\)/.test(JS));
+
+// --- 4b. the probe must not confuse "dead" with "modern" ----------------------
+// /v2/manager/is_legacy_manager_ui lived in Manager's LEGACY backend package
+// (comfyui_manager/legacy/manager_server.py, upstream 31de92a7) and upstream DELETED that
+// package — a current Manager tree is glob/ only and exposes no /v2 route at all. The old
+// probe collapsed that 404 into `false`, which the UI then rendered as "modern Manager".
+// Consequence: after a Manager update the module did nothing at all, forever, while Settings
+// still showed the row as enabled. The only symptom was a cache that never refreshed.
+// These guards pin the four states apart so that failure mode cannot come back.
+check("REGRESSION: the probe resolves FOUR states, not a boolean", (function () {
+    const live = stripComments(JS);
+    return /MODE_LEGACY = "legacy"/.test(live)
+        && /MODE_MODERN = "modern"/.test(live)
+        && /MODE_UNSUPPORTED = "unsupported"/.test(live)
+        && /MODE_UNKNOWN = "unknown"/.test(live);
+})());
+check("REGRESSION: a non-OK probe is UNSUPPORTED, never 'modern'", (function () {
+    const live = stripComments(JS);
+    const detect = live.slice(live.indexOf("async function detectManagerUiMode"),
+        live.indexOf("async function refreshLegacyManagerCache"));
+    // Slice the !res.ok block EXACTLY (up to the parse of the 200 body). A lazy [\s\S]*?
+    // would run past the block's closing brace and flag the legitimate MODE_MODERN return
+    // that follows, which is a false positive about code that is not even in that branch.
+    const notOk = detect.slice(detect.indexOf("if (!res.ok)"),
+        detect.indexOf("const data = await res.json()"));
+    return /if \(!res\.ok\) \{/.test(notOk)
+        && /return MODE_UNSUPPORTED;/.test(notOk)
+        && !/return MODE_(MODERN|LEGACY|UNKNOWN);/.test(notOk);
+})());
+check("REGRESSION: a thrown probe is UNKNOWN (transient), and unknown is never cached", (function () {
+    const live = stripComments(JS);
+    const detect = live.slice(live.indexOf("async function detectManagerUiMode"),
+        live.indexOf("async function refreshLegacyManagerCache"));
+    const getter = live.slice(live.indexOf("export async function getManagerUiMode"));
+    return /catch \(err\) \{[\s\S]*?return MODE_UNKNOWN;/.test(detect)
+        // Caching "unknown" would disable the feature for the whole session after one blip.
+        && /if \(cachedManagerMode === null\) cachedManagerMode = await detectManagerUiMode\(\);/.test(getter);
+})());
+check("REGRESSION: only a CONFIRMED legacy UI may warm the cache (fail-closed)", (function () {
+    const live = stripComments(JS);
+    return /return \(await getManagerUiMode\(\)\) === MODE_LEGACY;/.test(live);
+})());
+check("REGRESSION: the unsupported state is reported, not swallowed", (function () {
+    const live = stripComments(JS);
+    return /mode === MODE_UNSUPPORTED\) \{[\s\S]*?console\.warn/.test(live)
+        // The refresh must also bail out BEFORE spending two doomed /v2 requests.
+        && /if \(mode === MODE_UNSUPPORTED\) \{[\s\S]*?return \{ ok: false, legacy, mode, refreshed: \[\], failed: \[\] \};/.test(live);
+})());
+check("REGRESSION: the settings row names the dead state and disables the button", (function () {
+    const paint = CORE.slice(CORE.indexOf("function paintManagerCacheWidget("),
+        CORE.indexOf("function buildNoteHelperPanel("));
+    return /mode === MODE_UNSUPPORTED\) \{/.test(paint)
+        && /no legacy backend/.test(paint)
+        && /btn\.disabled = true;/.test(paint)
+        && /managerCacheUnsupportedBtnText\(\)/.test(paint);
+})());
+check("REGRESSION: the dead state is styled as a warning, not the neutral grey", (function () {
+    const paint = CORE.slice(CORE.indexOf("function paintManagerCacheWidget("),
+        CORE.indexOf("function buildNoteHelperPanel("));
+    return /muted = true;/.test(paint)
+        && /muted \? "#fbbf24" : ""/.test(paint)
+        && /MANAGER_CACHE_BTN_STYLE\.unsupported/.test(paint)
+        && /cursor: "not-allowed"/.test(CORE);
+})());
 
 // --- 5. ComfyUI-Manager review compliance (ltdrdata) -------------------------
 // The reviewer required that we not load another extension's server modules and
@@ -398,7 +463,7 @@ check("REGRESSION: the Manager cache refresh button is repainted too", (function
     const paint = CORE.slice(CORE.indexOf("function paintManagerCacheWidget("), CORE.indexOf("function buildNoteHelperPanel("));
     return /function managerCacheIdleText\(\)/.test(CORE)
         // The transient in-flight states (갱신 중… / ✓ 완료 / ⚠ 실패) must survive a repaint.
-        && /btn && !btn\.disabled/.test(paint)
+        && /if \(!btn\.disabled\) \{/.test(paint)
         && /managerCacheIdleText\(\)/.test(paint)
         && /btn\.textContent !== btnText\) btn\.textContent = btnText/.test(paint)
         // And the local closure it replaced must be gone, so there is one source of truth.

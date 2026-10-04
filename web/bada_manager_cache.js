@@ -98,16 +98,48 @@ function readSettingEnabled() {
     }
 }
 
-/** Ask Manager which UI is active — the single gate for this whole module. */
-async function isLegacyManagerActive() {
+/**
+ * Which Manager flavour answers this module's probe — the single gate for everything here.
+ *
+ * The probe route is itself version-dependent. `/v2/manager/is_legacy_manager_ui` lived in
+ * Manager's LEGACY backend package (`comfyui_manager/legacy/manager_server.py`, added by
+ * upstream commit 31de92a7), and upstream has since DELETED that package: a current Manager
+ * tree is `glob/` only and exposes no `/v2` route at all. On such a Manager the probe 404s
+ * AND every other `/v2/` call this module makes (getmappings, getlist) is dead too.
+ *
+ * Reporting that 404 as "modern UI" was the original bug: the module then did nothing at all
+ * while Settings still showed the row as enabled, so the only visible symptom was a
+ * node-name cache that never refreshed. Keeping the states apart is what makes that
+ * diagnosable — see mountManagerCacheWidget()/paintManagerCacheWidget() in bada_core.js.
+ */
+export const MODE_LEGACY = "legacy";          // probe says the legacy UI is running
+export const MODE_MODERN = "modern";          // probe says the modern UI is running
+export const MODE_UNSUPPORTED = "unsupported"; // probe route is gone -> no legacy backend
+export const MODE_UNKNOWN = "unknown";        // transient probe failure (restarting, blip)
+
+/**
+ * Cached probe result. Only DEFINITIVE answers are cached: a transient `unknown` must not
+ * disable the feature for the rest of the session, so it is re-probed on the next ask.
+ */
+let cachedManagerMode = null;
+
+/** Probe Manager. Never throws — always resolves to one of the four MODE_* values. */
+async function detectManagerUiMode() {
     try {
         const res = await fetch("/v2/manager/is_legacy_manager_ui");
-        if (!res.ok) return false;
+        if (!res.ok) {
+            console.warn(`[Bada ManagerCache] /v2/manager/is_legacy_manager_ui -> HTTP ${res.status}`
+                + " — this Manager has no legacy backend, so the node-name cache warm-up"
+                + " cannot run here");
+            return MODE_UNSUPPORTED;
+        }
         const data = await res.json();
-        return data?.is_legacy_manager_ui === true;
+        if (data?.is_legacy_manager_ui === true) return MODE_LEGACY;
+        if (data?.is_legacy_manager_ui === false) return MODE_MODERN;
+        return MODE_UNKNOWN; // 200 but no usable flag — ask again later
     } catch (err) {
         console.warn("[Bada ManagerCache] could not detect manager UI:", err);
-        return false;
+        return MODE_UNKNOWN;
     }
 }
 
@@ -141,9 +173,24 @@ export function getLastRefreshDate() {
     }
 }
 
-/** Whether the legacy Manager UI is the one currently loaded. */
+/**
+ * Which Manager flavour is loaded: "legacy" | "modern" | "unsupported" | "unknown".
+ *
+ * Cached on purpose: the settings widget repaints on every language switch and every
+ * settings rebuild, and the probe used to be re-fetched each time. Now the first call
+ * costs one GET and every later call is a resolved promise.
+ */
 export async function getManagerUiMode() {
-    return await isLegacyManagerActive();
+    if (cachedManagerMode === null) cachedManagerMode = await detectManagerUiMode();
+    return cachedManagerMode;
+}
+
+/**
+ * Boolean gate for the refresh paths: ONLY a confirmed legacy UI may warm the cache.
+ * Fail-closed by construction — "modern", "unsupported" and "unknown" are all false.
+ */
+async function isLegacyManagerActive() {
+    return (await getManagerUiMode()) === MODE_LEGACY;
 }
 /**
  * Fetch one Manager data file with mode=remote. The body is deliberately never
@@ -181,18 +228,27 @@ async function warmTarget(target) {
 export async function refreshLegacyManagerCache(options = {}) {
     const { force = false, requireLegacy = true } = options;
 
-    const legacy = await isLegacyManagerActive();
+    const mode = await getManagerUiMode();
+    const legacy = mode === MODE_LEGACY;
+
+    // Every warm target is a /v2/ route, so on a Manager that dropped the legacy backend
+    // there is provably nothing to warm. Bail BEFORE spending two doomed requests — this is
+    // also what stops the manual button from reporting a bare "Failed" with no reason.
+    if (mode === MODE_UNSUPPORTED) {
+        console.info("[Bada ManagerCache] Manager mode \"unsupported\" — nothing to do");
+        return { ok: false, legacy, mode, refreshed: [], failed: [] };
+    }
     if (requireLegacy && !legacy) {
-        console.info("[Bada ManagerCache] modern Manager UI active — nothing to do");
-        return { ok: false, legacy, refreshed: [], failed: [] };
+        console.info(`[Bada ManagerCache] Manager mode "${mode}" — automatic warm-up skipped`);
+        return { ok: false, legacy, mode, refreshed: [], failed: [] };
     }
     if (!force && !readSettingEnabled()) {
         console.info("[Bada ManagerCache] disabled by setting — skipped");
-        return { ok: false, legacy, refreshed: [], failed: [] };
+        return { ok: false, legacy, mode, refreshed: [], failed: [] };
     }
     if (!force && alreadyRefreshedToday()) {
         console.info("[Bada ManagerCache] already refreshed today — skipped");
-        return { ok: false, legacy, refreshed: [], failed: [] };
+        return { ok: false, legacy, mode, refreshed: [], failed: [] };
     }
 
     const refreshed = [];
@@ -205,7 +261,7 @@ export async function refreshLegacyManagerCache(options = {}) {
     // Latch only when the file that fixes search succeeded, so a partial failure
     // is retried next boot instead of being suppressed for a whole day.
     if (refreshed.includes(TARGET_NODE_MAP.label)) markRefreshedToday();
-    return { ok: failed.length === 0 && refreshed.length > 0, legacy, refreshed, failed };
+    return { ok: failed.length === 0 && refreshed.length > 0, legacy, mode, refreshed, failed };
 }
 
 /**
@@ -218,18 +274,29 @@ export async function refreshLegacyManagerCache(options = {}) {
  * open from a cold multi-megabyte download into a cache hit — so the row stays
  * visible and only the on/off toggle is disabled (it controls the boot-time
  * behaviour, which does not apply to the modern UI).
+ *
+ * `unsupported` gets its own branch on purpose. detectManagerUiMode() has already
+ * logged the 404; this says what it MEANS. Without it the module just silently stopped
+ * existing after a Manager update while Settings still showed the row as enabled.
  */
 app.registerExtension({
     name: "BadaUtils.ManagerCacheRefresh",
 
     async setup() {
         try {
-            if (await isLegacyManagerActive()) {
+            const mode = await getManagerUiMode();
+            if (mode === MODE_LEGACY) {
                 console.info("[Bada ManagerCache] legacy Manager UI detected");
                 await refreshLegacyManagerCache();
-            } else {
+            } else if (mode === MODE_UNSUPPORTED) {
+                console.warn("[Bada ManagerCache] this Manager version has no legacy backend, so the "
+                    + "node-name cache refresh cannot run here (Settings shows the same)");
+            } else if (mode === MODE_MODERN) {
                 console.info("[Bada ManagerCache] modern Manager UI active — "
                     + "automatic refresh skipped, manual refresh still available in settings");
+            } else {
+                console.warn("[Bada ManagerCache] could not determine the Manager flavour; "
+                    + "automatic refresh skipped for now");
             }
         } catch (err) {
             console.warn("[Bada ManagerCache] skipped:", err);

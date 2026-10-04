@@ -7,7 +7,8 @@ import { BadaI18n } from "./bada_i18n.js";
 import "./tooltip_fixer.js";
 // Legacy Manager node-name cache warm-up. Must be imported here so it registers
 // its own app extension; it self-gates on the active Manager UI.
-import { refreshLegacyManagerCache, getLastRefreshDate, getManagerUiMode } from "./bada_manager_cache.js";
+import { refreshLegacyManagerCache, getLastRefreshDate, getManagerUiMode,
+    MODE_LEGACY, MODE_MODERN, MODE_UNSUPPORTED } from "./bada_manager_cache.js";
 // Settings v2. Registers the ONLY "Bada Utils" category and owns the canonical
 // BadaUtils.* setting IDs. See the module header for the migration plan.
 import { registerBadaV2Settings } from "./bada_settings_v2.js";
@@ -611,6 +612,40 @@ function managerCacheIdleText() {
     return BadaI18n.lang === "ko" ? "🔄 지금 갱신" : "🔄 Refresh now";
 }
 
+/**
+ * Label for the manual-refresh button on a Manager that has no legacy backend. Every warm
+ * target is a /v2/ route there, so the button can only ever fail — it is disabled and says
+ * so, instead of inviting a click that reports a bare "Failed" with no explanation.
+ */
+function managerCacheUnsupportedBtnText() {
+    return BadaI18n.lang === "ko" ? "⛔ 사용 불가" : "⛔ Unavailable";
+}
+
+/**
+ * Colour/interaction states for the manual-refresh button, split by Manager flavour.
+ *
+ * Only the paintable properties live here; the layout (padding, sizing, flex) stays in
+ * BTN_BASE inside mountManagerCacheWidget() so there is a single source for each concern.
+ * `Object.assign` on individual properties is used instead of rewriting cssText, because a
+ * cssText rewrite from the repaint path would also need a copy of that layout string.
+ */
+const MANAGER_CACHE_BTN_STYLE = {
+    idle: {
+        background: "rgba(59,130,246,0.16)",
+        borderColor: "rgba(59,130,246,0.45)",
+        color: "#93c5fd",
+        cursor: "pointer",
+        opacity: "",
+    },
+    unsupported: {
+        background: "rgba(100,116,139,0.12)",
+        borderColor: "rgba(100,116,139,0.3)",
+        color: "#94a3b8",
+        cursor: "not-allowed",
+        opacity: "0.7",
+    },
+};
+
 function mountManagerCacheWidget(row) {
     if (!row) return;
     const existing = row.querySelector("#" + MANAGER_CACHE_WIDGET_ID);
@@ -712,17 +747,6 @@ function paintManagerCacheWidget(wrap) {
     const modeEl = spans[1];
     const isKo = BadaI18n.lang === "ko";
 
-    // LANGUAGE SWITCH (2026-10-03). The two spans below were always repainted here, but the
-    // refresh BUTTON was not: its label was written once, when the widget was first built.
-    // So switching to English left the row reading an English timestamp next to a Korean
-    // "지금 갱신" button. Repaint it here too, guarded so it cannot stomp the transient
-    // "갱신 중… / ✓ 완료 / ⚠ 실패" states that only exist while a refresh is in flight.
-    const btn = wrap.querySelector("button");
-    if (btn && !btn.disabled) {
-        const btnText = managerCacheIdleText();
-        if (btn.textContent !== btnText) btn.textContent = btnText;
-    }
-
     const last = getLastRefreshDate?.();
     let stampText;
     if (!last) {
@@ -735,17 +759,58 @@ function paintManagerCacheWidget(wrap) {
     }
     if (stampEl && stampEl.textContent !== stampText) stampEl.textContent = stampText;
 
-    if (modeEl) {
-        // Only the legacy Manager needs the boot-time refresh; say which mode is running
-        // so the switch never looks broken on the modern UI. Kept to one short line —
-        // the full explanation already lives in the row description above.
-        getManagerUiMode?.().then((legacy) => {
-            const text = legacy
-                ? (isKo ? "구형 메니저 · 스위치는 시작 시 자동 갱신" : "Legacy Manager · switch runs the startup refresh")
-                : (isKo ? "신형 메니저 · 자동 갱신 없이 버튼으로만 실행" : "Modern Manager · button-only, no automatic refresh");
-            if (modeEl.textContent !== text) modeEl.textContent = text;
-        }).catch(() => {});
-    }
+    if (!modeEl) return;
+
+    // The probe result is cached inside the module, so this resolves from memory after the
+    // first call — a repaint (language switch, settings rebuild) no longer costs a request.
+    Promise.resolve(getManagerUiMode?.()).then((mode) => {
+        let text;
+        let muted = false;
+
+        if (mode === MODE_UNSUPPORTED) {
+            // THE case that used to be invisible. This Manager dropped the legacy backend,
+            // so /v2/manager/is_legacy_manager_ui — and every warm target — is gone. Say it
+            // here instead of letting the row look like a working setting that does nothing.
+            text = isKo
+                ? "⚠ 이 Manager 버전에는 구형(레거시) 백엔드가 없어 이 기능이 동작하지 않습니다"
+                : "⚠ This Manager has no legacy backend, so this feature cannot run here";
+            muted = true;
+        } else if (mode === MODE_LEGACY) {
+            text = isKo ? "구형 메니저 · 스위치는 시작 시 자동 갱신" : "Legacy Manager · switch runs the startup refresh";
+        } else if (mode === MODE_MODERN) {
+            text = isKo ? "신형 메니저 · 자동 갱신 없이 버튼으로만 실행" : "Modern Manager · button-only, no automatic refresh";
+        } else {
+            // Transient probe failure — do not claim a mode we have not confirmed.
+            text = isKo ? "메니저 유형 확인 중… (다시 시도됨)" : "Detecting Manager flavour… (will retry)";
+        }
+        if (modeEl.textContent !== text) modeEl.textContent = text;
+        if (modeEl.style.color !== (muted ? "#fbbf24" : "")) {
+            modeEl.style.color = muted ? "#fbbf24" : "";
+        }
+
+        const btn = wrap.querySelector("button");
+        if (!btn) return;
+
+        if (mode === MODE_UNSUPPORTED) {
+            // Refuse to pretend: a live button here can only ever report "Failed", because
+            // every target it calls is a /v2/ route that no longer exists.
+            btn.disabled = true;
+            Object.assign(btn.style, MANAGER_CACHE_BTN_STYLE.unsupported);
+            const t = managerCacheUnsupportedBtnText();
+            if (btn.textContent !== t) btn.textContent = t;
+            return;
+        }
+
+        // LANGUAGE SWITCH (2026-10-03). The button label used to be written once, when the
+        // widget was first built, so switching to English left an English timestamp next to a
+        // Korean "지금 갱신". Repaint it here too — but ONLY while idle: during a refresh the
+        // transient "갱신 중… / ✓ 완료 / ⚠ 실패" states must survive the repaint that follows.
+        if (!btn.disabled) {
+            const btnText = managerCacheIdleText();
+            if (btn.textContent !== btnText) btn.textContent = btnText;
+            Object.assign(btn.style, MANAGER_CACHE_BTN_STYLE.idle);
+        }
+    }).catch(() => { /* the stamp above is already written; never break the repaint */ });
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
