@@ -61,9 +61,18 @@ const LAST_REFRESH_AT_KEY = "bada.mgr_cache.legacy.last_at";
  * verified: comfyui_manager/glob/manager_server.py has no such route. So the
  * catalogue is warmed only when the legacy UI is running; on the modern UI that
  * fetch would 404.
+ *
+ * `skip_update=true` on the catalogue fetch is REQUIRED, not cosmetic. That route
+ * computes `skip_update` from the query string and then calls
+ * `check_state_of_git_node_pack(node_packs, do_fetch=True, do_update_check=True)`,
+ * which runs `git fetch` against EVERY installed non-CNR pack. Warming the cache
+ * must not drag the user's whole custom_nodes tree over the network once a day —
+ * and the Manager UI itself sends the same flag for every load but the explicit
+ * "Check for updates" view (js/custom-nodes-manager.js:1956), so the warm-up now
+ * costs exactly one HTTP round trip and nothing else.
  */
 const TARGET_NODE_MAP = { url: "/v2/customnode/getmappings?mode=remote", label: "extension-node-map.json" };
-const TARGET_CATALOG = { url: "/v2/customnode/getlist?mode=remote", label: "custom-node-list.json" };
+const TARGET_CATALOG = { url: "/v2/customnode/getlist?mode=remote&skip_update=true", label: "custom-node-list.json" };
 
 function targetsFor(isLegacy) {
     return isLegacy ? [TARGET_NODE_MAP, TARGET_CATALOG] : [TARGET_NODE_MAP];

@@ -74,7 +74,18 @@ check("a failed detection probe is treated as modern (fail-closed)",
 check("warms extension-node-map.json (fixes node-name search)",
     /getmappings\?mode=remote/.test(JS));
 check("warms custom-node-list.json too (Plan B)", /getlist\?mode=remote/.test(JS));
-check("both warm targets listed", (JS.match(/url: "\/v2\/customnode\/\w+\?mode=remote"/g) || []).length === 2);
+check("both warm targets listed", (JS.match(/url: "\/v2\/customnode\/\w+\?mode=remote[^"]*"/g) || []).length === 2);
+// REGRESSION (network cost): /v2/customnode/getlist reads `skip_update` off the query
+// string and, when it is absent, runs check_state_of_git_node_pack(node_packs, True,
+// do_update_check=True) — a `git fetch` against every installed non-CNR pack. Warming a
+// cache file therefore must NOT drag the user's whole custom_nodes tree over the network
+// once a day. The Manager UI sends the same flag on every load except the explicit
+// "Check for updates" view (js/custom-nodes-manager.js:1956), so we match it exactly.
+check("REGRESSION: the catalogue warm-up opts out of the per-pack git fetch",
+    /getlist\?mode=remote&skip_update=true/.test(JS));
+check("REGRESSION: skip_update appears on the catalogue fetch only, never on getmappings",
+    (stripComments(JS).match(/skip_update=true/g) || []).length === 1
+    && !/getmappings\?mode=remote&skip_update/.test(JS));
 // Only the mode-detection probe parses a body; the two warm fetches must not, so
 // the ~3 MB of JSON never lands in the JS heap.
 check("warm fetches never parse the response body (keeps ~3MB out of the heap)",
