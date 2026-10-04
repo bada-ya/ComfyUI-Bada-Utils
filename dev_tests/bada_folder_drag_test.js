@@ -594,6 +594,53 @@ async function callMove(mgr, sourcePath, target) {
             "the 2s/3s probes must stop once satisfied instead of running forever");
         check("PROBES-REPORT-SATISFIED",
             source.includes("return !!(tabsContainer && tabsContainer._qolObserved)"));
+
+        // ---- POPUP MENUS STAY INSIDE THE VIEWPORT (2026-10-04) --------------------
+        // Reported: right-clicking a workflow near the BOTTOM of the sidebar clipped the menu —
+        // Rename was the last visible row and Delete was unreachable. Root cause was a hardcoded
+        // guess, `Math.min(clientY, innerHeight - 180)`, against a menu that is ~300px tall, so
+        // the clamp still left the lower half below the fold. Mid-list rows only looked correct
+        // because the guess happened to leave room there, which is why it survived.
+        //
+        // The fix measures the real menu and flips it above the anchor when it would overflow.
+        // These guards pin the WIRING, because the previous checks in this file all passed while
+        // the menus were visibly broken.
+        const live = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+        check("MENU-HELPER-EXISTS", /function placeMenuInViewport\(menu, anchorX, anchorY\)/.test(live));
+        check("MENU-HELPER-MEASURES",
+            live.includes("const menuW = menu.offsetWidth;") && live.includes("const menuH = menu.offsetHeight;"),
+            "must measure the rendered menu, not guess a size");
+        check("MENU-HELPER-FLIPS-VERTICALLY",
+            live.includes("top + menuH > window.innerHeight - GAP") && live.includes("anchorY - menuH"),
+            "a clamp on `top` alone reproduces the original bug; the menu must flip above the anchor");
+        check("MENU-HELPER-FLIPS-HORIZONTALLY",
+            live.includes("left + menuW > window.innerWidth - GAP") && live.includes("anchorX - menuW"));
+        check("MENU-HELPER-KEEPS-ON-SCREEN",
+            live.includes("Math.max(GAP, anchorY - menuH)") && live.includes("Math.max(GAP, anchorX - menuW)"),
+            "flipping near the top/left edge must not push the menu back off-screen");
+
+        check("CONTEXT-MENU-USES-HELPER", /placeMenuInViewport\(menu, e\.clientX, e\.clientY\);/.test(live));
+        check("FONT-MENU-USES-HELPER", /placeMenuInViewport\(menu, rect\.left \|\| e\.clientX/.test(live),
+            "the font-size menu had no vertical clamp at all and ran off the bottom");
+
+        // offsetWidth is 0 while an element is display:none, so measuring before showing it
+        // silently yields 0 and falls through to the unclamped cursor position — the exact bug.
+        check("MENUS-DISPLAYED-BEFORE-MEASURING", (function () {
+            const ctx = live.slice(live.indexOf("showContextMenu(e, targetInfo)"));
+            const disp = ctx.indexOf('menu.style.display = "block"');
+            const place = ctx.indexOf("placeMenuInViewport(");
+            return disp > -1 && place > -1 && disp < place;
+        })());
+
+        check("NO-HARDCODED-MENU-CLAMP", !/innerHeight\s*-\s*(1[0-9]{2}|[2-9][0-9]{2})/.test(live),
+            "the -180 guess must not come back");
+
+        // The hover preview card had the same disease: `estimatedHeight = 360` standing in for a
+        // height that varies with the notes text and thumbnail.
+        check("HOVER-CARD-MEASURES-HEIGHT", /const cardHeight = this\.hoverCardEl\.offsetHeight;/.test(live)
+            && !live.includes("estimatedHeight"),
+            "a long note makes the card taller than any fixed guess");
     }
 
     const passed = results.filter(Boolean).length;

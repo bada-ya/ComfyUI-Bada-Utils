@@ -29,6 +29,50 @@ function getPresetLabel(preset) {
     return BadaI18n.lang === "ko" ? (preset.label_ko || preset.label) : (preset.label_en || preset.label);
 }
 
+/**
+ * Place a popup menu inside the viewport, flipping it to the other side of its anchor when it
+ * would overflow. Shared by every menu in this file so none of them can drift apart again.
+ *
+ * WHY THIS EXISTS (2026-10-04). Both menus used hardcoded pixel guesses:
+ *     top = min(clientY, innerHeight - 180)        // workflow context menu
+ *     left = min(rect.left, innerWidth - 220)     // font-size menu, no vertical clamp at all
+ * 180px is far shorter than the real workflow menu (6 items + a separator ≈ 300px), so
+ * right-clicking a workflow near the bottom of the sidebar clamped `top` to a value that still
+ * left the lower half below the fold — Delete was invisible and Rename was the last visible
+ * item. Mid-list rows only looked right because the guess happened to leave room there.
+ *
+ * MEASURE, DO NOT GUESS. The menu must already be displayed: offsetWidth/offsetHeight are 0 on
+ * a `display: none` element, so measuring first silently yields 0 and the caller falls through
+ * to the unclamped cursor position — the very bug this replaces.
+ *
+ * @param {HTMLElement} menu     Element to position (mutated in place).
+ * @param {number}      anchorX  Preferred left edge, normally the pointer's clientX.
+ * @param {number}      anchorY  Preferred top edge, normally the pointer's clientY.
+ */
+function placeMenuInViewport(menu, anchorX, anchorY) {
+    if (!menu) return;
+
+    // A real popup never belongs flush against the window edge or directly under the cursor.
+    const GAP = 8;
+    const menuW = menu.offsetWidth;
+    const menuH = menu.offsetHeight;
+
+    let left = anchorX;
+    if (left + menuW > window.innerWidth - GAP) {
+        left = Math.max(GAP, anchorX - menuW);   // flip to the anchor's left
+    }
+
+    let top = anchorY;
+    if (top + menuH > window.innerHeight - GAP) {
+        // Flip ABOVE the anchor. Clamping `top` instead would just reintroduce the original
+        // bug with a different constant: the menu would still hang off the bottom.
+        top = Math.max(GAP, anchorY - menuH);
+    }
+
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+}
+
 
 class WorkflowsPlusManager {
     constructor() {
@@ -1924,9 +1968,10 @@ class WorkflowsPlusManager {
 
         const targetBtn = e.currentTarget || e.target;
         const rect = targetBtn?.getBoundingClientRect ? targetBtn.getBoundingClientRect() : { left: e.clientX, bottom: e.clientY };
-        menu.style.left = `${Math.min(rect.left || e.clientX, window.innerWidth - 220)}px`;
-        menu.style.top = `${(rect.bottom || e.clientY) + 4}px`;
+        // Display BEFORE measuring (see placeMenuInViewport). This menu had NO vertical clamp
+        // at all, so it ran off the bottom of the window whenever the button sat low.
         menu.style.display = "block";
+        placeMenuInViewport(menu, rect.left || e.clientX, (rect.bottom || e.clientY) + 4);
     }
 
     /** Delegates to the shared implementation (web/bada_shared.js). */
@@ -2950,9 +2995,20 @@ class WorkflowsPlusManager {
             if (favItem) favItem.style.display = "none";
         }
 
-        menu.style.left = `${Math.min(e.clientX, window.innerWidth - 200)}px`;
-        menu.style.top = `${Math.min(e.clientY, window.innerHeight - 180)}px`;
+        // CLAMP TO THE VIEWPORT (2026-10-04). This used to hardcode guesses:
+        //     left = min(clientX, innerWidth - 200)
+        //     top  = min(clientY, innerHeight - 180)
+        // 180px is far shorter than the real menu (6 items + a separator ≈ 300px), so
+        // right-clicking a workflow near the BOTTOM of the list clamped `top` to a value that
+        // still left the lower half below the fold. The user reported exactly that: Rename was
+        // the last visible item and Delete was invisible. Mid-list rows only looked right
+        // because the guess happened to leave room there.
+        //
+        // Display BEFORE positioning: offsetWidth/offsetHeight are 0 on a display:none element,
+        // and the per-item show/hide above must have run first (the folder menu is shorter than
+        // the file menu, so one measurement serves both).
         menu.style.display = "block";
+        placeMenuInViewport(menu, e.clientX, e.clientY);
     }
 
     async getFolderList() {
@@ -4131,16 +4187,21 @@ class WorkflowsPlusManager {
 
         this.hoverCardEl.style.display = "flex";
 
-        const cardWidth = 320;
+        // Same root cause as the context menus (2026-10-04): a hardcoded `estimatedHeight = 360`
+        // stood in for the real card height, which varies with the notes text and the
+        // thumbnail. A long note makes the card taller than the guess, so near the bottom of the
+        // viewport it still hung off the edge. The card is already displayed above, so measure
+        // it instead. Width is a genuine fixed 320px in .qol-preview-card, so that one stays.
+        const cardWidth = this.hoverCardEl.offsetWidth || 320;
         let left = rect.right + 12;
         if (left + cardWidth > window.innerWidth - 10) {
             left = Math.max(10, rect.left - cardWidth - 12);
         }
 
-        const estimatedHeight = 360;
+        const cardHeight = this.hoverCardEl.offsetHeight;
         let top = rect.top - 10;
-        if (top + estimatedHeight > window.innerHeight - 10) {
-            top = Math.max(10, window.innerHeight - estimatedHeight - 10);
+        if (cardHeight > 0 && top + cardHeight > window.innerHeight - 10) {
+            top = Math.max(10, window.innerHeight - cardHeight - 10);
         }
 
         this.hoverCardEl.style.left = `${left}px`;
