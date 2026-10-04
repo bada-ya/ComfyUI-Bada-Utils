@@ -15,6 +15,23 @@ import { BadaI18n } from "./bada_i18n.js";
 // Tooltip Element
 let tooltipEl = null;
 
+/**
+ * Widest the tooltip may ever get, and the gap kept from the window edge.
+ *
+ * WHY THESE EXIST (2026-10-04). The tooltip was placed at `x + 12, y + 12` with no clamping at
+ * all and `white-space: nowrap`, so hovering the translate button on a node near the RIGHT edge
+ * pushed the tooltip off-screen — the user saw "클릭: 번..." with the rest of the sentence gone.
+ * It was invisible *why* it was truncated: nothing was drawn off-canvas, the text was simply
+ * absent, so it read as a rendering glitch rather than a placement bug.
+ *
+ * `nowrap` is the reason a single long bilingual string could never fit near an edge. Wrapping is
+ * only enabled when the one-line form does NOT fit (see measureAndClampTooltip), so the common
+ * case — a button with room around it — still renders as the single line it always was. That
+ * keeps this invisible for anyone who was not previously hitting the bug.
+ */
+const TOOLTIP_MAX_WIDTH = 340;
+const TOOLTIP_EDGE_GAP = 10;
+
 function getOrCreateTooltip() {
     if (!tooltipEl) {
         tooltipEl = document.createElement("div");
@@ -34,19 +51,80 @@ function getOrCreateTooltip() {
             backdropFilter: "blur(4px)",
             transition: "opacity 0.12s ease",
             opacity: "0",
-            whiteSpace: "nowrap"
+            whiteSpace: "nowrap",
+            // Cached, so the wrapping decision below can be undone when the tooltip reappears in
+            // a roomier spot. Assigned here rather than in measureAndClampTooltip because the
+            // element is created once and reused for every hover.
+            maxWidth: `${TOOLTIP_MAX_WIDTH}px`,
         });
         document.body.appendChild(tooltipEl);
     }
     return tooltipEl;
 }
 
+/**
+ * Fit the tooltip to the viewport, allowing it to wrap only when it must.
+ *
+ * Stands alone rather than reusing bada_shared.js's placePopupInViewport() because this tooltip
+ * needs one extra step that helper does not model: it must first MEASURE with nowrap applied to
+ * learn whether wrapping is needed at all, then optionally re-measure wrapped before positioning.
+ * placePopupInViewport() assumes a fixed size up front, which is exactly what we are deciding here.
+ *
+ * @param {HTMLElement} el  The tooltip element.
+ * @param {number} anchorX  Pointer clientX.
+ * @param {number} anchorY  Pointer clientY.
+ */
+function measureAndClampTooltip(el, anchorX, anchorY) {
+    const GAP = TOOLTIP_EDGE_GAP;
+
+    // Pass 1 — the historical single-line form. Measure where it would LAND, not just its size:
+    // a button mid-canvas has room, a button at the right edge does not, and the two must look
+    // identical until room actually runs out.
+    el.style.whiteSpace = "nowrap";
+    el.style.left = "0px";
+    el.style.top = "0px";
+    const naturalWidth = el.offsetWidth;
+
+    const overflowsRight = anchorX + GAP + naturalWidth > window.innerWidth - GAP;
+    if (overflowsRight) {
+        // Pass 2 — wrapping. Cap the width to the room actually available on the LEFT of the
+        // anchor (the side we are about to flip to), so the text reflows into a block that fits
+        // instead of running off the edge. Also bounded by TOOLTIP_MAX_WIDTH so the tooltip never
+        // sprawls across half the canvas on a wide monitor.
+        const roomLeft = Math.max(160, anchorX - GAP * 2);
+        el.style.whiteSpace = "normal";
+        el.style.maxWidth = `${Math.min(TOOLTIP_MAX_WIDTH, roomLeft)}px`;
+    } else {
+        // Reset, or the previous hover's narrow maxWidth would persist into this one.
+        el.style.maxWidth = `${TOOLTIP_MAX_WIDTH}px`;
+    }
+
+    // Now measure the final form and place it. The element has opacity 0 but is NOT display:none,
+    // so offsetWidth/Height are real — the same trap as the sidebar menus, avoided here by
+    // never toggling display on this element.
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+
+    let left = anchorX + GAP;
+    if (left + w > window.innerWidth - GAP) {
+        left = Math.max(GAP, anchorX - GAP - w);
+    }
+
+    let top = anchorY + GAP;
+    if (top + h > window.innerHeight - GAP) {
+        top = Math.max(GAP, anchorY - GAP - h);
+    }
+
+    el.style.left = `${Math.round(left)}px`;
+    el.style.top = `${Math.round(top)}px`;
+}
+
 function showTooltip(text, x, y) {
     const el = getOrCreateTooltip();
     el.textContent = text;
-    el.style.left = `${x + 12}px`;
-    el.style.top = `${y + 12}px`;
+    // Visible before measuring, positioned after (see measureAndClampTooltip).
     el.style.opacity = "1";
+    measureAndClampTooltip(el, x, y);
 }
 
 function hideTooltip() {

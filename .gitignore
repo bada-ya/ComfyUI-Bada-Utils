@@ -14,6 +14,7 @@ dev_tests/_shots/
 dev_tests/_dividers_shot.png
 dev_tests/_badge_zone.png
 dev_tests/_*.txt
+dev_tests/_tooltip_*.png
 
 
 # Playwright verification harness

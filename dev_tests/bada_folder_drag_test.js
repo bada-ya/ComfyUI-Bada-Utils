@@ -657,6 +657,32 @@ async function callMove(mgr, sourcePath, target) {
             const place = fn.indexOf("placePopupInViewport(");
             return act > -1 && place > -1 && act < place;
         })(), "offsetWidth reads 0 while hidden, so the clamp would silently do nothing");
+
+        // The note-helper translate-button tooltip (2026-10-04). Reported as "클릭: 번..." with
+        // the sentence truncated when the button sat near the right edge. Unlike the popups above
+        // it could not simply be flipped: `white-space: nowrap` on a long bilingual string meant a
+        // single line never fits near an edge, so it needed wrapping as well.
+        const noteSrc = fs.readFileSync(path.join(REPO_ROOT, "web", "bada_note_helper.js"), "utf8");
+        const noteLive = noteSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+        check("NOTE-TOOLTIP-NO-RAW-OFFSET", !/style\.left = `\$\{x \+ 12\}px`/.test(noteLive),
+            "the unclamped `x + 12, y + 12` placement must not come back");
+        check("NOTE-TOOLTIP-WRAPS-WHEN-EDGE", /whiteSpace = "normal"/.test(noteLive)
+            && /const roomLeft = Math\.max\(160,/.test(noteLive),
+            "wrapping must be bounded by the room actually available on the side we flip to");
+        check("NOTE-TOOLTIP-RESETS-WRAP", /whiteSpace = "nowrap"/.test(noteLive)
+            && /el\.style\.maxWidth = `\$\{TOOLTIP_MAX_WIDTH\}px`/.test(noteLive),
+            "a narrow maxWidth from a previous hover must not persist into a roomier one");
+        check("NOTE-TOOLTIP-MEASURES-FINAL-FORM", /const naturalWidth = el\.offsetWidth;/.test(noteLive)
+            && /const w = el\.offsetWidth;/.test(noteLive),
+            "measure unwrapped to decide, then re-measure the wrapped form before placing");
+        check("NOTE-TOOLTIP-VISIBLE-BEFORE-MEASURING", (function () {
+            const fn = noteLive.slice(noteLive.indexOf("function showTooltip("));
+            const vis = fn.indexOf('el.style.opacity = "1"');
+            const place = fn.indexOf("measureAndClampTooltip(");
+            return vis > -1 && place > -1 && vis < place;
+        })(), "opacity:0 still lays out (unlike display:none), but measuring first is still wrong");
+        check("NOTE-TOOLTIP-BOUNDED-WIDTH", /const TOOLTIP_MAX_WIDTH = \d+;/.test(noteLive),
+            "an unwrapped wrap would sprawl across the canvas on a wide monitor");
     }
 
     const passed = results.filter(Boolean).length;
