@@ -15,7 +15,7 @@
 
 import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
-import { escapeHtml } from "./bada_shared.js";
+import { escapeHtml, placePopupInViewport } from "./bada_shared.js";
 
 const FONT_SIZE_PRESETS = [
     { label: "작게 (A⁻ - 13px)", label_ko: "작게 (A⁻ - 13px)", label_en: "Small (A⁻ - 13px)", icon: "A⁻", name: "compact", fontSize: "13px", folderHeight: "28px", fileHeight: "27px", folderIcon: "14.5px", fileIcon: "13.5px", badgeFont: "11px", badgeHeight: "17px", chevron: "10px" },
@@ -30,47 +30,13 @@ function getPresetLabel(preset) {
 }
 
 /**
- * Place a popup menu inside the viewport, flipping it to the other side of its anchor when it
- * would overflow. Shared by every menu in this file so none of them can drift apart again.
- *
- * WHY THIS EXISTS (2026-10-04). Both menus used hardcoded pixel guesses:
- *     top = min(clientY, innerHeight - 180)        // workflow context menu
- *     left = min(rect.left, innerWidth - 220)     // font-size menu, no vertical clamp at all
- * 180px is far shorter than the real workflow menu (6 items + a separator ≈ 300px), so
- * right-clicking a workflow near the bottom of the sidebar clamped `top` to a value that still
- * left the lower half below the fold — Delete was invisible and Rename was the last visible
- * item. Mid-list rows only looked right because the guess happened to leave room there.
- *
- * MEASURE, DO NOT GUESS. The menu must already be displayed: offsetWidth/offsetHeight are 0 on
- * a `display: none` element, so measuring first silently yields 0 and the caller falls through
- * to the unclamped cursor position — the very bug this replaces.
- *
- * @param {HTMLElement} menu     Element to position (mutated in place).
- * @param {number}      anchorX  Preferred left edge, normally the pointer's clientX.
- * @param {number}      anchorY  Preferred top edge, normally the pointer's clientY.
+ * Viewport clamping for this file's popups now lives in bada_shared.js as
+ * placePopupInViewport(), shared with smart_presets.js. It used to be a local copy with its own
+ * constants; one shared helper is the point — see that function's header for the four popups
+ * that were each guessing a different (wrong) size.
  */
 function placeMenuInViewport(menu, anchorX, anchorY) {
-    if (!menu) return;
-
-    // A real popup never belongs flush against the window edge or directly under the cursor.
-    const GAP = 8;
-    const menuW = menu.offsetWidth;
-    const menuH = menu.offsetHeight;
-
-    let left = anchorX;
-    if (left + menuW > window.innerWidth - GAP) {
-        left = Math.max(GAP, anchorX - menuW);   // flip to the anchor's left
-    }
-
-    let top = anchorY;
-    if (top + menuH > window.innerHeight - GAP) {
-        // Flip ABOVE the anchor. Clamping `top` instead would just reintroduce the original
-        // bug with a different constant: the menu would still hang off the bottom.
-        top = Math.max(GAP, anchorY - menuH);
-    }
-
-    menu.style.left = `${left}px`;
-    menu.style.top = `${top}px`;
+    return placePopupInViewport(menu, anchorX, anchorY, 8);
 }
 
 

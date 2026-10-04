@@ -607,18 +607,21 @@ async function callMove(mgr, sourcePath, target) {
         // the menus were visibly broken.
         const live = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
-        check("MENU-HELPER-EXISTS", /function placeMenuInViewport\(menu, anchorX, anchorY\)/.test(live));
-        check("MENU-HELPER-MEASURES",
-            live.includes("const menuW = menu.offsetWidth;") && live.includes("const menuH = menu.offsetHeight;"),
-            "must measure the rendered menu, not guess a size");
-        check("MENU-HELPER-FLIPS-VERTICALLY",
-            live.includes("top + menuH > window.innerHeight - GAP") && live.includes("anchorY - menuH"),
-            "a clamp on `top` alone reproduces the original bug; the menu must flip above the anchor");
-        check("MENU-HELPER-FLIPS-HORIZONTALLY",
-            live.includes("left + menuW > window.innerWidth - GAP") && live.includes("anchorX - menuW"));
-        check("MENU-HELPER-KEEPS-ON-SCREEN",
-            live.includes("Math.max(GAP, anchorY - menuH)") && live.includes("Math.max(GAP, anchorX - menuW)"),
-            "flipping near the top/left edge must not push the menu back off-screen");
+        check("MENU-HELPER-EXISTS",
+            /function placeMenuInViewport\(menu, anchorX, anchorY\)/.test(live)
+            && /placePopupInViewport/.test(live),
+            "the local wrapper must delegate to the shared helper, not reimplement it");
+        check("MENU-HELPER-IN-SHARED-MODULE", (function () {
+            const shared = require("fs").readFileSync(
+                path.join(REPO_ROOT, "web", "bada_shared.js"), "utf8");
+            return /export function placePopupInViewport\(/.test(shared)
+                && /offsetWidth/.test(shared) && /offsetHeight/.test(shared)
+                && /anchorY - h/.test(shared)
+                && /anchorX - w/.test(shared);
+        })(), "one shared implementation — that is what stops the next popup inventing its own constant");
+        check("NO-DUPLICATE-VIEWPORT-HELPER",
+            (live.match(/function placePopupInViewport/g) || []).length === 0,
+            "the helper must live in bada_shared.js only");
 
         check("CONTEXT-MENU-USES-HELPER", /placeMenuInViewport\(menu, e\.clientX, e\.clientY\);/.test(live));
         check("FONT-MENU-USES-HELPER", /placeMenuInViewport\(menu, rect\.left \|\| e\.clientX/.test(live),
@@ -641,6 +644,19 @@ async function callMove(mgr, sourcePath, target) {
         check("HOVER-CARD-MEASURES-HEIGHT", /const cardHeight = this\.hoverCardEl\.offsetHeight;/.test(live)
             && !live.includes("estimatedHeight"),
             "a long note makes the card taller than any fixed guess");
+
+        // The canvas badge tooltip had NO clamp at all — it sat at the raw cursor offset, so a
+        // node near the right/bottom edge pushed it off-screen and the text just vanished.
+        const smartSrc = fs.readFileSync(path.join(REPO_ROOT, "web", "smart_presets.js"), "utf8");
+        const smartLive = smartSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+        check("BADGE-TOOLTIP-CLAMPED", /placePopupInViewport\(tooltipElement,/.test(smartLive),
+            "the badge tooltip must clamp like every other popup");
+        check("BADGE-TOOLTIP-VISIBLE-BEFORE-MEASURING", (function () {
+            const fn = smartLive.slice(smartLive.indexOf("function showTooltip("));
+            const act = fn.indexOf('tooltipElement.classList.add("active")');
+            const place = fn.indexOf("placePopupInViewport(");
+            return act > -1 && place > -1 && act < place;
+        })(), "offsetWidth reads 0 while hidden, so the clamp would silently do nothing");
     }
 
     const passed = results.filter(Boolean).length;

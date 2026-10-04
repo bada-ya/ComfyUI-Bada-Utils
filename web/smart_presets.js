@@ -10,7 +10,7 @@
  */
 
 import { app } from "../../scripts/app.js";
-import { escapeHtml } from "./bada_shared.js";
+import { escapeHtml, placePopupInViewport } from "./bada_shared.js";
 import { initModal, showPresetModal, closeModal, showToast } from "./presets_modal.js";
 import { hubPresetsStore } from "./hub_node.js";
 import { showHubManageModal } from "./hub_modal.js";
@@ -487,9 +487,16 @@ function showTooltip(screenX, screenY, title, desc, action, colorClass) {
         <div class="usp-tooltip-desc">${desc}</div>
         <div class="usp-tooltip-action">${action}</div>
     `;
-    tooltipElement.style.left = `${screenX}px`;
-    tooltipElement.style.top = `${screenY}px`;
+    // VIEWPORT CLAMP (2026-10-04). This used to place the tooltip at the raw cursor offset with
+    // no clamp at all, so hovering a badge on a node near the RIGHT or BOTTOM edge of the canvas
+    // pushed the tooltip off-screen — the text was simply gone, with nothing to suggest why.
+    // placePopupInViewport() measures the tooltip and flips it to the other side of the cursor
+    // instead. It must already be visible to measure: offsetWidth/offsetHeight are 0 otherwise.
+    //
+    // `.active` is what makes it visible, so add that BEFORE positioning and let the placement
+    // stand for the next frame — otherwise the first measure would read 0.
     tooltipElement.classList.add("active");
+    placePopupInViewport(tooltipElement, screenX, screenY, 10);
 }
 
 function hideTooltip() {
