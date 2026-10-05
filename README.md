@@ -10,6 +10,10 @@
 
 ### 💡 "A pragmatic collection of utilities crafted to fix small, annoying friction points discovered while building workflows in ComfyUI every single day."
 
+**📦 Current release: `v1.0.1`** — see the [release notes (EN)](RELEASE_NOTES_v1.0.1.md).
+Highlights: Save-As folder picker, one-click workflow translator, Gemini-backed prompt
+generator, Gemini chat history with thumbnails, and sidebar multi-select moves.
+
 [English Documentation](#-8-flagship-tools-overview) •
 [🇰🇷 한국어 설명서 보기 (README_ko.md)](README_ko.md) •
 [⚙️ Settings & i18n](#-bada-unified-settings) •
@@ -198,6 +202,8 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
 | **Native State Preserved** | 100% Native | 1-Click Tab Switch (`Workflows` ↔ `Workflows+`) |
 | **Empty Folders (`0` items)** | ❌ Hidden when empty | ⭕ **Preserved with grey item count badge** |
 | **Mouse Drag & Drop** | ❌ Not supported | ⭕ **Drag to any folder or Root dynamically** |
+| **Multi-Select Moves** | ❌ Not supported | ⭕ **`Ctrl` / `Shift` + click, then drag the whole selection into a folder** |
+| **Folder Rename** | ❌ Not supported | ⭕ **Rename any folder, including nested ones** |
 | **Hover Auto-Expand** | ❌ Not supported | ⭕ **1.2s hover auto-opens subfolders** |
 | **Font & Row Size Control** | ❌ Fixed | ⭕ **4-level size switch (`A⁻` ~ `A⁺⁺`) with persistence** |
 | **Active Workflow Tracking** | ❌ Manual search | ⭕ **🎯 Real-time auto-focus & smooth scroll into view** |
@@ -301,6 +307,30 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
   * Runs independently on backend REST APIs with Zero VRAM usage and zero ComfyUI queue blockage.
 * **➡️ 1-Click Send to Active CLIP**:
   * Injects the generated English prompt directly into the active `CLIPTextEncode` node on your canvas.
+
+#### 🕐 Chat History (v1.0.1)
+* Keeps up to **30 past conversations** on disk and reopens any of them with 「이어하기」.
+* **📌 Pin to top** exempts a conversation from the 30-chat auto-delete (pins travel with a backup).
+* **🖼️ Thumbnails** — up to 3 tiny 28px previews per conversation, loaded only for the rows you actually scroll to. Click one to jump straight into that chat.
+* Image quality per conversation: **원본 / 2048px / 1024px / 저장 안 함**. Choosing 「저장 안 함」 stores no bytes but keeps the image count, so the placeholder still renders.
+* Backup, restore and clear-everything are available in the same popup.
+
+</details>
+
+---
+
+### 6-1. ⚓ Bada Prompt Generator (`BadaPromptGenerator`)
+- **What it does**: A queue-synchronous prompt compiler that upgrades a rough idea or a reference image into an engine-ready prompt, across KREA 2 / QWEN2.1 / MiniMax H3 / LTX-Video, using the Gemini API — no VRAM, no model load.
+- **When to use it**: When you want a prompt without leaving the graph, or when you want an image analysed and described in the same pass.
+
+<details>
+<summary><b>📖 Detailed Guide & Settings (Click to expand) ▼</b></summary>
+
+#### 🌟 Key Features
+* **🔗 Wire it in** — connect it as a prompt booster or an image analyser; the output feeds the next node directly.
+* **🧠 4 target engines** with live sub-mode lists, plus your own **system prompts** (create / edit / reorder from ⚙️).
+* **⏱️ ~2s typical** — driven by the Gemini API, so Google's own congestion is the only variable.
+* **🔁 Result cache** — an identical request within a session is answered from cache instead of re-billed.
 
 </details>
 

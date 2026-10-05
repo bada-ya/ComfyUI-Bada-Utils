@@ -133,8 +133,11 @@ def load_workflow_metadata(root_dir):
 def save_workflow_metadata(root_dir, meta_data):
     meta_path = get_workflows_meta_file(root_dir)
     try:
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(meta_data, f, ensure_ascii=False, indent=2)
+        # Crash-safe. This file holds the note and thumbnail of every workflow in the
+        # tree, so a truncated write would lose the lot at once.
+        from .atomic_json import write_json_atomic
+
+        write_json_atomic(meta_path, meta_data)
         return True
     except Exception as e:
         logger.error(f"[Bada-Utils] Failed to save workflow metadata: {e}")
@@ -980,8 +983,10 @@ def register_bada_api_routes():
             try:
                 body = await request.json()
                 if "presets" in body:
-                    with open(PRESETS_FILE, "w", encoding="utf-8") as f:
-                        json.dump(body["presets"], f, ensure_ascii=False, indent=2)
+                    # Crash-safe: the preset store is the user's whole library.
+                    from .atomic_json import write_json_atomic
+
+                    write_json_atomic(PRESETS_FILE, body["presets"])
                 return web.json_response({"success": True, "message": "Presets saved successfully"})
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=500)
@@ -1460,8 +1465,10 @@ def register_bada_api_routes():
                 elif request.method == "POST":
                     body = await request.json()
                     favs = body.get("favorites", [])
-                    with open(FAVORITES_FILE, "w", encoding="utf-8") as f:
-                        json.dump(favs, f, ensure_ascii=False, indent=2)
+                    # Crash-safe, same reason as the preset store.
+                    from .atomic_json import write_json_atomic
+
+                    write_json_atomic(FAVORITES_FILE, favs)
                     return web.json_response({"success": True, "favorites": favs})
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=500)

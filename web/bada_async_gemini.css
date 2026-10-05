@@ -37,8 +37,12 @@
 /* Base Card Container inside ComfyUI Node (Pure Flex Container) */
 .bada-gemini-card,
 .bada-async-gemini-root {
-  width: 100% !important;
-  max-width: 100% !important;
+  /* ⚠️ `width` / `max-width` 는 여기서 강제하지 않는다.
+     JS(syncContainerSize) 가 매 프레임 노드 크기에 맞춰 인라인 폭을 쓰는데, 이 자리에
+     `width:100% !important` 가 있으면 그 인라인 값이 통째로 무시된다(실측: 인라인
+     500px → 실제 렌더 1600px). 그 결과 카드가 `.dom-widget` 호스트 폭을 따라가는데,
+     그 호스트 폭 자체가 아래 주석의 자기참조 루프에 묶여 있어 노드 리사이즈가 반영되지
+     않았다. 「아무 단투나 누르면 창이 깨진다」의 직접 원인이다. */
   min-width: 0 !important;
   /* height is controlled by JS syncContainerSize — do NOT set height here */
   box-sizing: border-box !important;
@@ -54,6 +58,9 @@
   user-select: text;
   overflow: hidden !important;
   container-type: inline-size;
+  /* `.bada-toast` 가 absolute 로 떠서 이 카드를 기준으로 좌표를 잡는다. relative 가
+     없으면 absolute 는 뷰포트 기준으로 계산되어 카드 밖(캔버스 상단)에 떠버린다. */
+  position: relative !important;
 }
 
 /* Force ComfyUI Vue subgrid & wrapper containers to span full width (do not override height) */
@@ -74,8 +81,31 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   flex: 0 0 auto !important;
 }
 
+/* 토스트는 카드 flex column의 BLOCK 자식이라, 표시될 때마다 패널을 아래로
+   밀었다가 되돌려 커버리지서를 위아래로 흔들었다 (「대화가 초기화되었습니다」 등).
+   여기서는 흐름에서 완전히 빼서 absolute 로 띄운다 — 높이 변화가 0 이라 흔들림이
+   사라진다. `right` 만 쓰지 않고 `left:0; right:0` 로 폭을 잡는 이유는, 카드가
+   가운데 정렬된 flex 아이템이라 `right:0` 만 주면 폭이 0 으로 붕괴한다.
+
+   ⚠️ 이 클래스 이름은 전역 토스트(`bada-shared-toast`)와 절대 겹치지 않는다. 두 이름이
+   같은 요소에 함께 적용된 적이 있어, 전역용 `position:fixed` + `rgba(24,24,27,.94)` +
+   `blur(4px)` 가 여기까지 새어들어와 이 배너가 751px 높이의 검은 판으로 노드를 덮었다
+   (「창을 닫으면 검정색으로 화면을 가리고 있어」). 여기서는 상대 위치·고정 크기를 다시
+   못 박아 두어, 다른 스타일시트가 무엇을 주입하든 배너가 판이 되지 않도록 한다. */
 .bada-toast {
-  flex: 0 0 auto !important;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8px;
+  z-index: 70;
+  pointer-events: none;
+  margin: 0;
+  /* 방어: 전역 토스트 규칙(.bada-toast 유래)이 유입돼도 판이 되지 못하게 상한을 건다.
+     배너는 항상 한 줄짜리 메시지이므로 120px 는 넉넉한 여유다. */
+  max-height: 120px;
+  overflow: hidden;
+  backdrop-filter: none;
+  box-shadow: none;
 }
 
 /* Prompt Studio Container (Standard Generator Mode) */
@@ -1146,6 +1176,36 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   color: var(--bada-text-main);
 }
 
+/* ── 제미나이 채팅 탭 드래그&드롭 오버레이 (2026-10-05) ──────────────────
+   The prompt tabs get a small bordered dropzone; the chat tab instead lights the whole
+   panel, since the drop target is the conversation itself rather than one widget.
+   `pointer-events: none` on the ::after is essential — otherwise the overlay would
+   swallow the drop event before it reaches the container listener that attaches the
+   image. */
+.bada-chat-dragover {
+  outline: 2px dashed #10b981;
+  outline-offset: -6px;
+  background: rgba(16, 185, 129, 0.05);
+  position: relative;
+}
+
+.bada-chat-dragover::after {
+  content: "🖼️ 이미지를 여기에 놓으세요";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 5;
+  border-radius: inherit;
+  background: rgba(10, 14, 20, 0.72);
+  color: #10b981;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .bada-drop-subtext {
   font-size: 9.5px;
   color: var(--bada-text-dim);
@@ -1299,7 +1359,7 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
 
 .bada-tab-btn {
   /* content-width tabs, pushed to the left so the clipboard button gets its own space */
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   background: transparent;
   border: none;
   color: var(--bada-text-muted);
@@ -1621,6 +1681,352 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   flex: 0 0 auto;
 }
 
+/* 🕐 채팅 기록 버튼 — 아이콘 전용이라 최소 폭만 갖는다. */
+.bada-gem-history-btn {
+  flex: 0 0 auto;
+  min-width: 30px;
+  padding: 4px 7px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* ── 긴 대화 안내 ──────────────────────────────────────────────────────
+   `.bada-toast` 는 카드 flex column의 block 자식이라 패널을 아래로 밀어
+   커버리지서를 흔들었다(2026-10-05 paste 이슈). 이 배너는 전용 컨테이너에
+   들어가므로 스레드가 아래로 밀릴 뿐, 카드 전체 높이는 바뀌지 않는다. */
+.bada-chat-length-notice {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  border: 1px solid var(--bada-border);
+  background: var(--bada-bg-input);
+  color: var(--bada-text-dim);
+}
+.bada-chat-length-notice.warn {
+  border-color: rgba(234, 179, 8, 0.45);
+  background: rgba(234, 179, 8, 0.10);
+}
+.bada-chat-length-notice.alert {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.12);
+}
+.bada-chat-length-text { flex: 1 1 140px; min-width: 0; }
+.bada-chat-length-btn {
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 5px;
+  border: 1px solid var(--bada-border);
+  background: var(--bada-bg-main, #2a2a2e);
+  color: var(--bada-text-main);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bada-chat-length-btn:hover {
+  border-color: var(--bada-accent, #4a9eff);
+}
+
+/* 「저장 안 함」으로 저장된 첨부 자리표시자 — 첫 첨부 이미지의 빈 박스와 같은 모양. */
+.bada-msg-thumb-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border: 1px dashed var(--bada-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--bada-text-dim);
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+  white-space: pre-line;
+}
+.bada-msg-thumb-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--bada-text-dim);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ── 🕐 채팅 기록 팝업 ──────────────────────────────────────────────────
+   ⚠️ 이 노드는 `.bada-async-gemini-root { overflow: hidden }` 이고 자체 폭은
+   520px 로 고정(JS)이라, 노드 안에 `position:absolute` 팝업을 두면 어느 크기로
+   만들어도 `max-width: calc(100% - 12px)` 에 걸려 약 508px 로 잘린다. 실측에서도
+   `width: 840px` 를 줬는데 437px 로 내려왔다 — 그래서 「더 키워달라」가 반복된 것.
+
+   그래서 팝업을 **document.body 에 붙이는 뷰포트 fixed 패널**로 바꾼다. 노드의
+   overflow 와 폭 제한을 모두 피하고, 화면이 넓으면 실제로 넓게 열린다. 캔버스를
+   완전히 덮지 않기 위해 반투명 배경을 깔고, 배경을 클릭하거나 Esc 를 누르면
+   닫힌다(기존 동작과 동일). */
+/* 팝업 뒤에 깔리는 반투명 배경 — 노드 위 floats 패널임을 알려주고, 여기를 누르면 닫힌다. */
+.bada-chat-history-backdrop {
+  position: fixed;
+  inset: 0;
+  /* pop(20000) 바로 아래. 배경이 위에 오면 패널 클릭이 막힌다. */
+  z-index: 19999;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.bada-chat-history-pop {
+  position: fixed;
+  z-index: 20000;
+  /* 화면이 좁으면 자동으로 줄어든다. */
+  width: min(840px, calc(100vw - 48px));
+  /* 15행짜리 리스트(690px)에 머리말·검색창·푸터(이미지 설정 · 백업 · 전체 삭제)를
+     더한 값. 이전 760px 는 리스트를 460px 로 잘라 버려 「15행」이 실제로 열리지
+     않았다 — 리스트 max-height 만 키우면 패널 상한이 먼저 걸린다.
+     작은 화면에서는 vh 가 걸리고, 이때는 리스트가 줄어들어 스크롤된다(정상). */
+  max-height: min(1000px, 88vh);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--bada-border);
+  background: var(--bada-bg-main, #1e1e22);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  font-size: 11px;
+  color: var(--bada-text-main);
+  /* 가운데 정렬. */
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+}
+.bada-chat-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  font-size: 12px;
+}
+.bada-chat-history-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--bada-border);
+  background: var(--bada-bg-input);
+  color: var(--bada-text-main);
+  font-size: 11px;
+}
+/* 목록이 실제로 30개를 보여줘야 하는 자리.
+   이전 값은 `min-height: 60px` — 팝업의 높이가 상한(420px)에 걸려 머리말·검색창·
+   하단 이미지 설정 바가 높이를 다 먹고, 리스트는 딱 행 1개 분량(60px)까지
+   눌렸다. 스크롤은 되는데 「보는 영역」이 한 칸이라 목록이 1개만 것처럼 보였다.
+   `flex: 1 1 auto` + 상위 max-height 로 남는 높이를 최대한 받고,
+   `min-height` 는 최소 보장치로 둔다.
+
+   상한은 「15행」으로 따로 둔다. 대화는 30개까지 쌓일 수 있으므로 리스트가
+   패널 상한까지 자라면 목록만 스크롤되 화면 대부분을 덮어, 대화가 10개
+   넘은 순간 팝업이 거의 전 화면을 차지했다. 행 하나 약 42px + 간격 4px 로
+   15행 ≈ 690px — 이 값을 넘기면 스크롤바가 나타나 「더 있다」는 신호가 된다.
+   15행을 택한 이유: 상단 고정을 쓰면 맨 위 「고정됨」 섹션이 자리를
+   차지하는데, 보이는 영역이 10행뿐이면 고정한 대화가 늘수록 아래의 일반 대화가
+   보이지 않게 된다. 고정을 늘릴수록 스크롤해야 하는 쪽은 「고정되지 않은
+   대화」여야 한다.
+   15행보다 적으면 min-height 덕분에 패널이 작게 말린다. */
+.bada-chat-history-list {
+  flex: 1 1 auto;
+  min-height: 180px;
+  max-height: 690px;   /* 15행 */
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* 스크롤바가 위치를 알려준다 — 30개 중 지금 몇 번째 대화인지. */
+  scrollbar-width: thin;
+  /* 스크롤 시 목록이 팝업 경계를 뚫고 튀어나오지 않도록 */
+  overscroll-behavior: contain;
+}
+/* 고정 섹션 헤더 — 리스트가 스크롤될 때도 상단에 남아 있어야 「고정됨」 구간을
+   계속 알아볼 수 있다. */
+.bada-chat-history-section {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: 0 0 auto;
+  padding: 3px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--bada-text-dim);
+  background: var(--bada-bg-main, #1e1e22);
+}
+.bada-chat-history-list::-webkit-scrollbar { width: 8px; }
+.bada-chat-history-list::-webkit-scrollbar-track { background: transparent; }
+.bada-chat-history-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+}
+.bada-chat-history-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+.bada-chat-history-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 7px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--bada-bg-input);
+}
+.bada-chat-history-row:hover { border-color: var(--bada-border); }
+.bada-chat-history-row.current { border-color: var(--bada-accent, #4a9eff); }
+.bada-chat-history-main { flex: 1 1 auto; min-width: 0; }
+.bada-chat-history-name {
+  font-weight: 600;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bada-chat-history-meta {
+  font-size: 10px;
+  color: var(--bada-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 고정된 대화 — 목록 맨 앞에 머물고 자동 삭제에서도 제외된다. 강조는 눈에 띄되
+   「현재 대화」(파란 테두리)와 혼동되지 않게 왼쪽 표시선으로 구분한다. */
+.bada-chat-history-row.pinned {
+  background: color-mix(in srgb, var(--bada-accent, #4a9eff) 10%, var(--bada-bg-input));
+}
+.bada-chat-history-row.pinned .bada-chat-history-name { color: var(--bada-accent, #4a9eff); }
+/* 🖼️ 목록 썸네일 — 이미지 있는 대화에만 최대 3장 (28px).
+   이미지가 0개인 대화가 대다수이므로 요소 자체를 만들지 않는다 — 만들면 30개 행에
+   빈 칸이 생겨 목록이 한결 밋밋해진다. 그래서 `buildRow` 가 조건부로 삽입한다. */
+.bada-chat-history-thumbs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  /* 행 높이를 썸네일(28px)이 결정. 회색 테두리로 「클릭 가능한 영역」임을 알린다. */
+  padding: 1px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+.bada-chat-history-thumbs:hover { border-color: var(--bada-accent, #4a9eff); }
+.bada-chat-history-thumbs img {
+  width: 28px;
+  height: 28px;
+  object-fit: cover;   /* 정사각형으로 자른다 — 16:9 원본도 28px 칸을 넘지 않는다 */
+  border-radius: 3px;
+  background: var(--bada-bg-input);
+  display: block;
+  /* 드래그 앤 드롭으로 이미지가 새겨지지 않도록 (노드 자체도 같은 이유로 막는다) */
+  -webkit-user-drag: none;
+  user-select: none;
+}
+/* 「저장 안 함」이라 바이트가 없는 이미지 — 자리를 차지하되 색으로만 알린다. */
+.bada-chat-history-thumb.ghost {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed var(--bada-border);
+  font-size: 11px;
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+.bada-chat-history-open,
+.bada-chat-history-del,
+.bada-chat-history-pin,
+.bada-chat-history-act {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--bada-border);
+  background: var(--bada-bg-main, #2a2a2e);
+  color: var(--bada-text-main);
+  font-size: 10.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bada-chat-history-open:hover,
+.bada-chat-history-act:hover { border-color: var(--bada-accent, #4a9eff); }
+.bada-chat-history-del:hover { border-color: #ef4444; color: #ef4444; }
+/* 📌 버튼은 기본 상태에서 눈에 띄지 않아야 한다. 30개가 쌓인 목록에서 모든 행에
+   붙은 버튼이 눈에 띄면 행 자체가 안 읽히므로, 고정된 행에서만 진하게 한다. */
+.bada-chat-history-pin { opacity: 0.45; }
+.bada-chat-history-row:hover .bada-chat-history-pin { opacity: 0.85; }
+.bada-chat-history-pin.on {
+  opacity: 1;
+  border-color: var(--bada-accent, #4a9eff);
+  background: color-mix(in srgb, var(--bada-accent, #4a9eff) 22%, var(--bada-bg-main, #2a2a2e));
+}
+.bada-chat-history-pin:disabled { cursor: wait; }
+.bada-chat-history-act.danger:hover { border-color: #ef4444; color: #ef4444; }
+.bada-chat-history-empty {
+  padding: 16px 8px;
+  text-align: center;
+  white-space: pre-line;
+  color: var(--bada-text-dim);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.bada-chat-history-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--bada-border);
+}
+.bada-chat-history-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--bada-text-dim);
+}
+.bada-chat-history-mode-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--bada-border);
+  background: var(--bada-bg-input);
+  color: var(--bada-text-main);
+  font-size: 11px;
+}
+.bada-chat-history-note {
+  font-weight: 400;
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: var(--bada-text-muted, var(--bada-text-dim));
+  white-space: pre-line;
+}
+.bada-chat-history-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.bada-chat-history-cap {
+  font-size: 9.5px;
+  color: var(--bada-text-dim);
+  margin-left: auto;
+}
+
 .bada-chat-thread {
   flex: 1 1 0px !important;    /* 남은 공간 100% 흡수 (flex-basis: 0) */
   min-height: 0 !important;
@@ -1636,18 +2042,17 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   box-sizing: border-box !important;
 }
 
+/* ── 채팅 말풍선 ────────────────────────────────────────────────────────
+   내 말과 AI 말을 좌우 정렬로 구분하지 않는다. flex-end/flex-start로 밀어내면
+   긴 AI 답변도 86%에서 멈춰 오른쪽이 텅 비므로, 양쪽 다 전체 폭으로 깔고
+   「배경색 vs 얇은 테두리」로만 구분한다 — 좁은 노드에서 가로 공간을 최대한 쓰는
+   편이 읽기에 낫다.
+   참고: 이미지 확대(라이트박스)는 이 정렬과 무관하다. 썸네일 좌표가 아니라
+   배열 인덱스만 넘기고, 오버레이는 position:fixed + 92vw로 뷰포트에 고정된다. */
 .bada-msg-row {
   display: flex;
   gap: 8px;
   width: 100%;
-}
-
-.bada-msg-row.user {
-  justify-content: flex-end;
-}
-
-.bada-msg-row.model {
-  justify-content: flex-start;
 }
 
 .bada-msg-bubble {
@@ -1655,21 +2060,29 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   border-radius: 12px;
   font-size: 12px;
   line-height: 1.5;
-  max-width: 86%;
+  /* 86% → 100%: 좌우 여백을 없애고 노드 폭을 끝까지 쓴다.
+     max-width 만으로는 부족하다. 이 버블은 flex 아이템이라 기본적으로
+     `flex: 0 1 auto`(내용 크기만큼만 차지)로 줄어들고, 짧은 내 말은 오른쪽
+     공백 252px를 그대로 남겼다. `flex: 1 1 auto`로 행 폭을 채우고,
+     `min-width: 0`을 줘야 긴 단어가 가로 스크롤바를 만들지 않는다. */
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   word-break: break-word;
 }
 
+/* 내가 보낸 말 — 채워진 배경색. */
 .bada-msg-bubble.user {
   background: #4a4a4a;
   color: #f8fafc;
-  border-bottom-right-radius: 2px;
 }
 
+/* AI 답변 — 배경 없이 얇은 테두리로만 구분한다. */
 .bada-msg-bubble.model {
-  background: #3a3a3a;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   color: #f1f5f9;
-  border-bottom-left-radius: 2px;
 }
 
 .bada-msg-images {
@@ -1684,6 +2097,102 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   object-fit: cover;
   border-radius: 4px;
   border: 1px solid var(--bada-border);
+}
+
+/* 클릭 가능한 썸네일 — 48px로는 그림을 볼 수 없으므로 확대는 기본 동작이다. */
+.bada-msg-thumb-zoomable,
+.bada-thumbnail-img-zoomable {
+  cursor: zoom-in;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.bada-msg-thumb-zoomable:hover,
+.bada-thumbnail-img-zoomable:hover {
+  transform: scale(1.12);
+  border-color: var(--bada-accent, #4a9eff);
+}
+
+/* ── 🖼️ 이미지 크게 보기 (lightbox) ─────────────────────────────────────
+   노드 안이 아니라 document.body 에 붙는 전체 화면 오버레이. z-index 는
+   ComfyUI litegraph 캔버스/오버레이보다 높아야 하며, 빛나는 배경 위에
+   클릭하면 항상 닫힌다. */
+.bada-img-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.86);
+  backdrop-filter: blur(2px);
+  animation: bada-img-viewer-in 0.12s ease-out;
+}
+@keyframes bada-img-viewer-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.bada-img-viewer-img {
+  max-width: 92vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+  cursor: default;
+  user-select: none;
+}
+
+.bada-img-viewer-btn {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  padding: 0;
+}
+.bada-img-viewer-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+.bada-img-viewer-close {
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+}
+.bada-img-viewer-prev {
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+}
+.bada-img-viewer-next {
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+}
+
+.bada-img-viewer-count {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: monospace;
+  pointer-events: none;
 }
 
 .bada-msg-actions {

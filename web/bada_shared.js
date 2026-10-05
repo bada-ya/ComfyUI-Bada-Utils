@@ -32,8 +32,17 @@ function ensureToastStyles() {
     if (document.getElementById(TOAST_STYLE_ID)) return;
     const style = document.createElement("style");
     style.id = TOAST_STYLE_ID;
+    // ⚠️ Scope this sheet to `.bada-shared-toast` ONLY.
+    //
+    // This block used to also style `.bada-toast`, which belongs to the node's OWN in-card
+    // banner (web/bada_async_gemini.css). Both rules landed on the SAME element, so the
+    // node banner inherited `position:fixed`, `background:rgba(24,24,27,.94)` and
+    // `backdrop-filter:blur(4px)` — rendering it as a 751px-tall opaque black slab over
+    // the node, exactly the 「창을 닫으면 검정색으로 화면을 가리고 있어」 report. Renaming
+    // the JS class alone did NOT fix it: the stale `.bada-toast` rule below kept winning the
+    // cascade, which is why the mask survived a reload. One class name, one owner.
     style.textContent = `
-        .bada-toast {
+        .bada-shared-toast {
             position: fixed;
             right: 16px;
             bottom: 16px;
@@ -51,12 +60,30 @@ function ensureToastStyles() {
             font-size: 12px;
             line-height: 1.4;
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-            transition: opacity 0.25s ease;
             pointer-events: none;
+            /* 새 알림은 아래에서 살짝 올라오며 나타나고, 사라질 때는 다시 내려간다.
+               transform 을 쓰므로 요소는 자기 자리를 유지한다 — 흐름에 있는 것처럼
+               높이 변화를 일으키면 그 위에 있는 UI 가 들썩여 화면이 흔들린다. */
+            animation: badaSharedToastIn 0.22s ease-out;
         }
-        .bada-toast.error {
+        .bada-shared-toast.error {
             border-color: #ef4444;
             color: #fef2f2;
+        }
+        .bada-shared-toast.closing {
+            animation: badaSharedToastOut 0.22s ease-in forwards;
+        }
+        @keyframes badaSharedToastIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes badaSharedToastOut {
+            from { opacity: 1; transform: translateY(0); }
+            to   { opacity: 0; transform: translateY(10px); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .bada-shared-toast,
+            .bada-shared-toast.closing { animation: none; }
         }
     `;
     document.head.appendChild(style);
@@ -81,7 +108,11 @@ export function showToast(message, type = "info", duration = 3000) {
     if (message === undefined || message === null || message === "") return;
     const container = ensureToastContainer();
     const toast = document.createElement("div");
-    toast.className = `bada-toast${type === "error" ? " error" : ""}`;
+    // `bada-shared-toast`, NOT `bada-toast`. The node stylesheet claims `.bada-toast` for
+    // its OWN in-card banner (`position:absolute` against `.bada-async-gemini-root`), and
+    // sharing the name dragged this fixed viewport toast into the node's coordinate space —
+    // it rendered over the canvas, beside the node, instead of the bottom-right corner.
+    toast.className = `bada-shared-toast${type === "error" ? " error" : ""}`;
     const icon = document.createElement("span");
     icon.textContent = type === "error" ? "❌" : "✨";
     const text = document.createElement("span");
@@ -90,7 +121,10 @@ export function showToast(message, type = "info", duration = 3000) {
     container.appendChild(toast);
 
     setTimeout(() => {
-        toast.style.opacity = "0";
+        // Class swap, not an inline opacity write: the exit keyframes animate on their own,
+        // and `forwards` keeps the element transparent until it is removed so it cannot
+        // flash back to opacity 1 in the gap between the class change and remove().
+        toast.classList.add("closing");
         setTimeout(() => toast.remove(), 250);
     }, duration);
 }

@@ -10,6 +10,11 @@ WORK_LOG.md
 config.json
 favorites_data.json
 *.bak
+
+# 🔞 제미나이 채팅 기록 — 개인 데이터.
+# 사용자가 만든 프롬프트와 이미지가 base64로 들어 있으므로 저장소에 커밋되면
+# 그대로 공개된다. 백업은 앱 안의 「📤 백업」 버튼(.json 다운로드)으로 한다.
+gemini_chat_history.json
 dev_tests/_shots/
 dev_tests/_dividers_shot.png
 dev_tests/_badge_zone.png

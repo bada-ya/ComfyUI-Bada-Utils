@@ -187,8 +187,11 @@ def save_server_config(data):
     try:
         current = load_server_config()
         current.update(data)
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(current, f, ensure_ascii=False, indent=2)
+        # Crash-safe: a plain open(path, "w") truncates first, so a crash mid-write left
+        # the API key file empty and every key silently lost. See server/atomic_json.py.
+        from .atomic_json import write_json_atomic
+
+        write_json_atomic(CONFIG_FILE, current)
         return True
     except Exception as e:
         logger.error(f"[bada-AsyncGemini] Failed to save config.json: {e}")

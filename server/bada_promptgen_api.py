@@ -15,6 +15,15 @@ POST /api/bada/gemini/prompts/save           create / update a Gemini-only syste
 POST /api/bada/gemini/prompts/delete         remove a Gemini-only system prompt
 POST /api/bada/gemini/prompts/move           reorder a Gemini-only system prompt
 POST /api/bada/promptgen/defaults            persist the node default widget values
+GET  /api/bada/gemini/chats                  list saved 제미나이 chats (summaries only)
+GET  /api/bada/gemini/chats/get?id=           load one chat with its full history
+GET  /api/bada/gemini/chats/thumbs?id=&n=&size=  tiny previews (28px) of that chat's images
+POST /api/bada/gemini/chats/save             create / update one chat
+POST /api/bada/gemini/chats/delete           remove one chat
+POST /api/bada/gemini/chats/pin              toggle 「상단 고정」 — exempt from the 30-chat cap
+POST /api/bada/gemini/chats/clear            remove every chat (requires confirm:true)
+GET  /api/bada/gemini/chats/export           download a .json backup of every chat
+POST /api/bada/gemini/chats/import           restore from a .json backup
 
 `user_prompts` drives the 📜 시스템 프롬프트 engine tab, while `gemini_prompts`
 is a completely separate list used ONLY by the 🔞 제미나이 chat tab
@@ -30,8 +39,9 @@ import json
 import logging
 import os
 import re
-import tempfile
 import uuid
+
+from .atomic_json import write_json_atomic
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 
@@ -57,32 +67,12 @@ def _read_json(path: str, fallback):
 
 
 def _write_json(path: str, payload: dict) -> None:
-    """Atomic write: temp file in the same folder + os.replace, with a .bak copy."""
-    directory = os.path.dirname(path)
-    if os.path.exists(path):
-        try:
-            with open(path, "rb") as source, open(path + ".bak", "wb") as target:
-                target.write(source.read())
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[BadaPromptGen] backup failed: %s", exc)
+    """Atomic write: temp file in the same folder + os.replace, with a .bak copy.
 
-    handle = tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", delete=False, dir=directory, suffix=".tmp"
-    )
-    try:
-        with handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(handle.name, path)
-    except Exception:
-        try:
-            if os.path.exists(handle.name):
-                os.remove(handle.name)
-        except OSError as _ignored_err:
-            logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
-
-        raise
+    Delegates to the shared routine so every JSON the pack persists behaves identically —
+    see ``server/atomic_json.py`` for why the temp-file dance is not optional.
+    """
+    write_json_atomic(path, payload)
 
 
 def _slugify(text: str) -> str:
@@ -110,6 +100,19 @@ def _registry_payload() -> dict:
     except Exception:  # noqa: BLE001
         registry.setdefault("gemini_models", [])
     return registry
+
+
+def _as_bool(value) -> bool:
+    """JSON truthiness that survives stringified booleans.
+
+    `bool("false")` is True in Python, so a client that serialises a checkbox as a string
+    would PIN the very chat the user just unpinned — an inversion that produces no error
+    and no obvious symptom. The string cases are handled explicitly; anything else keeps
+    plain Python truthiness.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "0", "false", "no", "off")
+    return bool(value)
 
 
 def _find_prompt_index(prompts: list, key: str) -> int:
@@ -386,6 +389,186 @@ def register_promptgen_api_routes():
             return web.json_response({"success": True, "defaults": defaults})
         except Exception as exc:  # noqa: BLE001
             logger.exception("[BadaPromptGen] defaults save failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    # ------------------------------------------------------------------
+    #  🔞 제미나이 채팅 기록 (chat history)
+    #
+    #  Stored in its own file (gemini_chat_history.json), NOT in engines_registry.json:
+    #  the registry is a GitHub-distributed artifact, chat history is private data.
+    #  See server/gemini_chat_history.py for the storage rationale.
+    # ------------------------------------------------------------------
+
+    @routes.get("/api/bada/gemini/chats")
+    async def list_gemini_chats(request):
+        """List view only — titles, counts and sizes, never message bodies or images."""
+        try:
+            from . import gemini_chat_history as history
+
+            chats = history.list_chats()
+            return web.json_response({
+                "success": True,
+                "chats": chats,
+                "maxChats": history.MAX_CHATS,
+            })
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaChatHistory] list failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    @routes.get("/api/bada/gemini/chats/get")
+    async def get_gemini_chat(request):
+        try:
+            from . import gemini_chat_history as history
+
+            chat_id = (request.rel_url.query.get("id") or "").strip()
+            if not chat_id:
+                return web.json_response({"success": False, "error": "id가 필요합니다."}, status=400)
+            chat = history.get_chat(chat_id)
+            if chat is None:
+                return web.json_response({"success": False, "error": "대화를 찾을 수 없습니다."}, status=404)
+            return web.json_response({"success": True, "chat": chat})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaChatHistory] get failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    @routes.post("/api/bada/gemini/chats/save")
+    async def save_gemini_chat(request):
+        try:
+            from . import gemini_chat_history as history
+
+            body = await request.json()
+            summary = history.upsert_chat(
+                chat_id=(body.get("id") or "").strip(),
+                title=(body.get("title") or "").strip(),
+                messages=body.get("messages"),
+            )
+            return web.json_response({"success": True, "chat": summary})
+        except ValueError as exc:
+            return web.json_response({"success": False, "error": str(exc)}, status=400)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaChatHistory] save failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    @routes.post("/api/bada/gemini/chats/delete")
+    async def delete_gemini_chat(request):
+        try:
+            from . import gemini_chat_history as history
+
+            body = await request.json()
+            chat_id = (body.get("id") or "").strip()
+            if not chat_id:
+                return web.json_response({"success": False, "error": "id가 필요합니다."}, status=400)
+            if not history.delete_chat(chat_id):
+                return web.json_response({"success": False, "error": "대화를 찾을 수 없습니다."}, status=404)
+            return web.json_response({"success": True})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaChatHistory] delete failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    @routes.get("/api/bada/gemini/chats/thumbs")
+    async def thumb_gemini_chat(request):
+        """Up to 3 tiny previews of one conversation's most recent images.
+
+        Deliberately separate from the LIST payload: 30 conversations × 3 previews would make
+        opening the picker parse image data it usually never displays. `n` and `size` are
+        clamped rather than trusted, since both are attacker-controllable query strings and
+        this endpoint decodes base64 images on the server.
+        """
+        try:
+            from . import gemini_chat_history as history
+
+            # `request.rel_url.query`, NOT `request.query`: that is the accessor every other
+            # GET handler in this file uses (see the chats/get route), and it is the one the
+            # aiohttp stub exposes. Using `request.query` here raised AttributeError and
+            # surfaced as a 500 for a request that was perfectly valid.
+            query = request.rel_url.query
+            chat_id = (query.get("id") or "").strip()
+            if not chat_id:
+                return web.json_response({"success": False, "error": "id가 필요합니다."}, status=400)
+            try:
+                count = max(1, min(6, int(query.get("n", 3))))
+                size = max(16, min(128, int(query.get("size", 28))))
+            except (TypeError, ValueError):
+                count, size = 3, 28
+            summary = history.chat_thumbnails(chat_id, limit=count, size=size)
+            return web.json_response({"success": True, **summary})
+        except KeyError:
+            return web.json_response({"success": False, "error": "대화를 찾을 수 없습니다."}, status=404)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaChatHistory] thumbs failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    @routes.post("/api/bada/gemini/chats/pin")
+    async def pin_gemini_chat(request):
+        """Toggle 「상단 고정」. A pinned chat is exempt from the 30-conversation cap."""
+        try:
+            from . import gemini_chat_history as history
+
+            body = await request.json()
+            chat_id = (body.get("id") or "").strip()
+            if not chat_id:
+                return web.json_response({"success": False, "error": "id가 필요합니다."}, status=400)
+            summary = history.set_chat_pinned(chat_id, _as_bool(body.get("pinned")))
+            return web.json_response({"success": True, "chat": summary})
+        except KeyError:
+            return web.json_response({"success": False, "error": "대화를 찾을 수 없습니다."}, status=404)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaChatHistory] pin failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    @routes.post("/api/bada/gemini/chats/clear")
+    async def clear_gemini_chats(request):
+        """Bulk delete. Guarded by `confirm` so a stray call cannot wipe the history."""
+        try:
+            from . import gemini_chat_history as history
+
+            body = await request.json()
+            if not body.get("confirm"):
+                return web.json_response(
+                    {"success": False, "error": "confirm 값이 필요합니다."}, status=400
+                )
+            history.save_store({"version": 1, "chats": []})
+            return web.json_response({"success": True})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaChatHistory] clear failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    @routes.get("/api/bada/gemini/chats/export")
+    async def export_gemini_chats(request):
+        """Backup download — the user gets a .json they own and can move anywhere."""
+        try:
+            from . import gemini_chat_history as history
+
+            body = json.dumps(history.export_store(), ensure_ascii=False, indent=2).encode("utf-8")
+            return web.Response(
+                body=body,
+                content_type="application/json; charset=utf-8",
+                headers={
+                    # Forces a save-as instead of an inline render, so the browser never
+                    # tries to display a multi-megabyte image blob.
+                    "Content-Disposition": 'attachment; filename="bada_gemini_chats_backup.json"',
+                    "Cache-Control": "no-store",
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaChatHistory] export failed")
+            return web.json_response({"success": False, "error": str(exc)}, status=500)
+
+    @routes.post("/api/bada/gemini/chats/import")
+    async def import_gemini_chats(request):
+        try:
+            from . import gemini_chat_history as history
+
+            body = await request.json()
+            payload = body.get("payload")
+            if payload is None:
+                payload = {k: body[k] for k in ("version", "chats", "exportedAt") if k in body}
+            count = history.import_store(payload, merge=bool(body.get("merge")))
+            return web.json_response({"success": True, "imported": count})
+        except ValueError as exc:
+            return web.json_response({"success": False, "error": str(exc)}, status=400)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[BadaChatHistory] import failed")
             return web.json_response({"success": False, "error": str(exc)}, status=500)
 
     logger.info("[ComfyUI-Bada-Utils] Bada Prompt Generator registry routes registered ⚙️")

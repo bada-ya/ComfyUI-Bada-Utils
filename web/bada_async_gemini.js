@@ -275,8 +275,61 @@ app.registerExtension({
             let gemChatPromptsLoadPromise = null;
             let chatMessages = [];
             let chatUploadedImages = [];
+            // Pre-downscale copies of the same attachments, kept ONLY until the message is
+            // sent. The chat downscales to 1024px for the API call, but 「원본으로 저장」
+            // needs the bytes the user actually pasted — which no longer exists downstream.
+            let chatOriginalImages = [];
+            // renderChatImagesPreview(), renderChatMessages() and renderChatLengthNotice() are all
+// declared INSIDE renderChatStudio(), so code in the enclosing scope — the history
+// popup's onRestore, the global paste handler — cannot call them by name. Calling them
+// directly threw "X is not defined" and aborted the whole handler mid-way. These bindings
+// are re-pointed on every chat-view build; the no-op defaults keep an early call harmless.
+let refreshChatImagePreview = () => {};
+let refreshChatMessages = () => {};
+let refreshChatLengthNotice = () => {};
             let isChatSending = false;
             let chatPersonaCleanup = null;
+            // Drag & drop bookkeeping for the 제미나이 chat tab. Declared OUTSIDE
+            // renderChatStudio() because the teardown below (chatPersonaCleanup) is
+            // registered BEFORE the drag listeners and closes over them: referencing a
+            // `let` bound later in the same scope would hit the temporal dead zone and throw
+            // on every tab switch.
+            let chatDragHandlers = null;
+
+            // ── 채팅 기록 (2026-10-05) ──────────────────────────────────────
+            // `currentChatId` ties the live thread to its row in gemini_chat_history.json so
+            // a restored conversation keeps appending to the SAME saved entry instead of
+            // forking a new copy on every send. Empty = unsaved yet; the server mints the id
+            // on the first save and hands it back.
+            let currentChatId = "";
+            // 저장 요청은 fire-and-forget 이라, 그 응답이 「새 채팅」 이 이미 끝난 뒤에
+            // 도착할 수 있다. 이때 `currentChatId = data.chat.id` 를 그대로 실행하면 새
+            // 대화가 옛 대화의 id 를 물려받아, 이후 모든 저장이 같은 한 줄을 덮어쓴다.
+            // 실제로 「보내고 → 새 채팅」 을 반복하면 목록에 5개가 아니라 1개만 남았다.
+            //
+            // `chatEpoch` 는 대화를 새로 시작할 때마다 올라가는 세대 번호다. 저장은 자신이
+            // 출발한 세대를 기억하고, 돌아왔을 때 세대가 달라졌으면 그 응답은 이미 존재하지
+            // 않는 대화의 것이므로 id 를 물려받지 않는다.
+            let chatEpoch = 0;
+            // 진행 중인 저장 요청. 「새 채팅」 이 또 저장하면 같은 대화가 두 번 POST 되어
+            // 제목이 같은 줄이 두 개 생긴다(응답이 아직 안 왔으니 id 도 아직 비어 있음).
+            // 따라서 「새 채팅」 은 진행 중인 요청이 있으면 그것을 기다려 재사용한다.
+            let chatSaveInFlight = null;
+            // Image retention for history. User-selectable (original / 2048 / 1024 / none);
+            // 1024 matches IMAGE_ANALYSIS_MAX_EDGE, i.e. what the model already sees, so it
+            // is the default and costs nothing in answer quality.
+            const CHAT_IMAGE_SAVE_OPTIONS = {
+                original: { edge: 0, label: "원본", approx: "1~8 MB" },
+                large: { edge: 2048, label: "2048px", approx: "~350 KB" },
+                small: { edge: 1024, label: "1024px", approx: "~100 KB" },
+                none: { edge: -1, label: "저장 안 함", approx: "0 KB" },
+            };
+            let chatImageSaveMode = localStorage.getItem("bada_gem_chat_image_mode") || "small";
+            if (!CHAT_IMAGE_SAVE_OPTIONS[chatImageSaveMode]) chatImageSaveMode = "small";
+            // A conversation-length hint, never a hard stop. 80KB nudges, 100KB keeps
+            // nudging on every turn. See chatContextBytes() for how the number is computed.
+            const CHAT_WARN_BYTES = 80 * 1024;
+            const CHAT_ALERT_BYTES = 100 * 1024;
             let errorLogs = [];
             let unreadErrorCount = 0;
             let generateAbortController = null;
@@ -943,7 +996,6 @@ function updateBellBadge() {
                 if (!incoming.length) return;
 
                 const limit = currentImageLimit(activeEngine, qwenSub);
-                let resizedCount = 0;
 
                 for (const file of incoming) {
                     if (uploadedImages.length >= limit) {
@@ -957,8 +1009,7 @@ function updateBellBadge() {
                     }
                     try {
                         const rawDataUrl = await readFileAsDataUrl(file);
-                        const { dataUrl, resized } = await downscaleImageForGemini(rawDataUrl);
-                        if (resized) resizedCount += 1;
+                        const { dataUrl } = await downscaleImageForGemini(rawDataUrl);
                         uploadedImages.push(dataUrl);
                     } catch (err) {
                         console.warn("[BadaAsyncGemini] image attach failed:", err);
@@ -967,13 +1018,53 @@ function updateBellBadge() {
                 }
 
                 renderThumbnails();
-                if (uploadedImages.length > 0) {
-                    const base = isKo ? `🖼️ 참고 이미지 ${uploadedImages.length}장 첨부 완료` : `🖼️ ${uploadedImages.length} reference image(s) attached`;
-                    const note = resizedCount > 0
-                        ? (isKo ? ` (1024px로 축소 ${resizedCount}장)` : ` (${resizedCount} resized to 1024px)`)
-                        : "";
-                    showToast(base + note, "success", 1800);
+                // NO success toast on purpose (user request, 2026-10-05). `.bada-toast` is a
+                // block child of the card's flex column, so it inserted a full-width banner
+                // above the API-key row: the node grew, then shrank again when the toast timed
+                // out, and the panel visibly jerked on every paste. The thumbnail strip that
+                // just re-rendered IS the confirmation. Error toasts below stay — they are
+                // rare, and they carry information the user must not miss.
+            }
+
+            // Gemini 채팅 탭의 첨부 경로.
+            // Deliberately NOT shared with handleFiles(): that one fills `uploadedImages`, the
+            // shared prompt-generation strip, which belongs to the KREA2 / QWEN2.1 / MiniMax /
+            // LTX / 시스템 tabs and is not even visible on the chat tab. Pasting on the chat tab
+            // therefore landed on another tab and the conversation was sent with no image at all.
+            // `chatUploadedImages` is what sendChatMessage() copies into
+            // `{role:"user", text, images:[...]}`, and the backend turns each entry into a Gemini
+            // `inline_data` part (server/gemini_api.py :: chat_handler) — so the model really
+            // sees the picture.
+            const MAX_CHAT_IMAGES = 8;
+            async function handleChatImageFiles(files) {
+                const incoming = Array.from(files || []).filter(f => f && f.type && f.type.startsWith("image/"));
+                if (!incoming.length) return;
+
+                for (const file of incoming) {
+                    if (chatUploadedImages.length >= MAX_CHAT_IMAGES) {
+                        showToast(isKo
+                            ? `⚠️ 채팅 첨부 이미지는 최대 ${MAX_CHAT_IMAGES}장까지입니다.`
+                            : `⚠️ Chat attachments are limited to ${MAX_CHAT_IMAGES} image(s).`, "error", 3000);
+                        break;
+                    }
+                    try {
+                        const rawDataUrl = await readFileAsDataUrl(file);
+                        // Keep the untouched bytes beside the analysis copy so the history
+                        // layer can honour 「원본으로 저장」 later (see chatOriginalImages).
+                        chatOriginalImages.push(rawDataUrl);
+                        // Same reason as handleFiles(): an un-downscaled base64 blows past
+                        // Gemini's 20 MB inline_data ceiling and the request simply fails.
+                        const { dataUrl } = await downscaleImageForGemini(rawDataUrl);
+                        chatUploadedImages.push(dataUrl);
+                    } catch (err) {
+                        // Roll back the half-pushed original so the two arrays stay aligned.
+                        chatOriginalImages.pop();
+                        console.warn("[BadaAsyncGemini] chat image attach failed:", err);
+                        showToast(isKo ? "⚠️ 이미지를 읽을 수 없습니다." : "⚠️ Could not read the image.", "error", 2500);
+                    }
                 }
+
+                refreshChatImagePreview();
             }
 
             function readFileAsDataUrl(file) {
@@ -983,6 +1074,281 @@ function updateBellBadge() {
                     reader.onerror = () => reject(reader.error || new Error("FileReader error"));
                     reader.readAsDataURL(file);
                 });
+            }
+
+            // ── 채팅 기록: 이미지 저장 정책 ─────────────────────────────────────
+            // The chat already downscaled every attachment to 1024px for the API call
+            // (IMAGE_ANALYSIS_MAX_EDGE), so `original` here means "keep the ORIGINAL
+            // paste", not "keep the 1024px version". The original data URL is captured
+            // alongside the analysis one at attach time, because by save time the original
+            // is gone (the composer was cleared on send).
+            async function applyHistoryImagePolicy(images, originals) {
+                const mode = chatImageSaveMode;
+                const count = images.length;
+                const originalCopies = Array.isArray(originals) ? originals : [];
+                if (!count) return { images: [], imageCount: 0, imagesOmitted: false };
+                if (mode === "none") {
+                    // No bytes, but the COUNT is kept so the restored thread can still show
+                    // that an image was attached (a placeholder, exactly like the first
+                    // attachment in the composer). The API call still gets no image.
+                    return { images: [], imageCount: count, imagesOmitted: true };
+                }
+                // No originals captured (an old session, or the array was emptied): the
+                // 1024px API copy is the best we have, so keep it rather than dropping
+                // the picture entirely.
+                if (!originalCopies.length) {
+                    return { images: images.slice(), imageCount: count, imagesOmitted: false };
+                }
+                // NOTE: 「원본」 must NOT short-circuit to `images` — that array holds the
+                // 1024px API copies, so an early return here silently saved the downscale
+                // under the name "원본". Every mode now flows through the loop below,
+                // which reads from `originalCopies` and only downscales when asked.
+                const opts = CHAT_IMAGE_SAVE_OPTIONS[mode];
+                const kept = [];
+                for (let i = 0; i < images.length; i++) {
+                    const source = originalCopies[i] || images[i];
+                    if (opts.edge <= 0) { kept.push(source); continue; }
+                    const { dataUrl } = await downscaleImageForGemini(source, opts.edge);
+                    kept.push(dataUrl);
+                }
+                return { images: kept, imageCount: count, imagesOmitted: false };
+            }
+
+            // ── 이미지 크게 보기 (lightbox, 2026-10-05) ──────────────────────────
+            // Chat attachments are 48px thumbnails (and the wire copy is a 1024px
+            // downscale), so a picture could not be inspected at all. Clicking a
+            // thumbnail now opens the best copy available:
+            //   · 현재 세션에서 붙여넣기/드래그앤드롭/불러오기 → msg.originalImages(원본)
+            //   · 「이어하기」로 복원한 기록                  → 저장된 이미지 그대로
+            //   · 「저장 안 함」                              → 열 대상이 없어 아무 반응 없음
+            // Declared in the OUTER scope (like applyHistoryImagePolicy) so both
+            // renderers can call it: renderChatImagesPreview() and
+            // renderChatMessages() are declared INSIDE renderChatStudio().
+            let chatImageViewerCleanup = null;
+
+            function closeChatImageViewer() {
+                if (chatImageViewerCleanup) chatImageViewerCleanup();
+            }
+
+            function openChatImageViewer(sources, startIndex = 0) {
+                const list = (sources || []).filter(s => typeof s === "string" && s);
+                // 「저장 안 함」 자리표시자 등: 열 수 있는 이미지가 없으면 아무 것도 하지 않는다.
+                if (!list.length) return;
+                // Re-clicking while one is open must not stack overlays.
+                closeChatImageViewer();
+
+                const overlay = document.createElement("div");
+                overlay.className = "bada-img-viewer";
+
+                const img = document.createElement("img");
+                img.className = "bada-img-viewer-img";
+                img.alt = "";
+                img.draggable = false;
+
+                const counter = document.createElement("div");
+                counter.className = "bada-img-viewer-count";
+
+                const closeBtn = document.createElement("button");
+                closeBtn.type = "button";
+                closeBtn.className = "bada-img-viewer-btn bada-img-viewer-close";
+                closeBtn.textContent = "✕";
+                closeBtn.title = isKo ? "닫기 (Esc)" : "Close (Esc)";
+
+                let index = Math.min(Math.max(0, startIndex | 0), list.length - 1);
+                const show = (next) => {
+                    index = ((next % list.length) + list.length) % list.length;
+                    img.src = list[index];
+                    counter.textContent = list.length > 1 ? `${index + 1} / ${list.length}` : "";
+                };
+
+                const prevBtn = document.createElement("button");
+                prevBtn.type = "button";
+                prevBtn.className = "bada-img-viewer-btn bada-img-viewer-prev";
+                prevBtn.textContent = "‹";
+                prevBtn.title = isKo ? "이전 이미지" : "Previous image";
+                const nextBtn = document.createElement("button");
+                nextBtn.type = "button";
+                nextBtn.className = "bada-img-viewer-btn bada-img-viewer-next";
+                nextBtn.textContent = "›";
+                nextBtn.title = isKo ? "다음 이미지" : "Next image";
+                // 한 장뿐이면 화살표를 숨긴다 — 눌려도 아무 일도 하지 않을 버튼은 노이즈다.
+                const multi = list.length > 1;
+                prevBtn.style.display = multi ? "" : "none";
+                nextBtn.style.display = multi ? "" : "none";
+                prevBtn.onclick = (e) => { e.stopPropagation(); show(index - 1); };
+                nextBtn.onclick = (e) => { e.stopPropagation(); show(index + 1); };
+                closeBtn.onclick = (e) => { e.stopPropagation(); destroy(); };
+
+                overlay.appendChild(img);
+                overlay.appendChild(prevBtn);
+                overlay.appendChild(nextBtn);
+                overlay.appendChild(closeBtn);
+                overlay.appendChild(counter);
+
+                // 배경(자기 자신)을 누를 때만 닫힌다 — 이미지 위 클릭으로 대화가 사라지면 안 된다.
+                overlay.addEventListener("click", (e) => { if (e.target === overlay) destroy(); });
+
+                // ComfyUI 캔버스는 document 레벨에서 pointerdown/wheel/contextmenu을 듣는다.
+                // 이 오버레이가 캔버스를 대신 처리하지 않도록 전부 차단한다.
+                const swallow = (e) => e.stopPropagation();
+                const blockedEvents = ["pointerdown", "mousedown", "wheel", "dblclick", "contextmenu", "dragstart"];
+                blockedEvents.forEach(evt => overlay.addEventListener(evt, swallow));
+
+                const onKeydown = (e) => {
+                    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); destroy(); }
+                    else if (e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); show(index - 1); }
+                    else if (e.key === "ArrowRight") { e.preventDefault(); e.stopPropagation(); show(index + 1); }
+                };
+                document.addEventListener("keydown", onKeydown, true);
+
+                function destroy() {
+                    document.removeEventListener("keydown", onKeydown, true);
+                    blockedEvents.forEach(evt => overlay.removeEventListener(evt, swallow));
+                    overlay.remove();
+                    if (chatImageViewerCleanup === destroy) chatImageViewerCleanup = null;
+                }
+                chatImageViewerCleanup = destroy;
+
+                show(index);
+                document.body.appendChild(overlay);
+            }
+
+            // ── 채팅 기록: 텍스트 컨텍스트 크기 ──────────────────────────────────
+            // Only TEXT is measured. Images are multi-modal inputs, not tokens the model
+            // has to "read through" in sequence, so counting their bytes would fire the
+            // warning on an image-heavy chat whose actual text context is tiny.
+            function chatContextBytes() {
+                // Korean is ~3 bytes/char in UTF-8, but JS strings are UTF-16 code units;
+                // encoding is the honest measure and TextEncoder is always available.
+                return new TextEncoder().encode(
+                    chatMessages.map(m => m.text || "").join("")
+                ).length;
+            }
+
+            // ── 채팅 기록: 서버 통신 ─────────────────────────────────────────────
+            const CHAT_API = {
+                list: "/api/bada/gemini/chats",
+                get: "/api/bada/gemini/chats/get",
+                save: "/api/bada/gemini/chats/save",
+                del: "/api/bada/gemini/chats/delete",
+                clear: "/api/bada/gemini/chats/clear",
+                exportUrl: "/api/bada/gemini/chats/export",
+                importUrl: "/api/bada/gemini/chats/import",
+            };
+
+            async function chatApiPost(path, body) {
+                const resp = await fetch(path, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.error || `요청 실패 (${resp.status})`);
+                }
+                return data;
+            }
+
+            // Fire-and-forget persistence after every completed turn. A save failure must
+            // NEVER interrupt the conversation, so errors are logged, not toasted.
+            async function persistChatHistory(turnOriginals) {
+                if (!chatMessages.length) return;
+                // 이 저장이 어느 대화를 위한 것인지 세대로 기억한다.
+                const epoch = chatEpoch;
+                const originals = Array.isArray(turnOriginals) ? turnOriginals : [];
+                try {
+                    const payload = [];
+                    for (const msg of chatMessages) {
+                        const images = Array.isArray(msg.images) ? msg.images : [];
+                        // Only the CURRENT turn's originals still exist (the composer was
+                        // cleared on send), so earlier messages must reuse the copy this
+                        // function already produced for them — NOT their raw `images`, which
+                        // is the 1024px API copy. Re-saving that would silently degrade a
+                        // 「원본」/「2048px」 turn to 1024px on the very next turn.
+                        const isCurrentTurn = originals.length > 0
+                            && msg === chatMessages[chatMessages.length - 2];
+                        const cached = Array.isArray(msg.savedImages) ? msg.savedImages : null;
+                        const saved = isCurrentTurn
+                            ? await applyHistoryImagePolicy(images, originals)
+                            : cached
+                                ? {
+                                    images: cached.slice(),
+                                    imageCount: typeof msg.savedImageCount === "number"
+                                        ? msg.savedImageCount : cached.length,
+                                    imagesOmitted: !!msg.savedImagesOmitted,
+                                }
+                                : {
+                                    images: images.slice(),
+                                    imageCount: images.length,
+                                    imagesOmitted: !!msg.imagesOmitted,
+                                };
+                        // Remember the result so the next persist() in this session reuses it.
+                        msg.savedImages = saved.images;
+                        msg.savedImageCount = saved.imageCount;
+                        msg.savedImagesOmitted = saved.imagesOmitted;
+                        payload.push({
+                            role: msg.role,
+                            text: msg.text || "",
+                            images: saved.images,
+                            imageCount: saved.imageCount,
+                            imagesOmitted: saved.imagesOmitted,
+                        });
+                    }
+                    // Tracked so 「새 창합」 can await THIS request instead of issuing a second POST for the
+                    // same conversation (which would create a duplicate row, because the
+                    // server-minted id has not come back yet).
+                    chatSaveInFlight = chatApiPost(CHAT_API.save, {
+                        id: currentChatId,
+                        messages: payload,
+                    }).then((data) => {
+                        // Adopt the server-minted id so the NEXT save updates this same
+                        // entry — but ONLY while this conversation is still the live one.
+                        // If 「새 창합」 ran while the request was in flight the epoch has
+                        // moved on and this response belongs to a conversation that no
+                        // longer exists; adopting its id made every later save overwrite
+                        // that one row, which is how five chats collapsed into one.
+                        if (data.chat && data.chat.id && epoch === chatEpoch) {
+                            currentChatId = data.chat.id;
+                        }
+                    });
+                    await chatSaveInFlight;
+                    chatSaveInFlight = null;
+                } catch (err) {
+                    console.warn("[BadaAsyncGemini] chat history save failed:", err);
+                }
+            }
+
+            // Restore one conversation. `imagesOmitted` messages arrive with zero images but
+            // a count, so renderChatMessages() draws placeholders and sendChatMessage() still
+            // gets a valid (image-free) payload.
+            async function restoreChat(chat) {
+                if (!chat || !Array.isArray(chat.messages)) return;
+                // A viewer left open would keep showing the OLD conversation's picture on top
+                // of the restored one.
+                closeChatImageViewer();
+                chatMessages = chat.messages.map(m => ({
+                    role: m.role === "user" ? "user" : "model",
+                    text: m.text || "",
+                    images: Array.isArray(m.images) ? m.images : [],
+                    imageCount: typeof m.imageCount === "number" ? m.imageCount : 0,
+                    imagesOmitted: !!m.imagesOmitted,
+                    duration: m.duration || "",
+                    // The restored bytes ARE the saved copy, so seed the per-turn cache with
+                    // them. Without this, the next persist() in the restored conversation
+                    // would fall back to `images` (fine today) but would lose the omitted
+                    // state for a 「저장 안 함」 turn the moment a new turn lands.
+                    savedImages: Array.isArray(m.images) ? m.images.slice() : [],
+                    savedImageCount: typeof m.imageCount === "number" ? m.imageCount : 0,
+                    savedImagesOmitted: !!m.imagesOmitted,
+                }));
+                currentChatId = chat.id || "";
+                chatUploadedImages = [];
+                chatOriginalImages = [];
+                // Must go through the published binding: renderChatImagesPreview() is declared
+                // INSIDE renderChatStudio(), so calling it directly from here threw
+                // "renderChatImagesPreview is not defined" the moment a history entry was restored.
+                refreshChatImagePreview();
+                refreshChatMessages();
             }
 
             function renderThumbnails() {
@@ -1278,6 +1644,55 @@ function updateBellBadge() {
                     })
                     .finally(() => { gemChatPromptsLoadPromise = null; });
                 return gemChatPromptsLoadPromise;
+            }
+
+            // ── 🕐 채팅 기록 팝업 ───────────────────────────────────────────────────
+            // Lives here (not inside renderChatStudio) so it survives a tab re-render, and is
+            // dynamically imported so the node's initial load stays as light as it was.
+            let chatHistoryHandle = null;
+            async function openChatHistory(button) {
+                // 🕐 TOGGLES. Clicking it while the popup is open closes it, which is what
+                // the button has always looked like it should do.
+                //
+                // The handle used to be assigned only AFTER the `await`s below resolved, so
+                // this guard was always false for the whole opening window. A second click
+                // during that window therefore started a SECOND popup while the first was
+                // still mounting, orphaning its backdrop: a full-viewport rgba(0,0,0,.45)
+                // layer with nothing to click it away from, which reads as "a black screen
+                // is covering everything" and survives because `close()` was never wired to
+                // the button at all. The sentinel is cleared synchronously below so the
+                // in-flight window is closed to re-entry rather than merely tracked.
+                if (chatHistoryHandle) {
+                    const handle = chatHistoryHandle;
+                    chatHistoryHandle = null;
+                    handle.close();
+                    return;
+                }
+                try {
+                    const mod = await import("./bada_gemini_chat_history.js");
+                    chatHistoryHandle = await mod.openChatHistory(button, {
+                        currentId: currentChatId,
+                        imageMode: chatImageSaveMode,
+                        onRestore: async (chat) => {
+                            await restoreChat(chat);
+                            refreshChatLengthNotice();
+                        },
+                        onImageModeChange: (mode) => {
+                            chatImageSaveMode = mode;
+                            localStorage.setItem("bada_gem_chat_image_mode", mode);
+                        },
+                        // Any dismissal clears the owner's handle, not just the button click.
+                        // Without this the 🕐 toggle would act on a popup that Esc or a canvas
+                        // click had already removed, and the button would look dead.
+                        onClose: () => { chatHistoryHandle = null; },
+                    });
+                } catch (error) {
+                    // Release the lock on failure, or the button would be permanently dead:
+                    // a toggle that only opens can never recover from a failed import.
+                    chatHistoryHandle = null;
+                    console.error("[BadaAsyncGemini] chat history popup failed:", error);
+                    showToast(isKo ? "채팅 기록을 열지 못했습니다." : "Could not open the chat history.", "error", 4000);
+                }
             }
 
             async function openGemPromptManager(button) {
@@ -1957,10 +2372,35 @@ function updateBellBadge() {
                 newChatBtn.type = "button";
                 newChatBtn.className = "bada-pill bada-gem-new-chat";
                 newChatBtn.innerHTML = isKo ? "✏️ 새 채팅" : "✏️ New Chat";
-                newChatBtn.onclick = () => {
+                newChatBtn.onclick = async () => {
+                    // A fresh conversation must NOT keep writing into the entry the user just
+                    // came from — clear the id so the next send mints a NEW row, and flush the
+                    // old one first so nothing is lost.
+                    //
+                    // The epoch is bumped FIRST so any save still in flight is told its
+                    // conversation is gone. The flush is AWAITED rather than fired and
+                    // forgotten: clearing `currentChatId` while the previous turn's request is
+                    // still open let that response re-assign the old id afterwards, and every
+                    // following save then overwrote the same row.
+                    chatEpoch++;
+                    // 이 대화에 대한 저장이 이미 날아가고 있다면 그것을 기다려 재사용한다.
+                    // 새로 저장하면 서버가 아직 id 를 주지 못했으므로 같은 대화가 두 번
+                    // POST 되어 목록에 같은 제목의 줄이 두 개 생긴다.
+                    if (chatSaveInFlight) await chatSaveInFlight;
+                    else if (chatMessages.length) await persistChatHistory();
+                    closeChatImageViewer();
                     chatMessages = [];
+                    currentChatId = "";
+                    chatUploadedImages = [];
+                    chatOriginalImages = [];
+                    renderChatImagesPreview();
                     renderChatMessages();
-                    showToast(isKo ? "대화가 초기화되었습니다." : "Conversation reset.", "info", 1500);
+                    renderChatLengthNotice();
+                    // 알림 없음. 「새 채팅」 의 결과는 화면 자체가 말해준다 — 스레드가 빈
+                    // 「무경엄 제미나이 자유 대화」 안내로 즉시 바뀐다. 여기서 토스트를
+                    // 띄우면 아무 정보 없는 문구가 1.5초 동안 머리 위를 덮었다가 사라져,
+                    // 방금 지운 자리(=API Key 행)에 또 다른 요소가 잠깐 겹쳐 보였다.
+                    // 잘못 누른 것처럼 느껴지므로 아예 알리지 않는다.
                 };
 
                 const managePromptsBtn = document.createElement("button");
@@ -1976,6 +2416,17 @@ function updateBellBadge() {
                 chatTopbar.append(personaPicker);
                 chatTopbar.appendChild(managePromptsBtn);
                 chatTopbar.appendChild(newChatBtn);
+
+                // 🕐 채팅 기록 — sits at the far right of the topbar, right of 「✏️ 새 채팅」,
+                // mirroring VS Code's history affordance. Icon-only so it costs as little
+                // width as possible in an already narrow node.
+                const historyBtn = document.createElement("button");
+                historyBtn.type = "button";
+                historyBtn.className = "bada-pill bada-gem-history-btn";
+                historyBtn.textContent = "🕐";
+                historyBtn.title = isKo ? "채팅 기록" : "Chat history";
+                historyBtn.onclick = () => openChatHistory(historyBtn);
+                chatTopbar.appendChild(historyBtn);
                 chatStudioContainer.appendChild(chatTopbar);
 
                 // 현재 선택된 항목의 표시 이름
@@ -2081,10 +2532,25 @@ function updateBellBadge() {
                     if (!personaPicker.contains(e.target)) setPersonaMenuOpen(false);
                 };
                 // renderChatStudio() 는 탭 전환마다 다시 호출되므로 이전 리스너를 정리한다.
+                // Drag & drop listeners live on the (rebuilt) container, so they are torn
+                // down the same way — otherwise every tab switch would stack another
+                // set and one drop would attach the image N times.
                 chatPersonaCleanup?.();
                 document.addEventListener("pointerdown", onPersonaOutsidePointerDown);
                 chatPersonaCleanup = () => {
                     document.removeEventListener("pointerdown", onPersonaOutsidePointerDown);
+                    if (chatDragHandlers) {
+                        for (const [evt, fn] of chatDragHandlers) {
+                            chatStudioContainer.removeEventListener(evt, fn);
+                        }
+                        chatDragHandlers = null;
+                        dragDepth = 0;
+                        setDragActive(false);
+                    }
+                    // The viewer lives on document.body, OUTSIDE the rebuilt chat container, so
+                    // removing the container does not remove it. Leaving it up would strand a
+                    // full-viewport overlay over the whole ComfyUI canvas after a tab switch.
+                    closeChatImageViewer();
                     chatPersonaCleanup = null;
                 };
 
@@ -2104,7 +2570,57 @@ function updateBellBadge() {
                 // Message Thread
                 const thread = document.createElement("div");
                 thread.className = "bada-chat-thread";
+
+                // 긴 대화 안내 배너 — 메시지 위, 스레드 안쪽.
+                // NOT a `.bada-toast`: those are block children of the card's flex column and
+                // push the whole panel down, which is the layout jitter the user reported.
+                // Living inside the thread keeps it anchored to the conversation it is about.
+                const chatLengthNotice = document.createElement("div");
+                chatLengthNotice.className = "bada-chat-length-notice";
+                chatLengthNotice.style.display = "none";
+                chatStudioContainer.appendChild(chatLengthNotice);
+
                 chatStudioContainer.appendChild(thread);
+
+                // ── 긴 대화 안내 (2026-10-05) ──────────────────────────────────────
+                // NOT a hard stop. Gemini's context is ~1M tokens, so 80/100 KB is nowhere
+                // near a technical limit — it is where answer quality visibly thins out
+                // (mid-context loss), so the banner advises and the user decides.
+                function renderChatLengthNotice() {
+                    if (!chatLengthNotice) return;
+                    const bytes = chatContextBytes();
+                    if (bytes < CHAT_WARN_BYTES || !chatMessages.length) {
+                        chatLengthNotice.style.display = "none";
+                        chatLengthNotice.innerHTML = "";
+                        return;
+                    }
+                    const isAlert = bytes >= CHAT_ALERT_BYTES;
+                    const kb = Math.round(bytes / 1024);
+                    chatLengthNotice.style.display = "flex";
+                    chatLengthNotice.className =
+                        `bada-chat-length-notice ${isAlert ? "alert" : "warn"}`;
+
+                    const text = document.createElement("span");
+                    text.className = "bada-chat-length-text";
+                    text.textContent = isKo
+                        ? `${isAlert ? "⚠️" : "📊"} 대화가 ${kb}KB로 길어졌어요. 새 채팅을 시작하면 훨씬 정확해집니다.`
+                        : `${isAlert ? "⚠️" : "📊"} This chat is ${kb} KB — a new one keeps answers sharp.`;
+                    chatLengthNotice.innerHTML = "";
+                    chatLengthNotice.appendChild(text);
+
+                    const btn = document.createElement("button");
+                    btn.type = "button";
+                    btn.className = "bada-chat-length-btn";
+                    btn.textContent = isKo ? "✏️ 새 채팅" : "✏️ New Chat";
+                    // Reuse the real handler so a fresh chat resets the id and flushes the
+                    // old conversation exactly like clicking 「✏️ 새 채팅」 does.
+                    btn.onclick = () => newChatBtn.click();
+                    chatLengthNotice.appendChild(btn);
+                }
+
+                // Publish to the enclosing scope: the history popup calls this after
+                // restoring a conversation, and it lives outside renderChatStudio().
+                refreshChatLengthNotice = renderChatLengthNotice;
 
                 // Chat Input Bar
                 const chatInputBar = document.createElement("div");
@@ -2126,14 +2642,10 @@ function updateBellBadge() {
                 chatInputBar.appendChild(chatAttachBtn);
 
                 chatFileInput.addEventListener("change", () => {
-                    Array.from(chatFileInput.files).forEach(f => {
-                        const r = new FileReader();
-                        r.onload = (ev) => {
-                            chatUploadedImages.push(ev.target.result);
-                            renderChatImagesPreview();
-                        };
-                        r.readAsDataURL(f);
-                    });
+                    // Routed through the shared chat attach helper so the 🖼️ button, a drag&drop
+                    // and Ctrl+V all apply the SAME 1024px downscale and the same 8-image cap.
+                    // It used to inline its own FileReader loop, which skipped both.
+                    if (chatFileInput.files.length > 0) handleChatImageFiles(chatFileInput.files);
                     chatFileInput.value = "";
                 });
 
@@ -2207,13 +2719,93 @@ function updateBellBadge() {
                             <img class="bada-thumbnail-img" src="${img}" />
                             <button type="button" class="bada-thumbnail-del">×</button>
                         `;
-                        item.querySelector(".bada-thumbnail-del").onclick = () => {
+                        // 작성 중 미리보기는 항상 살아 있는 원본을 가지므로, 클릭하면 원본을 연다.
+                        // × 버튼은 이벤트를 막아야 지우기가 대신 실행된다.
+                        const thumbImg = item.querySelector(".bada-thumbnail-img");
+                        thumbImg.classList.add("bada-thumbnail-img-zoomable");
+                        thumbImg.title = isKo ? "이미지를 눌러 크게 보기" : "Click to view larger";
+                        thumbImg.onclick = (e) => {
+                            e.stopPropagation();
+                            const originals = chatOriginalImages[idx] ? [...chatOriginalImages] : chatUploadedImages.slice();
+                            openChatImageViewer(originals, idx);
+                        };
+                        item.querySelector(".bada-thumbnail-del").onclick = (e) => {
+                            e.stopPropagation();
+                            // Drop from BOTH arrays at the same index: chatOriginalImages is
+                            // index-aligned with chatUploadedImages, and a delete that left it
+                            // shifted would silently re-attach the WRONG original on save.
                             chatUploadedImages.splice(idx, 1);
+                            if (chatOriginalImages[idx] === img) chatOriginalImages.splice(idx, 1);
                             renderChatImagesPreview();
                         };
                         chatImagesPreviewRow.appendChild(item);
                     });
                 }
+
+                // Publish the renderer to the outer scope so the global paste handler — which
+                // lives outside renderChatStudio() — can refresh the preview row without having
+                // to rebuild the whole chat view.
+                refreshChatImagePreview = renderChatImagesPreview;
+
+                // ── 채팅 탭 드래그&드롭 (2026-10-05) ──────────────────────────────
+                // The prompt tabs already had a dropzone, but the 제미나이 tab had none: a
+                // dragged file fell through to ComfyUI's canvas handler instead of the
+                // conversation. Registered on the whole chat container so the user can drop
+                // anywhere in the thread, not just on a small target.
+                //
+                // dragenter/dragleave fire for EVERY child element, so a naive toggle flickers.
+                // A depth counter is used instead: it only clears once the pointer has left the
+                // container entirely, not when it merely crossed into a child.
+                let dragDepth = 0;
+                const setDragActive = (on) => {
+                    chatStudioContainer.classList.toggle("bada-chat-dragover", on);
+                };
+                const hasFiles = (e) => {
+                    const types = (e.dataTransfer && e.dataTransfer.types) || [];
+                    return Array.prototype.includes.call(types, "Files");
+                };
+                const onDragEnter = (e) => {
+                    // Ignore text drags — only file drops should light the panel up.
+                    if (!hasFiles(e)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dragDepth += 1;
+                    setDragActive(true);
+                };
+                const onDragOver = (e) => {
+                    if (!hasFiles(e)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.dataTransfer.dropEffect = "copy";
+                    setDragActive(true);
+                };
+                const onDragLeave = (e) => {
+                    if (!hasFiles(e)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dragDepth = Math.max(0, dragDepth - 1);
+                    if (dragDepth === 0) setDragActive(false);
+                };
+                const onDrop = (e) => {
+                    if (!hasFiles(e)) return;
+                    // preventDefault AND stopPropagation are both required: ComfyUI listens on
+                    // the canvas/document and would otherwise turn the same drop into a node.
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dragDepth = 0;
+                    setDragActive(false);
+                    const files = e.dataTransfer && e.dataTransfer.files;
+                    if (files && files.length) handleChatImageFiles(files);
+                };
+                // Kept so the teardown below can unbind exactly what was bound.
+                chatDragHandlers = [
+                    ["dragenter", onDragEnter],
+                    ["dragover", onDragOver],
+                    ["dragleave", onDragLeave],
+                    ["drop", onDrop],
+                ];
+                chatDragHandlers.forEach(([evt, fn]) =>
+                    chatStudioContainer.addEventListener(evt, fn));
 
                 chatStudioContainer.appendChild(chatInputBar);
 
@@ -2243,13 +2835,45 @@ function updateBellBadge() {
                         if (msg.images && msg.images.length > 0) {
                             const imgWrap = document.createElement("div");
                             imgWrap.className = "bada-msg-images";
-                            msg.images.forEach(im => {
+                            // 원본이 살아 있는 턴(붙여넣기/드래그앤드롭/불러오기)은 원본을,
+                            // 「이어하기」로 복원한 턴은 저장된 이미지(원본/2048/1024)를 연다.
+                            // 두 배열은 같은 인덱스로 정렬되어 있다(originalImages[i] ↔ images[i]).
+                            const viewList = msg.images.map((im, i) =>
+                                (Array.isArray(msg.originalImages) && msg.originalImages[i]) || im);
+                            msg.images.forEach((im, i) => {
                                 const th = document.createElement("img");
-                                th.className = "bada-msg-thumb";
+                                th.className = "bada-msg-thumb bada-msg-thumb-zoomable";
                                 th.src = im;
+                                th.title = isKo ? "이미지를 눌러 크게 보기" : "Click to view larger";
+                                th.onclick = () => openChatImageViewer(viewList, i);
                                 imgWrap.appendChild(th);
                             });
                             bubble.appendChild(imgWrap);
+                        }
+
+                        // 「저장 안 함」으로 저장한 첨부: 바이트는 없지만 "이미지를 붙였다"는
+                        // 사실은 남겨야 맥락이 읽힌다. 첫 첨부 이미지와 같은 회색 자리표시자로
+                        // 그리고, 여러 장이면 개수를 함께 보여준다.
+                        if (msg.imagesOmitted && (!msg.images || msg.images.length === 0)) {
+                            const count = msg.imageCount || 1;
+                            const ph = document.createElement("div");
+                            ph.className = "bada-msg-images bada-msg-images-omitted";
+                            for (let i = 0; i < Math.min(count, 8); i++) {
+                                const box = document.createElement("div");
+                                box.className = "bada-msg-thumb bada-msg-thumb-placeholder";
+                                box.textContent = "🖼️ 이미지";
+                                ph.appendChild(box);
+                            }
+                            if (count > 8) {
+                                const more = document.createElement("div");
+                                more.className = "bada-msg-thumb bada-msg-thumb-more";
+                                more.textContent = `+${count - 8}`;
+                                ph.appendChild(more);
+                            }
+                            ph.title = isKo
+                                ? "이미지를 저장하지 않아 표시만 남습니다 (대화 내용은 그대로입니다)"
+                                : "Images were not saved; only the fact they were attached remains";
+                            bubble.appendChild(ph);
                         }
 
                         const textContent = document.createElement("div");
@@ -2303,6 +2927,11 @@ function updateBellBadge() {
                     thread.scrollTop = thread.scrollHeight;
                 }
 
+                // Publish to the enclosing scope for the same reason as the others:
+                // restoreChat() lives outside renderChatStudio() and needs to redraw the
+                // thread once the saved messages are loaded.
+                refreshChatMessages = renderChatMessages;
+
                 async function sendChatMessage() {
                     if (isChatSending) {
                         if (chatAbortController) {
@@ -2321,14 +2950,31 @@ function updateBellBadge() {
                     const userMsg = {
                         role: "user",
                         text: text,
-                        images: [...chatUploadedImages]
+                        images: [...chatUploadedImages],
+                        // Carried through to history so 「저장 안 함」 can still render a
+                        // placeholder (and the list can count images) after a restore.
+                        imageCount: chatUploadedImages.length,
+                        imagesOmitted: false,
+                        // Pre-downscale bytes of THIS turn, memory only — never serialized to
+                        // the history file (persistChatHistory() builds its own payload). Lets
+                        // the thread thumbnail open the pasted ORIGINAL under the viewer, which
+                        // is the whole point of a 「붙여넣은 이미지」 view.
+                        originalImages: [...chatOriginalImages],
                     };
                     chatMessages.push(userMsg);
                     chatTextarea.value = "";
                     // Reset the composer to its 3-line rest height — otherwise the box stays
                     // tall at its previous size until the next keystroke re-measures it.
                     autoGrowChatTextarea();
+                    // Snapshot the pre-downscale originals for this turn BEFORE clearing them,
+                    // so persistChatHistory() can honour 「원본으로 저장」 after the answer lands.
+                    const turnOriginals = [...chatOriginalImages];
+                    // Which conversation this request belongs to. If 「새 채팅」 is pressed
+                    // while the model is still answering, the epoch moves on and the reply
+                    // below must NOT be appended to — nor saved as — the new empty thread.
+                    const turnEpoch = chatEpoch;
                     chatUploadedImages = [];
+                    chatOriginalImages = [];
                     renderChatImagesPreview();
                     renderChatMessages();
 
@@ -2392,12 +3038,19 @@ function updateBellBadge() {
                         if (typingRow.parentNode) typingRow.remove();
 
                         if (data.success && data.reply) {
+                            // 「새 채팅」 이 답변을 기다리는 중이었다면 이 답은 버린 대화의 것이므로
+                            // 새 스레드에 붙이면 「제미나이 대화」 같은 빈 대화가 목록에 생긴다.
+                            if (turnEpoch !== chatEpoch) return;
                             chatMessages.push({
                                 role: "model",
                                 text: data.reply,
                                 duration: duration
                             });
                             renderChatMessages();
+                            renderChatLengthNotice();
+                            // Persist only after the full turn exists, so an aborted or failed
+                            // request never leaves a half-written conversation behind.
+                            persistChatHistory(turnOriginals);
                         // No completion toast here on purpose: `.bada-toast` is a block
                         // child of the card's flex column, so it inserted a full-width
                         // banner above the API-key row and pushed the panel down. The
@@ -2431,27 +3084,51 @@ function updateBellBadge() {
                 renderChatMessages();
             }
 
-            // Global Ctrl+V listener for images
+            // ── Global Ctrl+V image paste ─────────────────────────────────────────
+            // Registered on `document` in the CAPTURE phase (see the addEventListener call at
+            // the bottom of this closure). That is the whole fix for two separate bugs:
+            //
+            //  1. WHERE the image goes. This used to always call handleFiles(), which fills
+            //     `uploadedImages` — the prompt-generation strip owned by the KREA2 / QWEN2.1
+            //     / MiniMax / LTX / 시스템 tabs. On the 제미나이 tab that strip is not even
+            //     visible, so a chat paste silently landed on another tab and the message went
+            //     out with no image. It now routes by tab.
+            //
+            //  2. The stray `Load Image` node. ComfyUI registers its own paste handler on
+            //     `document` in the BUBBLE phase (comfyui_frontend_package :: usePaste), and
+            //     that handler spawns a brand-new `Load Image` node whenever an image arrives
+            //     with no image node selected. A bubble listener on `window` — where this used
+            //     to live — is far too late: document's bubble listeners have already run by
+            //     then, which is exactly why the node appeared whenever focus was not inside
+            //     the chat textarea. Capture on document runs FIRST, and stopping propagation
+            //     there means ComfyUI's handler never fires, so pasting into this node can no
+            //     longer litter the canvas.
+            //
+            // Shift+Ctrl+V is ComfyUI's own escape hatch for "paste onto the canvas instead"
+            // (usePaste skips itself while shift is held). That is left intact on purpose.
             const onGlobalPaste = (e) => {
                 if (!node.is_selected && !root.matches(":hover")) return;
                 const items = e.clipboardData?.items;
                 if (!items) return;
 
-                let imageFound = false;
                 const pasteFiles = [];
                 for (let item of items) {
                     if (item.type.startsWith("image/")) {
                         const blob = item.getAsFile();
-                        if (blob) { imageFound = true; pasteFiles.push(blob); }
+                        if (blob) pasteFiles.push(blob);
                     }
                 }
-                if (imageFound) {
-                    e.preventDefault();
-                    // 붙여넣기도 첨부 경로와 동일한 축소/장수 제한을 탄다.
-                    handleFiles(pasteFiles).then(() => {
-                        showToast(isKo ? "📸 클립보드 이미지 첨부 완료!" : "📸 Clipboard image attached!", "success", 2000);
-                    });
-                }
+                if (!pasteFiles.length) return;
+
+                e.preventDefault();
+                e.stopImmediatePropagation();
+
+                if (activeEngine === "uncensored") handleChatImageFiles(pasteFiles);
+                else handleFiles(pasteFiles);
+                // No success toast (user request, 2026-10-05): `.bada-toast` is a block child of
+                // the card's flex column, so it inserted a banner above the API-key row, the node
+                // grew, and it shrank back when the toast expired — a visible jerk on every
+                // paste. The thumbnail row that just re-rendered is the confirmation.
             };
 
             // Dynamic live bilingual updater when BadaUtils.Language changes
@@ -2688,14 +3365,19 @@ function updateBellBadge() {
                 if (steps && appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
             }
 
-            window.addEventListener("paste", onGlobalPaste);
+            // CAPTURE phase on `document` — see the long note on onGlobalPaste. This ordering is
+            // load-bearing, not stylistic: it is what runs before ComfyUI's own document-bubble
+            // paste handler (the one that spawns Load Image nodes) and lets us cancel it.
+            // `load_image_fixer.js` listens on `window` for paste as well; it only re-heals
+            // LoadImage borders, so it is harmless to skip when this node consumed the event.
+            document.addEventListener("paste", onGlobalPaste, true);
             const onVisChange = () => { syncContainerSize(); };
             window.addEventListener("visibilitychange", onVisChange);
             window.addEventListener("focus", onVisChange);
 
             const onRemoved = node.onRemoved;
             node.onRemoved = function () {
-                window.removeEventListener("paste", onGlobalPaste);
+                document.removeEventListener("paste", onGlobalPaste, true);
                 document.removeEventListener("pointerdown", onAspectOutsidePointerDown);
                 window.removeEventListener("resize", onAspectViewportChange);
                 window.removeEventListener("scroll", onAspectViewportChange, true);
@@ -2720,6 +3402,31 @@ function updateBellBadge() {
                 serialize: false,
                 hideOnZoom: false,
             });
+
+            // ⚠️ 프론트엔드의 자기참조 폭 루프를 끊는다 (2026-10-05, 「아무 단투나 눌러도
+            // 노드 창이 깨진다」 보고의 진짜 원인).
+            //
+            // ComfyUI 의 DOM 위젯 렌더러는 매 draw 마다
+            //     widget.width = widget.element.getBoundingClientRect().width
+            // 를 쓰고(바운들 GraphView 의 `bindWidget`/`draw`), 그 값으로 감싸는
+            // `.dom-widget` 호스트의 폭을 다시 계산한다. 즉 「카드의 현재 렌더 폭 → 호스트
+            // 폭 → 카드의 폭」이라는 닫힌 루프이고, 이 경로에는 `node.width` 가 한 번도
+            // 개입하지 않는다. 그 결과 카드는 생성 시점의 폭에 영구히 고정된다.
+            //
+            // 실측: 노드를 520px → 900px 로 키워도 widget.width 는 274.81px 로,
+            // 호스트 254.81px, 카드 254.81px 로 그대로였다. 사용자가 본 「늘리면 빈 공간만
+            // 늘고, 줄여도 되돌아오지 않는다」가 정확히 이 숫자다.
+            //
+            // 폭의 유일한 진실 원천은 `node.size[0]` 이므로, getter 를 그 값에 연결하고
+            // 프론트엔드의 되먹임 대입은 버린다. 검증: 노드 520 → 카드 500, 900 → 880,
+            // 되돌려 520 → 500, 드리프트 0.
+            if (domWidget) {
+                Object.defineProperty(domWidget, "width", {
+                    configurable: true,
+                    get() { return node.size ? node.size[0] : 520; },
+                    set() { /* 프론트엔드의 자기 되먹임 — 의도적으로 무시 */ },
+                });
+            }
 
             // Minimum size boundary (Regional Prompt 방식과 동일).
             // 크기를 강제로 되돌리지 않는다 — 하한만 보장한다. (여기가 노드를 강제로
