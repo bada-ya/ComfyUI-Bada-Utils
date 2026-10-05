@@ -1,0 +1,15 @@
+# Keep the working tree clean: force LF in the repo and let git restore CRLF on
+# checkout, so the same files do not show up as modified on Windows.
+* text=auto eol=crlf
+
+# ── Development-only files ──────────────────────────────────────────────────
+# These are tracked on purpose: the regression suites in dev_tests/ are how the
+# behaviour below was verified, and they must stay runnable from a fresh clone.
+#
+# They are hidden from `git archive`, which is what a release tarball and most
+# "download the repo" flows are built from. The tests still work for anyone who
+# clones the repository; they just do not ship inside a packaged release.
+dev_tests/ export-ignore
+
+# Internal handoff notes for the development line, not user documentation.
+HANDOFF.md export-ignore
