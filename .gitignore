@@ -21,6 +21,16 @@ dev_tests/_badge_zone.png
 dev_tests/_*.txt
 dev_tests/_tooltip_*.png
 
+# ── Development-only, lives in the PRIVATE beta repo ─────────────────────────
+# The regression suites in dev_tests/ and the internal HANDOFF.md are how this
+# line of work was verified, so they stay in ComfyUI-Bada-Utils-Beta (private) and
+# are untracked here. They are NOT a secret either way — the tests are the
+# evidence behind the fixes — but they are development scaffolding, not something a
+# user of this pack needs to download or read. Fetch them from the beta repo when
+# you need to run a regression check.
+dev_tests/
+HANDOFF.md
+
 
 # Playwright verification harness
 node_modules/
