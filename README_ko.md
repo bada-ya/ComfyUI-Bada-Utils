@@ -10,8 +10,10 @@
 
 ### 💡 "ComfyUI를 매일 사용하면서 느꼈던 소소하지만 답답했던 불편점들을 하나씩 직접 고치고 다듬어 만든 실전 유틸리티 모음집입니다."
 
-**📦 현재 배포 버전: `v1.0.1`** — 전체 변경 사항은 [릴리즈 노트 (한국어)](RELEASE_NOTES_v1.0.1_ko.md) · [English](RELEASE_NOTES_v1.0.1.md)를 확인하세요.
-주요 변경: 저장 시 폴더 선택, 워크플로우 원클릭 번역기, 제미나이 기반 프롬프트 생성기,
+**📦 현재 배포 버전: `v1.0.2`** — 전체 변경 사항은 [릴리즈 노트 (한국어)](RELEASE_NOTES_v1.0.2_ko.md) · [English](RELEASE_NOTES_v1.0.2.md)를 확인하세요.
+유지보수 버전으로, 개발자 전용 파일 3개가 더 이상 배포되지 않으며 설치 안내도 실제 저장소
+내용에 맞게 정리되었습니다. [`v1.0.1`](RELEASE_NOTES_v1.0.1_ko.md)의 주요 기능은 그대로입니다 —
+저장 시 폴더 선택, 워크플로우 원클릭 번역기, 제미나이 기반 프롬프트 생성기,
 제미나이 채팅 기록(썸네일 포함), 사이드바 다중 선택 이동.
 
 [🇺🇸 English Documentation (README.md)](README.md) •
@@ -413,19 +415,27 @@ ComfyUI 우측 상단 톱니바퀴(**`⚙️ Settings`**) 메뉴에서 **`🌊 B
 
 ## 🚀 설치 방법 (Installation)
 
-### 방법 1. 1-클릭 바로가기 설치 (Windows 권장)
-저장소 루트의 **`install_junction.bat`** 파일을 더블 클릭하여 실행하면 ComfyUI의 `custom_nodes/` 폴더에 Junction 바로가기가 자동 생성됩니다.
-
-### 방법 2. ComfyUI Manager
+### 방법 1. ComfyUI Manager (권장)
 1. ComfyUI Manager를 엽니다.
 2. `ComfyUI-Bada-Utils`를 검색한 후 **Install**을 클릭합니다.
 3. ComfyUI를 재시작하고 브라우저에서 **`Ctrl + F5` (강력 새로고침)**을 누릅니다.
 
-### 방법 3. Git Clone
+### 방법 2. Git Clone
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/bada-ya/ComfyUI-Bada-Utils.git
 ```
+
+### 방법 3. 직접 Junction 연결 (개발용)
+파일을 직접 수정하면서 ComfyUI 재시작 때마다 반영시키고 싶다면, 설치 복사본 대신
+이미 받아둔 폴더를 `custom_nodes/`에 연결합니다. **관리자 권한** 터미널이 필요합니다:
+
+```bat
+mklink /J "C:\경로\ComfyUI\custom_nodes\ComfyUI-Bada-Utils" "C:\경로\내체크아웃폴더"
+```
+
+> 이 방법은 이 팩을 직접 개발할 때 쓰는 워크플로입니다. 일반 사용자는 방법 1 또는
+> 방법 2를 사용하세요 — 업데이트는 Manager가 git pull까지 알아서 처리합니다.
 
 ---
 

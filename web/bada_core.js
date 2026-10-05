@@ -427,8 +427,8 @@ let isPresetsExpanded = true;
 
         /* 1. Reduce vertical gaps between Bada Utils setting groups.
 
-           All values below were measured with Playwright against the live dialog
-           (dev_tests/probe_dividers.cjs), not guessed:
+           All values below were measured against the live dialog in a real browser,
+           not guessed:
              - container class is setting-group (SINGULAR), confirmed via DOM walk
              - Bada ships 15 separate wrappers, one per row
              - .setting-item itself has no border, but ComfyUI drops a forced
@@ -470,7 +470,7 @@ let isPresetsExpanded = true;
         /* Sub-group headings such as "Language", "NoteHelper", "Sidebar" are internal
            grouping labels that duplicate the row title right below them, so they were
            always meant to be hidden. Distinguish the two kinds of h3 by class, measured
-           in the live dialog (dev_tests/probe_settings_dom.cjs):
+           in the live dialog:
              - text-xs font-bold text-text-secondary uppercase -> the CATEGORY MENU
                (General / Other / ...). Must stay visible.
              - text-base                               -> per-subgroup label.

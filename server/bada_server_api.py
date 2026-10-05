@@ -614,19 +614,6 @@ def get_detective_database():
     except Exception as _ignored_err:
         logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
 
-
-    # StabilityMatrix packages discovery
-    try:
-        sm_packages_root = r"D:\StabilityMatrix\Data\Packages"
-        if os.path.isdir(sm_packages_root):
-            for pkg in os.listdir(sm_packages_root):
-                cache_cand = os.path.join(sm_packages_root, pkg, "user", "__manager", "cache")
-                if os.path.isdir(cache_cand) and cache_cand not in search_dirs:
-                    search_dirs.append(cache_cand)
-    except Exception as _ignored_err:
-        logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
-
-
     # Site-packages
     try:
         import comfyui_manager

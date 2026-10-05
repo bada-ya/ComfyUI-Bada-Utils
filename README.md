@@ -10,9 +10,12 @@
 
 ### 💡 "A pragmatic collection of utilities crafted to fix small, annoying friction points discovered while building workflows in ComfyUI every single day."
 
-**📦 Current release: `v1.0.1`** — [release notes (EN)](RELEASE_NOTES_v1.0.1.md) · [한국어](RELEASE_NOTES_v1.0.1_ko.md)
-Highlights: Save-As folder picker, one-click workflow translator, Gemini-backed prompt
-generator, Gemini chat history with thumbnails, and sidebar multi-select moves.
+**📦 Current release: `v1.0.2`** — [release notes (EN)](RELEASE_NOTES_v1.0.2.md) · [한국어](RELEASE_NOTES_v1.0.2_ko.md)
+Maintenance release: three maintainer-only files are no longer shipped, and the
+install instructions match what the repository actually contains. Everything from
+[`v1.0.1`](RELEASE_NOTES_v1.0.1.md) still applies — Save-As folder picker, one-click
+workflow translator, Gemini-backed prompt generator, Gemini chat history with
+thumbnails, and sidebar multi-select moves.
 
 [English Documentation](#-8-flagship-tools-overview) •
 [🇰🇷 한국어 설명서 보기 (README_ko.md)](README_ko.md) •
@@ -412,19 +415,28 @@ Drag and drop [`workflows/bada_utils_workflow_V1.0.1.json`](workflows/bada_utils
 
 ## 🚀 Installation
 
-### Method 1: 1-Click Symlink Installer (Windows Recommended)
-Double-click **`install_junction.bat`** in the repository root to automatically link `ComfyUI-Bada-Utils` into your `ComfyUI/custom_nodes/` directory.
-
-### Method 2: ComfyUI Manager
+### Method 1: ComfyUI Manager (Recommended)
 1. Open ComfyUI Manager.
 2. Search for `ComfyUI-Bada-Utils` and click **Install**.
 3. Restart ComfyUI and press **`Ctrl + F5` (Hard Refresh)** in your browser.
 
-### Method 3: Git Clone
+### Method 2: Git Clone
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/bada-ya/ComfyUI-Bada-Utils.git
 ```
+
+### Method 3: Manual Junction Link (Development Only)
+If you want to edit the files and have ComfyUI pick them up on every restart,
+link an existing checkout into `custom_nodes/` instead of installing a copy.
+Requires **Run as Administrator** (or an elevated terminal):
+
+```bat
+mklink /J "C:\path\to\ComfyUI\custom_nodes\ComfyUI-Bada-Utils" "C:\path\to\your\checkout"
+```
+
+> This is a workflow for developing against the pack. Regular users should use
+> Method 1 or Method 2 — Manager's own update path handles git pulls for you.
 
 ---
 

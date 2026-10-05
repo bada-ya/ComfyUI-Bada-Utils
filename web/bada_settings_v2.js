@@ -20,7 +20,7 @@
 //   dividers — that rendered exactly ONE row (the last registered). The "no dividers" look
 //   is a CSS concern, not a grouping concern: bada_core.js already hides the per-subgroup
 //   `> h3.text-base` labels and tightens `.my-8` for `[data-setting-id^="BadaUtils"]`.
-//   dev_tests/verify_phase1.cjs asserts the row count so this cannot silently regress.
+//   A regression test pins the row count so this cannot silently regress.
 //
 // PHASE 1 STRATEGY (strangler pattern)
 //   1. The canonical `BadaUtils.*` setting IDs move to THIS module (it is authoritative).

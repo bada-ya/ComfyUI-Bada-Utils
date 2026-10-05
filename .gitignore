@@ -32,11 +32,17 @@ dev_tests/
 HANDOFF.md
 
 
-# Playwright verification harness
+# ── Local developer tooling, NOT part of the shipped pack ─────────────────────
+# These are conveniences for the maintainer's own machine and must never reach
+# users: they hard-code a local ComfyUI location, and the Playwright harness is
+# only needed to verify a change, not to run the nodes. All three live in the
+# private beta repo.
+install_junction.bat
+publish_registry.bat
+package.json
 node_modules/
 package-lock.json
 _verify_settings.png
 _verify.log
-
 _verify.log.err
 *.log.err
