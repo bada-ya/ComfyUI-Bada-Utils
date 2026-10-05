@@ -406,7 +406,7 @@ Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 
 
 ## 📂 Included Example Workflow
 
-Drag and drop [`workflows/bada_utils_workflow.json`](workflows/bada_utils_workflow.json) directly onto your ComfyUI canvas to immediately test the full ComfyUI-Bada-Utils all-in-one flagship suite (`BadaPresetHub`, `BadaGoogleTranslator`, `BadaRegionalPrompt`, and `BadaAsyncGeminiStudio`).
+Drag and drop [`workflows/bada_utils_workflow_V1.0.1.json`](workflows/bada_utils_workflow_V1.0.1.json) directly onto your ComfyUI canvas to immediately test the full ComfyUI-Bada-Utils all-in-one flagship suite (`BadaPresetHub`, `BadaPromptGenerator`, `BadaGoogleTranslator`, `BadaRegionalPrompt`, and `BadaAsyncGeminiStudio`).
 
 ---
 

@@ -407,7 +407,7 @@ ComfyUI 우측 상단 톱니바퀴(**`⚙️ Settings`**) 메뉴에서 **`🌊 B
 
 ## 📂 기본 제공 예제 워크플로우
 
-저장소의 [`workflows/bada_utils_workflow.json`](workflows/bada_utils_workflow.json) 파일을 ComfyUI 화면으로 **드래그 & 드롭**하시면 ComfyUI-Bada-Utils의 4대 핵심 노드(`BadaPresetHub`, `BadaGoogleTranslator`, `BadaRegionalPrompt`, `BadaAsyncGeminiStudio`)가 모두 배치된 올인원 통합 워크플로우를 즉시 테스트하실 수 있습니다.
+저장소의 [`workflows/bada_utils_workflow_V1.0.1.json`](workflows/bada_utils_workflow_V1.0.1.json) 파일을 ComfyUI 화면으로 **드래그 & 드롭**하시면 ComfyUI-Bada-Utils의 5대 핵심 노드(`BadaPresetHub`, `BadaPromptGenerator`, `BadaGoogleTranslator`, `BadaRegionalPrompt`, `BadaAsyncGeminiStudio`)가 모두 배치된 올인원 통합 워크플로우를 즉시 테스트하실 수 있습니다.
 
 ---
 
