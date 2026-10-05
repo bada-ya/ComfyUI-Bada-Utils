@@ -10,7 +10,7 @@
 
 ### 💡 "A pragmatic collection of utilities crafted to fix small, annoying friction points discovered while building workflows in ComfyUI every single day."
 
-**📦 Current release: `v1.0.1`** — see the [release notes (EN)](RELEASE_NOTES_v1.0.1.md).
+**📦 Current release: `v1.0.1`** — [release notes (EN)](RELEASE_NOTES_v1.0.1.md) · [한국어](RELEASE_NOTES_v1.0.1_ko.md)
 Highlights: Save-As folder picker, one-click workflow translator, Gemini-backed prompt
 generator, Gemini chat history with thumbnails, and sidebar multi-select moves.
 
