@@ -44,6 +44,9 @@ node.zip
 install_junction.bat
 publish_registry.bat
 package.json
+# Registry maintenance: deprecating a published version needs a live Firebase ID
+# token, so it is a one-off maintainer action, not something a pack user runs.
+deprecate_version.py
 node_modules/
 package-lock.json
 _verify_settings.png
