@@ -29,7 +29,7 @@ export function isLoadImageFixEnabled() {
             if (val === "false" || val === false) return false;
             if (val === "true" || val === true) return true;
         }
-    } catch (_) { console.debug("[Bada] ignored:", _); }
+    } catch (_) {}
 
     // 3. LocalStorage fallback
     try {
@@ -41,7 +41,7 @@ export function isLoadImageFixEnabled() {
             if (parsed === "false" || parsed === false) return false;
             if (parsed === "true" || parsed === true) return true;
         }
-    } catch (_) { console.debug("[Bada] ignored:", _); }
+    } catch (_) {}
 
     return true;
 }
@@ -242,29 +242,21 @@ export function setupLoadImageFixer() {
 
     console.log("[ComfyUI-Bada-Utils] 📋 Initializing Clipboard & LoadImage Auto-Error Fixer...");
 
-    // 1. Hook LGraphNode.prototype.configure (when workflows are loaded or pasted from JSON)
+    // 1. Hook LGraphNode.prototype.addWidget
+    // NOTE:
+    // Do NOT hook LGraphNode.prototype.configure here.
+    // ComfyUI's workflow loading calls configure() while connections
+    // are being restored. Impact Pack may run onConnectionsChange()
+    // during this process, and the configure hook can trigger the
+    // "findInputSlot is not a function" compatibility error.
     if (window.LGraphNode) {
-        const origConfigure = window.LGraphNode.prototype.configure;
-        window.LGraphNode.prototype.configure = function (data) {
-            const r = origConfigure ? origConfigure.apply(this, arguments) : undefined;
-            try {
-                if (isLoadImageFixEnabled() && isImageLoadingNode(this)) {
-                    healImageNode(this);
-                }
-            } catch (e) {
-                console.warn("[Bada-Utils] LoadImageFixer configure notice:", e);
-            }
-            return r;
-        };
-
-        // 2. Hook LGraphNode.prototype.addWidget
         const origAddWidget = window.LGraphNode.prototype.addWidget;
         window.LGraphNode.prototype.addWidget = function (type, name, value, callback, options) {
             const widget = origAddWidget ? origAddWidget.apply(this, arguments) : null;
             if (widget && isImageLoadingWidget(this, widget)) {
                 try {
                     protectImageWidgetCombo(this, widget);
-                } catch (e) { console.debug("[Bada] ignored:", e); }
+                } catch (e) {}
             }
             return widget;
         };

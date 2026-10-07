@@ -1,6 +1,6 @@
 [project]
 name = "comfyui-bada-utils"
-version = "1.0.2"
+version = "1.0.3"
 description = "⚓ All-in-One Quality of Life, Smart Presets Hub, Visual Regional Prompting & Async Gemini Studio for ComfyUI"
 readme = "README.md"
 authors = [
