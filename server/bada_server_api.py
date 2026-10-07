@@ -20,6 +20,7 @@ import urllib.request
 from aiohttp import web
 from server import PromptServer
 import folder_paths
+from . import gdrive_sync
 from ..translation_runtime import (
     TRANSLATION_ATTEMPT_TIMEOUT_SECONDS,
     TRANSLATION_TIMEOUT_SECONDS,
@@ -1431,7 +1432,49 @@ def register_bada_api_routes():
 
         routes.get("/api/bada/missing-node/lookup")(missing_node_lookup_handler)
 
+        # --- F. Google Drive Cloud Sync API ---
+        async def gdrive_status_handler(request):
+            try:
+                status_info = gdrive_sync.get_gdrive_status()
+                return web.json_response(status_info)
+            except Exception as e:
+                return web.json_response({"status": "error", "authorized": False, "message": str(e)}, status=500)
 
+        async def gdrive_sync_handler(request):
+            try:
+                workflows_dir = get_workflows_root_dir()
+                result = await gdrive_sync.sync_gdrive_async(workflows_dir)
+                status_code = 200 if result.get("status") in ["success", "busy"] else 400
+                return web.json_response(result, status=status_code)
+            except Exception as e:
+                return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+        async def gdrive_upload_single_handler(request):
+            try:
+                body = await request.json()
+                rel_path = body.get("rel_path") or body.get("path") or body.get("filename")
+                if not rel_path:
+                    return web.json_response({"status": "error", "message": "rel_path parameter missing"}, status=400)
+
+                workflows_dir = get_workflows_root_dir()
+                result = await gdrive_sync.upload_single_async(workflows_dir, rel_path)
+                status_code = 200 if result.get("status") == "success" else 400
+                return web.json_response(result, status=status_code)
+            except Exception as e:
+                return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+        routes.get("/cloud/gdrive/status")(gdrive_status_handler)
+        routes.post("/cloud/gdrive/sync")(gdrive_sync_handler)
+        routes.post("/cloud/gdrive/upload_single")(gdrive_upload_single_handler)
+
+        # Startup Trigger: Boot Background Sync (If authenticated)
+        try:
+            status = gdrive_sync.get_gdrive_status()
+            if status.get("authorized"):
+                logger.info("[ComfyUI-Bada-Utils] Triggering boot background Google Drive sync...")
+                asyncio.create_task(gdrive_sync.sync_gdrive_async(get_workflows_root_dir()))
+        except Exception as se:
+            logger.warning(f"[ComfyUI-Bada-Utils] Boot sync trigger notice: {se}")
 
         # Legacy routes for QoL
         routes.get("/api/qol/workflows/folders")(list_folders_handler)

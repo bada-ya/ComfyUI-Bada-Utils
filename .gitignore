@@ -12,3 +12,6 @@ favorites_data.json
 *.bak
 dev_tests/_shots/
 
+credentials.json
+token.json
+.gdrive_manifest.json

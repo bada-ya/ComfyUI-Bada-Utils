@@ -34,8 +34,11 @@ const BADA_SETTINGS_TEXTS = {
         langName: "🌐 UI Language",
         langDesc: "Set display language for Bada nodes, context menus, modals, and Workflows+ sidebar.",
 
-        sidebarName: "📁 Sidebar Workflows+ Folder Management",
-        sidebarDesc: `Replaces native sidebar Workflows with <span style="color: #00f0ff; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">${BADA_ICONS.workflow} Workflows+</span>. Enables folder creation and drag-and-drop management.`,
+        sidebarName: "📁 Sidebar Workflows+ Folder & Cloud Sync",
+        sidebarDesc: `Replaces native sidebar Workflows with <span style="color: #00f0ff; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">${BADA_ICONS.workflow} Workflows+</span>. Enables folder management and Google Drive cloud sync ☁️.`,
+
+        cloudSyncConfigName: "☁️ Cloud Sync for System Prompts, Presets & Chat History",
+        cloudSyncConfigDesc: "Automatically syncs global presets, Gemini system prompts, prompt management, and chat history to Google Drive.",
 
         mouseName: "🖱️ Mouse Wheel Zoom & Middle-Click Pan Fixer",
         mouseDesc: "Ensures smooth mouse wheel zooming and middle-click drag-panning even directly over canvas nodes or text widgets.",
@@ -84,8 +87,11 @@ const BADA_SETTINGS_TEXTS = {
         langName: "🌐 UI 언어 설정",
         langDesc: "Bada 모든 노드, 우클릭 메뉴, 모달 창, Workflows+의 표시 언어를 설정합니다.",
 
-        sidebarName: "📁 사이드바 워크플로우+ 폴더 관리",
-        sidebarDesc: `왼쪽 사이드바의 순정 워크플로우를 <span style="color: #00f0ff; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">${BADA_ICONS.workflow} 워크플로우+</span>로 대체합니다. 폴더 생성, 워크플로우 이동이 가능해집니다.`,
+        sidebarName: "📁 사이드바 워크플로우+ 폴더 관리, 클라우드 관리",
+        sidebarDesc: `왼쪽 사이드바의 순정 워크플로우를 <span style="color: #00f0ff; font-weight: 700; display: inline-flex; align-items: center; gap: 3px;">${BADA_ICONS.workflow} 워크플로우+</span>로 대체하고 구글 드라이브 클라우드 동기화 ☁️ 버튼을 활성화합니다.`,
+
+        cloudSyncConfigName: "☁️ 시스템 프롬프트, 프리셋, 채팅 기록 클라우드 관리",
+        cloudSyncConfigDesc: "글로벌 프리셋, Bada Prompt Generator 및 Async Gemini Studio의 시스템 프롬프트, 프롬프트 관리 및 채팅 기록을 구글 드라이브에 자동 동기화합니다.",
 
         mouseName: "🖱️ 마우스 휠 줌 & 중간 버튼(휠) 패닝 보정기",
         mouseDesc: "캔버스 위 노드나 텍스트 박스 위에서도 끊김 없이 휠 줌 및 중간 버튼(휠 클릭) 드래그 패닝이 작동하도록 보정합니다.",
@@ -223,9 +229,17 @@ const BADA_UNIFIED_SETTINGS = {
     sidebar: {
         id: "BadaUtils.SidebarOrganizer",
         category: ["Bada Utils", "Sidebar"],
-        name: "📁 Sidebar Workflows+ Folder Management",
+        name: "📁 Sidebar Workflows+ Folder & Cloud Sync",
         type: "boolean",
         sortOrder: 800,
+        defaultValue: true
+    },
+    cloudSyncConfig: {
+        id: "BadaUtils.CloudSyncConfig",
+        category: ["Bada Utils", "CloudSyncConfig"],
+        name: "☁️ Cloud Sync for System Prompts, Presets & Chat History",
+        type: "boolean",
+        sortOrder: 795,
         defaultValue: true
     },
     saveAsFolderPicker: {
@@ -1233,6 +1247,16 @@ app.registerExtension({
                     window.__BADA_SYNC_SIDEBAR_STATE__(target);
                 }
             }
+        });
+
+        // ②-0 Cloud Sync Config Switch (시스템 프롬프트, 프리셋, 채팅기록 클라우드 동기화 스위치)
+        safeAddSetting({
+            id: BADA_UNIFIED_SETTINGS.cloudSyncConfig.id,
+            category: [texts.category, "CloudSyncConfig"],
+            name: texts.cloudSyncConfigName,
+            type: BADA_UNIFIED_SETTINGS.cloudSyncConfig.type,
+            sortOrder: BADA_UNIFIED_SETTINGS.cloudSyncConfig.sortOrder,
+            defaultValue: BADA_UNIFIED_SETTINGS.cloudSyncConfig.defaultValue
         });
 
         // ②-1 Save As Folder Picker (ComfyUI File ▸ Save As ▸ 폴더 지정 저장)

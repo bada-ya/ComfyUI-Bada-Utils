@@ -99,7 +99,76 @@ class WorkflowsPlusManager {
 
         await this.loadFavorites();
         await this.loadTree();
+        this.checkGDriveStatus();
         console.log("[BadaUtils] Workflows+ Manager initialized cleanly.");
+    }
+
+    async checkGDriveStatus() {
+        try {
+            const res = await fetch("/cloud/gdrive/status");
+            if (res.ok) {
+                const data = await res.json();
+                const btn = document.querySelector("#qol-btn-gdrive-sync");
+                if (btn) {
+                    if (data.authorized) {
+                        btn.classList.add("gdrive-authed");
+                        btn.classList.remove("gdrive-unauth");
+                        btn.title = "Google Drive 클라우드 동기화 (연동됨)";
+                    } else {
+                        btn.classList.add("gdrive-unauth");
+                        btn.classList.remove("gdrive-authed");
+                        btn.title = `Google Drive 클라우드 동기화 (${data.message || "인증 필요"})`;
+                    }
+                }
+                return data;
+            }
+        } catch (e) {
+            console.warn("[GDrive] Status check warning:", e);
+        }
+        return null;
+    }
+
+    async triggerGDriveSync() {
+        const btn = document.querySelector("#qol-btn-gdrive-sync");
+        const iconSpan = btn?.querySelector(".gdrive-icon");
+        try {
+            const status = await this.checkGDriveStatus();
+            if (status && !status.authorized && status.status === "missing_credentials") {
+                this.showToast("credentials.json 파일이 상위 폴더에 필요합니다.", true);
+                return;
+            }
+
+            if (iconSpan) iconSpan.classList.add("bada-gdrive-syncing");
+            this.showToast("Google Drive 비동기 동기화 시작...");
+
+            const res = await fetch("/cloud/gdrive/sync", { method: "POST" });
+            const data = await res.json();
+
+            if (res.ok && data.status === "success") {
+                this.showToast(data.message || "Google Drive 동기화 완료!");
+                await this.loadTree();
+            } else if (data.status === "busy") {
+                this.showToast(data.message || "이미 동기화가 진행 중입니다.");
+            } else {
+                this.showToast(data.message || "동기화 실패", true);
+            }
+        } catch (e) {
+            this.showToast("동기화 오류: " + e.message, true);
+        } finally {
+            if (iconSpan) iconSpan.classList.remove("bada-gdrive-syncing");
+            this.checkGDriveStatus();
+        }
+    }
+
+    async uploadSingleGDrive(relPath) {
+        if (!relPath) return;
+        try {
+            fetch("/cloud/gdrive/upload_single", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ rel_path: relPath })
+            }).catch(() => {});
+        } catch (e) {}
     }
 
     injectStyles() {
@@ -110,6 +179,24 @@ class WorkflowsPlusManager {
             document.head.appendChild(style);
         }
         style.textContent = `
+            @keyframes bada-gdrive-spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            .bada-gdrive-syncing {
+                display: inline-block !important;
+                animation: bada-gdrive-spin 1s linear infinite !important;
+                color: #38bdf8 !important;
+            }
+            .qol-icon-btn.gdrive-unauth {
+                border-color: #eab308 !important;
+                color: #fef08a !important;
+            }
+            .qol-icon-btn.gdrive-authed {
+                border-color: #0284c7 !important;
+                color: #38bdf8 !important;
+            }
+
             /* Bada Custom Blue Workflow Icon for Sidebar Tab */
             .bada-tab-icon-workflow,
             .bada-tab-icon-wave,
@@ -211,12 +298,13 @@ class WorkflowsPlusManager {
             .qol-toolbar {
                 display: flex;
                 align-items: center;
-                gap: 5px;
-                padding: 0 8px 8px 8px;
+                gap: 3px;
+                padding: 0 4px 8px 4px;
                 flex-shrink: 0;
             }
             .qol-search-wrapper {
                 flex: 1;
+                min-width: 60px;
                 position: relative;
                 display: flex;
                 align-items: center;
@@ -226,11 +314,11 @@ class WorkflowsPlusManager {
                 background: #18181b;
                 border: 1px solid #3f3f46;
                 border-radius: 6px;
-                padding: 5px 26px 5px 28px;
+                padding: 4px 20px 4px 24px;
                 color: #ffffff;
-                font-size: 13px;
+                font-size: 12px;
                 outline: none;
-                height: 30px;
+                height: 28px;
                 box-sizing: border-box;
                 transition: border-color 0.15s ease;
             }
@@ -239,15 +327,15 @@ class WorkflowsPlusManager {
             }
             .qol-search-icon {
                 position: absolute;
-                left: 8px;
-                font-size: 13px;
+                left: 7px;
+                font-size: 12px;
                 color: #71717a;
                 pointer-events: none;
             }
             .qol-search-clear {
                 position: absolute;
-                right: 8px;
-                font-size: 14px;
+                right: 6px;
+                font-size: 13px;
                 color: #71717a;
                 cursor: pointer;
                 display: none;
@@ -263,12 +351,12 @@ class WorkflowsPlusManager {
                 background: #27272a;
                 border: 1px solid #3f3f46;
                 border-radius: 6px;
-                width: 30px;
-                height: 30px;
+                width: 25px;
+                height: 28px;
                 color: #d4d4d8;
                 cursor: pointer;
                 transition: all 0.12s ease;
-                font-size: 13px;
+                font-size: 12px;
                 padding: 0;
                 flex-shrink: 0;
             }
@@ -1188,6 +1276,9 @@ class WorkflowsPlusManager {
                         setTimeout(() => {
                             self.loadTree();
                             self.detectActiveWorkflowFromUI();
+                            if (self.activeWorkflowPath) {
+                                self.uploadSingleGDrive(self.activeWorkflowPath);
+                            }
                         }, 250);
                         setTimeout(() => self.loadTree(), 1200);
                     }
@@ -1467,6 +1558,7 @@ class WorkflowsPlusManager {
                 <button class="qol-icon-btn" id="qol-btn-new-folder" title="${BadaI18n.t("wf_btn_new_folder")}">➕</button>
                 <button class="qol-icon-btn" id="qol-btn-toggle-all" title="${BadaI18n.t("wf_btn_toggle_all")}">📂</button>
                 <button class="qol-icon-btn" id="qol-btn-refresh" title="${BadaI18n.t("wf_btn_refresh")}">🔄</button>
+                <button class="qol-icon-btn" id="qol-btn-gdrive-sync" title="Google Drive 클라우드 동기화"><span class="gdrive-icon">☁️</span></button>
             </div>
 
             <div class="qol-root-dropzone" id="qol-root-dropzone">
@@ -1480,6 +1572,9 @@ class WorkflowsPlusManager {
 
         // Apply saved font size settings
         this.applyFontSize(this.fontSizeIndex, false);
+
+        // Check Google Drive Status
+        setTimeout(() => this.checkGDriveStatus(), 200);
 
         // Toolbar Events
         const searchInput = plusPanel.querySelector(".qol-search-input");
@@ -1507,6 +1602,10 @@ class WorkflowsPlusManager {
         });
         fontBtn?.addEventListener("contextmenu", (e) => {
             this.showFontSizeMenu(e);
+        });
+
+        plusPanel.querySelector("#qol-btn-gdrive-sync")?.addEventListener("click", () => {
+            this.triggerGDriveSync();
         });
 
         plusPanel.querySelector("#qol-btn-new-folder").addEventListener("click", () => {
