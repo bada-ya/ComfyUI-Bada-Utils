@@ -208,7 +208,6 @@ function buildCloudSyncDetailsPanel() {
             <div style="display: flex; justify-content: space-between; padding-left: 12px; font-size: 11px; color: #a1a1aa;"><span>└ 📐 ${isKo ? "Bada Visual Regional Prompt 프리셋:" : "Visual Regional Prompt Presets:"}</span><strong id="bada-cnt-regional" style="color: #38bdf8;">-</strong></div>
             <div style="display: flex; justify-content: space-between;"><span>💬 ${isKo ? "Gemini Studio 대화/챗 기록 (gemini_chat_history.json):" : "Gemini Studio Chats (gemini_chat_history.json):"}</span><strong id="bada-cnt-chats" style="color: #f4f4f5;">-</strong></div>
             <div style="display: flex; justify-content: space-between;"><span>📜 ${isKo ? "Gemini / Prompt Generator 시스템 프롬프트 (engines_registry.json):" : "System Prompts Registry:"}</span><strong id="bada-cnt-promptgen" style="color: #f4f4f5;">-</strong></div>
-            <div style="display: flex; justify-content: space-between;"><span>⭐ ${isKo ? "워크플로우 즐겨찾기 (favorites_data.json & .index.json):" : "Workflow Favorites:"}</span><strong id="bada-cnt-favs" style="color: #f4f4f5;">-</strong></div>
             <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 4px; margin-top: 2px;"><span>🕒 ${isKo ? "최종 동기화 시각:" : "Last Sync Time:"}</span><span id="bada-cnt-lastsync" style="color: #38bdf8;">-</span></div>
         </div>
     `;
@@ -233,7 +232,6 @@ function buildCloudSyncDetailsPanel() {
                     if (regEl) regEl.textContent = `${res.details.regional_presets_count || 0} 개`;
                     panel.querySelector("#bada-cnt-chats").textContent = `${res.details.gemini_chats_count} 개`;
                     panel.querySelector("#bada-cnt-promptgen").textContent = `${res.details.promptgen_count} 개`;
-                    panel.querySelector("#bada-cnt-favs").textContent = `${res.details.favorites_count} 개`;
                     panel.querySelector("#bada-cnt-lastsync").textContent = res.details.last_sync;
                 }
             }).catch(() => {});
