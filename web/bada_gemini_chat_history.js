@@ -507,9 +507,22 @@ export async function openChatHistory(anchor, opts = {}) {
             T() ? `최근 ${maxChats}개 대화를 .json 파일로 내려받습니다.`
                 : `Download the newest ${maxChats} conversations as a .json file.`,
             () => {
-                // A plain navigation: the server sends Content-Disposition: attachment, so
-                // the browser saves the file instead of rendering a multi-MB blob inline.
-                window.location.href = API.exportUrl;
+                fetch(API.exportUrl)
+                    .then(res => res.blob())
+                    .then(blob => {
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.style.display = "none";
+                        a.href = url;
+                        a.download = "bada_gemini_chats_backup.json";
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    })
+                    .catch(() => {
+                        showToast(T() ? "백업 다운로드에 실패했습니다." : "Failed to download backup.", "error");
+                    });
             });
 
         const importBtn = mk("", t("restore2"),
