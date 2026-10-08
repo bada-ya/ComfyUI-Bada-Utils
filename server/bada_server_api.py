@@ -35,6 +35,184 @@ PRESETS_FILE = os.path.join(PARENT_DIR, "presets_data.json")
 FAVORITES_FILE = os.path.join(PARENT_DIR, "favorites_data.json")
 
 
+def get_node_version():
+    """Reads node version from pyproject.toml."""
+    try:
+        pyproject_path = os.path.join(PARENT_DIR, "pyproject.toml")
+        if os.path.exists(pyproject_path):
+            with open(pyproject_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip().startswith("version"):
+                        parts = line.split("=")
+                        if len(parts) >= 2:
+                            return parts[1].strip().strip('"\'')
+    except Exception as e:
+        logger.warning(f"[Bada-Utils] get_node_version error: {e}")
+    return "1.0.3"
+
+
+def get_cloud_sync_details():
+    """Returns metadata and accurate counts of synced node configuration & workflow items."""
+    details = {
+        "workflows_count": 0,
+        "presets_count": 0,
+        "regional_presets_count": 0,
+        "gemini_chats_count": 0,
+        "promptgen_count": 0,
+        "favorites_count": 0,
+        "last_sync": "N/A"
+    }
+    
+    # 1. Workflows (.json) Count (Local scan + .gdrive_manifest.json check)
+    try:
+        workflows_dir = get_workflows_root_dir()
+        if os.path.exists(workflows_dir):
+            wf_cnt = 0
+            for root, _, files in os.walk(workflows_dir):
+                for filename in files:
+                    if filename.endswith('.json') and not filename.startswith('.'):
+                        wf_cnt += 1
+            
+            manifest_cache = os.path.join(workflows_dir, ".gdrive_manifest.json")
+            if os.path.exists(manifest_cache):
+                try:
+                    with open(manifest_cache, "r", encoding="utf-8") as f:
+                        mdata = json.load(f)
+                        if isinstance(mdata, dict):
+                            gdrive_wfs = sum(1 for k in mdata.keys() if not k.startswith(".configs/") and not k.startswith("."))
+                            if gdrive_wfs > wf_cnt:
+                                wf_cnt = gdrive_wfs
+                except Exception:
+                    pass
+
+            details["workflows_count"] = wf_cnt
+    except Exception as e:
+        logger.warning(f"[Bada-Utils] Failed to count workflows: {e}")
+
+    # 2. presets_data.json (Sum of all presets in category lists & BadaRegionalPrompt presets)
+    try:
+        if os.path.exists(PRESETS_FILE):
+            with open(PRESETS_FILE, "r", encoding="utf-8") as f:
+                pdata = json.load(f)
+                if isinstance(pdata, dict):
+                    total_presets = 0
+                    regional_presets = 0
+                    for k, val in pdata.items():
+                        c_cnt = 0
+                        if isinstance(val, list):
+                            c_cnt = len(val)
+                        elif isinstance(val, dict):
+                            c_cnt = len(val)
+                        else:
+                            c_cnt = 1
+                        total_presets += c_cnt
+                        if "regional" in k.lower() or "badaregional" in k.lower():
+                            regional_presets += c_cnt
+                    details["presets_count"] = total_presets
+                    details["regional_presets_count"] = regional_presets
+                elif isinstance(pdata, list):
+                    details["presets_count"] = len(pdata)
+    except Exception as e:
+        logger.warning(f"[Bada-Utils] Failed to count presets: {e}")
+
+    # 3. gemini_chat_history.json & config.json (Gemini chats)
+    try:
+        chat_hist_file = os.path.join(PARENT_DIR, "gemini_chat_history.json")
+        if os.path.exists(chat_hist_file):
+            with open(chat_hist_file, "r", encoding="utf-8") as f:
+                hdata = json.load(f)
+                chats = hdata.get("chats") if isinstance(hdata, dict) else hdata
+                if isinstance(chats, list):
+                    details["gemini_chats_count"] = len(chats)
+        else:
+            cfg_file = os.path.join(PARENT_DIR, "config.json")
+            if os.path.exists(cfg_file):
+                with open(cfg_file, "r", encoding="utf-8") as f:
+                    cdata = json.load(f)
+                    chats = cdata.get("chats") or cdata.get("gemini_chats") or cdata.get("history") or []
+                    if isinstance(chats, (dict, list)):
+                        details["gemini_chats_count"] = len(chats)
+    except Exception:
+        pass
+
+    # 4. engines_registry.json
+    try:
+        reg_file = os.path.join(PARENT_DIR, "engines_registry.json")
+        if os.path.exists(reg_file):
+            with open(reg_file, "r", encoding="utf-8") as f:
+                rdata = json.load(f)
+                uprompts = rdata.get("user_prompts") or {}
+                official_prompts = rdata.get("official_prompts") or {}
+                u_len = len(uprompts) if isinstance(uprompts, (dict, list)) else 0
+                o_len = len(official_prompts) if isinstance(official_prompts, (dict, list)) else 0
+                details["promptgen_count"] = u_len + o_len
+    except Exception:
+        pass
+
+    # 5. favorites_data.json & native ComfyUI .index.json
+    try:
+        fav_set = set()
+        if os.path.exists(FAVORITES_FILE):
+            try:
+                with open(FAVORITES_FILE, "r", encoding="utf-8") as f:
+                    fdata = json.load(f)
+                    if isinstance(fdata, list):
+                        fav_set.update(fdata)
+            except Exception:
+                pass
+
+        try:
+            workflows_dir = get_workflows_root_dir()
+            idx_file = os.path.join(workflows_dir, ".index.json")
+            if os.path.exists(idx_file):
+                with open(idx_file, "r", encoding="utf-8") as f:
+                    idata = json.load(f)
+                    if isinstance(idata, dict) and isinstance(idata.get("favorites"), list):
+                        fav_set.update(idata.get("favorites"))
+        except Exception:
+            pass
+
+        # Filter favorites to only count files that actually exist on disk
+        valid_favs = set()
+        workflows_dir = get_workflows_root_dir()
+        for fav_item in fav_set:
+            if not isinstance(fav_item, str):
+                continue
+            clean_item = fav_item.replace("workflows/", "").replace("\\", "/").lstrip("/")
+            full_path = os.path.join(workflows_dir, clean_item)
+            if os.path.isfile(full_path):
+                valid_favs.add(clean_item)
+            else:
+                cand = find_file_in_workflows(workflows_dir, clean_item)
+                if cand and os.path.isfile(cand):
+                    rel_cand = os.path.relpath(cand, workflows_dir).replace("\\", "/")
+                    valid_favs.add(rel_cand)
+
+        # Auto-sync favorites_data.json if we found native favorites
+        if valid_favs:
+            try:
+                with open(FAVORITES_FILE, "w", encoding="utf-8") as f:
+                    json.dump(sorted(list(valid_favs)), f, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
+        details["favorites_count"] = len(valid_favs)
+    except Exception:
+        pass
+
+    # 6. Last sync mtime from .gdrive_manifest.json
+    try:
+        workflows_dir = get_workflows_root_dir()
+        manifest_cache = os.path.join(workflows_dir, ".gdrive_manifest.json")
+        if os.path.exists(manifest_cache):
+            stat = os.stat(manifest_cache)
+            details["last_sync"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime))
+    except Exception:
+        pass
+
+    return details
+
+
 
 
 
@@ -1463,7 +1641,23 @@ def register_bada_api_routes():
             except Exception as e:
                 return web.json_response({"status": "error", "message": str(e)}, status=500)
 
+        async def gdrive_details_handler(request):
+            try:
+                details = get_cloud_sync_details()
+                return web.json_response({"status": "success", "details": details})
+            except Exception as e:
+                return web.json_response({"status": "error", "message": str(e)}, status=500)
+
+        async def version_handler(request):
+            try:
+                ver = get_node_version()
+                return web.json_response({"success": True, "version": ver})
+            except Exception as e:
+                return web.json_response({"success": False, "version": "1.0.3", "error": str(e)})
+
+        routes.get("/api/bada/version")(version_handler)
         routes.get("/cloud/gdrive/status")(gdrive_status_handler)
+        routes.get("/cloud/gdrive/details")(gdrive_details_handler)
         routes.post("/cloud/gdrive/sync")(gdrive_sync_handler)
         routes.post("/cloud/gdrive/upload_single")(gdrive_upload_single_handler)
 

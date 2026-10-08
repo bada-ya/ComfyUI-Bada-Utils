@@ -3,12 +3,12 @@
  * ComfyUI Web Extension (6-Engine Multi-Mode Edition)
  * - 3 Fast & Robust Models: Gemini 2.0 Flash-Lite, Gemini 2.5 Flash-Lite, Gemini 2.5 Flash
  * - 6 Dedicated Engine Tabs (left → right):
- *    1. ● KREA 2 (일반/스타일칩, 스토리보드)
- *    2. ● QWEN2.1 (official T2I / I2I prompt enhancement)
- *    3. ● MiniMax H3 (5 submodes, duration slider, multimodal vision)
- *    4. ● LTX-Video (5 submodes, duration slider, 6-element DiT)
+ *    1. KREA 2 (일반 / 스토리보드)
+ *    2. QWEN2.1 (official T2I / I2I prompt enhancement)
+ *    3. MiniMax H3 (5 submodes, duration slider, multimodal vision)
+ *    4. LTX-Video (5 submodes, duration slider, 6-element DiT)
  *    5. 📜 사용자 시스템 프롬프트
- *    6. ✨ 무검열 제미나이 (인터랙티브 챗 & Gem 페르소나, 실시간 웹검색)
+ *    6. ✨ 무검열 제미나이 (인터랙티브 챗 & Gem 페르소나, 제미나이 전용 시스템 프롬프트)
  * - Excludes 텍스트 가공 도구 as requested
  * - Independent non-blocking execution, Zero VRAM impact, Zero-Refusal 3-Pass pipeline
  * - One-click clipboard copy & direct injection to active CLIP Text Encode nodes
@@ -40,10 +40,10 @@ const EXACT_MODELS = [
 
 // 6 Engine Tabs Specification (left → right order)
 const ENGINES = [
-    { id: "krea", name: "● KREA 2", name_en: "● KREA 2", tag: "Photorealism", tag_en: "Photorealism", color: "#10b981" },
-    { id: "qwen21", name: "● QWEN2.1", name_en: "● QWEN2.1", tag: "Image Prompt Enhancer", tag_en: "Image Prompt Enhancer", color: "#f59e0b" },
-    { id: "minimax", name: "● MiniMax H3", name_en: "● MiniMax H3", tag: "Omni-Modal Video", tag_en: "Omni-Modal Video", color: "#6366f1" },
-    { id: "ltx", name: "● LTX-Video", name_en: "● LTX-Video", tag: "6-Element DiT", tag_en: "6-Element DiT", color: "#06b6d4" },
+    { id: "krea", name: "KREA 2", name_en: "KREA 2", tag: "Photorealism", tag_en: "Photorealism", color: "#10b981" },
+    { id: "qwen21", name: "QWEN2.1", name_en: "QWEN2.1", tag: "Image Prompt Enhancer", tag_en: "Image Prompt Enhancer", color: "#f59e0b" },
+    { id: "minimax", name: "MiniMax H3", name_en: "MiniMax H3", tag: "Omni-Modal Video", tag_en: "Omni-Modal Video", color: "#6366f1" },
+    { id: "ltx", name: "LTX-Video", name_en: "LTX-Video", tag: "6-Element DiT", tag_en: "6-Element DiT", color: "#06b6d4" },
     { id: "system_prompt", name: "📜 시스템", name_en: "📜 System", tag: "사용자 시스템 프롬프트", tag_en: "Custom System Prompt", color: "#38bdf8" },
     { id: "uncensored", name: "🔞 제미나이", name_en: "🔞 Gemini", tag: "Zero-Refusal Uncensored Chat", tag_en: "Zero-Refusal Uncensored Chat", color: "#a855f7" },
 ];
@@ -86,23 +86,16 @@ const LTX_SUBMODES = [
 ];
 
 // KREA 2 Submodes & Presets
+// 주의: `id` 는 localStorage 호환을 위해 절대 바꾸지 않는다 (general / storyboard).
 const KREA_SUBMODES = [
-    { id: "general", name: "🌐 일반", name_en: "🌐 General", desc: "KREA 2 화풍 & 스타일 칩", desc_en: "KREA 2 art styles & style chips" },
+    { id: "general", name: "🖼️ T2I · 이미지 분석", name_en: "🖼️ T2I · Image Analysis", desc: "KREA 2 포토리얼 화풍 렌더링", desc_en: "KREA 2 photorealism rendering" },
     { id: "storyboard", name: "🎞️ 스토리보드", name_en: "🎞️ Storyboard", desc: "연속 컷 시퀀스 분할 생성", desc_en: "Sequential cut storyboard prompts" },
 ];
 
+// 주의: `id` 는 localStorage 호환을 위해 절대 바꾸지 않는다 (t2i / i2i).
 const QWEN_SUBMODES = [
-    { id: "t2i", name: "🖼️ T2I", name_en: "🖼️ T2I", desc: "텍스트 기반 이미지 프롬프트 강화", desc_en: "Text-to-image prompt enhancement" },
+    { id: "t2i", name: "🖼️ T2I · 이미지 분석", name_en: "🖼️ T2I · Image Analysis", desc: "텍스트 기반 이미지 프롬프트 강화", desc_en: "Text-to-image prompt enhancement" },
     { id: "i2i", name: "🪄 I2I (편집)", name_en: "🪄 I2I (Edit)", desc: "참조 이미지를 바탕으로 편집 프롬프트 생성", desc_en: "Image-edit prompt from reference images" },
-];
-
-const KREA_STYLES = [
-    { id: "cinematic_photo", name: "35mm 필름", name_en: "35mm Film", icon: "🎬" },
-    { id: "iphone_snapshot", name: "Raw 스냅샷", name_en: "Raw Snapshot", icon: "📱" },
-    { id: "vintage_retro", name: "빈티지 레트로", name_en: "Vintage Retro", icon: "🎞️" },
-    { id: "digital_art", name: "디지털 아트", name_en: "Digital Art", icon: "🎨" },
-    { id: "3d_render", name: "3D 렌더링", name_en: "3D Render", icon: "🧊" },
-    { id: "cyberpunk_anime", name: "사이버펑크", name_en: "Cyberpunk", icon: "🌆" },
 ];
 
 // Gem Personas for Uncensored Gemini Chat
@@ -112,6 +105,93 @@ const GEM_PERSONAS_LIST = [
     { id: "fashion_lookbook", name: "👗 하이패션 & 룩북 마스터", name_en: "👗 High-Fashion & Lookbook Master" },
     { id: "scenario_writer", name: "🧠 심층 기획 & 시나리오 작가", name_en: "🧠 Deep Scenario & Narrative Writer" },
 ];
+
+// ============================================================================
+//  IMAGE HANDLING CONSTANTS
+//  Gemini `inline_data` caps a single image at 20 MB, and a raw 4K DataURL
+//  expands to ~25 MB once base64-encoded — which is why the studio used to
+//  fail on large uploads. Mirroring nodes/bada_prompt_generator.py
+//  (MAX_IMAGE_EDGE), we downscale in the browser before ever hitting the wire.
+// ============================================================================
+const IMAGE_ANALYSIS_MAX_EDGE = 1024;   // long-edge cap for vision/prompt work
+const IMAGE_ANALYSIS_JPEG_QUALITY = 0.82;
+const MAX_IMAGES_T2I = 1;               // KREA2 general, QWEN2.1 T2I, storyboard…
+const MAX_IMAGES_I2I = 6;               // QWEN2.1 I2I (reference set)
+
+/**
+ * Downscale + recompress a single image to a Gemini-friendly DataURL.
+ * Small images are returned untouched so we never add needless JPEG artifacts.
+ */
+function downscaleImageForGemini(dataUrl, maxEdge = IMAGE_ANALYSIS_MAX_EDGE) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const longEdge = Math.max(img.naturalWidth, img.naturalHeight);
+            if (!longEdge || longEdge <= maxEdge) { resolve({ dataUrl, resized: false }); return; }
+            const scale = maxEdge / longEdge;
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+            canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+            const ctx = canvas.getContext("2d");
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve({ dataUrl: canvas.toDataURL("image/jpeg", IMAGE_ANALYSIS_JPEG_QUALITY), resized: true });
+        };
+        img.onerror = () => resolve({ dataUrl, resized: false });
+        img.src = dataUrl;
+    });
+}
+
+/** How many images the active engine/submode accepts. */
+function currentImageLimit(engine, qwenSubMode) {
+    if (engine === "qwen21") return qwenSubMode === "i2i" ? MAX_IMAGES_I2I : MAX_IMAGES_T2I;
+    if (engine === "uncensored") return Infinity;   // chat tab has its own picker
+    return MAX_IMAGES_T2I;                        // krea / minimax / ltx / system
+}
+
+// ============================================================================
+//  PROMPT INPUT PLACEHOLDER
+//
+//  All of the per-engine guidance used to live in separate `.bada-callout`
+//  boxes stacked inside the submode panel, which wasted ~150-200px of vertical
+//  space. Those boxes are gone; every line of guidance now composes into the
+//  input textarea's placeholder instead — same position for every tab, one DOM
+//  node fewer per hint, and the user reads it right where they type.
+//  Layers (in order): engine note → how-to / limits → example → optional tail.
+// ============================================================================
+function composePlaceholder(layers) {
+    return layers
+        .filter(line => line && String(line).trim())
+        .map(line => String(line).trim())
+        .join("\n");
+}
+
+// ── 이미지 분석 안내 (KREA2 일반 · QWEN2.1 T2I 공통) ─────────────────────────
+function imageAnalysisHint(isKo) {
+    return isKo
+        ? [
+            "🖼️ 이미지만 첨부하면 이미지를 분석해 프롬프트를 생성합니다.",
+            "🖼️ 이미지 첨부(최대 1장)와 요청사항을 텍스트로 입력하면 함께 반영하여 프롬프트를 생성합니다.",
+        ]
+        : [
+            "🖼️ Attach an image only and the prompt is generated from analyzing it.",
+            "🖼️ Attach an image (up to 1) plus a text request and both are combined into the prompt.",
+        ];
+}
+
+// ── 다중 참조 이미지 안내 (QWEN2.1 I2I) ─────────────────────────────────────
+function multiImageHint(isKo) {
+    return isKo
+        ? [
+            "🪄 참조 이미지는 최대 6장까지 첨부할 수 있습니다.",
+            "📐 참고 이미지는 전송 효율을 위해 자동으로 1024px로 리사이즈되어 전송된 후 분석됩니다.",
+        ]
+        : [
+            "🪄 Up to 6 reference images can be attached.",
+            "📐 Reference images are automatically resized to 1024px for efficient transmission, then analyzed.",
+        ];
+}
 
 app.registerExtension({
     name: "bada.AsyncGeminiStudio",
@@ -127,7 +207,16 @@ app.registerExtension({
 
             const node = this;
             node.title = "⚓ Bada Async Gemini Studio";
-            node.setSize([520, 820]);
+            // 크기는 여기서 강제하지 않는다. onConfigure(워크플로우 복원) 가 저장된 크기를
+            // 그대로 적용해야 하므로, 여기서 setSize 하면 사용자의 창 크기가 매번 초기화된다.
+            // 초기 크기는 아래 LAYOUT ENGINE 이 userPreferredHeight 를 보고 결정한다.
+
+            // The backend no longer exposes an output socket (RETURN_TYPES is empty). A node
+            // instance restored from a saved workflow can still carry the old slot, so drop it
+            // here as well — otherwise the "prompt" socket survives a plain browser refresh.
+            while (node.outputs && node.outputs.length > 0) {
+                node.removeOutput(0);
+            }
 
             // Hide raw multiline widgets
             if (node.widgets && node.widgets.length > 0) {
@@ -151,9 +240,10 @@ app.registerExtension({
             let ltxSub = localStorage.getItem("bada_ltx_sub") || "ltx_2_5";
             let kreaSub = localStorage.getItem("bada_krea_sub") || "general";
             if (!KREA_SUBMODES.some(submode => submode.id === kreaSub)) kreaSub = "general";
-            let kreaStyle = localStorage.getItem("bada_krea_style") || "cinematic_photo";
             let qwenSub = localStorage.getItem("bada_qwen_sub") || "t2i";
             let userSystemPrompts = [];
+            // 📜 시스템 탭의 상태 안내문구 (예전 promptInfo 박스의 내용을 placeholder 로 이관)
+            let systemHintText = "";
             let selectedSystemPromptId = localStorage.getItem("bada_async_system_prompt") || "";
             let systemPromptsLoaded = false;
             let systemPromptLoadPromise = null;
@@ -171,16 +261,75 @@ app.registerExtension({
             let timerInterval = null;
             let lastEnglishPrompt = "";
             let lastKoreanTranslation = "";
-            let lastWhRatio = "";
             let lastStoryboardData = null;
             let currentTab = "english";
 
             // Chat State (Uncensored Gemini Tab)
+            // `bada_web_search` 는 실시간 웹검색 제거 이전 잔여 키라서 1회 정리한다.
+            localStorage.removeItem("bada_web_search");
             let selectedGemPersona = localStorage.getItem("bada_gem_persona") || "universal";
-            let webSearchEnabled = localStorage.getItem("bada_web_search") === "true";
+            // 제미나이 탭 전용 시스템 프롬프트 (engines_registry.json :: gemini_prompts)
+            let gemChatPrompts = [];
+            let selectedGemPromptId = localStorage.getItem("bada_gem_chat_prompt") || "";
+            let gemChatPromptsLoaded = false;
+            let gemChatPromptsLoadPromise = null;
             let chatMessages = [];
             let chatUploadedImages = [];
+            // Pre-downscale copies of the same attachments, kept ONLY until the message is
+            // sent. The chat downscales to 1024px for the API call, but 「원본으로 저장」
+            // needs the bytes the user actually pasted — which no longer exists downstream.
+            let chatOriginalImages = [];
+            // renderChatImagesPreview(), renderChatMessages() and renderChatLengthNotice() are all
+// declared INSIDE renderChatStudio(), so code in the enclosing scope — the history
+// popup's onRestore, the global paste handler — cannot call them by name. Calling them
+// directly threw "X is not defined" and aborted the whole handler mid-way. These bindings
+// are re-pointed on every chat-view build; the no-op defaults keep an early call harmless.
+let refreshChatImagePreview = () => {};
+let refreshChatMessages = () => {};
+let refreshChatLengthNotice = () => {};
             let isChatSending = false;
+            let chatPersonaCleanup = null;
+            // Drag & drop bookkeeping for the 제미나이 chat tab. Declared OUTSIDE
+            // renderChatStudio() because the teardown below (chatPersonaCleanup) is
+            // registered BEFORE the drag listeners and closes over them: referencing a
+            // `let` bound later in the same scope would hit the temporal dead zone and throw
+            // on every tab switch.
+            let chatDragHandlers = null;
+
+            // ── 채팅 기록 (2026-10-05) ──────────────────────────────────────
+            // `currentChatId` ties the live thread to its row in gemini_chat_history.json so
+            // a restored conversation keeps appending to the SAME saved entry instead of
+            // forking a new copy on every send. Empty = unsaved yet; the server mints the id
+            // on the first save and hands it back.
+            let currentChatId = "";
+            // 저장 요청은 fire-and-forget 이라, 그 응답이 「새 채팅」 이 이미 끝난 뒤에
+            // 도착할 수 있다. 이때 `currentChatId = data.chat.id` 를 그대로 실행하면 새
+            // 대화가 옛 대화의 id 를 물려받아, 이후 모든 저장이 같은 한 줄을 덮어쓴다.
+            // 실제로 「보내고 → 새 채팅」 을 반복하면 목록에 5개가 아니라 1개만 남았다.
+            //
+            // `chatEpoch` 는 대화를 새로 시작할 때마다 올라가는 세대 번호다. 저장은 자신이
+            // 출발한 세대를 기억하고, 돌아왔을 때 세대가 달라졌으면 그 응답은 이미 존재하지
+            // 않는 대화의 것이므로 id 를 물려받지 않는다.
+            let chatEpoch = 0;
+            // 진행 중인 저장 요청. 「새 채팅」 이 또 저장하면 같은 대화가 두 번 POST 되어
+            // 제목이 같은 줄이 두 개 생긴다(응답이 아직 안 왔으니 id 도 아직 비어 있음).
+            // 따라서 「새 채팅」 은 진행 중인 요청이 있으면 그것을 기다려 재사용한다.
+            let chatSaveInFlight = null;
+            // Image retention for history. User-selectable (original / 2048 / 1024 / none);
+            // 1024 matches IMAGE_ANALYSIS_MAX_EDGE, i.e. what the model already sees, so it
+            // is the default and costs nothing in answer quality.
+            const CHAT_IMAGE_SAVE_OPTIONS = {
+                original: { edge: 0, label: "원본", approx: "1~8 MB" },
+                large: { edge: 2048, label: "2048px", approx: "~350 KB" },
+                small: { edge: 1024, label: "1024px", approx: "~100 KB" },
+                none: { edge: -1, label: "저장 안 함", approx: "0 KB" },
+            };
+            let chatImageSaveMode = localStorage.getItem("bada_gem_chat_image_mode") || "small";
+            if (!CHAT_IMAGE_SAVE_OPTIONS[chatImageSaveMode]) chatImageSaveMode = "small";
+            // A conversation-length hint, never a hard stop. 80KB nudges, 100KB keeps
+            // nudging on every turn. See chatContextBytes() for how the number is computed.
+            const CHAT_WARN_BYTES = 80 * 1024;
+            const CHAT_ALERT_BYTES = 100 * 1024;
             let errorLogs = [];
             let unreadErrorCount = 0;
             let generateAbortController = null;
@@ -190,24 +339,10 @@ app.registerExtension({
             const root = document.createElement("div");
             root.className = "bada-gemini-card bada-async-gemini-root";
 
-            // 1. Header
-            const header = document.createElement("div");
-            header.className = "bada-header bada-gemini-header";
-            header.innerHTML = `
-                <div class="bada-title">
-                    <span>⚓</span>
-                    <span>Bada Async Gemini Studio</span>
-                </div>
-                <div class="bada-badges-group">
-                    <span class="bada-badge uncensored" title="5대 카테고리 BLOCK_NONE 및 3-Pass 제로 거부">🛡️ ZERO-REFUSAL</span>
-                    <span class="bada-badge">NON-BLOCKING ⚡</span>
-                    <button type="button" id="bada-error-bell" class="bada-bell-btn" title="${isKo ? "오류 알림 내역" : "Error Notification Log"}">
-                        <span class="bada-bell-icon">🔔</span>
-                        <span class="bada-bell-badge" id="bada-bell-badge" style="display: none;">0</span>
-                    </button>
-                </div>
-            `;
-            root.appendChild(header);
+            // The header row (duplicate ⚓ title + ZERO-REFUSAL / NON-BLOCKING badges) was
+            // removed: it duplicated the node title directly above it and, once the title
+            // went, was left as an empty full-width box costing a row. The 🔔 bell already
+            // lives in the API-key label row.
 
             // Error Log Modal
             const errorModalOverlay = document.createElement("div");
@@ -263,9 +398,12 @@ app.registerExtension({
                 updateBellBadge();
             }
 
-            function updateBellBadge() {
-                const bellBtn = header.querySelector("#bada-error-bell");
-                const badgeEl = header.querySelector("#bada-bell-badge");
+            // The in-panel "⚓ Bada Async Gemini Studio" title duplicated the node title directly
+// above it, costing a whole row. The 🔔 bell moved down into the API-key label row
+// (where the "LocalStorage 자동 저장" text used to sit), removing one more row.
+function updateBellBadge() {
+                const bellBtn = root.querySelector("#bada-error-bell");
+                const badgeEl = root.querySelector("#bada-bell-badge");
                 if (!badgeEl || !bellBtn) return;
                 if (unreadErrorCount > 0) {
                     badgeEl.textContent = unreadErrorCount > 99 ? "99+" : unreadErrorCount;
@@ -275,18 +413,6 @@ app.registerExtension({
                     badgeEl.style.display = "none";
                     bellBtn.classList.remove("has-unread");
                 }
-            }
-
-            const errorBellBtn = header.querySelector("#bada-error-bell");
-            if (errorBellBtn) {
-                errorBellBtn.onclick = (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    unreadErrorCount = 0;
-                    updateBellBadge();
-                    renderErrorList();
-                    errorModalOverlay.classList.remove("bada-hidden");
-                };
             }
 
             const errCloseBtn = errorModalOverlay.querySelector("#bada-err-close-btn");
@@ -343,7 +469,12 @@ app.registerExtension({
                             </button>
                         </div>
                     </div>
-                    <span class="bada-subtext">${isKo ? "LocalStorage 자동 저장" : "Stored in LocalStorage"}</span>
+                    <span class="bada-config-bell-slot">
+                        <button type="button" id="bada-error-bell" class="bada-bell-btn" title="${isKo ? "오류 알림 내역" : "Error Notification Log"}">
+                            <span class="bada-bell-icon">🔔</span>
+                            <span class="bada-bell-badge" id="bada-bell-badge" style="display: none;">0</span>
+                        </button>
+                    </span>
                 </div>
             `;
             const configRow = document.createElement("div");
@@ -394,6 +525,21 @@ app.registerExtension({
             configRow.appendChild(modelSelect);
             configSection.appendChild(configRow);
             root.appendChild(configSection);
+
+            // Wired here, not next to the header: the bell now lives in the config label row,
+            // which only exists once configSection has been built.
+            const errorBellBtn = root.querySelector("#bada-error-bell");
+            if (errorBellBtn) {
+                errorBellBtn.onclick = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    unreadErrorCount = 0;
+                    updateBellBadge();
+                    renderErrorList();
+                    errorModalOverlay.classList.remove("bada-hidden");
+                };
+                updateBellBadge();
+            }
 
             // Button Event Handlers: 발급 (AI Studio 새 탭) & 연결확인 (API Test)
             const getKeyBtn = configSection.querySelector("#bada-btn-get-key");
@@ -582,30 +728,30 @@ app.registerExtension({
             submodePanel.className = "bada-submode-panel";
             promptStudioContainer.appendChild(submodePanel);
 
-            // Options Row: slim NSFW / Korean toggles (left) + expandable Aspect Ratio picker (right)
+            // Options Row: slim NSFW / Korean toggles (left) + Aspect Ratio dropdown (right).
+            // The ON/OFF chips that used to sit inside each toggle card are gone: they ate
+            // ~45px + an 8px gap apiece in a three-column row, and that missing width is what
+            // ellipsised the labels next to them ("Allow NS…", "한국어 변…") in BOTH languages.
+            // The pressed state now lives on the card itself (`.on` -> accent border + fill),
+            // which reads at a glance and costs zero horizontal space.
             const optionsGrid = document.createElement("div");
             optionsGrid.className = "bada-options-row";
             optionsGrid.innerHTML = `
                 <div class="bada-options-toggles">
-                    <div class="bada-toggle-card" id="bada-toggle-nsfw" title="${isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes"}">
-                        <span class="bada-toggle-title">${isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content"}</span>
-                        <span class="bada-toggle-badge ${isNSFW ? 'amber' : ''}" id="bada-badge-nsfw">${isNSFW ? 'ON' : 'OFF'}</span>
+                    <div class="bada-toggle-card${isNSFW ? ' on' : ''}" id="bada-toggle-nsfw" role="button" tabindex="0" aria-pressed="${isNSFW ? 'true' : 'false'}" aria-label="${isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content"}" title="${isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes"}">
+                        <span class="bada-toggle-title">${isKo ? "성인용 콘텐츠 (NSFW)" : "Allow NSFW"}</span>
                     </div>
-                    <div class="bada-toggle-card" id="bada-toggle-trans" title="${isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes"}">
-                        <span class="bada-toggle-title">${isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes"}</span>
-                        <span class="bada-toggle-badge ${isTranslate ? 'green' : ''}" id="bada-badge-trans">${isTranslate ? 'ON' : 'OFF'}</span>
+                    <div class="bada-toggle-card${isTranslate ? ' on' : ''}" id="bada-toggle-trans" role="button" tabindex="0" aria-pressed="${isTranslate ? 'true' : 'false'}" aria-label="${isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes"}" title="${isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes"}">
+                        <span class="bada-toggle-title">${isKo ? "한국어 번역" : "Korean Translation"}</span>
                     </div>
                 </div>
                 <div class="bada-aspect-picker" id="bada-aspect-picker">
-                    <button type="button" class="bada-aspect-trigger" id="bada-aspect-trigger" aria-expanded="false" aria-controls="bada-aspect-body">
+                    <button type="button" class="bada-aspect-trigger" id="bada-aspect-trigger" aria-expanded="false" aria-haspopup="listbox">
                         <span class="bada-aspect-trigger-label" id="bada-aspect-label">${isKo ? "화면 비율 선택" : "Aspect Ratio"}</span>
                         <span class="bada-aspect-trigger-value" id="bada-aspect-value">${activeAspectLabel()}</span>
                         <span class="bada-aspect-arrow" id="bada-aspect-arrow">▼</span>
                     </button>
-                    <div class="bada-aspect-body" id="bada-aspect-body">
-                        <div class="bada-aspect-chips" id="bada-aspect-chips"></div>
-                        <div class="bada-aspect-note" id="bada-aspect-note">${isKo ? "선택한 비율이 프롬프트 생성 AI에 반영됩니다." : "The selected ratio is applied to the prompt generation AI."}</div>
-                    </div>
+                    <div class="bada-aspect-menu" id="bada-aspect-menu" role="listbox"></div>
                 </div>
             `;
             promptStudioContainer.appendChild(optionsGrid);
@@ -615,8 +761,7 @@ app.registerExtension({
             // -------------------------------------------------------------
             const aspectPicker = optionsGrid.querySelector("#bada-aspect-picker");
             const aspectTrigger = optionsGrid.querySelector("#bada-aspect-trigger");
-            const aspectBody = optionsGrid.querySelector("#bada-aspect-body");
-            const aspectChips = optionsGrid.querySelector("#bada-aspect-chips");
+            const aspectMenu = optionsGrid.querySelector("#bada-aspect-menu");
 
             function activeAspectLabel() {
                 const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
@@ -626,7 +771,7 @@ app.registerExtension({
 
             function renderAspectChips() {
                 const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
-                aspectChips.innerHTML = "";
+                aspectMenu.innerHTML = "";
                 ASPECT_RATIOS.forEach(ratio => {
                     const chip = document.createElement("button");
                     chip.type = "button";
@@ -640,10 +785,8 @@ app.registerExtension({
                         localStorage.setItem("bada_aspect_ratio", aspectRatio);
                         syncAspectPicker();
                         setAspectPickerOpen(false);
-                        const label = activeAspectLabel();
-                        showToast(isKo ? `🖼️ 화면 비율: ${label}` : `🖼️ Aspect ratio: ${label}`, "info", 1500);
                     };
-                    aspectChips.appendChild(chip);
+                    aspectMenu.appendChild(chip);
                 });
             }
 
@@ -651,53 +794,105 @@ app.registerExtension({
                 const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                 const labelEl = optionsGrid.querySelector("#bada-aspect-label");
                 const valueEl = optionsGrid.querySelector("#bada-aspect-value");
-                const noteEl = optionsGrid.querySelector("#bada-aspect-note");
                 if (labelEl) labelEl.textContent = isKoNow ? "화면 비율 선택" : "Aspect Ratio";
                 if (valueEl) valueEl.textContent = activeAspectLabel();
-                if (noteEl) noteEl.textContent = isKoNow
-                    ? "선택한 비율이 프롬프트 생성 AI에 반영됩니다."
-                    : "The selected ratio is applied to the prompt generation AI.";
                 renderAspectChips();
+            }
+
+            function positionAspectMenu() {
+                const rect = aspectTrigger.getBoundingClientRect();
+                const width = aspectMenu.offsetWidth || 200;
+                const height = aspectMenu.offsetHeight || 200;
+                const margin = 6;
+                let left = rect.left;
+                let top = rect.bottom + 4;
+                // Flip up / clamp so the menu always stays inside the viewport.
+                if (left + width > window.innerWidth - margin) left = window.innerWidth - width - margin;
+                if (left < margin) left = margin;
+                if (top + height > window.innerHeight - margin) {
+                    const above = rect.top - height - 4;
+                    top = above > margin ? above : Math.max(margin, window.innerHeight - height - margin);
+                }
+                aspectMenu.style.left = `${Math.round(left)}px`;
+                aspectMenu.style.top = `${Math.round(top)}px`;
             }
 
             function setAspectPickerOpen(open) {
                 const isOpen = !!open;
-                aspectBody.classList.toggle("open", isOpen);
                 aspectTrigger.classList.toggle("open", isOpen);
                 aspectTrigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
                 const arrow = optionsGrid.querySelector("#bada-aspect-arrow");
                 if (arrow) arrow.textContent = isOpen ? "▲" : "▼";
-                // The row grew or shrank -> re-measure the node frame.
-                setTimeout(fitToContent, 0);
+                if (!isOpen) {
+                    aspectMenu.classList.remove("open");
+                    if (aspectMenu.parentNode !== aspectPicker) aspectPicker.appendChild(aspectMenu);
+                    return;
+                }
+                // Move the menu to <body> so no ancestor overflow/transform can clip it,
+                // then measure and place it. This is a pure overlay: the node keeps its
+                // exact size and position, so the canvas never jolts. (Previously the
+                // in-flow accordion called fitToContent(), which grew the node on open and
+                // shrank it on close -> the big vertical shake reported by the user.)
+                if (aspectMenu.parentNode !== document.body) document.body.appendChild(aspectMenu);
+                aspectMenu.classList.add("open");
+                positionAspectMenu();
             }
 
-            aspectTrigger.onclick = () => setAspectPickerOpen(!aspectBody.classList.contains("open"));
+            aspectTrigger.onclick = () => setAspectPickerOpen(!aspectMenu.classList.contains("open"));
             const onAspectOutsidePointerDown = (e) => {
-                if (!aspectBody.classList.contains("open")) return;
-                if (!aspectPicker.contains(e.target)) setAspectPickerOpen(false);
+                if (!aspectMenu.classList.contains("open")) return;
+                if (!aspectPicker.contains(e.target) && !aspectMenu.contains(e.target)) {
+                    setAspectPickerOpen(false);
+                }
             };
             document.addEventListener("pointerdown", onAspectOutsidePointerDown);
+            // Keep the menu pinned to the trigger while the canvas is panned/zoomed.
+            const onAspectViewportChange = () => {
+                if (aspectMenu.classList.contains("open")) positionAspectMenu();
+            };
+            window.addEventListener("resize", onAspectViewportChange);
+            window.addEventListener("scroll", onAspectViewportChange, true);
             syncAspectPicker();
 
+            // Both toggles now report their state through the card itself instead of an ON/OFF chip
+            // and a toast. The toast was the yellow-highlighted banner: `.bada-toast` is a
+            // block child of the card's flex column, so firing it on every click shoved the
+            // whole panel down — and it fired on BOTH enable and disable, in both languages.
+            // Nothing is lost: the card's border/background change is the confirmation.
             const nsfwToggle = optionsGrid.querySelector("#bada-toggle-nsfw");
-            const nsfwBadge = optionsGrid.querySelector("#bada-badge-nsfw");
+            const transToggle = optionsGrid.querySelector("#bada-toggle-trans");
+
+            // Shared visual sync for both cards. aria-pressed keeps the state readable by
+            // assistive tech now that the visible ON/OFF text is gone.
+            function syncToggleCards() {
+                nsfwToggle.classList.toggle("on", isNSFW);
+                nsfwToggle.setAttribute("aria-pressed", isNSFW ? "true" : "false");
+                transToggle.classList.toggle("on", isTranslate);
+                transToggle.setAttribute("aria-pressed", isTranslate ? "true" : "false");
+            }
+
             nsfwToggle.onclick = () => {
                 isNSFW = !isNSFW;
                 localStorage.setItem("bada_is_nsfw", isNSFW);
-                nsfwBadge.textContent = isNSFW ? "ON" : "OFF";
-                nsfwBadge.className = `bada-toggle-badge ${isNSFW ? 'amber' : ''}`;
-                showToast(isKo ? `성인용 콘텐츠(NSFW) 허용: ${isNSFW ? 'ON' : 'OFF'}` : `Allow NSFW Content: ${isNSFW ? 'ON' : 'OFF'}`, "info", 1500);
+                syncToggleCards();
             };
 
-            const transToggle = optionsGrid.querySelector("#bada-toggle-trans");
-            const transBadge = optionsGrid.querySelector("#bada-badge-trans");
             transToggle.onclick = () => {
                 isTranslate = !isTranslate;
                 localStorage.setItem("bada_is_translate", isTranslate);
-                transBadge.textContent = isTranslate ? "ON" : "OFF";
-                transBadge.className = `bada-toggle-badge ${isTranslate ? 'green' : ''}`;
-                showToast(isKo ? `한국어 번역 및 해설: ${isTranslate ? 'ON' : 'OFF'}` : `Korean Translation & Notes: ${isTranslate ? 'ON' : 'OFF'}`, "info", 1500);
+                syncToggleCards();
             };
+
+            // These are role="button" now, so Enter/Space must activate them — a div with
+            // onclick alone is unreachable by keyboard and screen readers skip it.
+            [nsfwToggle, transToggle].forEach((card) => {
+                card.onkeydown = (e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    e.preventDefault();
+                    card.click();
+                };
+            });
+            syncToggleCards();
 
             // Prompt Instruction Section
             const promptSection = document.createElement("div");
@@ -710,7 +905,7 @@ app.registerExtension({
             `;
             const instructionTextarea = document.createElement("textarea");
             instructionTextarea.className = "bada-textarea";
-            instructionTextarea.rows = 3;
+            instructionTextarea.rows = 5;
             instructionTextarea.placeholder = isKo 
                 ? "생성하고자 하는 장면, 인물, 구도, 조명 등을 자세히 적어보세요..." 
                 : "Describe the scene, character, composition, lighting in detail...";
@@ -722,47 +917,6 @@ app.registerExtension({
             promptSection.appendChild(instructionTextarea);
 
             promptStudioContainer.appendChild(promptSection);
-
-            // Custom Directives Accordion
-            const accordion = document.createElement("div");
-            accordion.style.border = "1px solid var(--bada-border)";
-            accordion.style.borderRadius = "var(--bada-radius-sm)";
-            accordion.style.overflow = "hidden";
-
-            const accBtn = document.createElement("button");
-            accBtn.type = "button";
-            accBtn.style.width = "100%";
-            accBtn.style.background = "var(--bada-bg-surface-elevated)";
-            accBtn.style.border = "none";
-            accBtn.style.padding = "6px 10px";
-            accBtn.style.display = "flex";
-            accBtn.style.alignItems = "center";
-            accBtn.style.justifyContent = "space-between";
-            accBtn.style.color = "var(--bada-text-muted)";
-            accBtn.style.fontSize = "11px";
-            accBtn.style.fontWeight = "700";
-            accBtn.style.cursor = "pointer";
-            accBtn.innerHTML = `<span id="bada-acc-title">${isKo ? "⚙️ 커스텀 시스템 지시사항 (선택 사항)" : "⚙️ Custom System Directives (Optional)"}</span><span id="bada-acc-arrow">▼</span>`;
-
-            const accBody = document.createElement("div");
-            accBody.style.display = "none";
-            accBody.style.padding = "8px";
-            accBody.style.background = "#090d15";
-
-            const customDirectivesInput = document.createElement("textarea");
-            customDirectivesInput.className = "bada-textarea";
-            customDirectivesInput.rows = 2;
-            customDirectivesInput.placeholder = isKo ? "이번 생성에만 강제 주입할 커스텀 시스템 지시사항이 있다면 입력하세요..." : "Enter custom system directives to override for this generation only...";
-            accBody.appendChild(customDirectivesInput);
-
-            accBtn.onclick = () => {
-                const isHidden = accBody.style.display === "none";
-                accBody.style.display = isHidden ? "block" : "none";
-                accBtn.querySelector("#bada-acc-arrow").textContent = isHidden ? "▲" : "▼";
-            };
-            accordion.appendChild(accBtn);
-            accordion.appendChild(accBody);
-            promptStudioContainer.appendChild(accordion);
 
             // Multimodal Reference Images Section
             const imgSection = document.createElement("div");
@@ -835,17 +989,366 @@ app.registerExtension({
             imgSection.appendChild(thumbContainer);
             promptStudioContainer.appendChild(imgSection);
 
-            function handleFiles(files) {
-                Array.from(files).forEach(file => {
-                    if (!file.type.startsWith("image/")) return;
+            // 이미지 첨부: 모드별 장수 제한을 먼저 걸고, Gemini 전송 전에 브라우저에서
+            // 1024px/JPEG 로 축소한다 (원본 그대로면 base64 변환 후 20MB 를 넘어 실패한다).
+            async function handleFiles(files) {
+                const incoming = Array.from(files).filter(f => f && f.type && f.type.startsWith("image/"));
+                if (!incoming.length) return;
+
+                const limit = currentImageLimit(activeEngine, qwenSub);
+
+                for (const file of incoming) {
+                    if (uploadedImages.length >= limit) {
+                        showToast(
+                            isKo
+                                ? `⚠️ ${activeEngine === "qwen21" && qwenSub === "i2i" ? "I2I" : "현재 모드"}는 최대 ${limit}장까지 첨부할 수 있습니다.`
+                                : `⚠️ This mode accepts up to ${limit} image(s).`,
+                            "error", 3500,
+                        );
+                        break;
+                    }
+                    try {
+                        const rawDataUrl = await readFileAsDataUrl(file);
+                        const { dataUrl } = await downscaleImageForGemini(rawDataUrl);
+                        uploadedImages.push(dataUrl);
+                    } catch (err) {
+                        console.warn("[BadaAsyncGemini] image attach failed:", err);
+                        showToast(isKo ? "⚠️ 이미지를 읽을 수 없습니다." : "⚠️ Could not read the image.", "error", 2500);
+                    }
+                }
+
+                renderThumbnails();
+                // NO success toast on purpose (user request, 2026-10-05). `.bada-toast` is a
+                // block child of the card's flex column, so it inserted a full-width banner
+                // above the API-key row: the node grew, then shrank again when the toast timed
+                // out, and the panel visibly jerked on every paste. The thumbnail strip that
+                // just re-rendered IS the confirmation. Error toasts below stay — they are
+                // rare, and they carry information the user must not miss.
+            }
+
+            // Gemini 채팅 탭의 첨부 경로.
+            // Deliberately NOT shared with handleFiles(): that one fills `uploadedImages`, the
+            // shared prompt-generation strip, which belongs to the KREA2 / QWEN2.1 / MiniMax /
+            // LTX / 시스템 tabs and is not even visible on the chat tab. Pasting on the chat tab
+            // therefore landed on another tab and the conversation was sent with no image at all.
+            // `chatUploadedImages` is what sendChatMessage() copies into
+            // `{role:"user", text, images:[...]}`, and the backend turns each entry into a Gemini
+            // `inline_data` part (server/gemini_api.py :: chat_handler) — so the model really
+            // sees the picture.
+            const MAX_CHAT_IMAGES = 8;
+            async function handleChatImageFiles(files) {
+                const incoming = Array.from(files || []).filter(f => f && f.type && f.type.startsWith("image/"));
+                if (!incoming.length) return;
+
+                for (const file of incoming) {
+                    if (chatUploadedImages.length >= MAX_CHAT_IMAGES) {
+                        showToast(isKo
+                            ? `⚠️ 채팅 첨부 이미지는 최대 ${MAX_CHAT_IMAGES}장까지입니다.`
+                            : `⚠️ Chat attachments are limited to ${MAX_CHAT_IMAGES} image(s).`, "error", 3000);
+                        break;
+                    }
+                    try {
+                        const rawDataUrl = await readFileAsDataUrl(file);
+                        // Keep the untouched bytes beside the analysis copy so the history
+                        // layer can honour 「원본으로 저장」 later (see chatOriginalImages).
+                        chatOriginalImages.push(rawDataUrl);
+                        // Same reason as handleFiles(): an un-downscaled base64 blows past
+                        // Gemini's 20 MB inline_data ceiling and the request simply fails.
+                        const { dataUrl } = await downscaleImageForGemini(rawDataUrl);
+                        chatUploadedImages.push(dataUrl);
+                    } catch (err) {
+                        // Roll back the half-pushed original so the two arrays stay aligned.
+                        chatOriginalImages.pop();
+                        console.warn("[BadaAsyncGemini] chat image attach failed:", err);
+                        showToast(isKo ? "⚠️ 이미지를 읽을 수 없습니다." : "⚠️ Could not read the image.", "error", 2500);
+                    }
+                }
+
+                refreshChatImagePreview();
+            }
+
+            function readFileAsDataUrl(file) {
+                return new Promise((resolve, reject) => {
                     const reader = new FileReader();
-                    reader.onload = (e) => {
-                        uploadedImages.push(e.target.result);
-                        renderThumbnails();
-                        showToast(isKo ? `🖼️ 참고 이미지 #${uploadedImages.length} 첨부 완료` : `🖼️ Reference image #${uploadedImages.length} attached`, "success", 1500);
-                    };
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = () => reject(reader.error || new Error("FileReader error"));
                     reader.readAsDataURL(file);
                 });
+            }
+
+            // ── 채팅 기록: 이미지 저장 정책 ─────────────────────────────────────
+            // The chat already downscaled every attachment to 1024px for the API call
+            // (IMAGE_ANALYSIS_MAX_EDGE), so `original` here means "keep the ORIGINAL
+            // paste", not "keep the 1024px version". The original data URL is captured
+            // alongside the analysis one at attach time, because by save time the original
+            // is gone (the composer was cleared on send).
+            async function applyHistoryImagePolicy(images, originals) {
+                const mode = chatImageSaveMode;
+                const count = images.length;
+                const originalCopies = Array.isArray(originals) ? originals : [];
+                if (!count) return { images: [], imageCount: 0, imagesOmitted: false };
+                if (mode === "none") {
+                    // No bytes, but the COUNT is kept so the restored thread can still show
+                    // that an image was attached (a placeholder, exactly like the first
+                    // attachment in the composer). The API call still gets no image.
+                    return { images: [], imageCount: count, imagesOmitted: true };
+                }
+                // No originals captured (an old session, or the array was emptied): the
+                // 1024px API copy is the best we have, so keep it rather than dropping
+                // the picture entirely.
+                if (!originalCopies.length) {
+                    return { images: images.slice(), imageCount: count, imagesOmitted: false };
+                }
+                // NOTE: 「원본」 must NOT short-circuit to `images` — that array holds the
+                // 1024px API copies, so an early return here silently saved the downscale
+                // under the name "원본". Every mode now flows through the loop below,
+                // which reads from `originalCopies` and only downscales when asked.
+                const opts = CHAT_IMAGE_SAVE_OPTIONS[mode];
+                const kept = [];
+                for (let i = 0; i < images.length; i++) {
+                    const source = originalCopies[i] || images[i];
+                    if (opts.edge <= 0) { kept.push(source); continue; }
+                    const { dataUrl } = await downscaleImageForGemini(source, opts.edge);
+                    kept.push(dataUrl);
+                }
+                return { images: kept, imageCount: count, imagesOmitted: false };
+            }
+
+            // ── 이미지 크게 보기 (lightbox, 2026-10-05) ──────────────────────────
+            // Chat attachments are 48px thumbnails (and the wire copy is a 1024px
+            // downscale), so a picture could not be inspected at all. Clicking a
+            // thumbnail now opens the best copy available:
+            //   · 현재 세션에서 붙여넣기/드래그앤드롭/불러오기 → msg.originalImages(원본)
+            //   · 「이어하기」로 복원한 기록                  → 저장된 이미지 그대로
+            //   · 「저장 안 함」                              → 열 대상이 없어 아무 반응 없음
+            // Declared in the OUTER scope (like applyHistoryImagePolicy) so both
+            // renderers can call it: renderChatImagesPreview() and
+            // renderChatMessages() are declared INSIDE renderChatStudio().
+            let chatImageViewerCleanup = null;
+
+            function closeChatImageViewer() {
+                if (chatImageViewerCleanup) chatImageViewerCleanup();
+            }
+
+            function openChatImageViewer(sources, startIndex = 0) {
+                const list = (sources || []).filter(s => typeof s === "string" && s);
+                // 「저장 안 함」 자리표시자 등: 열 수 있는 이미지가 없으면 아무 것도 하지 않는다.
+                if (!list.length) return;
+                // Re-clicking while one is open must not stack overlays.
+                closeChatImageViewer();
+
+                const overlay = document.createElement("div");
+                overlay.className = "bada-img-viewer";
+
+                const img = document.createElement("img");
+                img.className = "bada-img-viewer-img";
+                img.alt = "";
+                img.draggable = false;
+
+                const counter = document.createElement("div");
+                counter.className = "bada-img-viewer-count";
+
+                const closeBtn = document.createElement("button");
+                closeBtn.type = "button";
+                closeBtn.className = "bada-img-viewer-btn bada-img-viewer-close";
+                closeBtn.textContent = "✕";
+                closeBtn.title = isKo ? "닫기 (Esc)" : "Close (Esc)";
+
+                let index = Math.min(Math.max(0, startIndex | 0), list.length - 1);
+                const show = (next) => {
+                    index = ((next % list.length) + list.length) % list.length;
+                    img.src = list[index];
+                    counter.textContent = list.length > 1 ? `${index + 1} / ${list.length}` : "";
+                };
+
+                const prevBtn = document.createElement("button");
+                prevBtn.type = "button";
+                prevBtn.className = "bada-img-viewer-btn bada-img-viewer-prev";
+                prevBtn.textContent = "‹";
+                prevBtn.title = isKo ? "이전 이미지" : "Previous image";
+                const nextBtn = document.createElement("button");
+                nextBtn.type = "button";
+                nextBtn.className = "bada-img-viewer-btn bada-img-viewer-next";
+                nextBtn.textContent = "›";
+                nextBtn.title = isKo ? "다음 이미지" : "Next image";
+                // 한 장뿐이면 화살표를 숨긴다 — 눌려도 아무 일도 하지 않을 버튼은 노이즈다.
+                const multi = list.length > 1;
+                prevBtn.style.display = multi ? "" : "none";
+                nextBtn.style.display = multi ? "" : "none";
+                prevBtn.onclick = (e) => { e.stopPropagation(); show(index - 1); };
+                nextBtn.onclick = (e) => { e.stopPropagation(); show(index + 1); };
+                closeBtn.onclick = (e) => { e.stopPropagation(); destroy(); };
+
+                overlay.appendChild(img);
+                overlay.appendChild(prevBtn);
+                overlay.appendChild(nextBtn);
+                overlay.appendChild(closeBtn);
+                overlay.appendChild(counter);
+
+                // 배경(자기 자신)을 누를 때만 닫힌다 — 이미지 위 클릭으로 대화가 사라지면 안 된다.
+                overlay.addEventListener("click", (e) => { if (e.target === overlay) destroy(); });
+
+                // ComfyUI 캔버스는 document 레벨에서 pointerdown/wheel/contextmenu을 듣는다.
+                // 이 오버레이가 캔버스를 대신 처리하지 않도록 전부 차단한다.
+                const swallow = (e) => e.stopPropagation();
+                const blockedEvents = ["pointerdown", "mousedown", "wheel", "dblclick", "contextmenu", "dragstart"];
+                blockedEvents.forEach(evt => overlay.addEventListener(evt, swallow));
+
+                const onKeydown = (e) => {
+                    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); destroy(); }
+                    else if (e.key === "ArrowLeft") { e.preventDefault(); e.stopPropagation(); show(index - 1); }
+                    else if (e.key === "ArrowRight") { e.preventDefault(); e.stopPropagation(); show(index + 1); }
+                };
+                document.addEventListener("keydown", onKeydown, true);
+
+                function destroy() {
+                    document.removeEventListener("keydown", onKeydown, true);
+                    blockedEvents.forEach(evt => overlay.removeEventListener(evt, swallow));
+                    overlay.remove();
+                    if (chatImageViewerCleanup === destroy) chatImageViewerCleanup = null;
+                }
+                chatImageViewerCleanup = destroy;
+
+                show(index);
+                document.body.appendChild(overlay);
+            }
+
+            // ── 채팅 기록: 텍스트 컨텍스트 크기 ──────────────────────────────────
+            // Only TEXT is measured. Images are multi-modal inputs, not tokens the model
+            // has to "read through" in sequence, so counting their bytes would fire the
+            // warning on an image-heavy chat whose actual text context is tiny.
+            function chatContextBytes() {
+                // Korean is ~3 bytes/char in UTF-8, but JS strings are UTF-16 code units;
+                // encoding is the honest measure and TextEncoder is always available.
+                return new TextEncoder().encode(
+                    chatMessages.map(m => m.text || "").join("")
+                ).length;
+            }
+
+            // ── 채팅 기록: 서버 통신 ─────────────────────────────────────────────
+            const CHAT_API = {
+                list: "/api/bada/gemini/chats",
+                get: "/api/bada/gemini/chats/get",
+                save: "/api/bada/gemini/chats/save",
+                del: "/api/bada/gemini/chats/delete",
+                clear: "/api/bada/gemini/chats/clear",
+                exportUrl: "/api/bada/gemini/chats/export",
+                importUrl: "/api/bada/gemini/chats/import",
+            };
+
+            async function chatApiPost(path, body) {
+                const resp = await fetch(path, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.error || `요청 실패 (${resp.status})`);
+                }
+                return data;
+            }
+
+            // Fire-and-forget persistence after every completed turn. A save failure must
+            // NEVER interrupt the conversation, so errors are logged, not toasted.
+            async function persistChatHistory(turnOriginals) {
+                if (!chatMessages.length) return;
+                // 이 저장이 어느 대화를 위한 것인지 세대로 기억한다.
+                const epoch = chatEpoch;
+                const originals = Array.isArray(turnOriginals) ? turnOriginals : [];
+                try {
+                    const payload = [];
+                    for (const msg of chatMessages) {
+                        const images = Array.isArray(msg.images) ? msg.images : [];
+                        // Only the CURRENT turn's originals still exist (the composer was
+                        // cleared on send), so earlier messages must reuse the copy this
+                        // function already produced for them — NOT their raw `images`, which
+                        // is the 1024px API copy. Re-saving that would silently degrade a
+                        // 「원본」/「2048px」 turn to 1024px on the very next turn.
+                        const isCurrentTurn = originals.length > 0
+                            && msg === chatMessages[chatMessages.length - 2];
+                        const cached = Array.isArray(msg.savedImages) ? msg.savedImages : null;
+                        const saved = isCurrentTurn
+                            ? await applyHistoryImagePolicy(images, originals)
+                            : cached
+                                ? {
+                                    images: cached.slice(),
+                                    imageCount: typeof msg.savedImageCount === "number"
+                                        ? msg.savedImageCount : cached.length,
+                                    imagesOmitted: !!msg.savedImagesOmitted,
+                                }
+                                : {
+                                    images: images.slice(),
+                                    imageCount: images.length,
+                                    imagesOmitted: !!msg.imagesOmitted,
+                                };
+                        // Remember the result so the next persist() in this session reuses it.
+                        msg.savedImages = saved.images;
+                        msg.savedImageCount = saved.imageCount;
+                        msg.savedImagesOmitted = saved.imagesOmitted;
+                        payload.push({
+                            role: msg.role,
+                            text: msg.text || "",
+                            images: saved.images,
+                            imageCount: saved.imageCount,
+                            imagesOmitted: saved.imagesOmitted,
+                        });
+                    }
+                    // Tracked so 「새 창합」 can await THIS request instead of issuing a second POST for the
+                    // same conversation (which would create a duplicate row, because the
+                    // server-minted id has not come back yet).
+                    chatSaveInFlight = chatApiPost(CHAT_API.save, {
+                        id: currentChatId,
+                        messages: payload,
+                    }).then((data) => {
+                        // Adopt the server-minted id so the NEXT save updates this same
+                        // entry — but ONLY while this conversation is still the live one.
+                        // If 「새 창합」 ran while the request was in flight the epoch has
+                        // moved on and this response belongs to a conversation that no
+                        // longer exists; adopting its id made every later save overwrite
+                        // that one row, which is how five chats collapsed into one.
+                        if (data.chat && data.chat.id && epoch === chatEpoch) {
+                            currentChatId = data.chat.id;
+                        }
+                    });
+                    await chatSaveInFlight;
+                    chatSaveInFlight = null;
+                } catch (err) {
+                    console.warn("[BadaAsyncGemini] chat history save failed:", err);
+                }
+            }
+
+            // Restore one conversation. `imagesOmitted` messages arrive with zero images but
+            // a count, so renderChatMessages() draws placeholders and sendChatMessage() still
+            // gets a valid (image-free) payload.
+            async function restoreChat(chat) {
+                if (!chat || !Array.isArray(chat.messages)) return;
+                // A viewer left open would keep showing the OLD conversation's picture on top
+                // of the restored one.
+                closeChatImageViewer();
+                chatMessages = chat.messages.map(m => ({
+                    role: m.role === "user" ? "user" : "model",
+                    text: m.text || "",
+                    images: Array.isArray(m.images) ? m.images : [],
+                    imageCount: typeof m.imageCount === "number" ? m.imageCount : 0,
+                    imagesOmitted: !!m.imagesOmitted,
+                    duration: m.duration || "",
+                    // The restored bytes ARE the saved copy, so seed the per-turn cache with
+                    // them. Without this, the next persist() in the restored conversation
+                    // would fall back to `images` (fine today) but would lose the omitted
+                    // state for a 「저장 안 함」 turn the moment a new turn lands.
+                    savedImages: Array.isArray(m.images) ? m.images.slice() : [],
+                    savedImageCount: typeof m.imageCount === "number" ? m.imageCount : 0,
+                    savedImagesOmitted: !!m.imagesOmitted,
+                }));
+                currentChatId = chat.id || "";
+                chatUploadedImages = [];
+                chatOriginalImages = [];
+                // Must go through the published binding: renderChatImagesPreview() is declared
+                // INSIDE renderChatStudio(), so calling it directly from here threw
+                // "renderChatImagesPreview is not defined" the moment a history entry was restored.
+                refreshChatImagePreview();
+                refreshChatMessages();
             }
 
             function renderThumbnails() {
@@ -894,7 +1397,6 @@ app.registerExtension({
             outputSection.innerHTML = `
                 <div class="bada-label">
                     <span id="bada-output-title">${isKo ? "✨ 생성된 프롬프트 결과" : "✨ Generated Output"}</span>
-                    <span class="bada-badge" id="bada-pass-status" style="display: none;"></span>
                 </div>
             `;
             const tabsHeader = document.createElement("div");
@@ -925,78 +1427,52 @@ app.registerExtension({
             outputTextarea.placeholder = isKo ? "생성된 프롬프트가 여기에 표시됩니다. 자유롭게 직접 수정할 수도 있습니다." : "Generated prompt will appear here. You can also edit it directly.";
             outputSection.appendChild(outputTextarea);
 
+            // Clipboard button: it shares the tab bar but is styled as a separate group.
+            // It always copies whatever the currently selected tab is showing.
+            const copyBtn = document.createElement("button");
+            copyBtn.type = "button";
+            copyBtn.className = "bada-tab-copy";
+            const COPY_TAB_META = {
+                english: { ko: "영문 마스터", en: "English Master", chip: { ko: "📋 영문", en: "📋 English" } },
+                korean: { ko: "한국어 번역", en: "Korean Translation", chip: { ko: "📋 한국어", en: "📋 Korean" } },
+                all: { ko: "통합본", en: "Combined", chip: { ko: "📋 통합본", en: "📋 Combined" } },
+            };
+            function refreshCopyButton() {
+                const langKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                const meta = COPY_TAB_META[currentTab] || COPY_TAB_META.english;
+                copyBtn.textContent = langKo ? meta.chip.ko : meta.chip.en;
+                copyBtn.title = langKo
+                    ? `지금 화면에 보이는 [${meta.ko}] 내용을 클립보드에 복사합니다 (탭을 바꾸면 대상도 바뀝니다)`
+                    : `Copies the visible [${meta.en}] text to the clipboard (follows the active tab)`;
+            }
+            copyBtn.onclick = async () => {
+                const langKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                const meta = COPY_TAB_META[currentTab] || COPY_TAB_META.english;
+                const text = (outputTextarea.value || "").trim();
+                if (!text) {
+                    showToast(langKo ? "⚠️ 복사할 생성된 프롬프트가 없습니다." : "⚠️ No generated prompt to copy.", "error", 2000);
+                    return;
+                }
+                try {
+                    await navigator.clipboard.writeText(text);
+                    copyBtn.classList.add("active");
+                    showToast(langKo
+                        ? `📋 ${meta.ko} 내용을 클립보드에 복사했습니다!`
+                        : `📋 Copied the ${meta.en} text to the clipboard!`, "success", 2000);
+                    setTimeout(() => copyBtn.classList.remove("active"), 1200);
+                } catch (err) {
+                    showToast((langKo ? "클립보드 복사 실패: " : "Clipboard copy failed: ") + err, "error", 2500);
+                }
+            };
+            tabsHeader.appendChild(copyBtn);
+            refreshCopyButton();
+
             // Storyboard Card Container (Rendered when Storyboard cuts are returned)
             const storyboardOutputContainer = document.createElement("div");
             storyboardOutputContainer.className = "bada-storyboard-panel";
             storyboardOutputContainer.style.display = "none";
             outputSection.appendChild(storyboardOutputContainer);
 
-            // Output Actions Row
-            const actionsRow = document.createElement("div");
-            actionsRow.className = "bada-actions-row";
-
-            const copyBtn = document.createElement("button");
-            copyBtn.type = "button";
-            copyBtn.className = "bada-btn-secondary";
-            copyBtn.innerHTML = `<span>📋</span> <span>${isKo ? "프롬프트 복사" : "Copy Prompt"}</span>`;
-            copyBtn.onclick = async () => {
-                const text = (lastEnglishPrompt || outputTextarea.value).trim();
-                if (!text) {
-                    showToast(isKo ? "⚠️ 복사할 생성된 프롬프트가 없습니다." : "⚠️ No generated prompt to copy.", "error", 2000);
-                    return;
-                }
-                try {
-                    await navigator.clipboard.writeText(text);
-                    copyBtn.classList.add("active");
-                    copyBtn.innerHTML = `<span>✅</span> <span>Copied!</span>`;
-                    showToast(isKo ? "클립보드에 영문 프롬프트가 복사되었습니다! 📋" : "Copied English prompt to clipboard! 📋", "success", 2000);
-                    setTimeout(() => {
-                        copyBtn.classList.remove("active");
-                        copyBtn.innerHTML = `<span>📋</span> <span>${isKo ? "프롬프트 복사" : "Copy Prompt"}</span>`;
-                    }, 2000);
-                } catch (err) {
-                    showToast((isKo ? "클립보드 복사 실패: " : "Clipboard copy failed: ") + err, "error", 2500);
-                }
-            };
-
-            const sendClipBtn = document.createElement("button");
-            sendClipBtn.type = "button";
-            sendClipBtn.className = "bada-btn-secondary";
-            sendClipBtn.innerHTML = `<span>➡️</span> <span>${isKo ? "CLIP 전송" : "Send to Active CLIP"}</span>`;
-            sendClipBtn.title = isKo ? "선택된 CLIPTextEncode 노드의 텍스트로 영문 프롬프트를 다이렉트 주입합니다." : "Directly injects English prompt into selected CLIPTextEncode node.";
-            sendClipBtn.onclick = () => {
-                const text = (lastEnglishPrompt || outputTextarea.value).trim();
-                if (!text) {
-                    showToast(isKo ? "⚠️ 전송할 생성된 프롬프트가 없습니다." : "⚠️ No generated prompt to send.", "error", 2000);
-                    return;
-                }
-                sendTextToActiveClip(text);
-            };
-
-            const downloadTxtBtn = document.createElement("button");
-            downloadTxtBtn.type = "button";
-            downloadTxtBtn.className = "bada-btn-secondary";
-            downloadTxtBtn.innerHTML = `<span>💾</span> <span>${isKo ? "TXT 다운로드" : "Download TXT"}</span>`;
-            downloadTxtBtn.onclick = () => {
-                const text = outputTextarea.value.trim();
-                if (!text) {
-                    showToast(isKo ? "다운로드할 텍스트가 없습니다." : "No text to download.", "error", 1500);
-                    return;
-                }
-                const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `bada_${activeEngine}_prompt_${Date.now()}.txt`;
-                a.click();
-                URL.revokeObjectURL(url);
-                showToast(isKo ? "텍스트 파일 다운로드 완료!" : "Text file downloaded!", "success", 1500);
-            };
-
-            actionsRow.appendChild(copyBtn);
-            actionsRow.appendChild(sendClipBtn);
-            actionsRow.appendChild(downloadTxtBtn);
-            outputSection.appendChild(actionsRow);
             promptStudioContainer.appendChild(outputSection);
 
             function updateActiveTab(tabName) {
@@ -1016,11 +1492,32 @@ app.registerExtension({
                         outputTextarea.value = lastEnglishPrompt;
                     }
                 }
+                refreshCopyButton();
+                autoFitOutputTextarea();
             }
 
             tabEng.onclick = () => updateActiveTab("english");
             tabKor.onclick = () => updateActiveTab("korean");
             tabAll.onclick = () => updateActiveTab("all");
+
+            // QWEN2.1 (and the structured-JSON system prompt mode) return no Korean block, so the
+            // "한국어 번역" / "통합본" tabs are filled through the format-preserving translate proxy.
+            async function ensureKoreanTranslation(text) {
+                try {
+                    const resp = await fetch("/api/bada/translate", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ text: text, target_lang: "ko", source_lang: "en" })
+                    });
+                    const data = await resp.json();
+                    if (data.success && data.translated_text) {
+                        lastKoreanTranslation = data.translated_text;
+                        if (currentTab === "korean" || currentTab === "all") updateActiveTab(currentTab);
+                    }
+                } catch (err) {
+                    console.warn("[BadaAsyncGemini] Korean translation failed:", err);
+                }
+            }
 
             const syncOutputToNodeWidget = (text) => {
                 if (node.widgets && node.widgets.length > 0) {
@@ -1034,6 +1531,7 @@ app.registerExtension({
                     lastEnglishPrompt = outputTextarea.value;
                     syncOutputToNodeWidget(lastEnglishPrompt);
                 }
+                scheduleOutputRefit();
             });
 
             function sendTextToActiveClip(text) {
@@ -1116,6 +1614,106 @@ app.registerExtension({
             }
 
             // -------------------------------------------------------------
+            // 제미나이 탭 전용 시스템 프롬프트 (engines_registry.json :: gemini_prompts)
+            // `user_prompts` 와 완전히 분리되어 있어, 이 목록은 오직 🔞 제미나이 탭에서만 사용된다.
+            // -------------------------------------------------------------
+            function loadGemChatPrompts(force = false) {
+                if (!force && gemChatPromptsLoaded) return Promise.resolve(gemChatPrompts);
+                if (gemChatPromptsLoadPromise) return gemChatPromptsLoadPromise;
+
+                gemChatPromptsLoadPromise = fetch(`/api/bada/promptgen/registry?ts=${Date.now()}`)
+                    .then(async response => {
+                        const data = await response.json();
+                        if (!response.ok || !data.success) throw new Error(data.error || `HTTP ${response.status}`);
+                        gemChatPrompts = Array.isArray(data.registry?.gemini_prompts)
+                            ? data.registry.gemini_prompts.filter(prompt => prompt && (prompt.text || prompt.system_prompt) && prompt.id)
+                            : [];
+                        const selectedExists = gemChatPrompts.some(prompt =>
+                            String(prompt.id) === selectedGemPromptId
+                        );
+                        if (!selectedExists) {
+                            selectedGemPromptId = "";
+                            localStorage.removeItem("bada_gem_chat_prompt");
+                        }
+                        gemChatPromptsLoaded = true;
+                        return gemChatPrompts;
+                    })
+                    .catch(error => {
+                        gemChatPromptsLoaded = false;
+                        throw error;
+                    })
+                    .finally(() => { gemChatPromptsLoadPromise = null; });
+                return gemChatPromptsLoadPromise;
+            }
+
+            // ── 🕐 채팅 기록 팝업 ───────────────────────────────────────────────────
+            // Lives here (not inside renderChatStudio) so it survives a tab re-render, and is
+            // dynamically imported so the node's initial load stays as light as it was.
+            let chatHistoryHandle = null;
+            async function openChatHistory(button) {
+                // 🕐 TOGGLES. Clicking it while the popup is open closes it, which is what
+                // the button has always looked like it should do.
+                //
+                // The handle used to be assigned only AFTER the `await`s below resolved, so
+                // this guard was always false for the whole opening window. A second click
+                // during that window therefore started a SECOND popup while the first was
+                // still mounting, orphaning its backdrop: a full-viewport rgba(0,0,0,.45)
+                // layer with nothing to click it away from, which reads as "a black screen
+                // is covering everything" and survives because `close()` was never wired to
+                // the button at all. The sentinel is cleared synchronously below so the
+                // in-flight window is closed to re-entry rather than merely tracked.
+                if (chatHistoryHandle) {
+                    const handle = chatHistoryHandle;
+                    chatHistoryHandle = null;
+                    handle.close();
+                    return;
+                }
+                try {
+                    const mod = await import("./bada_gemini_chat_history.js");
+                    chatHistoryHandle = await mod.openChatHistory(button, {
+                        currentId: currentChatId,
+                        imageMode: chatImageSaveMode,
+                        onRestore: async (chat) => {
+                            await restoreChat(chat);
+                            refreshChatLengthNotice();
+                        },
+                        onImageModeChange: (mode) => {
+                            chatImageSaveMode = mode;
+                            localStorage.setItem("bada_gem_chat_image_mode", mode);
+                        },
+                        // Any dismissal clears the owner's handle, not just the button click.
+                        // Without this the 🕐 toggle would act on a popup that Esc or a canvas
+                        // click had already removed, and the button would look dead.
+                        onClose: () => { chatHistoryHandle = null; },
+                    });
+                } catch (error) {
+                    // Release the lock on failure, or the button would be permanently dead:
+                    // a toggle that only opens can never recover from a failed import.
+                    chatHistoryHandle = null;
+                    console.error("[BadaAsyncGemini] chat history popup failed:", error);
+                    showToast(isKo ? "채팅 기록을 열지 못했습니다." : "Could not open the chat history.", "error", 4000);
+                }
+            }
+
+            async function openGemPromptManager(button) {
+                button.disabled = true;
+                try {
+                    const modal = await import("./bada_gemini_prompt_modal.js");
+                    await modal.openGeminiPromptModal({
+                        onSaved: async () => {
+                            await loadGemChatPrompts(true);
+                            if (activeEngine === "uncensored") renderChatStudio();
+                        },
+                    });
+                } catch (error) {
+                    console.error("[BadaAsyncGemini] gemini prompt manager failed:", error);
+                    showToast(isKo ? "제미나이 프롬프트 관리자를 열지 못했습니다." : "Could not open the Gemini prompt manager.", "error", 4000);
+                } finally {
+                    button.disabled = false;
+                }
+            }
+
+            // -------------------------------------------------------------
             // SUBMODE RENDERING (MiniMax / LTX / KREA / QWEN / System Prompt)
             // -------------------------------------------------------------
             function renderSubmodePanel() {
@@ -1151,15 +1749,6 @@ app.registerExtension({
                     });
                     submodePanel.appendChild(grid);
 
-                    const activeSub = MINIMAX_SUBMODES.find(s => s.id === minimaxSub) || MINIMAX_SUBMODES[0];
-                    const callout = document.createElement("div");
-                    callout.className = "bada-callout";
-                    const subName = isKo ? activeSub.name : (activeSub.name_en || activeSub.name);
-                    const subTag = isKo ? activeSub.tag : (activeSub.tag_en || activeSub.tag);
-                    const subDesc = isKo ? activeSub.desc : (activeSub.desc_en || activeSub.desc);
-                    callout.innerHTML = `⚡ <b>${subName} (${subTag})</b>: ${subDesc}`;
-                    submodePanel.appendChild(callout);
-
                     renderDurationSlider();
 
                 } else if (activeEngine === "ltx") {
@@ -1191,15 +1780,6 @@ app.registerExtension({
                         grid.appendChild(card);
                     });
                     submodePanel.appendChild(grid);
-
-                    const activeSub = LTX_SUBMODES.find(s => s.id === ltxSub) || LTX_SUBMODES[0];
-                    const callout = document.createElement("div");
-                    callout.className = "bada-callout";
-                    const subName = isKo ? activeSub.name : (activeSub.name_en || activeSub.name);
-                    const subTag = isKo ? activeSub.tag : (activeSub.tag_en || activeSub.tag);
-                    const subDesc = isKo ? activeSub.desc : (activeSub.desc_en || activeSub.desc);
-                    callout.innerHTML = `⚡ <b>${subName} (${subTag})</b>: ${subDesc}`;
-                    submodePanel.appendChild(callout);
 
                     renderDurationSlider();
 
@@ -1233,37 +1813,7 @@ app.registerExtension({
                     });
                     submodePanel.appendChild(grid);
 
-                    if (kreaSub === "general") {
-                        const callout = document.createElement("div");
-                        callout.className = "bada-callout";
-                        callout.innerHTML = `ℹ️ <b>${isKo ? "일반 모드" : "General Mode"}</b>: ${isKo ? "KREA 2의 최신 화풍 렌더링 규칙과 선택한 스타일을 적용합니다." : "Applies KREA 2 photorealism rules with selected art style."}`;
-                        submodePanel.appendChild(callout);
-
-                        const chipsRow = document.createElement("div");
-                        chipsRow.className = "bada-chips-row";
-                        KREA_STYLES.forEach(st => {
-                            const chip = document.createElement("button");
-                            chip.type = "button";
-                            chip.className = `bada-chip ${kreaStyle === st.id ? "active" : ""}`;
-                            chip.innerHTML = `<span>${st.icon}</span> <span>${isKo ? st.name : (st.name_en || st.name)}</span>`;
-                            chip.onclick = () => {
-                                kreaStyle = kreaStyle === st.id ? "" : st.id;
-                                localStorage.setItem("bada_krea_style", kreaStyle);
-                                chipsRow.querySelectorAll(".bada-chip").forEach(c => {
-                                    c.classList.toggle("active", c === chip && kreaStyle === st.id);
-                                });
-                                updateInputPlaceholders();
-                            };
-                            chipsRow.appendChild(chip);
-                        });
-                        submodePanel.appendChild(chipsRow);
-
-                    } else if (kreaSub === "storyboard") {
-                        const callout = document.createElement("div");
-                        callout.className = "bada-callout";
-                        callout.innerHTML = `🎞️ <b>${isKo ? "스토리보드 생성기" : "Storyboard Generator"}</b>: ${isKo ? "상황을 분석하여 일관된 인물/공간을 유지하는 연속 컷 시퀀스를 작성합니다." : "Generates sequential cut prompts maintaining character & scene consistency."}`;
-                        submodePanel.appendChild(callout);
-
+                    if (kreaSub === "storyboard") {
                         const cutSliderRow = document.createElement("div");
                         cutSliderRow.className = "bada-duration-row";
                         cutSliderRow.innerHTML = `
@@ -1282,31 +1832,12 @@ app.registerExtension({
                             cutSliderRow.querySelector("#bada-cut-badge").textContent = `${storyboardCutCount} Cuts`;
                         });
                         submodePanel.appendChild(cutSliderRow);
-
-                        const chipsRow = document.createElement("div");
-                        chipsRow.className = "bada-chips-row";
-                        KREA_STYLES.forEach(st => {
-                            const chip = document.createElement("button");
-                            chip.type = "button";
-                            chip.className = `bada-chip ${kreaStyle === st.id ? "active" : ""}`;
-                            chip.innerHTML = `<span>${st.icon}</span> <span>${isKo ? st.name : (st.name_en || st.name)}</span>`;
-                            chip.onclick = () => {
-                                kreaStyle = kreaStyle === st.id ? "" : st.id;
-                                localStorage.setItem("bada_krea_style", kreaStyle);
-                                chipsRow.querySelectorAll(".bada-chip").forEach(c => {
-                                    c.classList.toggle("active", c === chip && kreaStyle === st.id);
-                                });
-                                updateInputPlaceholders();
-                            };
-                            chipsRow.appendChild(chip);
-                        });
-                        submodePanel.appendChild(chipsRow);
                     }
                 } else if (activeEngine === "qwen21") {
                     const headerRow = document.createElement("div");
                     headerRow.className = "bada-submode-header";
                     headerRow.innerHTML = `
-                        <div class="bada-submode-title"><span>🖼️</span><span>${isKo ? "QWEN2.1 이미지 프롬프트" : "QWEN2.1 Image Prompt"}</span></div>
+                        <div class="bada-submode-title"><span>🖼️</span><span>${isKo ? "QWEN2.1 세부 모드 선택" : "QWEN2.1 Submodes"}</span></div>
                         <span class="bada-engine-tag">Official Prompt Enhancer</span>
                     `;
                     submodePanel.appendChild(headerRow);
@@ -1326,13 +1857,6 @@ app.registerExtension({
                         grid.appendChild(card);
                     });
                     submodePanel.appendChild(grid);
-
-                    const callout = document.createElement("div");
-                    callout.className = "bada-callout";
-                    callout.textContent = qwenSub === "i2i"
-                        ? (isKo ? "Qwen-Image-2.1 편집 지침을 적용합니다. 하단에서 참조 이미지를 첨부하세요." : "Applies Qwen-Image-2.1 edit instructions. Attach reference images below.")
-                        : (isKo ? "Qwen-Image-2.1 공식 T2I 프롬프트 강화 지침과 권장 화면 비율을 적용합니다." : "Applies the official Qwen-Image-2.1 T2I prompt enhancer and returns a suggested aspect ratio.");
-                    submodePanel.appendChild(callout);
                 } else if (activeEngine === "system_prompt") {
                     const headerRow = document.createElement("div");
                     headerRow.className = "bada-submode-header";
@@ -1352,9 +1876,11 @@ app.registerExtension({
                     controls.append(promptSelect, manageButton);
                     submodePanel.appendChild(controls);
 
-                    const promptInfo = document.createElement("div");
-                    promptInfo.className = "bada-callout";
-                    submodePanel.appendChild(promptInfo);
+                    // 안내문구는 입력창 placeholder 로 옮겨 DOM 을 가볍게 유지한다.
+                    const setSystemHint = (text) => {
+                        systemHintText = text || "";
+                        if (activeEngine === "system_prompt") updateInputPlaceholders();
+                    };
 
                     const renderPromptOptions = () => {
                         promptSelect.replaceChildren();
@@ -1370,9 +1896,9 @@ app.registerExtension({
                                 selectedSystemPromptId = "";
                                 localStorage.removeItem("bada_async_system_prompt");
                             }
-                            promptInfo.textContent = isKo
+                            setSystemHint(isKo
                                 ? "프롬프트 관리에서 새 시스템 프롬프트를 등록하세요."
-                                : "Register a system prompt with Manage Prompts to get started.";
+                                : "Register a system prompt with Manage Prompts to get started.");
                             return;
                         }
 
@@ -1389,9 +1915,9 @@ app.registerExtension({
                         selectedSystemPromptId = String(selected.id || selected.name);
                         promptSelect.value = selectedSystemPromptId;
                         localStorage.setItem("bada_async_system_prompt", selectedSystemPromptId);
-                        promptInfo.textContent = selected.description || (isKo
+                        setSystemHint(selected.description || (isKo
                             ? "선택한 사용자 시스템 프롬프트로 생성합니다."
-                            : "Generation uses the selected custom system prompt.");
+                            : "Generation uses the selected custom system prompt."));
                     };
 
                     promptSelect.addEventListener("change", () => {
@@ -1408,9 +1934,9 @@ app.registerExtension({
                                 if (activeEngine === "system_prompt") renderSubmodePanel();
                             })
                             .catch(() => {
-                                promptInfo.textContent = isKo
+                                setSystemHint(isKo
                                     ? "시스템 프롬프트를 불러오지 못했습니다. 관리 버튼을 눌러 다시 시도하세요."
-                                    : "Could not load system prompts. Open the manager to retry.";
+                                    : "Could not load system prompts. Open the manager to retry.");
                             });
                     }
                 }
@@ -1447,26 +1973,40 @@ app.registerExtension({
 
             function updateInputPlaceholders() {
                 const label = promptSection.querySelector("#bada-input-label");
-                const isQwen = activeEngine === "qwen21";
-                tabKor.hidden = isQwen;
-                tabAll.hidden = isQwen;
-                if (isQwen && currentTab !== "english") updateActiveTab("english");
                 if (activeEngine === "minimax") {
-                    label.textContent = isKo 
+                    const sub = MINIMAX_SUBMODES.find(s => s.id === minimaxSub) || MINIMAX_SUBMODES[0];
+                    label.textContent = isKo
                         ? `✍️ MiniMax H3 요청 (${minimaxSub.toUpperCase()} • ${durationSec}초)`
                         : `✍️ MiniMax H3 Prompt (${minimaxSub.toUpperCase()} • ${durationSec}s)`;
-                    instructionTextarea.placeholder = isKo
-                        ? "MiniMax H3로 생성할 영상 씬과 동작을 입력하세요.\n예: 사이버펑크 네온 비를 맞으며 걷는 여성, 35mm 영화 필름 룩, 자연스러운 카메라 트래킹"
-                        : "Describe the video scene and motion for MiniMax H3.\ne.g. Woman walking in cyberpunk neon rain, 35mm film aesthetic, fluid tracking shot";
+                    instructionTextarea.placeholder = composePlaceholder([
+                        isKo
+                            ? `⚡ ${sub.name} (${sub.tag}): ${sub.desc}`
+                            : `⚡ ${sub.name_en || sub.name} (${sub.tag_en || sub.tag}): ${sub.desc_en || sub.desc}`,
+                        isKo
+                            ? "MiniMax H3로 생성할 영상 씬과 동작을 입력하세요."
+                            : "Describe the video scene and motion for MiniMax H3.",
+                        isKo
+                            ? "예: 사이버펑크 네온 비를 맞으며 걷는 여성, 35mm 영화 필름 룩, 자연스러운 카메라 트래킹"
+                            : "e.g. Woman walking in cyberpunk neon rain, 35mm film aesthetic, fluid tracking shot",
+                    ]);
                     generateBtn.className = "bada-btn-generate minimax";
                     generateBtn.innerHTML = `<span>🎬</span> <span>${isKo ? "MiniMax H3 프롬프트 생성 🚀" : "Generate MiniMax H3 Prompt 🚀"}</span>`;
                 } else if (activeEngine === "ltx") {
+                    const sub = LTX_SUBMODES.find(s => s.id === ltxSub) || LTX_SUBMODES[0];
                     label.textContent = isKo
                         ? `✍️ LTX-Video 요청 (${ltxSub.toUpperCase()} • ${durationSec}초)`
                         : `✍️ LTX-Video Prompt (${ltxSub.toUpperCase()} • ${durationSec}s)`;
-                    instructionTextarea.placeholder = isKo
-                        ? "LTX-Video 2.5로 생성할 비디오 씬을 입력하세요.\n예: 천천히 돌리 인하는 카메라, 인물의 감정적인 표정 변화, 따뜻한 림 라이트와 앰비언트 사운드"
-                        : "Describe the video scene for LTX-Video 2.5.\ne.g. Slow camera dolly in, subtle facial emotions, warm rim lighting and ambient sound";
+                    instructionTextarea.placeholder = composePlaceholder([
+                        isKo
+                            ? `⚡ ${sub.name} (${sub.tag}): ${sub.desc}`
+                            : `⚡ ${sub.name_en || sub.name} (${sub.tag_en || sub.tag}): ${sub.desc_en || sub.desc}`,
+                        isKo
+                            ? "LTX-Video 2.5로 생성할 비디오 씬을 입력하세요."
+                            : "Describe the video scene for LTX-Video 2.5.",
+                        isKo
+                            ? "예: 천천히 돌리 인하는 카메라, 인물의 감정적인 표정 변화, 따뜻한 림 라이트와 앰비언트 사운드"
+                            : "e.g. Slow camera dolly in, subtle facial emotions, warm rim lighting and ambient sound",
+                    ]);
                     generateBtn.className = "bada-btn-generate ltx";
                     generateBtn.innerHTML = `<span>🎥</span> <span>${isKo ? "LTX-Video 프롬프트 생성 🚀" : "Generate LTX-Video Prompt 🚀"}</span>`;
                 } else if (activeEngine === "krea") {
@@ -1474,17 +2014,33 @@ app.registerExtension({
                         label.textContent = isKo
                             ? `✍️ KREA 2 스토리보드 요청 (${storyboardCutCount}컷)`
                             : `✍️ KREA 2 Storyboard Prompt (${storyboardCutCount} Cuts)`;
-                        instructionTextarea.placeholder = isKo
-                            ? "스토리보드로 분할할 전체 시나리오나 스토리 개요를 입력하세요.\n예: 골목길에서 버려진 안드로이드를 수리하는 소녀, 기동 후 서로 미소를 짓는 4단계 시퀀스"
-                            : "Enter narrative or scenario outline to divide into storyboard cuts.\ne.g. Girl repairing an android in an alleyway, 4-step sequence ending in a shared smile";
+                        instructionTextarea.placeholder = composePlaceholder([
+                            isKo
+                                ? "🎞️ 상황을 분석하여 일관된 인물/공간을 유지하는 연속 컷 시퀀스를 작성합니다."
+                                : "🎞️ Generates sequential cut prompts maintaining character & scene consistency.",
+                            isKo
+                                ? "스토리보드로 분할할 전체 시나리오나 스토리 개요를 입력하세요."
+                                : "Enter narrative or scenario outline to divide into storyboard cuts.",
+                            isKo
+                                ? "예: 골목길에서 버려진 안드로이드를 수리하는 소녀, 기동 후 서로 미소를 짓는 4단계 시퀀스"
+                                : "e.g. Girl repairing an android in an alleyway, 4-step sequence ending in a shared smile",
+                        ]);
                         generateBtn.className = "bada-btn-generate";
                         generateBtn.innerHTML = `<span>🎞️</span> <span>${isKo ? `${storyboardCutCount}컷 스토리보드 생성 🚀` : `Generate ${storyboardCutCount}-Cut Storyboard 🚀`}</span>`;
                     } else {
-                        const subTag = kreaStyle || (isKo ? "스타일 미선택" : "No style preset");
-                        label.textContent = isKo ? `✍️ KREA 2 요청 (${subTag})` : `✍️ KREA 2 Prompt (${subTag})`;
-                        instructionTextarea.placeholder = isKo
-                            ? "KREA 2로 생성할 씬의 아이디어나 스토리들을 자유롭게 입력하세요.\n예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감"
-                            : "Enter ideas or scenes to generate with KREA 2.\ne.g. Cyberpunk city with wet asphalt reflecting neon lights, photorealistic texture";
+                        label.textContent = isKo ? "✍️ KREA 2 요청" : "✍️ KREA 2 Prompt";
+                        instructionTextarea.placeholder = composePlaceholder([
+                            isKo
+                                ? "ℹ️ KREA 2의 최신 포토리얼 화풍 렌더링 규칙을 적용합니다."
+                                : "ℹ️ Applies KREA 2 photorealism rendering rules.",
+                            isKo
+                                ? "KREA 2로 생성할 씬의 아이디어나 스토리텔을 자유롭게 입력하세요."
+                                : "Enter the idea or storyline you want to generate with KREA 2.",
+                            isKo
+                                ? "예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감"
+                                : "e.g. Cyberpunk city with wet asphalt reflecting neon lights, photorealistic texture",
+                            ...imageAnalysisHint(isKo),
+                        ]);
                         generateBtn.className = "bada-btn-generate";
                         generateBtn.innerHTML = `<span>🟢</span> <span>${isKo ? "KREA 2 프롬프트 생성 🚀" : "Generate KREA 2 Prompt 🚀"}</span>`;
                     }
@@ -1492,10 +2048,30 @@ app.registerExtension({
                     const modeName = qwenSub === "i2i" ? "I2I" : "T2I";
                     label.textContent = isKo ? `✍️ QWEN2.1 ${modeName} 프롬프트 요청` : `✍️ QWEN2.1 ${modeName} Prompt Request`;
                     instructionTextarea.placeholder = qwenSub === "i2i"
-                        ? (isKo ? "참조 이미지를 첨부하고 원하는 편집 내용을 입력하세요." : "Attach reference images and describe the desired edit.")
-                        : (isKo ? "QWEN2.1로 만들 이미지의 장면과 포함할 텍스트를 설명하세요." : "Describe the image and any exact text to include for QWEN2.1.");
+                        ? composePlaceholder([
+                            isKo
+                                ? "ℹ️ Qwen-Image-2.1 편집 지침을 적용합니다."
+                                : "ℹ️ Applies Qwen-Image-2.1 edit instructions.",
+                            isKo
+                                ? "참조 이미지를 첨부하고 원하는 편집 내용을 입력하세요."
+                                : "Attach reference images and describe the desired edit.",
+                            ...multiImageHint(isKo),
+                        ])
+                        : composePlaceholder([
+                            isKo
+                                ? "ℹ️ Qwen-Image-2.1 공식 T2I 프롬프트 강화 지침과 권장 화면 비율을 적용합니다."
+                                : "ℹ️ Applies the official Qwen-Image-2.1 T2I prompt enhancer and returns a suggested aspect ratio.",
+                            isKo
+                                ? "QWEN2.1로 생성할 씬의 아이디어나 스토리텔을 자유롭게 입력하세요."
+                                : "Enter the idea or storyline you want to generate with QWEN2.1.",
+                            isKo
+                                ? "예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감"
+                                : "e.g. Cyberpunk city with wet asphalt reflecting neon lights, photorealistic texture",
+                            ...imageAnalysisHint(isKo),
+                        ]);
                     generateBtn.className = "bada-btn-generate qwen";
-                    generateBtn.innerHTML = `<span>🖼️</span> <span>${isKo ? `QWEN2.1 ${modeName} 프롬프트 생성 🚀` : `Generate QWEN2.1 ${modeName} Prompt 🚀`}</span>`;
+                    // 버튼 라벨에서 모드 접미사는 뺀다 (세부분등 카드에서 이미 T2I/I2I 가 표시됨)
+                    generateBtn.innerHTML = `<span>🖼️</span> <span>${isKo ? "QWEN2.1 프롬프트 생성 🚀" : "Generate QWEN2.1 Prompt 🚀"}</span>`;
                 } else if (activeEngine === "system_prompt") {
                     const selected = userSystemPrompts.find(prompt =>
                         String(prompt.id || prompt.name) === selectedSystemPromptId
@@ -1503,16 +2079,17 @@ app.registerExtension({
                     label.textContent = isKo
                         ? `✍️ 시스템 프롬프트 요청${selected ? ` (${selected.name})` : ""}`
                         : `✍️ System Prompt Request${selected ? ` (${selected.name})` : ""}`;
-                    instructionTextarea.placeholder = isKo
-                        ? "선택한 시스템 프롬프트로 생성할 내용을 입력하세요."
-                        : "Describe what to generate with the selected system prompt.";
+                    instructionTextarea.placeholder = composePlaceholder([
+                        isKo ? "ℹ️ 선택한 사용자 시스템 프롬프트로 생성합니다." : "ℹ️ Generation uses the selected custom system prompt.",
+                        systemHintText,
+                        isKo ? "생성할 내용을 입력하세요." : "Describe what to generate with the selected system prompt.",
+                    ]);
                     generateBtn.className = "bada-btn-generate system-prompt";
                     generateBtn.innerHTML = `<span>📜</span> <span>${isKo ? "시스템 프롬프트로 생성 🚀" : "Generate with System Prompt 🚀"}</span>`;
                 }
             }
 
             function renderEngineView() {
-                accordion.hidden = activeEngine === "qwen21" || activeEngine === "system_prompt";
                 if (activeEngine === "uncensored") {
                     promptStudioContainer.style.setProperty("display", "none", "important");
                     promptStudioContainer.classList.add("bada-hidden");
@@ -1546,7 +2123,6 @@ app.registerExtension({
                 const instruction = instructionTextarea.value.trim();
                 const key = apiKeyInput.value.trim();
                 const model = modelSelect.value;
-                const customDirectives = activeEngine === "system_prompt" ? "" : customDirectivesInput.value.trim();
 
                 if (!instruction && uploadedImages.length === 0) {
                     showToast(isKo ? "⚠️ 프롬프트 지시사항 또는 참고 이미지를 입력해 주세요." : "⚠️ Please enter prompt directives or attach a reference image.", "error", 3000);
@@ -1581,13 +2157,11 @@ app.registerExtension({
                     generateBtn.innerHTML = `<span class="bada-spinner"></span> <span>${genLoadingText} ⏱️ ${elapsed}s <b style="margin-left:6px;background:rgba(0,0,0,0.35);padding:1.5px 6px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);">⏹️ ${isKoNow ? "중단" : "Stop"}</b></span>`;
                 }, 100);
 
-                showToast(isKoNow ? `🚀 ${activeEngine.toUpperCase()} 작업 중... (중단하려면 버튼 클릭)` : `🚀 ${activeEngine.toUpperCase()} working... (Click to Stop)`, "info", 2500);
-
-                // Prepare style / preset
-                let styleParam = "";
-                if (activeEngine === "krea") {
-                    styleParam = kreaStyle || "none";
-                }
+            // No "working" toast here on purpose: like the completion banner,
+            // `.bada-toast` is a block child of the card's flex column, so it inserted
+            // a full-width banner above the config section and shoved the panel down
+            // mid-generation. The generate button already shows a spinner, the elapsed
+            // timer and a Stop control.
 
                 try {
                     const resp = await fetch("/api/bada/gemini/generate", {
@@ -1600,14 +2174,12 @@ app.registerExtension({
                             submode: activeEngine === "minimax"
                                 ? minimaxSub
                                 : (activeEngine === "ltx" ? ltxSub : (activeEngine === "qwen21" ? qwenSub : kreaSub)),
-                            style: styleParam,
                             duration: durationSec,
                             cut_count: storyboardCutCount,
                             is_nsfw: isNSFW,
                             translate_korean: isTranslate,
                             aspect_ratio: aspectRatio,
                             instruction: instruction,
-                            custom_directives: customDirectives,
                             images: uploadedImages,
                             system_prompt_id: activeEngine === "system_prompt" ? selectedSystemPromptId : ""
                         }),
@@ -1621,10 +2193,15 @@ app.registerExtension({
                         dataSuccess = true;
                         lastEnglishPrompt = data.prompt || "";
                         lastKoreanTranslation = data.korean_translation || "";
-                        lastWhRatio = data.wh_ratio || aspectRatio;
                         lastStoryboardData = data.storyboard || null;
 
                         syncOutputToNodeWidget(lastEnglishPrompt);
+
+                        // QWEN2.1 returns only the enhanced prompt (no Korean block) — fill the
+                        // "한국어 번역" / "통합본" tabs asynchronously so all engines behave the same.
+                        if (!lastKoreanTranslation && !lastStoryboardData && isTranslate && lastEnglishPrompt) {
+                            ensureKoreanTranslation(lastEnglishPrompt);
+                        }
 
                         // If storyboard data exists, render cards
                         if (lastStoryboardData && lastStoryboardData.cuts && lastStoryboardData.cuts.length > 0) {
@@ -1636,24 +2213,16 @@ app.registerExtension({
                             updateActiveTab("english");
                         }
 
-                        const passBadge = root.querySelector("#bada-pass-status");
-                        if (passBadge) {
-                            passBadge.style.display = "inline-block";
-                            const passText = data.pass_used === 2 ? "🛡️ Pass 2 VFX Override" : (data.pass_used === 3 ? "🎨 Pass 3 Metaphor" : "⚡ Pass 1 Direct");
-                            const modeLabel = activeEngine === "qwen21"
-                                ? (isKoNow ? "🖼️ QWEN2.1 공식 PE" : "🖼️ QWEN2.1 official PE")
-                                : (activeEngine === "system_prompt" ? (isKoNow ? "📜 사용자 지침" : "📜 Custom Prompt") : "");
-                            const ratioLabel = lastWhRatio ? ` • ${isKoNow ? "화면 비율" : "Aspect ratio"}: ${lastWhRatio}` : "";
-                            passBadge.textContent = `${modeLabel}${modeLabel ? " • " : ""}${passText} (${data.model || model})${ratioLabel} • ⏱️ ${duration}${isKoNow ? "초 완료" : "s done"}`;
-                        }
-
                         // Completed state with elapsed time
                         generateBtn.innerHTML = `<span>✨</span> <span>${isKoNow ? `생성 완료! (${duration}초)` : `Completed! (${duration}s)`}</span>`;
                         setTimeout(() => {
                             if (!isGenerating) updateInputPlaceholders();
                         }, 3500);
 
-                        showToast(isKoNow ? `✨ ${activeEngine.toUpperCase()} 생성 완료! (소요 시간: ${duration}초)` : `✨ ${activeEngine.toUpperCase()} completed in ${duration}s!`, "success", 3000);
+                        // No success toast here on purpose: `.bada-toast` is a block child of the
+                        // card's flex column, so showing it inserted a full-width banner ABOVE the
+                        // config section and shoved the whole panel — every engine tab included —
+                        // downwards. The generate button already reads "생성 완료! (N초)".
                     } else {
                         const errMsg = data.error || (isKoNow ? "알 수 없는 오류가 발생했습니다." : "An unknown error occurred.");
                         showToast(`❌ ${isKoNow ? "오류" : "Error"}: ${errMsg}`, "error", 5000);
@@ -1778,51 +2347,280 @@ app.registerExtension({
                 const chatTopbar = document.createElement("div");
                 chatTopbar.className = "bada-chat-topbar";
 
-                const personaSelect = document.createElement("select");
-                personaSelect.className = "bada-gem-select";
-                GEM_PERSONAS_LIST.forEach(p => {
-                    const opt = document.createElement("option");
-                    opt.value = p.id;
-                    opt.textContent = isKo ? p.name : (p.name_en || p.name);
-                    if (p.id === selectedGemPersona) opt.selected = true;
-                    personaSelect.appendChild(opt);
-                });
-                personaSelect.addEventListener("change", (e) => {
-                    selectedGemPersona = e.target.value;
-                    localStorage.setItem("bada_gem_persona", selectedGemPersona);
-                    showToast((isKo ? "페르소나 변경: " : "Persona changed: ") + personaSelect.options[personaSelect.selectedIndex].text, "info", 1500);
-                });
+                // ── 페르소나 + 제미나이 전용 시스템 프롬프트 선택 (펼침式 드롭다운) ──
+                // "만능 무검열 제미나이" 버튼을 누르면 아래 목록이 펼쳐지고,
+                // Gem 페르소나 또는 사용자가 등록한 제미나이 전용 프롬프트를 고른다.
+                const personaPicker = document.createElement("div");
+                personaPicker.className = "bada-gem-picker";
 
-                const webSearchBtn = document.createElement("button");
-                webSearchBtn.type = "button";
-                webSearchBtn.className = `bada-websearch-btn ${webSearchEnabled ? 'active' : ''}`;
-                webSearchBtn.innerHTML = `<span>🔍 ${isKo ? "실시간 웹검색" : "Live Web Search"}</span>`;
-                webSearchBtn.onclick = () => {
-                    webSearchEnabled = !webSearchEnabled;
-                    localStorage.setItem("bada_web_search", webSearchEnabled);
-                    webSearchBtn.classList.toggle("active", webSearchEnabled);
-                    showToast(isKo ? `실시간 웹검색(Google Search): ${webSearchEnabled ? 'ON' : 'OFF'}` : `Live Web Search (Google): ${webSearchEnabled ? 'ON' : 'OFF'}`, "info", 1500);
-                };
+                const personaTrigger = document.createElement("button");
+                personaTrigger.type = "button";
+                personaTrigger.className = "bada-gem-select bada-gem-picker-trigger";
+                personaTrigger.setAttribute("aria-expanded", "false");
+
+                const personaTriggerLabel = document.createElement("span");
+                personaTriggerLabel.className = "bada-gem-picker-label";
+                const personaTriggerArrow = document.createElement("span");
+                personaTriggerArrow.className = "bada-gem-picker-arrow";
+                personaTriggerArrow.textContent = "▼";
+                personaTrigger.append(personaTriggerLabel, personaTriggerArrow);
+
+                const personaMenu = document.createElement("div");
+                personaMenu.className = "bada-gem-picker-menu";
 
                 const newChatBtn = document.createElement("button");
                 newChatBtn.type = "button";
-                newChatBtn.className = "bada-pill";
+                newChatBtn.className = "bada-pill bada-gem-new-chat";
                 newChatBtn.innerHTML = isKo ? "✏️ 새 채팅" : "✏️ New Chat";
-                newChatBtn.onclick = () => {
+                newChatBtn.onclick = async () => {
+                    // A fresh conversation must NOT keep writing into the entry the user just
+                    // came from — clear the id so the next send mints a NEW row, and flush the
+                    // old one first so nothing is lost.
+                    //
+                    // The epoch is bumped FIRST so any save still in flight is told its
+                    // conversation is gone. The flush is AWAITED rather than fired and
+                    // forgotten: clearing `currentChatId` while the previous turn's request is
+                    // still open let that response re-assign the old id afterwards, and every
+                    // following save then overwrote the same row.
+                    chatEpoch++;
+                    // 이 대화에 대한 저장이 이미 날아가고 있다면 그것을 기다려 재사용한다.
+                    // 새로 저장하면 서버가 아직 id 를 주지 못했으므로 같은 대화가 두 번
+                    // POST 되어 목록에 같은 제목의 줄이 두 개 생긴다.
+                    if (chatSaveInFlight) await chatSaveInFlight;
+                    else if (chatMessages.length) await persistChatHistory();
+                    closeChatImageViewer();
                     chatMessages = [];
+                    currentChatId = "";
+                    chatUploadedImages = [];
+                    chatOriginalImages = [];
+                    renderChatImagesPreview();
                     renderChatMessages();
-                    showToast(isKo ? "대화가 초기화되었습니다." : "Conversation reset.", "info", 1500);
+                    renderChatLengthNotice();
+                    // 알림 없음. 「새 채팅」 의 결과는 화면 자체가 말해준다 — 스레드가 빈
+                    // 「무경엄 제미나이 자유 대화」 안내로 즉시 바뀐다. 여기서 토스트를
+                    // 띄우면 아무 정보 없는 문구가 1.5초 동안 머리 위를 덮었다가 사라져,
+                    // 방금 지운 자리(=API Key 행)에 또 다른 요소가 잠깐 겹쳐 보였다.
+                    // 잘못 누른 것처럼 느껴지므로 아예 알리지 않는다.
                 };
 
-                chatTopbar.appendChild(personaSelect);
-                chatTopbar.appendChild(webSearchBtn);
+                const managePromptsBtn = document.createElement("button");
+                managePromptsBtn.type = "button";
+                managePromptsBtn.className = "bada-pill bada-gem-prompt-manage";
+                managePromptsBtn.textContent = isKo ? "⚙️ 프롬프트 관리" : "⚙️ Manage Prompts";
+                managePromptsBtn.title = isKo
+                    ? "제미나이 탭 전용 시스템 프롬프트 작성 · 수정 · 삭제 · 순서 이동"
+                    : "Create / edit / delete / reorder Gemini-only system prompts";
+                managePromptsBtn.onclick = () => openGemPromptManager(managePromptsBtn);
+
+                personaPicker.append(personaTrigger, personaMenu);
+                chatTopbar.append(personaPicker);
+                chatTopbar.appendChild(managePromptsBtn);
                 chatTopbar.appendChild(newChatBtn);
+
+                // 🕐 채팅 기록 — sits at the far right of the topbar, right of 「✏️ 새 채팅」,
+                // mirroring VS Code's history affordance. Icon-only so it costs as little
+                // width as possible in an already narrow node.
+                const historyBtn = document.createElement("button");
+                historyBtn.type = "button";
+                historyBtn.className = "bada-pill bada-gem-history-btn";
+                historyBtn.textContent = "🕐";
+                historyBtn.title = isKo ? "채팅 기록" : "Chat history";
+                historyBtn.onclick = () => openChatHistory(historyBtn);
+                chatTopbar.appendChild(historyBtn);
                 chatStudioContainer.appendChild(chatTopbar);
+
+                // 현재 선택된 항목의 표시 이름
+                function activeGemPromptLabel() {
+                    const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                    if (selectedGemPromptId) {
+                        const found = gemChatPrompts.find(p => String(p.id) === selectedGemPromptId);
+                        if (found) return `📜 ${found.name || found.id}`;
+                    }
+                    const persona = GEM_PERSONAS_LIST.find(p => p.id === selectedGemPersona) || GEM_PERSONAS_LIST[0];
+                    return isKoNow ? persona.name : (persona.name_en || persona.name);
+                }
+
+                function setPersonaMenuOpen(open) {
+                    const isOpen = !!open;
+                    personaMenu.classList.toggle("open", isOpen);
+                    personaTrigger.classList.toggle("open", isOpen);
+                    personaTrigger.setAttribute("aria-expanded", isOpen ? "true" : "false");
+                    personaTriggerArrow.textContent = isOpen ? "▲" : "▼";
+                }
+
+                function applyGemPromptSelection({ personaId = "", promptId = "" }) {
+                    if (promptId) {
+                        selectedGemPromptId = String(promptId);
+                        localStorage.setItem("bada_gem_chat_prompt", selectedGemPromptId);
+                    } else {
+                        selectedGemPromptId = "";
+                        localStorage.removeItem("bada_gem_chat_prompt");
+                    }
+                    if (personaId) {
+                        selectedGemPersona = personaId;
+                        localStorage.setItem("bada_gem_persona", selectedGemPersona);
+                    }
+                    personaTriggerLabel.textContent = activeGemPromptLabel();
+                    renderPersonaMenu();
+                    setPersonaMenuOpen(false);
+                    // No toast here: every item in this menu funnels through
+                    // applyGemPromptSelection(), so firing one popped the banner over the panel
+                    // on every persona / system-prompt pick. The trigger label above already
+                    // shows the new selection, so nothing is lost.
+                }
+
+                function renderPersonaMenu() {
+                    const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+                    personaMenu.innerHTML = "";
+
+                    // 1) 내장 Gem 페르소나
+                    const personaGroup = document.createElement("div");
+                    personaGroup.className = "bada-gem-picker-group";
+                    GEM_PERSONAS_LIST.forEach(p => {
+                        const item = document.createElement("button");
+                        item.type = "button";
+                        const isActive = !selectedGemPromptId && p.id === selectedGemPersona;
+                        item.className = `bada-gem-picker-item persona ${isActive ? "active" : ""}`;
+                        item.textContent = isKoNow ? p.name : (p.name_en || p.name);
+                        item.onclick = () => applyGemPromptSelection({ personaId: p.id });
+                        personaGroup.appendChild(item);
+                    });
+                    personaMenu.appendChild(personaGroup);
+
+                    // 2) 제미나이 탭 전용 사용자 시스템 프롬프트
+                    const userGroup = document.createElement("div");
+                    userGroup.className = "bada-gem-picker-group";
+                    const userHead = document.createElement("div");
+                    userHead.className = "bada-gem-picker-group-title";
+                    userHead.textContent = isKoNow
+                        ? "📜 제미나이 전용 시스템 프롬프트"
+                        : "📜 Gemini-only System Prompts";
+                    userGroup.appendChild(userHead);
+
+                    if (!gemChatPrompts.length) {
+                        const empty = document.createElement("div");
+                        empty.className = "bada-gem-picker-empty";
+                        empty.textContent = gemChatPromptsLoaded
+                            ? (isKoNow
+                                ? "등록된 프롬프트가 없습니다. 「⚙️ 프롬프트 관리」로 추가하세요."
+                                : "No prompts yet. Use “⚙️ Manage Prompts” to add one.")
+                            : (isKoNow ? "불러오는 중..." : "Loading...");
+                        userGroup.appendChild(empty);
+                    } else {
+                        gemChatPrompts.forEach(prompt => {
+                            const key = String(prompt.id);
+                            const isActive = selectedGemPromptId === key;
+                            const item = document.createElement("button");
+                            item.type = "button";
+                            item.className = `bada-gem-picker-item custom ${isActive ? "active" : ""}`;
+                            item.textContent = `📜 ${prompt.name || key}`;
+                            if (prompt.description) item.title = prompt.description;
+                            item.onclick = () => applyGemPromptSelection({ promptId: key });
+                            userGroup.appendChild(item);
+                        });
+                    }
+                    personaMenu.appendChild(userGroup);
+                }
+
+                personaTrigger.onclick = () => {
+                    const willOpen = !personaMenu.classList.contains("open");
+                    if (willOpen) renderPersonaMenu();
+                    setPersonaMenuOpen(willOpen);
+                };
+                const onPersonaOutsidePointerDown = (e) => {
+                    if (!personaMenu.classList.contains("open")) return;
+                    if (!personaPicker.contains(e.target)) setPersonaMenuOpen(false);
+                };
+                // renderChatStudio() 는 탭 전환마다 다시 호출되므로 이전 리스너를 정리한다.
+                // Drag & drop listeners live on the (rebuilt) container, so they are torn
+                // down the same way — otherwise every tab switch would stack another
+                // set and one drop would attach the image N times.
+                chatPersonaCleanup?.();
+                document.addEventListener("pointerdown", onPersonaOutsidePointerDown);
+                chatPersonaCleanup = () => {
+                    document.removeEventListener("pointerdown", onPersonaOutsidePointerDown);
+                    if (chatDragHandlers) {
+                        for (const [evt, fn] of chatDragHandlers) {
+                            chatStudioContainer.removeEventListener(evt, fn);
+                        }
+                        chatDragHandlers = null;
+                        dragDepth = 0;
+                        setDragActive(false);
+                    }
+                    // The viewer lives on document.body, OUTSIDE the rebuilt chat container, so
+                    // removing the container does not remove it. Leaving it up would strand a
+                    // full-viewport overlay over the whole ComfyUI canvas after a tab switch.
+                    closeChatImageViewer();
+                    chatPersonaCleanup = null;
+                };
+
+                personaTriggerLabel.textContent = activeGemPromptLabel();
+                renderPersonaMenu();
+                if (!gemChatPromptsLoaded && !gemChatPromptsLoadPromise) {
+                    loadGemChatPrompts()
+                        .then(() => {
+                            personaTriggerLabel.textContent = activeGemPromptLabel();
+                            renderPersonaMenu();
+                        })
+                        .catch((error) => {
+                            console.warn("[BadaAsyncGemini] gemini chat prompts load failed:", error);
+                        });
+                }
 
                 // Message Thread
                 const thread = document.createElement("div");
                 thread.className = "bada-chat-thread";
+
+                // 긴 대화 안내 배너 — 메시지 위, 스레드 안쪽.
+                // NOT a `.bada-toast`: those are block children of the card's flex column and
+                // push the whole panel down, which is the layout jitter the user reported.
+                // Living inside the thread keeps it anchored to the conversation it is about.
+                const chatLengthNotice = document.createElement("div");
+                chatLengthNotice.className = "bada-chat-length-notice";
+                chatLengthNotice.style.display = "none";
+                chatStudioContainer.appendChild(chatLengthNotice);
+
                 chatStudioContainer.appendChild(thread);
+
+                // ── 긴 대화 안내 (2026-10-05) ──────────────────────────────────────
+                // NOT a hard stop. Gemini's context is ~1M tokens, so 80/100 KB is nowhere
+                // near a technical limit — it is where answer quality visibly thins out
+                // (mid-context loss), so the banner advises and the user decides.
+                function renderChatLengthNotice() {
+                    if (!chatLengthNotice) return;
+                    const bytes = chatContextBytes();
+                    if (bytes < CHAT_WARN_BYTES || !chatMessages.length) {
+                        chatLengthNotice.style.display = "none";
+                        chatLengthNotice.innerHTML = "";
+                        return;
+                    }
+                    const isAlert = bytes >= CHAT_ALERT_BYTES;
+                    const kb = Math.round(bytes / 1024);
+                    chatLengthNotice.style.display = "flex";
+                    chatLengthNotice.className =
+                        `bada-chat-length-notice ${isAlert ? "alert" : "warn"}`;
+
+                    const text = document.createElement("span");
+                    text.className = "bada-chat-length-text";
+                    text.textContent = isKo
+                        ? `${isAlert ? "⚠️" : "📊"} 대화가 ${kb}KB로 길어졌어요. 새 채팅을 시작하면 훨씬 정확해집니다.`
+                        : `${isAlert ? "⚠️" : "📊"} This chat is ${kb} KB — a new one keeps answers sharp.`;
+                    chatLengthNotice.innerHTML = "";
+                    chatLengthNotice.appendChild(text);
+
+                    const btn = document.createElement("button");
+                    btn.type = "button";
+                    btn.className = "bada-chat-length-btn";
+                    btn.textContent = isKo ? "✏️ 새 채팅" : "✏️ New Chat";
+                    // Reuse the real handler so a fresh chat resets the id and flushes the
+                    // old conversation exactly like clicking 「✏️ 새 채팅」 does.
+                    btn.onclick = () => newChatBtn.click();
+                    chatLengthNotice.appendChild(btn);
+                }
+
+                // Publish to the enclosing scope: the history popup calls this after
+                // restoring a conversation, and it lives outside renderChatStudio().
+                refreshChatLengthNotice = renderChatLengthNotice;
 
                 // Chat Input Bar
                 const chatInputBar = document.createElement("div");
@@ -1844,23 +2642,43 @@ app.registerExtension({
                 chatInputBar.appendChild(chatAttachBtn);
 
                 chatFileInput.addEventListener("change", () => {
-                    Array.from(chatFileInput.files).forEach(f => {
-                        const r = new FileReader();
-                        r.onload = (ev) => {
-                            chatUploadedImages.push(ev.target.result);
-                            renderChatImagesPreview();
-                        };
-                        r.readAsDataURL(f);
-                    });
+                    // Routed through the shared chat attach helper so the 🖼️ button, a drag&drop
+                    // and Ctrl+V all apply the SAME 1024px downscale and the same 8-image cap.
+                    // It used to inline its own FileReader loop, which skipped both.
+                    if (chatFileInput.files.length > 0) handleChatImageFiles(chatFileInput.files);
                     chatFileInput.value = "";
                 });
 
                 const chatTextarea = document.createElement("textarea");
                 chatTextarea.className = "bada-chat-textarea";
-                chatTextarea.rows = 1;
+                chatTextarea.rows = 3;
                 chatTextarea.placeholder = isKo 
                     ? "무검열 제미나이에게 메시지 보내기... (Enter로 전송, Shift+Enter 줄바꿈)"
                     : "Send message to Uncensored Gemini... (Enter to send, Shift+Enter for newline)";
+
+                // Auto-grow composer: starts at 3 lines and grows upward as you type, up to
+                // CHAT_TEXTAREA_MAX_LINES. Past that it stops growing and scrolls internally, so
+                // a long message stays readable without the box swallowing the conversation.
+                // `rows = 3` alone cannot do this — it only sets the *initial* height, and the
+                // old CSS `max-height: 80px` capped growth at ~3 lines anyway, which is why the
+                // composer looked stuck at a single line.
+                const CHAT_TEXTAREA_MAX_LINES = 5;
+
+                function autoGrowChatTextarea() {
+                    if (!chatTextarea) return;
+                    const computed = window.getComputedStyle(chatTextarea);
+                    const lineHeight = parseFloat(computed.lineHeight)
+                        || (parseFloat(computed.fontSize) || 12) * 1.5;
+                    // Reset first: a textarea only reports the height it *needs* when it is
+                    // allowed to shrink back to `auto`, otherwise scrollHeight stays pinned at
+                    // the previous (taller) size and the box would never come back down.
+                    chatTextarea.style.height = "auto";
+                    const maxHeight = lineHeight * CHAT_TEXTAREA_MAX_LINES;
+                    const contentHeight = chatTextarea.scrollHeight;
+                    chatTextarea.style.height = Math.min(contentHeight, maxHeight) + "px";
+                    chatTextarea.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+                }
+                chatTextarea.addEventListener("input", autoGrowChatTextarea);
 
                 chatTextarea.addEventListener("keydown", (e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -1876,6 +2694,10 @@ app.registerExtension({
                 chatSendBtn.innerHTML = "🚀";
                 chatSendBtn.onclick = () => sendChatMessage();
                 chatInputBar.appendChild(chatSendBtn);
+
+                // Paint the initial 3-line height once the bar is in the DOM. `rows = 3` is only
+                // the pre-layout hint; measuring here is what actually reserves the space.
+                setTimeout(() => autoGrowChatTextarea(), 0);
 
                 // Chat Attach Preview Row
                 const chatImagesPreviewRow = document.createElement("div");
@@ -1897,13 +2719,93 @@ app.registerExtension({
                             <img class="bada-thumbnail-img" src="${img}" />
                             <button type="button" class="bada-thumbnail-del">×</button>
                         `;
-                        item.querySelector(".bada-thumbnail-del").onclick = () => {
+                        // 작성 중 미리보기는 항상 살아 있는 원본을 가지므로, 클릭하면 원본을 연다.
+                        // × 버튼은 이벤트를 막아야 지우기가 대신 실행된다.
+                        const thumbImg = item.querySelector(".bada-thumbnail-img");
+                        thumbImg.classList.add("bada-thumbnail-img-zoomable");
+                        thumbImg.title = isKo ? "이미지를 눌러 크게 보기" : "Click to view larger";
+                        thumbImg.onclick = (e) => {
+                            e.stopPropagation();
+                            const originals = chatOriginalImages[idx] ? [...chatOriginalImages] : chatUploadedImages.slice();
+                            openChatImageViewer(originals, idx);
+                        };
+                        item.querySelector(".bada-thumbnail-del").onclick = (e) => {
+                            e.stopPropagation();
+                            // Drop from BOTH arrays at the same index: chatOriginalImages is
+                            // index-aligned with chatUploadedImages, and a delete that left it
+                            // shifted would silently re-attach the WRONG original on save.
                             chatUploadedImages.splice(idx, 1);
+                            if (chatOriginalImages[idx] === img) chatOriginalImages.splice(idx, 1);
                             renderChatImagesPreview();
                         };
                         chatImagesPreviewRow.appendChild(item);
                     });
                 }
+
+                // Publish the renderer to the outer scope so the global paste handler — which
+                // lives outside renderChatStudio() — can refresh the preview row without having
+                // to rebuild the whole chat view.
+                refreshChatImagePreview = renderChatImagesPreview;
+
+                // ── 채팅 탭 드래그&드롭 (2026-10-05) ──────────────────────────────
+                // The prompt tabs already had a dropzone, but the 제미나이 tab had none: a
+                // dragged file fell through to ComfyUI's canvas handler instead of the
+                // conversation. Registered on the whole chat container so the user can drop
+                // anywhere in the thread, not just on a small target.
+                //
+                // dragenter/dragleave fire for EVERY child element, so a naive toggle flickers.
+                // A depth counter is used instead: it only clears once the pointer has left the
+                // container entirely, not when it merely crossed into a child.
+                let dragDepth = 0;
+                const setDragActive = (on) => {
+                    chatStudioContainer.classList.toggle("bada-chat-dragover", on);
+                };
+                const hasFiles = (e) => {
+                    const types = (e.dataTransfer && e.dataTransfer.types) || [];
+                    return Array.prototype.includes.call(types, "Files");
+                };
+                const onDragEnter = (e) => {
+                    // Ignore text drags — only file drops should light the panel up.
+                    if (!hasFiles(e)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dragDepth += 1;
+                    setDragActive(true);
+                };
+                const onDragOver = (e) => {
+                    if (!hasFiles(e)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.dataTransfer.dropEffect = "copy";
+                    setDragActive(true);
+                };
+                const onDragLeave = (e) => {
+                    if (!hasFiles(e)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dragDepth = Math.max(0, dragDepth - 1);
+                    if (dragDepth === 0) setDragActive(false);
+                };
+                const onDrop = (e) => {
+                    if (!hasFiles(e)) return;
+                    // preventDefault AND stopPropagation are both required: ComfyUI listens on
+                    // the canvas/document and would otherwise turn the same drop into a node.
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dragDepth = 0;
+                    setDragActive(false);
+                    const files = e.dataTransfer && e.dataTransfer.files;
+                    if (files && files.length) handleChatImageFiles(files);
+                };
+                // Kept so the teardown below can unbind exactly what was bound.
+                chatDragHandlers = [
+                    ["dragenter", onDragEnter],
+                    ["dragover", onDragOver],
+                    ["dragleave", onDragLeave],
+                    ["drop", onDrop],
+                ];
+                chatDragHandlers.forEach(([evt, fn]) =>
+                    chatStudioContainer.addEventListener(evt, fn));
 
                 chatStudioContainer.appendChild(chatInputBar);
 
@@ -1933,13 +2835,45 @@ app.registerExtension({
                         if (msg.images && msg.images.length > 0) {
                             const imgWrap = document.createElement("div");
                             imgWrap.className = "bada-msg-images";
-                            msg.images.forEach(im => {
+                            // 원본이 살아 있는 턴(붙여넣기/드래그앤드롭/불러오기)은 원본을,
+                            // 「이어하기」로 복원한 턴은 저장된 이미지(원본/2048/1024)를 연다.
+                            // 두 배열은 같은 인덱스로 정렬되어 있다(originalImages[i] ↔ images[i]).
+                            const viewList = msg.images.map((im, i) =>
+                                (Array.isArray(msg.originalImages) && msg.originalImages[i]) || im);
+                            msg.images.forEach((im, i) => {
                                 const th = document.createElement("img");
-                                th.className = "bada-msg-thumb";
+                                th.className = "bada-msg-thumb bada-msg-thumb-zoomable";
                                 th.src = im;
+                                th.title = isKo ? "이미지를 눌러 크게 보기" : "Click to view larger";
+                                th.onclick = () => openChatImageViewer(viewList, i);
                                 imgWrap.appendChild(th);
                             });
                             bubble.appendChild(imgWrap);
+                        }
+
+                        // 「저장 안 함」으로 저장한 첨부: 바이트는 없지만 "이미지를 붙였다"는
+                        // 사실은 남겨야 맥락이 읽힌다. 첫 첨부 이미지와 같은 회색 자리표시자로
+                        // 그리고, 여러 장이면 개수를 함께 보여준다.
+                        if (msg.imagesOmitted && (!msg.images || msg.images.length === 0)) {
+                            const count = msg.imageCount || 1;
+                            const ph = document.createElement("div");
+                            ph.className = "bada-msg-images bada-msg-images-omitted";
+                            for (let i = 0; i < Math.min(count, 8); i++) {
+                                const box = document.createElement("div");
+                                box.className = "bada-msg-thumb bada-msg-thumb-placeholder";
+                                box.textContent = "🖼️ 이미지";
+                                ph.appendChild(box);
+                            }
+                            if (count > 8) {
+                                const more = document.createElement("div");
+                                more.className = "bada-msg-thumb bada-msg-thumb-more";
+                                more.textContent = `+${count - 8}`;
+                                ph.appendChild(more);
+                            }
+                            ph.title = isKo
+                                ? "이미지를 저장하지 않아 표시만 남습니다 (대화 내용은 그대로입니다)"
+                                : "Images were not saved; only the fact they were attached remains";
+                            bubble.appendChild(ph);
                         }
 
                         const textContent = document.createElement("div");
@@ -1984,25 +2918,6 @@ app.registerExtension({
                             }
 
                             bubble.appendChild(actRow);
-
-                            // Grounding sources
-                            if (msg.grounding_sources && msg.grounding_sources.length > 0) {
-                                const gBox = document.createElement("div");
-                                gBox.className = "bada-grounding-box";
-                                gBox.innerHTML = `<div>🔍 <b>${isKoNow ? "웹 검색 출처:" : "Web Sources:"}</b></div>`;
-                                const sList = document.createElement("div");
-                                sList.className = "bada-sources-list";
-                                msg.grounding_sources.forEach(src => {
-                                    const link = document.createElement("a");
-                                    link.className = "bada-source-link";
-                                    link.href = src.uri;
-                                    link.target = "_blank";
-                                    link.textContent = src.title || src.uri;
-                                    sList.appendChild(link);
-                                });
-                                gBox.appendChild(sList);
-                                bubble.appendChild(gBox);
-                            }
                         }
 
                         row.appendChild(bubble);
@@ -2011,6 +2926,11 @@ app.registerExtension({
 
                     thread.scrollTop = thread.scrollHeight;
                 }
+
+                // Publish to the enclosing scope for the same reason as the others:
+                // restoreChat() lives outside renderChatStudio() and needs to redraw the
+                // thread once the saved messages are loaded.
+                refreshChatMessages = renderChatMessages;
 
                 async function sendChatMessage() {
                     if (isChatSending) {
@@ -2030,11 +2950,31 @@ app.registerExtension({
                     const userMsg = {
                         role: "user",
                         text: text,
-                        images: [...chatUploadedImages]
+                        images: [...chatUploadedImages],
+                        // Carried through to history so 「저장 안 함」 can still render a
+                        // placeholder (and the list can count images) after a restore.
+                        imageCount: chatUploadedImages.length,
+                        imagesOmitted: false,
+                        // Pre-downscale bytes of THIS turn, memory only — never serialized to
+                        // the history file (persistChatHistory() builds its own payload). Lets
+                        // the thread thumbnail open the pasted ORIGINAL under the viewer, which
+                        // is the whole point of a 「붙여넣은 이미지」 view.
+                        originalImages: [...chatOriginalImages],
                     };
                     chatMessages.push(userMsg);
                     chatTextarea.value = "";
+                    // Reset the composer to its 3-line rest height — otherwise the box stays
+                    // tall at its previous size until the next keystroke re-measures it.
+                    autoGrowChatTextarea();
+                    // Snapshot the pre-downscale originals for this turn BEFORE clearing them,
+                    // so persistChatHistory() can honour 「원본으로 저장」 after the answer lands.
+                    const turnOriginals = [...chatOriginalImages];
+                    // Which conversation this request belongs to. If 「새 채팅」 is pressed
+                    // while the model is still answering, the epoch moves on and the reply
+                    // below must NOT be appended to — nor saved as — the new empty thread.
+                    const turnEpoch = chatEpoch;
                     chatUploadedImages = [];
+                    chatOriginalImages = [];
                     renderChatImagesPreview();
                     renderChatMessages();
 
@@ -2086,7 +3026,7 @@ app.registerExtension({
                                 api_key: key,
                                 model: model,
                                 persona: selectedGemPersona,
-                                web_search: webSearchEnabled,
+                                system_prompt_id: selectedGemPromptId,
                                 messages: chatMessages
                             }),
                             signal: chatAbortController.signal
@@ -2098,14 +3038,23 @@ app.registerExtension({
                         if (typingRow.parentNode) typingRow.remove();
 
                         if (data.success && data.reply) {
+                            // 「새 채팅」 이 답변을 기다리는 중이었다면 이 답은 버린 대화의 것이므로
+                            // 새 스레드에 붙이면 「제미나이 대화」 같은 빈 대화가 목록에 생긴다.
+                            if (turnEpoch !== chatEpoch) return;
                             chatMessages.push({
                                 role: "model",
                                 text: data.reply,
-                                grounding_sources: data.grounding_sources || [],
                                 duration: duration
                             });
                             renderChatMessages();
-                            showToast(isKoNow ? `✨ 답변 생성 완료! (${duration}초 소요)` : `✨ Reply completed in ${duration}s!`, "success", 2500);
+                            renderChatLengthNotice();
+                            // Persist only after the full turn exists, so an aborted or failed
+                            // request never leaves a half-written conversation behind.
+                            persistChatHistory(turnOriginals);
+                        // No completion toast here on purpose: `.bada-toast` is a block
+                        // child of the card's flex column, so it inserted a full-width
+                        // banner above the API-key row and pushed the panel down. The
+                        // reply bubble already renders "⏱️ N.N초 완료" inline.
                         } else {
                             const errDesc = data.error || (isKoNow ? '응답 실패' : 'No response');
                             showToast((isKoNow ? "❌ 채팅 오류: " : "❌ Chat error: ") + errDesc, "error", 4000);
@@ -2135,36 +3084,51 @@ app.registerExtension({
                 renderChatMessages();
             }
 
-            // Global Ctrl+V listener for images
+            // ── Global Ctrl+V image paste ─────────────────────────────────────────
+            // Registered on `document` in the CAPTURE phase (see the addEventListener call at
+            // the bottom of this closure). That is the whole fix for two separate bugs:
+            //
+            //  1. WHERE the image goes. This used to always call handleFiles(), which fills
+            //     `uploadedImages` — the prompt-generation strip owned by the KREA2 / QWEN2.1
+            //     / MiniMax / LTX / 시스템 tabs. On the 제미나이 tab that strip is not even
+            //     visible, so a chat paste silently landed on another tab and the message went
+            //     out with no image. It now routes by tab.
+            //
+            //  2. The stray `Load Image` node. ComfyUI registers its own paste handler on
+            //     `document` in the BUBBLE phase (comfyui_frontend_package :: usePaste), and
+            //     that handler spawns a brand-new `Load Image` node whenever an image arrives
+            //     with no image node selected. A bubble listener on `window` — where this used
+            //     to live — is far too late: document's bubble listeners have already run by
+            //     then, which is exactly why the node appeared whenever focus was not inside
+            //     the chat textarea. Capture on document runs FIRST, and stopping propagation
+            //     there means ComfyUI's handler never fires, so pasting into this node can no
+            //     longer litter the canvas.
+            //
+            // Shift+Ctrl+V is ComfyUI's own escape hatch for "paste onto the canvas instead"
+            // (usePaste skips itself while shift is held). That is left intact on purpose.
             const onGlobalPaste = (e) => {
                 if (!node.is_selected && !root.matches(":hover")) return;
                 const items = e.clipboardData?.items;
                 if (!items) return;
 
-                let imageFound = false;
+                const pasteFiles = [];
                 for (let item of items) {
                     if (item.type.startsWith("image/")) {
                         const blob = item.getAsFile();
-                        if (blob) {
-                            imageFound = true;
-                            const reader = new FileReader();
-                            reader.onload = (ev) => {
-                                if (activeEngine === "uncensored") {
-                                    chatUploadedImages.push(ev.target.result);
-                                    if (chatStudioContainer.querySelector(".bada-thumbnails-grid")) {
-                                        chatStudioContainer.querySelector(".bada-thumbnails-grid").style.display = "grid";
-                                    }
-                                } else {
-                                    uploadedImages.push(ev.target.result);
-                                    renderThumbnails();
-                                }
-                                showToast(isKo ? "📸 클립보드 이미지 첨부 완료!" : "📸 Clipboard image attached!", "success", 2000);
-                            };
-                            reader.readAsDataURL(blob);
-                        }
+                        if (blob) pasteFiles.push(blob);
                     }
                 }
-                if (imageFound) e.preventDefault();
+                if (!pasteFiles.length) return;
+
+                e.preventDefault();
+                e.stopImmediatePropagation();
+
+                if (activeEngine === "uncensored") handleChatImageFiles(pasteFiles);
+                else handleFiles(pasteFiles);
+                // No success toast (user request, 2026-10-05): `.bada-toast` is a block child of
+                // the card's flex column, so it inserted a banner above the API-key row, the node
+                // grew, and it shrank back when the toast expired — a visible jerk on every
+                // paste. The thumbnail row that just re-rendered is the confirmation.
             };
 
             // Dynamic live bilingual updater when BadaUtils.Language changes
@@ -2173,11 +3137,13 @@ app.registerExtension({
 
                 // Options row (slim toggles + aspect ratio picker)
                 const nsfwTitle = optionsGrid.querySelector("#bada-toggle-nsfw .bada-toggle-title");
-                if (nsfwTitle) nsfwTitle.textContent = isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content";
+                if (nsfwTitle) nsfwTitle.textContent = isKo ? "성인용 콘텐츠 (NSFW)" : "Allow NSFW";
+                nsfwToggle.setAttribute("aria-label", isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content");
                 nsfwToggle.title = isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes";
 
                 const transTitle = optionsGrid.querySelector("#bada-toggle-trans .bada-toggle-title");
-                if (transTitle) transTitle.textContent = isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes";
+                if (transTitle) transTitle.textContent = isKo ? "한국어 번역" : "Korean Translation";
+                transToggle.setAttribute("aria-label", isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes");
                 transToggle.title = isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes";
 
                 // Aspect ratio picker labels + chips (rebuild for the active language)
@@ -2185,9 +3151,7 @@ app.registerExtension({
 
                 // Config section
                 const cfgTitle = configSection.querySelector(".bada-config-title-text");
-                const cfgSub = configSection.querySelector(".bada-subtext");
                 if (cfgTitle) cfgTitle.textContent = isKo ? "🔑 API Key & 우선순위 모델 선택" : "🔑 API Key & Priority Model";
-                if (cfgSub) cfgSub.textContent = isKo ? "LocalStorage 자동 저장" : "Stored in LocalStorage";
 
                 const curGetKeyBtn = configSection.querySelector("#bada-btn-get-key");
                 const curTestKeyBtn = configSection.querySelector("#bada-btn-test-key");
@@ -2213,11 +3177,6 @@ app.registerExtension({
                 });
                 modelSelect.value = currentModelVal;
 
-                // Accordion
-                const accTitle = accordion.querySelector("#bada-acc-title");
-                if (accTitle) accTitle.textContent = isKo ? "⚙️ 커스텀 시스템 지시사항 (선택 사항)" : "⚙️ Custom System Directives (Optional)";
-                customDirectivesInput.placeholder = isKo ? "이번 생성에만 강제 주입할 커스텀 시스템 지시사항이 있다면 입력하세요..." : "Enter custom system directives to override for this generation only...";
-
                 // Dropzone & Image hints
                 const imgLabel = imgLabelRow.querySelector("#bada-img-label");
                 if (imgLabel) imgLabel.textContent = isKo ? "🖼️ 참고 이미지 (멀티모달 비전)" : "🖼️ Reference Images (Multimodal Vision)";
@@ -2230,11 +3189,8 @@ app.registerExtension({
                 const clearAllBtn = thumbActions.querySelector("#bada-clear-all");
                 if (clearAllBtn) clearAllBtn.textContent = isKo ? "🗑️ 전체 삭제" : "🗑️ Clear All";
 
-                // Action buttons
-                copyBtn.innerHTML = `<span>📋</span> <span>${isKo ? "프롬프트 복사" : "Copy Prompt"}</span>`;
-                sendClipBtn.innerHTML = `<span>➡️</span> <span>${isKo ? "CLIP 전송" : "Send to Active CLIP"}</span>`;
-                sendClipBtn.title = isKo ? "선택된 CLIPTextEncode 노드의 텍스트로 영문 프롬프트를 다이렉트 주입합니다." : "Directly injects English prompt into selected CLIPTextEncode node.";
-                downloadTxtBtn.innerHTML = `<span>💾</span> <span>${isKo ? "TXT 다운로드" : "Download TXT"}</span>`;
+                // Clipboard button label follows the active tab
+                refreshCopyButton();
                 outputTextarea.placeholder = isKo ? "생성된 프롬프트가 여기에 표시됩니다. 자유롭게 직접 수정할 수도 있습니다." : "Generated prompt will appear here. You can also edit it directly.";
 
                 // Output section header & tabs
@@ -2254,11 +3210,32 @@ app.registerExtension({
                 const errTitleEl = errorModalOverlay.querySelector("#bada-err-title");
                 const errClearBtnEl = errorModalOverlay.querySelector("#bada-err-clear-btn");
                 const errCloseBtnEl = errorModalOverlay.querySelector("#bada-err-close-btn");
-                const errorBellBtnEl = header.querySelector("#bada-error-bell");
+                const errorBellBtnEl = root.querySelector("#bada-error-bell");
                 if (errTitleEl) errTitleEl.textContent = isKo ? "오류 알림 내역" : "Error Notification Log";
                 if (errClearBtnEl) errClearBtnEl.textContent = isKo ? "🗑️ 비우기" : "🗑️ Clear";
                 if (errCloseBtnEl) errCloseBtnEl.title = isKo ? "닫기" : "Close";
                 if (errorBellBtnEl) errorBellBtnEl.title = isKo ? "오류 알림 내역" : "Error Notifications";
+
+                // Gemini chat topbar (페르소나/프롬프트 드롭다운 · 프롬프트 관리 · 새 채팅)
+                const gemManageBtn = chatStudioContainer.querySelector(".bada-gem-prompt-manage");
+                if (gemManageBtn) {
+                    gemManageBtn.textContent = isKo ? "⚙️ 프롬프트 관리" : "⚙️ Manage Prompts";
+                    gemManageBtn.title = isKo
+                        ? "제미나이 탭 전용 시스템 프롬프트 작성 · 수정 · 삭제 · 순서 이동"
+                        : "Create / edit / delete / reorder Gemini-only system prompts";
+                }
+                const gemNewChatBtn = chatStudioContainer.querySelector(".bada-gem-new-chat");
+                if (gemNewChatBtn) gemNewChatBtn.innerHTML = isKo ? "✏️ 새 채팅" : "✏️ New Chat";
+                const gemTriggerLabel = chatStudioContainer.querySelector(".bada-gem-picker-label");
+                if (gemTriggerLabel) {
+                    const persona = GEM_PERSONAS_LIST.find(p => p.id === selectedGemPersona) || GEM_PERSONAS_LIST[0];
+                    const picked = selectedGemPromptId
+                        ? gemChatPrompts.find(p => String(p.id) === selectedGemPromptId)
+                        : null;
+                    gemTriggerLabel.textContent = picked
+                        ? `📜 ${picked.name || picked.id}`
+                        : (isKo ? persona.name : (persona.name_en || persona.name));
+                }
 
                 renderEngineNav();
                 renderEngineView();
@@ -2267,8 +3244,8 @@ app.registerExtension({
 
             const langSubscription = () => {
                 updateAllStaticLabels();
-                // label lengths differ per language -> re-check the frame height
-                setTimeout(fitToContent, 60);
+                // label lengths differ per language -> re-fit the output box and the frame height
+                scheduleOutputRefit(60);
             };
             BadaI18n.subscribe(langSubscription);
 
@@ -2289,65 +3266,130 @@ app.registerExtension({
                 }
             }
 
+            // The output box no longer has a manual resize grip: it is resized to fit exactly the
+            // text it currently shows, and the node frame follows it (grow AND shrink).
+            let outputRefitTimer = null;
+            function scheduleOutputRefit(delay = 0) {
+                if (outputRefitTimer) clearTimeout(outputRefitTimer);
+                outputRefitTimer = setTimeout(() => {
+                    outputRefitTimer = null;
+                    autoFitOutputTextarea();
+                }, delay);
+            }
+            function autoFitOutputTextarea() {
+                if (!outputTextarea) return;
+                if (outputTextarea.style.display === "none") {
+                    setTimeout(fitToContent, 0);
+                    return;
+                }
+                // 1) size the box to its content, 2) let the node frame follow it
+                outputTextarea.style.height = "auto";
+                outputTextarea.style.height = Math.max(64, outputTextarea.scrollHeight + 2) + "px";
+                setTimeout(fitToContent, 0);
+            }
+
             function syncContainerSize() {
                 if (!root || !node || !node.size) return;
 
                 const w = Math.max(400, node.size[0] - 20);
                 const h = Math.max(380, node.size[1] - 46);
 
-                root.style.width = w + "px";
-                root.style.maxWidth = w + "px";
-                root.style.height = h + "px";
-                root.style.maxHeight = h + "px";
-                root.style.overflow = "hidden";
+                // onDrawForeground 에서 매 프레임 호출되므로, 값이 실제로 바뀔 때만
+                // style 을 쓴다. (매 프레임 style 쓰기는 reflow 를 유발해 캔버스 조작이
+                //  "끌리는" 원인이었다 — 노드가 순간적으로 작아 보이는 진짜 이유.)
+                if (root.__badaW !== w) {
+                    root.__badaW = w;
+                    root.style.width = w + "px";
+                    root.style.maxWidth = w + "px";
+                }
+                if (root.__badaH !== h) {
+                    root.__badaH = h;
+                    root.style.height = h + "px";
+                    root.style.maxHeight = h + "px";
+                    root.style.overflow = "hidden";
+                }
 
                 root.classList.toggle("bada-compact-width", w < 380);
                 root.classList.toggle("bada-ultra-compact", w < 340);
             }
 
-            // FIX: `node.size[1] - 46` alone starved the inner content area.
-            // `.bada-prompt-studio-container` needs 763px but only receives
-            // ~577px (root minus header/rows) -> its own vertical scrollbar and
-            // the squashed frame reported by the user. Grow the node until the
-            // content area fits.  Runs only on mount / configure / language
-            // switch — never inside `onDrawForeground`, because measuring there
-            // forces a reflow on every frame.
+            const NODE_MIN_HEIGHT = 420;
+            const NODE_MAX_HEIGHT = 1600;
+
+            // setSize() 로 인한 내부 리사이즈와 사용자 드래그를 구분하기 위한 플래그.
+            let isInternalResize = false;
+            function setSizeInternal(w, h) {
+                isInternalResize = true;
+                try { node.setSize([w, h]); } finally { isInternalResize = false; }
+            }
+
+            // 사용자가 마우스로 직접 리사이즈한 높이 (0 = 아직 리사이즈 안 함)
+            // setSize()는 onResize()를 호출하지 않으므로 onResize에서만 기록됨.
+            // 이 높이는 절대 줄이지 않으며, 자동 조정은 grow만 수행한다.
+            const USER_HEIGHT_KEY = "bada_async_gemini_user_height";
+            let userPreferredHeight = 0;
+            let isUserResizing = false;
+            let resizeEndTimer = null;
+            try {
+                const saved = parseInt(localStorage.getItem(USER_HEIGHT_KEY) || "0", 10);
+                if (Number.isFinite(saved) && saved >= NODE_MIN_HEIGHT) userPreferredHeight = saved;
+            } catch (e) { /* localStorage 사용 불가 환경 */ }
+
             function fitToContent() {
                 if (!root || !node || !node.size) return;
                 syncContainerSize();
                 const area = root.querySelector(".bada-prompt-studio-container");
                 if (!area) return;
+
+                // 사용자가 직접 리사이즈 중이거나, 명시적으로 지정한 높이가 있으면 존중한다.
+                if (isUserResizing || userPreferredHeight > 0) return;
+
+                // The uncensored (제미나이) chat tab hides the prompt-studio container, so its
+                // measurements are 0 x 0 and any auto-resize would collapse the node down to the
+                // minimum. That view keeps the height the user set by hand instead.
+                if (activeEngine === "uncensored") return;
+
+                // 1) Grow the node until the inner content fits.
+                //    Never shrinks — a taller frame is harmless (the panel scrolls), a
+                //    shorter one is not, so growing is the only safe auto-adjustment.
                 let overflow = area.scrollHeight - area.clientHeight;
                 let steps = 0;
-                while (overflow > 1 && steps < 5 && node.size[1] < 1600) {
+                while (overflow > 1 && steps < 5 && node.size[1] < NODE_MAX_HEIGHT) {
                     steps += 1;
-                    node.setSize([node.size[0],
-                                  Math.min(1600, node.size[1] + overflow + 8)]);
+                    setSizeInternal(node.size[0],
+                                    Math.min(NODE_MAX_HEIGHT, node.size[1] + overflow + 8));
                     syncContainerSize();
                     overflow = area.scrollHeight - area.clientHeight;
                 }
-                // debug probe (readable from the console / test harness)
-                window.__badaFit = {
-                    overflow, steps,
-                    size: node.size.slice(),
-                    area: [area.clientHeight, area.scrollHeight],
-                    runs: (window.__badaFit && window.__badaFit.runs || 0) + 1,
-                };
+
                 if (steps && appInstance && appInstance.canvas) appInstance.canvas.setDirty(true, true);
             }
 
-            window.addEventListener("paste", onGlobalPaste);
+            // CAPTURE phase on `document` — see the long note on onGlobalPaste. This ordering is
+            // load-bearing, not stylistic: it is what runs before ComfyUI's own document-bubble
+            // paste handler (the one that spawns Load Image nodes) and lets us cancel it.
+            // `load_image_fixer.js` listens on `window` for paste as well; it only re-heals
+            // LoadImage borders, so it is harmless to skip when this node consumed the event.
+            document.addEventListener("paste", onGlobalPaste, true);
             const onVisChange = () => { syncContainerSize(); };
             window.addEventListener("visibilitychange", onVisChange);
             window.addEventListener("focus", onVisChange);
 
             const onRemoved = node.onRemoved;
             node.onRemoved = function () {
-                window.removeEventListener("paste", onGlobalPaste);
+                document.removeEventListener("paste", onGlobalPaste, true);
                 document.removeEventListener("pointerdown", onAspectOutsidePointerDown);
+                window.removeEventListener("resize", onAspectViewportChange);
+                window.removeEventListener("scroll", onAspectViewportChange, true);
+                // The aspect menu can be re-parented to <body> while open; make sure it
+                // never survives the node that owns it.
+                if (aspectMenu && aspectMenu.parentNode === document.body) aspectMenu.remove();
+                chatPersonaCleanup?.();
                 window.removeEventListener("visibilitychange", onVisChange);
                 window.removeEventListener("focus", onVisChange);
                 if (timerInterval) clearInterval(timerInterval);
+                if (resizeEndTimer) clearTimeout(resizeEndTimer);
+                if (outputRefitTimer) clearTimeout(outputRefitTimer);
                 BadaI18n.unsubscribe(langSubscription);
                 onRemoved?.apply(this, arguments);
             };
@@ -2361,11 +3403,38 @@ app.registerExtension({
                 hideOnZoom: false,
             });
 
-            // Minimum size boundary (Regional Prompt 방식과 동일)
+            // ⚠️ 프론트엔드의 자기참조 폭 루프를 끊는다 (2026-10-05, 「아무 단투나 눌러도
+            // 노드 창이 깨진다」 보고의 진짜 원인).
+            //
+            // ComfyUI 의 DOM 위젯 렌더러는 매 draw 마다
+            //     widget.width = widget.element.getBoundingClientRect().width
+            // 를 쓰고(바운들 GraphView 의 `bindWidget`/`draw`), 그 값으로 감싸는
+            // `.dom-widget` 호스트의 폭을 다시 계산한다. 즉 「카드의 현재 렌더 폭 → 호스트
+            // 폭 → 카드의 폭」이라는 닫힌 루프이고, 이 경로에는 `node.width` 가 한 번도
+            // 개입하지 않는다. 그 결과 카드는 생성 시점의 폭에 영구히 고정된다.
+            //
+            // 실측: 노드를 520px → 900px 로 키워도 widget.width 는 274.81px 로,
+            // 호스트 254.81px, 카드 254.81px 로 그대로였다. 사용자가 본 「늘리면 빈 공간만
+            // 늘고, 줄여도 되돌아오지 않는다」가 정확히 이 숫자다.
+            //
+            // 폭의 유일한 진실 원천은 `node.size[0]` 이므로, getter 를 그 값에 연결하고
+            // 프론트엔드의 되먹임 대입은 버린다. 검증: 노드 520 → 카드 500, 900 → 880,
+            // 되돌려 520 → 500, 드리프트 0.
+            if (domWidget) {
+                Object.defineProperty(domWidget, "width", {
+                    configurable: true,
+                    get() { return node.size ? node.size[0] : 520; },
+                    set() { /* 프론트엔드의 자기 되먹임 — 의도적으로 무시 */ },
+                });
+            }
+
+            // Minimum size boundary (Regional Prompt 방식과 동일).
+            // 크기를 강제로 되돌리지 않는다 — 하한만 보장한다. (여기가 노드를 강제로
+            // 420x420으로 만들어 "창이 갑자기 줄어드는" 경험의 또 다른 원인이었다.)
             node.computeSize = function (out) {
                 out = out || [0, 0];
-                out[0] = 420;
-                out[1] = 420;
+                out[0] = Math.max(out[0] || 0, 420);
+                out[1] = Math.max(out[1] || 0, NODE_MIN_HEIGHT);
                 return out;
             };
 
@@ -2374,15 +3443,42 @@ app.registerExtension({
                 if (size[0] < 420) size[0] = 420;
                 if (size[1] < 420) size[1] = 420;
                 origResize?.apply(this, arguments);
+
+                // onResize 는 사용자가 마우스로 노드를 드래그할 때만 호출된다
+                // (setSize() 는 이 훅을 건드리지 않는다). 그래서 이 값을
+                // "사용자가 원하는 높이"로 간주해 자동 축소를 영구히 멈춘다.
+                if (!isInternalResize) {
+                    isUserResizing = true;
+                    if (resizeEndTimer) clearTimeout(resizeEndTimer);
+                    resizeEndTimer = setTimeout(() => { isUserResizing = false; }, 220);
+                    userPreferredHeight = this.size[1];
+                    try { localStorage.setItem(USER_HEIGHT_KEY, String(userPreferredHeight)); } catch (e) { /* private mode */ }
+                }
+
                 syncContainerSize();
+                // a width change re-wraps the text -> re-fit the output box afterwards
+                scheduleOutputRefit(120);
             };
 
             const origConfigure = node.onConfigure;
             node.onConfigure = function (data) {
                 const r = origConfigure ? origConfigure.apply(this, arguments) : undefined;
+                // Must ALSO be stripped here, not only in onNodeCreated. LiteGraph's
+                // configure() restores the serialized `outputs` array *after* the node is
+                // constructed, so any workflow saved while the socket still existed brought
+                // the "prompt" output straight back on load — surviving a plain refresh and
+                // making the node look connectable when it is UI-only.
+                while (this.outputs && this.outputs.length > 0) {
+                    this.removeOutput(0);
+                }
                 hideAllBackendWidgets(this);
                 if (this.size && this.size[0] < 420) this.size[0] = 520;
                 if (this.size && this.size[1] < 420) this.size[1] = 780;
+                // 사용자가 직접 정한 높이가 있으면 워크플로우에 저장된 값보다 우선한다.
+                // (다른 노드가 실행되며 그래프가 리로드될 때 이 노드가 "확 줄어드는" 원인 제거)
+                if (userPreferredHeight > 0 && this.size && this.size[1] !== userPreferredHeight) {
+                    this.size[1] = userPreferredHeight;
+                }
                 setTimeout(() => {
                     hideAllBackendWidgets(this);
                     fitToContent();
@@ -2405,9 +3501,12 @@ app.registerExtension({
                 origDrawFg?.apply(this, arguments);
             };
 
-            // 초기 크기 설정
+            // 초기 크기 설정 — 사용자가 지정한 높이가 있으면 그 값을 최우선으로 복원한다.
+            const initialHeight = userPreferredHeight > 0 ? userPreferredHeight : 820;
             if (!node.size || node.size[0] < 420 || node.size[1] < 520) {
-                node.setSize([520, 820]);
+                setSizeInternal(520, initialHeight);
+            } else if (userPreferredHeight > 0 && node.size[1] !== userPreferredHeight) {
+                setSizeInternal(node.size[0], userPreferredHeight);
             }
             syncContainerSize();
             // first honest measurement once the panel is in the DOM

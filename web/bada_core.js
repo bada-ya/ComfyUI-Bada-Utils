@@ -189,6 +189,81 @@ function updatePresetBadgePositionOptions(lang) {
     select.value = currentValue;
 }
 
+function buildCloudSyncDetailsPanel() {
+    const panel = document.createElement("div");
+    panel.id = "bada-cloud-sync-details-panel";
+    panel.style.cssText = "width: 100%; margin-top: 6px; background: rgba(24, 24, 27, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 8px 12px; font-size: 11.5px; color: #d4d4d8; display: flex; flex-direction: column; gap: 6px;";
+    
+    const isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
+    panel.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;" id="bada-cloud-details-toggle">
+            <span style="font-weight: 600; color: #38bdf8; display: flex; align-items: center; gap: 4px;">
+                <span id="bada-cloud-arrow">▶</span> 🔍 ${isKo ? "클라우드 동기화 상세 현황 & 강제 동기화" : "Cloud Sync Details & Force Sync"}
+            </span>
+            <button class="qol-btn qol-btn-primary" id="bada-btn-force-sync" style="padding: 2px 8px; font-size: 11px;">⚡ ${isKo ? "전체 강제 동기화" : "Force Sync Now"}</button>
+        </div>
+        <div id="bada-cloud-details-body" style="display: none; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;">
+            <div style="display: flex; justify-content: space-between;"><span>📂 ${isKo ? "워크플로우 (.json):" : "Workflows (.json):"}</span><strong id="bada-cnt-wfs" style="color: #f4f4f5;">-</strong></div>
+            <div style="display: flex; justify-content: space-between;"><span>🏷️ ${isKo ? "글로벌 프리셋 (presets_data.json):" : "Global Presets:"}</span><strong id="bada-cnt-presets" style="color: #f4f4f5;">-</strong></div>
+            <div style="display: flex; justify-content: space-between; padding-left: 12px; font-size: 11px; color: #a1a1aa;"><span>└ 📐 ${isKo ? "Bada Visual Regional Prompt 프리셋:" : "Visual Regional Prompt Presets:"}</span><strong id="bada-cnt-regional" style="color: #38bdf8;">-</strong></div>
+            <div style="display: flex; justify-content: space-between;"><span>💬 ${isKo ? "Gemini Studio 대화/챗 기록 (gemini_chat_history.json):" : "Gemini Studio Chats (gemini_chat_history.json):"}</span><strong id="bada-cnt-chats" style="color: #f4f4f5;">-</strong></div>
+            <div style="display: flex; justify-content: space-between;"><span>📜 ${isKo ? "Gemini / Prompt Generator 시스템 프롬프트 (engines_registry.json):" : "System Prompts Registry:"}</span><strong id="bada-cnt-promptgen" style="color: #f4f4f5;">-</strong></div>
+            <div style="display: flex; justify-content: space-between;"><span>⭐ ${isKo ? "워크플로우 즐겨찾기 (favorites_data.json & .index.json):" : "Workflow Favorites:"}</span><strong id="bada-cnt-favs" style="color: #f4f4f5;">-</strong></div>
+            <div style="display: flex; justify-content: space-between; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 4px; margin-top: 2px;"><span>🕒 ${isKo ? "최종 동기화 시각:" : "Last Sync Time:"}</span><span id="bada-cnt-lastsync" style="color: #38bdf8;">-</span></div>
+        </div>
+    `;
+
+    // Toggle event
+    const toggleHeader = panel.querySelector("#bada-cloud-details-toggle");
+    const bodyEl = panel.querySelector("#bada-cloud-details-body");
+    const arrowEl = panel.querySelector("#bada-cloud-arrow");
+    toggleHeader.addEventListener("click", (e) => {
+        if (e.target.id === "bada-btn-force-sync") return;
+        const isHidden = bodyEl.style.display === "none";
+        bodyEl.style.display = isHidden ? "flex" : "none";
+        arrowEl.textContent = isHidden ? "▼" : "▶";
+        if (isHidden) {
+            // Load details
+            fetch("/cloud/gdrive/details").then(r => r.json()).then(res => {
+                if (res.status === "success" && res.details) {
+                    const wfsEl = panel.querySelector("#bada-cnt-wfs");
+                    if (wfsEl) wfsEl.textContent = `${res.details.workflows_count} 개`;
+                    panel.querySelector("#bada-cnt-presets").textContent = `${res.details.presets_count} 개`;
+                    const regEl = panel.querySelector("#bada-cnt-regional");
+                    if (regEl) regEl.textContent = `${res.details.regional_presets_count || 0} 개`;
+                    panel.querySelector("#bada-cnt-chats").textContent = `${res.details.gemini_chats_count} 개`;
+                    panel.querySelector("#bada-cnt-promptgen").textContent = `${res.details.promptgen_count} 개`;
+                    panel.querySelector("#bada-cnt-favs").textContent = `${res.details.favorites_count} 개`;
+                    panel.querySelector("#bada-cnt-lastsync").textContent = res.details.last_sync;
+                }
+            }).catch(() => {});
+        }
+    });
+
+    // Force Sync event
+    panel.querySelector("#bada-btn-force-sync").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const btn = e.target;
+        btn.disabled = true;
+        btn.textContent = BadaI18n.lang === "ko" ? "동기화 중..." : "Syncing...";
+        try {
+            const res = await fetch("/cloud/gdrive/sync", { method: "POST" });
+            const data = await res.json();
+            if (window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__) {
+                window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__.showToast(data.message || "동기화 완료!");
+                window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__.loadTree();
+            }
+        } catch (err) {
+            alert("동기화 중 오류: " + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = BadaI18n.lang === "ko" ? "⚡ 전체 강제 동기화" : "⚡ Force Sync Now";
+        }
+    });
+
+    return panel;
+}
+
 const BADA_UNIFIED_SETTINGS = {
     lang: {
         id: "BadaUtils.Language",
@@ -322,7 +397,7 @@ const BADA_UNIFIED_SETTINGS = {
     }
 };
 
-let isPresetsExpanded = true;
+let isPresetsExpanded = false;
 
 function escapeHtml(str) {
     if (!str) return "";
@@ -1057,6 +1132,9 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.sidebar.id) {
                 targetTitle = texts.sidebarName;
                 targetDesc = texts.sidebarDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.cloudSyncConfig.id) {
+                targetTitle = texts.cloudSyncConfigName;
+                targetDesc = texts.cloudSyncConfigDesc;
             } else if (id === BADA_UNIFIED_SETTINGS.saveAsFolderPicker.id) {
                 targetTitle = texts.saveAsName;
                 targetDesc = texts.saveAsDesc;
@@ -1132,10 +1210,27 @@ function applyBilingualSettingsUI(targetLang) {
                 descEl.__badaDesc = targetDesc;
                 descEl.innerHTML = targetDesc;
             }
+
+            // Inject Cloud Sync details panel below CloudSyncConfig row
+            if (id === BADA_UNIFIED_SETTINGS.cloudSyncConfig.id) {
+                let detailsPanel = row.querySelector("#bada-cloud-sync-details-panel");
+                if (!detailsPanel) {
+                    detailsPanel = buildCloudSyncDetailsPanel();
+                    row.appendChild(detailsPanel);
+                }
+            }
         });
 
-        // 3. Clean left sidebar nav item: Distinctive Anchor ⚓ icon (replaces generic plug 🔌)
-        const navLink = document.querySelector('[data-nav-id="root/Bada Utils"]');
+        // 2-1. Remove version badge from main dialog header ("Settings") if present
+        try {
+            const headerBadge = document.querySelector('.p-dialog-title #bada-version-badge-container, [role="dialog"] .p-dialog-header #bada-version-badge-container');
+            if (headerBadge) {
+                headerBadge.remove();
+            }
+        } catch (_) {}
+
+        // 3. Clean left sidebar nav item: Distinctive Anchor ⚓ icon + Version Badge for Bada Utils
+        const navLink = document.querySelector('[data-nav-id="root/Bada Utils"], [data-nav-id*="Bada"]');
         if (navLink) {
             let anchor = navLink.querySelector(".bada-nav-anchor");
             if (!anchor) {
@@ -1150,9 +1245,49 @@ function applyBilingualSettingsUI(targetLang) {
                 anchor.style.cssText = "font-size: 15px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; margin-right: 6px;";
                 navLink.insertBefore(anchor, navLink.firstChild);
             }
-            const labelSpan = navLink.querySelector("span:not(.bada-nav-anchor)");
+            const labelSpan = navLink.querySelector("span:not(.bada-nav-anchor):not(#bada-version-badge-container)");
             if (labelSpan && labelSpan.textContent.startsWith("⚓")) {
                 labelSpan.textContent = "Bada Utils";
+            }
+
+            // Append Bada Utils version badge directly inside sidebar nav item
+            let badgeContainer = navLink.querySelector("#bada-version-badge-container");
+            if (!badgeContainer) {
+                badgeContainer = document.createElement("span");
+                badgeContainer.id = "bada-version-badge-container";
+                badgeContainer.style.cssText = "display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-size: 10px; vertical-align: middle;";
+                badgeContainer.innerHTML = `<span id="bada-current-ver" style="background: rgba(0, 240, 255, 0.15); border: 1px solid rgba(0, 240, 255, 0.4); color: #00f0ff; padding: 1px 6px; border-radius: 999px; font-weight: 600;">v1.0.3</span>`;
+                navLink.appendChild(badgeContainer);
+
+                fetch("/api/bada/version").then(r => r.json()).then(d => {
+                    if (d.version) {
+                        const currentVer = d.version.startsWith("v") ? d.version : `v${d.version}`;
+                        const verEl = navLink.querySelector("#bada-current-ver");
+                        if (verEl) verEl.textContent = currentVer;
+
+                        // Check GitHub latest release
+                        fetch("https://api.github.com/repos/bada-ya/ComfyUI-Bada-Utils/releases/latest")
+                            .then(r => r.json())
+                            .then(rel => {
+                                const latestTag = rel.tag_name || rel.name;
+                                if (latestTag && latestTag !== currentVer && latestTag !== d.version) {
+                                    let updateEl = navLink.querySelector("#bada-update-available-badge");
+                                    if (!updateEl) {
+                                        updateEl = document.createElement("span");
+                                        updateEl.id = "bada-update-available-badge";
+                                        updateEl.style.cssText = "background: #10b981; color: #ffffff; padding: 1px 5px; border-radius: 999px; font-weight: 700; cursor: pointer; margin-left: 3px;";
+                                        badgeContainer.appendChild(updateEl);
+                                    }
+                                    updateEl.innerHTML = `✨ ${latestTag}`;
+                                    updateEl.title = `최신 버전 ${latestTag} 업데이트가 존재합니다. 클릭 시 이동합니다.`;
+                                    updateEl.onclick = (e) => {
+                                        e.stopPropagation();
+                                        window.open(rel.html_url || "https://github.com/bada-ya/ComfyUI-Bada-Utils/releases", "_blank");
+                                    };
+                                }
+                            }).catch(() => {});
+                    }
+                }).catch(() => {});
             }
         }
     } catch (e) {
