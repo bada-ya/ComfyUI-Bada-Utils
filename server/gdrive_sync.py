@@ -77,6 +77,13 @@ SYNC_TARGET_FILES = [
     'engines_registry.json',
 ]
 
+# 다운로드 전용(업로드 금지) 파일.
+# engines_registry.json 은 GitHub 에 커밋된 배포 파일이라 git pull 시 사용자가 UI 에서
+# 저장한 프롬프트와 충돌한다. 업로드하면 로컬 배포본이 Drive 의 사용자 프롬프트를 덮어
+# 유실시키고, 업/다운 판단이 어울져 무한 루프가 된다. 따라서 업로드하지 않고
+# 원격(사용자가 저장한 프롬프트)만 로컬로 내려받는다.
+DOWNLOAD_ONLY_FILES = {".configs/engines_registry.json"}
+
 # 워크플로우 동기화에서 제외할 항목 (이름 기준).
 # manifest/상태 파일과 서버가 만든 출력물은 동기화해도 의미가 없고 충돌만 만든다.
 WORKFLOW_EXCLUDE_NAMES = {
@@ -475,7 +482,11 @@ def _perform_sync_blocking():
         updated_manifest = dict(remote_manifest)
 
         # --- Diff: 업로드 (로컬이 더 새롭거나 원격에 없음) ---
+        uploaded = set()  # 이번 세션 업로드한 파일 (다운로드 루프 모순 방지용)
         for rel_path, local_meta in local_manifest.items():
+            # engines_registry.json 등 다운로드 전용 파일은 업로드하지 않는다.
+            if rel_path in DOWNLOAD_ONLY_FILES:
+                continue
             remote_meta = remote_manifest.get(rel_path)
             needs_upload = (
                 not remote_meta
@@ -486,11 +497,15 @@ def _perform_sync_blocking():
                 continue
 
             updated_manifest[rel_path] = _upload_single_file(service, folder_id, rel_path, local_meta)
+            uploaded.add(rel_path)
             uploaded_count += 1
             logger.info(f"[GDrive] upload: {rel_path}")
 
         # --- Diff: 다운로드 (원격이 더 새롭거나 로컬에 없음) ---
         for rel_path, remote_meta in remote_manifest.items():
+            # 이번 세션 업로드한 파일은 다운로드하지 않는다 (업/다운 모순 → 무한루프 방지).
+            if rel_path in uploaded:
+                continue
             # 화이트리스트 밖 경로 방어 (구 manifest 잔재 등).
             try:
                 _resolve_local_path(rel_path)
