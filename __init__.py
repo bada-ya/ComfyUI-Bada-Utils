@@ -6,46 +6,58 @@ import logging
 import os
 import sys
 import subprocess
-import threading
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 
-# ── Cloud Sync 종속성 자동 설치 (ComfyUI 기동 차단 방지) ──────────────────────
-# google-api-python-client / google-auth-oauthlib 이 없으면 클라우드 동기화가
-# 비활성화된다. ComfyUI 가 custom_node 의 requirements.txt 를 자동 설치하지만,
-# 최초 설치 누락·오프라인·수동 설치 등으로 빠진 경우를 대비해 여기서 한 번 더
-# 방어적으로 설치을 시도한다. 기동을 막으면 안 되므로 백그�라운드 스레드 +
-# 완전 예외 삼킴(실패해도 조용히 스킵). ComfyUI Manager 재시작 시 설치가 완료된다.
+# ── Ensure Cloud Sync dependencies (finished BEFORE the GUI opens) ───────────
+# Key fact: ComfyUI itself does NOT auto-install a custom node's requirements.txt.
+# Installing custom-node requirements is ComfyUI-Manager's job. When a user installs
+# via `git clone` manually, nobody installs requirements, so the Google libraries are
+# missing. (Only the console-facing notices below are English on purpose.)
+#
+# [Why a blocking (synchronous) install?]
+#   Previously this ran in a background thread: after the "GUI go to …" server-ready
+#   log appeared, the install finished 4–5 minutes later and only activated on the
+#   NEXT restart. Users saw "ready" but Cloud Sync stayed off that session — the
+#   ready moment and the actually-ready moment diverged. So we finish the install
+#   HERE, before the GUI opens, making "ready" mean "usable".
+#
+#   - If already installed (most users / ComfyUI-Manager installs) → returns instantly,
+#     zero startup delay, and none of the notices below ever print.
+#   - Only the first `git clone` install blocks startup briefly (one-time) → usable
+#     this very session.
+#   - Any failure (offline, etc.) is swallowed so startup never dies (keeps the
+#     "no impact on server startup" guarantee).
 def _ensure_cloud_deps():
     try:
         import importlib.util
         needed = ("googleapiclient", "google_auth_oauthlib")
         if all(importlib.util.find_spec(m) is not None for m in needed):
-            return  # 이미 설치됨 → 아무 것도 안 함.
+            return  # Already installed → return immediately (zero delay, silent).
     except Exception:
-        return  # importlib 예외는 설치 시도 자체를 포기.
+        return  # find_spec error → skip install attempt (protect startup).
 
-    req_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "requirements.txt")
-    if not os.path.exists(req_path):
-        return
-
-    def _worker():
-        try:
-            logger.warning(
-                "[ComfyUI-Bada-Utils] Cloud Sync 종속성이 없어 requirements.txt 자동 설치를 "
-                "백그라운드에서 시도합니다. (기존에는 수동 설치가 필요했음)"
-            )
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-r", req_path],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=600,
-            )
-            logger.info("[ComfyUI-Bada-Utils] Cloud Sync 종속성 자동 설치 완료. ComfyUI 재시작 시 활성화됩니다.")
-        except Exception as exc:
-            logger.debug(f"[ComfyUI-Bada-Utils] Cloud Sync 종속성 자동 설치 실패(무시): {exc}")
-
-    threading.Thread(target=_worker, daemon=True, name="BadaCloudDepsInstall").start()
+    logger.warning(
+        "[ComfyUI-Bada-Utils] Installing Cloud Sync dependencies "
+        "(google-api-python-client)... first run only, may take a moment; "
+        "usable this session once done."
+    )
+    try:
+        # aiohttp / Pillow already ship with ComfyUI, so install only the 2 Google libs.
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install",
+             "google-api-python-client", "google-auth-oauthlib"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=600,
+            check=False,
+        )
+        logger.info("[ComfyUI-Bada-Utils] Cloud Sync dependencies installed — usable this session.")
+    except Exception as exc:
+        logger.warning(
+            f"[ComfyUI-Bada-Utils] Cloud Sync dependency install failed "
+            f"(ignored, server startup continues): {exc}"
+        )
 
 
 _ensure_cloud_deps()

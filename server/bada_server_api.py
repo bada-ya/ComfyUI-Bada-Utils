@@ -1785,7 +1785,7 @@ def register_cloud_routes():
     try:
         from . import gdrive_sync
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"[ComfyUI-Bada-Utils] Cloud Sync 모듈 로드 실패 (기능 비활성): {exc}")
+        logger.warning(f"[ComfyUI-Bada-Utils] Cloud Sync module load failed (feature disabled): {exc}")
         return
 
     try:

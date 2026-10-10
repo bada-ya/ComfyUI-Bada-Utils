@@ -51,8 +51,8 @@ try:
 except ImportError:
     GDRIVE_LIBS_AVAILABLE = False
     logger.warning(
-        "[GDrive] google-api-python-client / google-auth-oauthlib 미설치 → "
-        "클라우드 동기화 기능이 비활성화됩니다. (서버 기동에는 영향 없음)"
+        "[GDrive] google-api-python-client / google-auth-oauthlib not installed → "
+        "Cloud Sync feature is disabled. (server startup is unaffected)"
     )
 
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
@@ -124,7 +124,7 @@ def _save_last_sync_state(uploaded, downloaded):
                 f, ensure_ascii=False, indent=2,
             )
     except Exception as exc:
-        logger.debug(f"[GDrive] last-sync state 저장 실패(무시): {exc}")
+        logger.debug(f"[GDrive] last-sync state save failed (ignored): {exc}")
 
 
 def check_gdrive_libs():
@@ -143,14 +143,14 @@ def get_gdrive_status():
         return {
             "status": "missing_libs",
             "authorized": False,
-            "message": "google-api-python-client 라이브러리가 필요합니다.",
+            "message": "google-api-python-client is required.",
         }
 
     if not os.path.exists(CREDENTIALS_PATH) and not os.path.exists(TOKEN_PATH):
         return {
             "status": "missing_credentials",
             "authorized": False,
-            "message": "credentials.json 파일이 존재하지 않습니다.",
+            "message": "credentials.json file is missing.",
         }
 
     if os.path.exists(TOKEN_PATH):
@@ -160,7 +160,7 @@ def get_gdrive_status():
                 return {
                     "status": "authenticated",
                     "authorized": True,
-                    "message": "Google Drive 연동 완료",
+                    "message": "Google Drive linked successfully",
                 }
         except Exception:
             pass
@@ -168,7 +168,7 @@ def get_gdrive_status():
     return {
         "status": "unauthenticated",
         "authorized": False,
-        "message": "Google Drive 인증이 필요합니다.",
+        "message": "Google Drive authentication is required.",
     }
 
 
@@ -178,14 +178,14 @@ def get_drive_service():
     라이브러리 미설치/인증 실패 시 (None, 사유) 를 반환해 호출측이 안전하게 처리.
     """
     if not GDRIVE_LIBS_AVAILABLE:
-        return None, "google-api-python-client 라이브러리가 설치되어 있지 않습니다."
+        return None, "google-api-python-client is not installed."
 
     creds = None
     if os.path.exists(TOKEN_PATH):
         try:
             creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
         except Exception as e:
-            logger.warning(f"[GDrive] token.json 로드 실패: {e}")
+            logger.warning(f"[GDrive] token.json load failed: {e}")
             creds = None
 
     if not creds or not creds.valid:
@@ -195,27 +195,27 @@ def get_drive_service():
                 with open(TOKEN_PATH, 'w', encoding='utf-8') as token_file:
                     token_file.write(creds.to_json())
             except Exception as e:
-                logger.warning(f"[GDrive] token 갱신 실패: {e}")
+                logger.warning(f"[GDrive] token refresh failed: {e}")
                 creds = None
 
         if not creds:
             if not os.path.exists(CREDENTIALS_PATH):
-                return None, "credentials.json 파일이 상위 폴더에 존재하지 않습니다."
+                return None, "credentials.json file is missing in the parent folder."
             try:
                 flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
                 creds = flow.run_local_server(port=0)
                 with open(TOKEN_PATH, 'w', encoding='utf-8') as token_file:
                     token_file.write(creds.to_json())
             except Exception as e:
-                logger.error(f"[GDrive] OAuth Flow 실패: {e}")
-                return None, f"OAuth 인증 실패: {str(e)}"
+                logger.error(f"[GDrive] OAuth flow failed: {e}")
+                return None, f"OAuth authentication failed: {str(e)}"
 
     try:
         service = build('drive', 'v3', credentials=creds, cache_discovery=False)
         return service, "OK"
     except Exception as e:
-        logger.error(f"[GDrive] Drive Service 생성 실패: {e}")
-        return None, f"Drive Service 생성 실패: {str(e)}"
+        logger.error(f"[GDrive] Drive service build failed: {e}")
+        return None, f"Drive service creation failed: {str(e)}"
 
 
 def calculate_sha256(filepath):
@@ -334,7 +334,7 @@ def build_local_manifest():
                 "mtime": stat.st_mtime,
             }
         except Exception as e:
-            logger.warning(f"[GDrive] stat 실패 {rel_path}: {e}")
+            logger.warning(f"[GDrive] stat failed {rel_path}: {e}")
     return manifest
 
 
@@ -381,7 +381,7 @@ def _download_remote_manifest(service, folder_id):
         content = fh.read().decode('utf-8')
         return json.loads(content), file_id
     except Exception as e:
-        logger.warning(f"[GDrive] 원격 manifest 다운로드 실패: {e}")
+        logger.warning(f"[GDrive] remote manifest download failed: {e}")
         return {}, file_id
 
 
@@ -443,9 +443,9 @@ def _download_single_file(service, folder_id, rel_path, remote_meta):
                 dst.write(src.read())
             if rel_path.endswith('engines_registry.json'):
                 logger.warning(
-                    "[GDrive] engines_registry.json 을 원격 버전으로 덮어씁니다. "
-                    f"기존 내용은 {full_path}.bak 에 보관됩니다. "
-                    "(git pull 직후라면 사용자 프롬프트가 복원된 것일 수 있음)"
+                    "[GDrive] Overwriting engines_registry.json with the remote version. "
+                    f"The existing content is kept at {full_path}.bak. "
+                    "(If this ran right after git pull, your saved prompts may have been restored)"
                 )
         except Exception:
             pass
@@ -487,7 +487,7 @@ def _perform_sync_blocking():
 
             updated_manifest[rel_path] = _upload_single_file(service, folder_id, rel_path, local_meta)
             uploaded_count += 1
-            logger.info(f"[GDrive] 업로드: {rel_path}")
+            logger.info(f"[GDrive] upload: {rel_path}")
 
         # --- Diff: 다운로드 (원격이 더 새롭거나 로컬에 없음) ---
         for rel_path, remote_meta in remote_manifest.items():
@@ -510,7 +510,7 @@ def _perform_sync_blocking():
             if result_meta is not None:
                 updated_manifest[rel_path] = result_meta
                 downloaded_count += 1
-                logger.info(f"[GDrive] 다운로드: {rel_path}")
+                logger.info(f"[GDrive] download: {rel_path}")
 
         # 원격 manifest 갱신
         _upload_remote_manifest(service, folder_id, updated_manifest, remote_manifest_file_id)
@@ -527,21 +527,21 @@ def _perform_sync_blocking():
 
         return {
             "status": "success",
-            "message": f"동기화 완료 (업로드: {uploaded_count}개, 다운로드: {downloaded_count}개)",
+            "message": f"Sync completed (uploaded: {uploaded_count}, downloaded: {downloaded_count})",
             "uploaded": uploaded_count,
             "downloaded": downloaded_count,
             "last_sync_at": time.time(),
         }
 
     except Exception as e:
-        logger.error(f"[GDrive] 동기화 오류: {e}", exc_info=True)
+        logger.error(f"[GDrive] sync error: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "uploaded": 0, "downloaded": 0}
 
 
 async def sync_gdrive_async():
     """넌블로킹 동기화 래퍼. 이미 동기화 중이면 busy 반환."""
     if _SYNC_LOCK.locked():
-        return {"status": "busy", "message": "이미 동기화 작업이 진행 중입니다."}
+        return {"status": "busy", "message": "A sync operation is already in progress."}
 
     async with _SYNC_LOCK:
         loop = asyncio.get_running_loop()
@@ -647,7 +647,7 @@ def get_sync_file_details():
                 wf_count += 1
                 wf_bytes += os.path.getsize(full_path)
     except Exception as e:
-        logger.debug(f"[GDrive] 워크플로우 요약 실패(무시): {e}")
+        logger.debug(f"[GDrive] workflow summary failed (ignored): {e}")
 
     details.append({
         "name": "workflows",
