@@ -285,6 +285,7 @@ export function mountLocalizedRows() {
     for (const id of TRANSLATOR_ROW_IDS) decorateTranslatorRow(id, isKo, refresh);
     refresh();
     refreshPresetsRowLanguage();
+    refreshCloudSyncRowLanguage();
 }
 
 // Exposed as a global so bada_core.js's existing (event-driven, non-polling) settings-UI
@@ -393,11 +394,138 @@ function buildPresetsRow() {
 }
 
 /**
+ * Cloud Sync (Google Drive) row — 수동 동기화 버튼 + 연동 상태 표시.
+ * 기존 백엔드 엔드포인트:
+ *   GET  /api/bada/cloud/status  → { status, authorized, libs_available, files }
+ *   POST /api/bada/cloud/sync    → { status, message, uploaded, downloaded }
+ * 1차 동기화 대상: presets_data.json / favorites_data.json / gemini_chat_history.json
+ */
+function buildCloudSyncRow() {
+    const row = document.createElement("div");
+    row.id = "bada-v2-cloudsync-row";
+    row.style.cssText = "width:100%; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; box-sizing:border-box;";
+
+    const texts = {
+        statusIdle: "⏸️ Google Drive 연동 대기",
+        statusOk: "✅ Google Drive 연동 완료",
+        statusNoLibs: "⚠️ google-api-python-client 설치 필요",
+        statusNoCreds: "⚠️ credentials.json 없음",
+        statusAuth: "🔑 인증 필요",
+        syncNow: "☁️ 지금 동기화",
+        syncing: "⏳ 동기화 중…",
+        authBtn: "🔑 Google 계정 연동",
+        filesLabel: "대상: presets · favorites · chat history",
+    };
+    const textsEn = {
+        statusIdle: "⏸️ Google Drive not linked",
+        statusOk: "✅ Google Drive linked",
+        statusNoLibs: "⚠️ Install google-api-python-client",
+        statusNoCreds: "⚠️ credentials.json not found",
+        statusAuth: "🔑 Authentication required",
+        syncNow: "☁️ Sync Now",
+        syncing: "⏳ Syncing…",
+        authBtn: "🔑 Link Google Account",
+        filesLabel: "Targets: presets · favorites · chat history",
+    };
+
+    const t = () => (BadaI18n.lang === "ko" ? texts : textsEn);
+
+    const status = document.createElement("span");
+    status.id = "bada-v2-cloudsync-status";
+    status.style.cssText = "font-size:12px; color:#94a3b8;";
+
+    const syncBtn = document.createElement("button");
+    syncBtn.type = "button";
+    syncBtn.id = "bada-v2-cloudsync-btn";
+    syncBtn.style.cssText = "background:linear-gradient(135deg,#0ea5e9 0%,#0284c7 100%); color:#fff; border:1px solid rgba(255,255,255,0.25); padding:6px 14px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 4px 12px rgba(14,165,233,0.3);";
+    syncBtn.textContent = t().syncNow;
+
+    const applyLang = () => {
+        const T = t();
+        syncBtn.textContent = T.syncNow;
+        renderStatus();
+    };
+
+    const renderStatus = async () => {
+        const T = t();
+        status.textContent = T.statusIdle;
+        try {
+            const res = await fetch("/api/bada/cloud/status");
+            const data = await res.json();
+            if (!data.success) {
+                status.textContent = T.statusIdle;
+                return;
+            }
+            if (!data.libs_available) {
+                status.textContent = T.statusNoLibs;
+                syncBtn.style.display = "none";
+            } else if (data.status === "missing_credentials") {
+                status.textContent = T.statusNoCreds;
+            } else if (!data.authorized) {
+                status.textContent = T.statusAuth;
+            } else {
+                status.textContent = T.statusOk;
+            }
+        } catch (_) {
+            status.textContent = T.statusIdle;
+        }
+    };
+
+    syncBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        syncBtn.disabled = true;
+        syncBtn.textContent = t().syncing;
+        try {
+            const res = await fetch("/api/bada/cloud/sync", { method: "POST" });
+            const data = await res.json();
+            if (data.success) {
+                const up = data.uploaded ?? 0;
+                const down = data.downloaded ?? 0;
+                status.textContent = (BadaI18n.lang === "ko")
+                    ? `✅ 동기화 완료 (업로드 ${up} · 다운로드 ${down})`
+                    : `✅ Sync done (upload ${up} · download ${down})`;
+            } else {
+                status.textContent = (BadaI18n.lang === "ko")
+                    ? `❌ ${data.error || data.message || "실패"}`
+                    : `❌ ${data.error || data.message || "Failed"}`;
+            }
+        } catch (err) {
+            status.textContent = (BadaI18n.lang === "ko")
+                ? `❌ 요청 실패: ${err}`
+                : `❌ Request failed: ${err}`;
+        } finally {
+            syncBtn.disabled = false;
+            syncBtn.textContent = t().syncNow;
+            renderStatus();
+        }
+    });
+
+    row.appendChild(status);
+    row.appendChild(syncBtn);
+
+    renderStatus();
+
+    // 언어 전환 시 라벨 갱신 (커스텀 행은 bada_core.js 네이티브 라벨 패스에 안 걸림).
+    row._badaRefreshLanguage = applyLang;
+
+    return row;
+}
+
+/**
  * Re-label the custom-rendered presets row after a language switch.
  * No-op when the row is not on screen. Safe to call on every settings-UI pass.
  */
 function refreshPresetsRowLanguage() {
     const row = document.getElementById("bada-v2-presets-row");
+    row?._badaRefreshLanguage?.();
+}
+
+/**
+ * Re-label the custom-rendered Cloud Sync row after a language switch.
+ * No-op when the row is not on screen. Safe to call on every settings-UI pass.
+ */
+function refreshCloudSyncRowLanguage() {
+    const row = document.getElementById("bada-v2-cloudsync-row");
     row?._badaRefreshLanguage?.();
 }
 
@@ -693,5 +821,19 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
         type: "boolean",
         sortOrder: 150,
         defaultValue: true,
+    });
+
+    // ⑯ Cloud Sync (Google Drive) --------------------------------------------
+    //    Own SECTION ("Cloud Sync") so ComfyUI draws its own divider above it —
+    //    exactly the 3-tier pattern the other rows use. Custom-rendered (sync
+    //    button + live status) because a boolean cannot trigger a REST call.
+    //    Backend: server/gdrive_sync.py via /api/bada/cloud/{status,sync}.
+    add({
+        id: "BadaUtils.CloudSync",
+        section: "Cloud Sync",
+        name: "☁️ Cloud Sync (Google Drive)",
+        sortOrder: 100,
+        defaultValue: null,
+        type: () => buildCloudSyncRow(),
     });
 }

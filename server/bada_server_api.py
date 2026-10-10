@@ -1768,3 +1768,52 @@ def register_bada_api_routes():
         logger.info("[ComfyUI-Bada-Utils] Backend REST API Routes registered successfully ⚡")
     except Exception as e:
         logger.warning(f"[ComfyUI-Bada-Utils] Failed to register API routes: {e}")
+
+
+# =========================================================================
+# 5. Cloud Sync (Google Drive) API — 분리 등록
+#    기존 register_bada_api_routes() 의 코드를 전혀 바꾸지 않고,
+#    클라우드 라우트는 이 전용 함수로 lazy 등록한다. (장애 격리)
+# =========================================================================
+
+def register_cloud_routes():
+    """
+    Google Drive 동기화 REST 엔드포인트를 등록.
+    gdrive_sync 모듈이 없거나(구버전 배포분) 라이브러리 미설치여도
+    이 함수는 조용히 스킵되어 서버 기동에 영향을 주지 않는다.
+    """
+    try:
+        from . import gdrive_sync
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"[ComfyUI-Bada-Utils] Cloud Sync 모듈 로드 실패 (기능 비활성): {exc}")
+        return
+
+    try:
+        routes = PromptServer.instance.routes
+
+        async def cloud_sync_handler(request):
+            """POST /api/bada/cloud/sync — 수동 동기화 트리거 (넌블로킹)."""
+            try:
+                result = await gdrive_sync.sync_gdrive_async()
+                return web.json_response({"success": result.get("status") == "success", **result})
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud sync error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def cloud_status_handler(request):
+            """GET /api/bada/cloud/status — 연동 상태·대상 파일 요약."""
+            try:
+                status = gdrive_sync.get_gdrive_status()
+                status["libs_available"] = gdrive_sync.check_gdrive_libs()
+                status["files"] = gdrive_sync.get_sync_file_details()
+                return web.json_response({"success": True, **status})
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud status error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        routes.post("/api/bada/cloud/sync")(cloud_sync_handler)
+        routes.get("/api/bada/cloud/status")(cloud_status_handler)
+
+        logger.info("[ComfyUI-Bada-Utils] Cloud Sync (Google Drive) routes registered ☁️")
+    except Exception as e:
+        logger.warning(f"[ComfyUI-Bada-Utils] Failed to register Cloud Sync routes: {e}")
