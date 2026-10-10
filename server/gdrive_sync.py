@@ -56,7 +56,7 @@ except ImportError:
     )
 
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
-FOLDER_NAME = 'ComfyUI_BadaUtils_Configs'
+FOLDER_NAME = 'ComfyUI-Bada-Utils-Cloud-Sync'
 MANIFEST_FILE_NAME = 'manifest.json'
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
