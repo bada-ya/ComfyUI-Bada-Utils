@@ -85,6 +85,8 @@ const BADA_SETTINGS_TEXTS = {
 
         detectiveName: "⚓ Node Smart Care (Missing Node Resolver & Model Assigner)",
         detectiveDesc: "Smartly resolves uninstalled missing nodes (red X) and missing models/LoRAs via right-click menu, providing one-click installation and smart auto-assignment.",
+        cloudSyncName: "☁️ Cloud Sync (Google Drive)",
+        cloudSyncDesc: "Back up presets, favorites, Gemini chat history, system prompts and workflows to Google Drive and sync only the changed parts in the background.",
 
         noteHelperName: "📝 Text & Prompt One-Click Translator",
         noteHelperDesc: "Automatically adds a one-click translation button to nodes with text inputs or displayed text.",
@@ -137,6 +139,8 @@ const BADA_SETTINGS_TEXTS = {
 
         detectiveName: "⚓ 노드 스마트 케어 (미싱 노드 복구 & 모델 자동 장착)",
         detectiveDesc: "캔버스 빈 공간 또는 노드 우클릭 시, 미설치 미싱 노드(빨간 X) 탐색/설치 및 누락된 모델/LoRA를 탭별로 한눈에 케어하고 스마트 자동 장착합니다.",
+        cloudSyncName: "☁️ 클라우드 동기화 (Google Drive)",
+        cloudSyncDesc: "프리셋·즐겨찾기·제미나이 채팅 기록·시스템 프롬프트·워크플로우를 Google Drive에 백업하고 변경된 부분만 백그라운드에서 자동 동기화합니다.",
 
         noteHelperName: "📝 텍스트 & 프롬프트 원클릭 번역기",
         noteHelperDesc: "텍스트 입력 또는 표시 위젯이 있는 노드에 번역 버튼을 자동으로 추가합니다.",
@@ -341,6 +345,14 @@ const BADA_UNIFIED_SETTINGS = {
         type: "boolean",
         sortOrder: 150,
         defaultValue: true
+    },
+    cloudSync: {
+        id: "BadaUtils.CloudSync",
+        category: ["Bada Utils", "CloudSync"],
+        name: "☁️ Cloud Sync (Google Drive)",
+        type: "boolean",
+        sortOrder: 100,
+        defaultValue: null
     }
 };
 
@@ -894,6 +906,9 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.missingDetective.id) {
                 targetTitle = texts.detectiveName;
                 targetDesc = texts.detectiveDesc;
+            } else if (id === BADA_UNIFIED_SETTINGS.cloudSync.id) {
+                targetTitle = texts.cloudSyncName;
+                targetDesc = texts.cloudSyncDesc;
             }
 
             if (!targetTitle) return;

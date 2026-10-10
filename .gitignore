@@ -11,6 +11,16 @@ config.json
 favorites_data.json
 *.bak
 
+# 🔐 Google OAuth 개인 인증 토큰 — 절대 배포 금지.
+# 구글 로그인 후 자동 생성되는 사용자 개인 토큰이다. 반면 credentials.json(OAuth
+# 클라이언트 ID)은 개발자가 의도적으로 배포한다 — 사용자는 이 파일을 내려받아
+# 구글 로그인 + 동의만 하면 클라우드 동기화를 쓸 수 있다. 토큰만은 차단.
+token.json
+
+# 클라우드 동기화 로컬 상태/매니페스트 (개인 데이터, 배포 불필요).
+.gdrive_manifest.json
+.gdrive_sync_state.json
+
 # 🔞 제미나이 채팅 기록 — 개인 데이터.
 # 사용자가 만든 프롬프트와 이미지가 base64로 들어 있으므로 저장소에 커밋되면
 # 그대로 공개된다. 백업은 앱 안의 「📤 백업」 버튼(.json 다운로드)으로 한다.

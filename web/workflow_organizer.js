@@ -106,7 +106,96 @@ class WorkflowsPlusManager {
 
         await this.loadFavorites();
         await this.loadTree();
+        this.checkGDriveStatus();
         console.log("[BadaUtils] Workflows+ Manager initialized cleanly.");
+    }
+
+    /**
+     * Cloud Sync (Google Drive) — 신규 엔진(gdrive_sync.py) 상태 조회.
+     * GET /api/bada/cloud/status → { success, libs_available, status, authorized, message }
+     *   status: missing_libs | missing_credentials | authenticated | unauthenticated
+     */
+    async checkGDriveStatus() {
+        try {
+            const res = await fetch("/api/bada/cloud/status");
+            if (!res.ok) return null;
+            const data = await res.json();
+            const btn = document.querySelector("#qol-btn-gdrive-sync");
+            if (btn) {
+                btn.classList.remove("gdrive-authed", "gdrive-unauth");
+                if (data.authorized) {
+                    btn.classList.add("gdrive-authed");
+                    btn.title = BadaI18n.lang === "ko"
+                        ? "Google Drive 클라우드 동기화 (연동됨)"
+                        : "Google Drive cloud sync (linked)";
+                } else {
+                    btn.classList.add("gdrive-unauth");
+                    const msg = data.message || (BadaI18n.lang === "ko" ? "인증 필요" : "auth required");
+                    btn.title = BadaI18n.lang === "ko"
+                        ? `Google Drive 클라우드 동기화 (${msg})`
+                        : `Google Drive cloud sync (${msg})`;
+                }
+            }
+            return data;
+        } catch (e) {
+            console.warn("[Cloud] Status check warning:", e);
+            return null;
+        }
+    }
+
+    /**
+     * Cloud Sync (Google Drive) — 수동 동기화 트리거.
+     * POST /api/bada/cloud/sync → { success, status, message, uploaded, downloaded }
+     * 성공 판정은 success 플래그 + status==="success" 모두 확인 (신규 엔진 계약).
+     */
+    async triggerGDriveSync() {
+        const btn = document.querySelector("#qol-btn-gdrive-sync");
+        const iconSpan = btn?.querySelector(".gdrive-icon");
+        try {
+            const status = await this.checkGDriveStatus();
+
+            if (status && !status.authorized) {
+                if (status.status === "missing_libs") {
+                    this.showToast(
+                        BadaI18n.lang === "ko"
+                            ? "google-api-python-client 설치가 필요합니다.\npip install google-api-python-client google-auth-oauthlib"
+                            : "google-api-python-client is required.\npip install google-api-python-client google-auth-oauthlib",
+                        true
+                    );
+                    return;
+                }
+                if (status.status === "missing_credentials") {
+                    this.showToast(
+                        BadaI18n.lang === "ko"
+                            ? "credentials.json 파일이 상위 폴더에 필요합니다."
+                            : "credentials.json is required in the parent folder.",
+                        true
+                    );
+                    return;
+                }
+                // unauthenticated: OAuth 진행을 위해 sync 시도로 넘어간다.
+            }
+
+            if (iconSpan) iconSpan.classList.add("bada-gdrive-syncing");
+            this.showToast(BadaI18n.lang === "ko" ? "Google Drive 비동기 동기화 시작..." : "Starting Google Drive async sync...");
+
+            const res = await fetch("/api/bada/cloud/sync", { method: "POST" });
+            const data = await res.json();
+
+            if (res.ok && data.success && data.status === "success") {
+                this.showToast(data.message || (BadaI18n.lang === "ko" ? "Google Drive 동기화 완료!" : "Google Drive sync complete!"));
+                await this.loadTree();
+            } else if (data.status === "busy") {
+                this.showToast(data.message || (BadaI18n.lang === "ko" ? "이미 동기화가 진행 중입니다." : "Sync already in progress."));
+            } else {
+                this.showToast(data.message || (BadaI18n.lang === "ko" ? "동기화 실패" : "Sync failed"), true);
+            }
+        } catch (e) {
+            this.showToast((BadaI18n.lang === "ko" ? "동기화 오류: " : "Sync error: ") + e.message, true);
+        } finally {
+            if (iconSpan) iconSpan.classList.remove("bada-gdrive-syncing");
+            this.checkGDriveStatus();
+        }
     }
 
     injectStyles() {
@@ -287,6 +376,26 @@ class WorkflowsPlusManager {
             .qol-icon-btn.has-active {
                 border-color: #818cf8;
                 color: #a5b4fc;
+            }
+
+            /* Cloud Sync (Google Drive) — spinning icon during async sync */
+            @keyframes bada-gdrive-spin {
+                from { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            .bada-gdrive-syncing {
+                display: inline-block !important;
+                animation: bada-gdrive-spin 1s linear infinite !important;
+            }
+            /* Unauthenticated / needs attention → yellow */
+            .qol-icon-btn.gdrive-unauth {
+                border-color: #eab308 !important;
+                color: #fef08a !important;
+            }
+            /* Authenticated / linked → blue */
+            .qol-icon-btn.gdrive-authed {
+                border-color: #0284c7 !important;
+                color: #38bdf8 !important;
             }
 
             /* Root Drop Zone: Only visible during drag */
@@ -672,6 +781,12 @@ class WorkflowsPlusManager {
                 border-radius: 9999px;
                 line-height: 16px;
                 font-weight: 600;
+            }
+            /* Browse 배지는 회색 계열로 — 노란 Bookmark 배지와 시각적으로 구분. */
+            .qol-section-header.browse-header .qol-section-count {
+                background: rgba(148, 163, 184, 0.18);
+                color: #e2e8f0;
+                border: 1px solid rgba(148, 163, 184, 0.38);
             }
 
             /* Bookmarks Container & Rows */
@@ -1557,6 +1672,7 @@ class WorkflowsPlusManager {
                 <button class="qol-icon-btn" id="qol-btn-new-folder" title="${BadaI18n.t("wf_btn_new_folder")}">➕</button>
                 <button class="qol-icon-btn" id="qol-btn-toggle-all" title="${BadaI18n.t("wf_btn_toggle_all")}">📂</button>
                 <button class="qol-icon-btn" id="qol-btn-refresh" title="${BadaI18n.t("wf_btn_refresh")}">🔄</button>
+                <button class="qol-icon-btn" id="qol-btn-gdrive-sync" title="${BadaI18n.lang === "ko" ? "Google Drive 클라우드 동기화" : "Google Drive cloud sync"}"><span class="gdrive-icon">☁️</span></button>
             </div>
 
             <div class="qol-root-dropzone" id="qol-root-dropzone">
@@ -1570,6 +1686,9 @@ class WorkflowsPlusManager {
 
         // Apply saved font size settings
         this.applyFontSize(this.fontSizeIndex, false);
+
+        // Cloud Sync: 패널이 DOM에 붙은 뒤 구름 버튼 상태를 조회한다.
+        setTimeout(() => this.checkGDriveStatus(), 200);
 
         // Toolbar Events
         const searchInput = plusPanel.querySelector(".qol-search-input");
@@ -1621,6 +1740,11 @@ class WorkflowsPlusManager {
         plusPanel.querySelector("#qol-btn-refresh").addEventListener("click", async () => {
             await this.loadTree();
             this.showToast(BadaI18n.lang === "ko" ? "새로고침 완료" : "Workflows refreshed");
+        });
+
+        // Cloud Sync (Google Drive) — 신규 엔진 /api/bada/cloud/* 연동
+        plusPanel.querySelector("#qol-btn-gdrive-sync")?.addEventListener("click", () => {
+            this.triggerGDriveSync();
         });
 
         // Root Dropzone Events
@@ -2658,10 +2782,38 @@ class WorkflowsPlusManager {
         }
 
         // 3. Render Browse Section Header
+        //    총 워크플로우 수를 세어 Bookmark 배지와 동일한 스타일로 옆에 표시.
+        //    검색 중이면 필터 결과 수, 아니면 전체 수 (createFolderNode 필터와 동일 기준).
+        const countWorkflows = (node) => {
+            let files = node.files || [];
+            let folders = node.folders || [];
+            if (query) {
+                const q = query.toLowerCase();
+                files = files.filter(f =>
+                    f.name.toLowerCase().includes(q) ||
+                    f.filename.toLowerCase().includes(q) ||
+                    (f.notes && f.notes.toLowerCase().includes(q))
+                );
+                folders = folders.filter(f => {
+                    const matchSelf = f.name.toLowerCase().includes(q);
+                    const matchChildren = f.files.some(cf =>
+                        cf.name.toLowerCase().includes(q) ||
+                        (cf.notes && cf.notes.toLowerCase().includes(q))
+                    );
+                    return matchSelf || matchChildren;
+                });
+            }
+            let n = files.length;
+            folders.forEach(f => { n += countWorkflows(f); });
+            return n;
+        };
+        const totalWorkflowCount = countWorkflows(this.treeData);
+
         const browseHeader = document.createElement("div");
         browseHeader.className = "qol-section-header browse-header";
         browseHeader.innerHTML = `
             <span class="qol-section-title">Browse</span>
+            <span class="qol-section-count">${totalWorkflowCount}</span>
         `;
         treeScroll.appendChild(browseHeader);
 

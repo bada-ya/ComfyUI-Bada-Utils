@@ -401,9 +401,12 @@ function buildPresetsRow() {
  * 1차 동기화 대상: presets_data.json / favorites_data.json / gemini_chat_history.json
  */
 function buildCloudSyncRow() {
+    // 세로(column) 스택: status+버튼 한 줄 / 토글 / 펼침본문 순.
+    // (기존 flex-wrap 가로 배치는 ComfyUI 값 셀 높이/오버플로우에 wrap된
+    //  아래 줄이 잘려 토글이 안 보이던 원인 → column 으로 확실히 스택.)
     const row = document.createElement("div");
     row.id = "bada-v2-cloudsync-row";
-    row.style.cssText = "width:100%; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; box-sizing:border-box;";
+    row.style.cssText = "width:100%; display:flex; flex-direction:column; align-items:stretch; gap:8px; box-sizing:border-box;";
 
     const texts = {
         statusIdle: "⏸️ Google Drive 연동 대기",
@@ -430,9 +433,75 @@ function buildCloudSyncRow() {
 
     const t = () => (BadaI18n.lang === "ko" ? texts : textsEn);
 
+    // [항목 라벨] 서버가 내려주는 파일명 → 사용자가 이해하는 기능명.
+    // engines_registry.json 하나가 Gemini·Prompt Generator 시스템 프롬프트를 모두 담는다.
+    const FILE_LABELS = {
+        "presets_data.json":        { ko: "⚓ 프리셋 (Regional Prompt)", en: "⚓ Presets (Regional Prompt)" },
+        "favorites_data.json":      { ko: "⭐ 즐겨찾기", en: "⭐ Favorites" },
+        "gemini_chat_history.json": { ko: "⚓ 제미나이 채팅 기록", en: "⚓ Gemini chat history" },
+        "engines_registry.json":    { ko: "⚓ 시스템 프롬프트 (Gemini · Prompt Generator)", en: "⚓ System prompts (Gemini · Prompt Generator)" },
+        "workflows":                { ko: "🗂️ 워크플로우 파일", en: "🗂️ Workflow files" },
+    };
+
+    // [시간 포맷] epoch(초) → 로컬 "YYYY-MM-DD HH:MM"
+    const fmtTime = (ts) => {
+        if (!ts) return null;
+        try {
+            const d = new Date(ts * 1000);
+            const p = (n) => String(n).padStart(2, "0");
+            return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+        } catch (_) { return null; }
+    };
+
+    // [용량 포맷] bytes → "1.2 KB" / "3.4 MB"
+    const fmtSize = (b) => {
+        if (!b || b <= 0) return "";
+        const kb = b / 1024;
+        if (kb < 1024) return `${kb.toFixed(1)} KB`;
+        return `${(kb / 1024).toFixed(1)} MB`;
+    };
+
     const status = document.createElement("span");
     status.id = "bada-v2-cloudsync-status";
     status.style.cssText = "font-size:12px; color:#94a3b8;";
+
+    // status + 동기화 버튼을 한 줄로 묶는 상단 행 (column 레이아웃의 첫 줄).
+    const topRow = document.createElement("div");
+    topRow.id = "bada-v2-cloudsync-toprow";
+    topRow.style.cssText = "width:100%; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; box-sizing:border-box;";
+
+    // 토글 버튼 (▸/▾ + 라벨). row 직접 자식으로 둬서 값 셀 높이에 잘리지 않는다.
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.id = "bada-v2-cloudsync-toggle";
+    toggle.style.cssText = "background:rgba(148,163,184,0.1); border:1px solid rgba(148,163,184,0.28); border-radius:5px; padding:4px 10px; margin:0; color:#cbd5e1; font-size:11px; cursor:pointer; text-align:left; width:100%; display:flex; align-items:center; gap:6px; box-sizing:border-box;";
+    row.appendChild(toggle);
+
+    // 펼쳐질 본문. 기본 숨김(접힘). row 직접 자식.
+    const detailBody = document.createElement("div");
+    detailBody.id = "bada-v2-cloudsync-body";
+    detailBody.style.cssText = "display:none; flex-direction:column; margin-top:2px;";
+    row.appendChild(detailBody);
+
+    let expanded = false; // 접힘 상태 유지 (renderStatus 재호출과 무관)
+    const paintToggle = () => {
+        const isKo = (BadaI18n.lang === "ko");
+        const arrow = expanded ? "▾" : "▸";
+        const label = isKo ? "동기화 상세" : "Sync details";
+        toggle.textContent = `${arrow} ${label}`;
+        detailBody.style.display = expanded ? "flex" : "none";
+    };
+    toggle.addEventListener("click", (e) => {
+        e.stopPropagation();
+        expanded = !expanded;
+        paintToggle();
+    });
+    // 마우스 올리면 살짝 밝게 (버튼임을 인지).
+    toggle.addEventListener("mouseenter", () => { toggle.style.background = "rgba(148,163,184,0.22)"; });
+    toggle.addEventListener("mouseleave", () => { toggle.style.background = "rgba(148,163,184,0.1)"; });
+
+    // 생성 직후 즉시 텍스트 세팅 — 안 하면 빈 버튼(높이 0)이라 안 보인다.
+    paintToggle();
 
     const syncBtn = document.createElement("button");
     syncBtn.type = "button";
@@ -449,6 +518,7 @@ function buildCloudSyncRow() {
     const renderStatus = async () => {
         const T = t();
         status.textContent = T.statusIdle;
+        detailBody.textContent = "";
         try {
             const res = await fetch("/api/bada/cloud/status");
             const data = await res.json();
@@ -459,13 +529,69 @@ function buildCloudSyncRow() {
             if (!data.libs_available) {
                 status.textContent = T.statusNoLibs;
                 syncBtn.style.display = "none";
-            } else if (data.status === "missing_credentials") {
+                return;
+            }
+            syncBtn.style.display = "";
+
+            if (data.status === "missing_credentials") {
                 status.textContent = T.statusNoCreds;
             } else if (!data.authorized) {
                 status.textContent = T.statusAuth;
             } else {
                 status.textContent = T.statusOk;
             }
+
+            // ── 보조 정보: 항목별 대상 목록 + 마지막 동기화 결과 ──
+            const files = Array.isArray(data.files) ? data.files : [];
+            const ls = data.last_sync || {};
+            const when = fmtTime(ls.last_sync_at);
+            const up = ls.uploaded ?? 0;
+            const down = ls.downloaded ?? 0;
+            const isKo = (BadaI18n.lang === "ko");
+
+            // 본문만 비우고 다시 채운다 (토글 헤더는 유지).
+            detailBody.textContent = "";
+
+            const addLine = (leftHtml, rightText) => {
+                const line = document.createElement("div");
+                line.style.cssText = "display:flex; justify-content:space-between; gap:16px; line-height:1.6;";
+                const left = document.createElement("span");
+                left.innerHTML = leftHtml;
+                const right = document.createElement("span");
+                right.textContent = rightText;
+                right.style.cssText = "color:#475569; white-space:nowrap;";
+                line.appendChild(left);
+                line.appendChild(right);
+                detailBody.appendChild(line);
+            };
+
+            // 항목별 한 줄씩 (존재 ✅/➖ · 갯수 + 용량)
+            for (const f of files) {
+                const lbl = FILE_LABELS[f.name] || { ko: f.name, en: f.name };
+                const label = isKo ? lbl.ko : lbl.en;
+                const mark = f.exists ? "✅" : "➖";
+                const sz = fmtSize(f.size);
+                const cnt = (typeof f.count === "number") ? `${f.count}${isKo ? "개" : ""}` : "";
+
+                if (!f.exists) {
+                    addLine(`${mark} ${label}`, isKo ? "없음" : "absent");
+                    continue;
+                }
+                // 존재 시: 갯수(있으면) · 용량(있으면) → "14개 · 660 B" 형태.
+                const parts = [cnt, sz].filter(Boolean);
+                addLine(`${mark} ${label}`, parts.length ? parts.join(" · ") : (isKo ? "있음" : "present"));
+            }
+
+            // 마지막 동기화 한 줄 (구분선 위)
+            const syncLine = document.createElement("div");
+            syncLine.style.cssText = "margin-top:3px; padding-top:3px; border-top:1px solid rgba(148,163,184,0.3); color:#94a3b8;";
+            syncLine.textContent = when
+                ? (isKo ? `마지막 동기화 ${when} (↑${up} ↓${down})` : `Last sync ${when} (↑${up} ↓${down})`)
+                : (isKo ? "아직 동기화한 적 없음" : "Never synced yet");
+            detailBody.appendChild(syncLine);
+
+            // 토글 헤더 텍스트/상태를 현재 언어·접힘 상태에 맞게 동기화.
+            paintToggle();
         } catch (_) {
             status.textContent = T.statusIdle;
         }
@@ -500,8 +626,11 @@ function buildCloudSyncRow() {
         }
     });
 
-    row.appendChild(status);
-    row.appendChild(syncBtn);
+    // column 레이아웃: 1행 topRow(status + 버튼) → 2행 toggle → 3행 detailBody.
+    // toggle·detailBody는 위에서 이미 row 에 직접 붙였다. 여기선 첫 줄만 채운다.
+    topRow.appendChild(status);
+    topRow.appendChild(syncBtn);
+    row.insertBefore(topRow, row.firstChild); // topRow 를 맨 위(status+버튼 한 줄)로.
 
     renderStatus();
 

@@ -1806,6 +1806,8 @@ def register_cloud_routes():
                 status = gdrive_sync.get_gdrive_status()
                 status["libs_available"] = gdrive_sync.check_gdrive_libs()
                 status["files"] = gdrive_sync.get_sync_file_details()
+                # 마지막 동기화 결과(시각/업·다운로드) 병합 — 새로고침 후에도 유지.
+                status["last_sync"] = gdrive_sync.get_last_sync_state()
                 return web.json_response({"success": True, **status})
             except Exception as e:
                 logger.error(f"[ComfyUI-Bada-Utils] Cloud status error: {e}")
