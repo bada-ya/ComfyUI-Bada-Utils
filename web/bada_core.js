@@ -450,31 +450,22 @@ let isPresetsExpanded = true;
             margin-bottom: 8px !important;
             border-color: rgba(255, 255, 255, 0.08) !important;
         }
-        /* Divider removal (2026-10-03). ComfyUI forces a "my-8 border-t border-border-default"
-           div as the FIRST child of every .setting-group, so 15 rows meant 14 painted
-           lines cutting the category into unrelated-looking fragments.
-
-           This used to clear the line for exactly two ids (프리셋 뱃지 위치 and the presets
-           panel), because only that block was then known to belong together. The user asked
-           for the whole new Bada Utils category to read as ONE block, so the rule is
-           generalised to every v2 row.
-
-           Only the PAINTED LINE is removed; the 8px margin rhythm from the rule above is
-           kept, so spacing does not collapse. Selector is the BadaUtils PREFIX, which after
-           Phase 3 covers every Bada row there is.
+        /* Divider handling (2026-10-10, 3-tier). ComfyUI draws ONE divider per shared
+           SECTION, so 7 sections mean 6 lines only between sections — exactly like
+           Crystools / VHS / KJNodes. No hiding: the line is the section boundary the
+           user asked for. Only the vertical rhythm is tuned (kept).
 
            NOTE: no backticks allowed in this block (JS template literal). */
         .setting-group:has([data-setting-id^="BadaUtils"]) > .my-8 {
-            border-top-color: transparent !important;
+            border-top-color: rgba(255, 255, 255, 0.14) !important;
         }
-        /* Sub-group headings such as "Language", "NoteHelper", "Sidebar" are internal
-           grouping labels that duplicate the row title right below them, so they were
-           always meant to be hidden. Distinguish the two kinds of h3 by class, measured
-           in the live dialog:
-             - text-xs font-bold text-text-secondary uppercase -> the CATEGORY MENU
-               (General / Other / ...). Must stay visible.
-             - text-base                               -> per-subgroup label.
-               Hidden; a blanket h3 display:none would kill the menu too.
+        /* Section headings (2026-10-10, 3-tier). category[1] (Language, Translation,
+           Sidebar, Canvas, Presets, Image Fix, Smart Care) is drawn by ComfyUI as the
+           bold line above each block, same as other extensions. HIDDEN per user request
+           2026-10-10: the divider line alone marks the section boundary. The h3 node and
+           the .my-8 divider are SEPARATE nodes, so hiding h3 does not move or duplicate
+           any divider. Only the CATEGORY MENU guard stays: text-xs uppercase menu labels
+           must never be touched.
            NOTE: no backticks allowed in this block (JS template literal). */
         .setting-group:has([data-setting-id^="BadaUtils"]) > h3.text-base {
             display: none !important;
@@ -846,11 +837,14 @@ function applyBilingualSettingsUI(targetLang) {
             // endless append -> observe -> append loop and the tab freezes. Both writes
             // below are therefore content-guarded (desc is only created when absent, and
             // only rewritten when the text actually changes), so a second pass is a no-op.
-            if (row.__badaDescApplied === `${targetLang || lang}|${isKo}`) return;
-            row.__badaDescApplied = `${targetLang || lang}|${isKo}`;
-
+            // GUARD ORDER (2026-10-10): formLabel lookup FIRST. If the row's label is not
+            // rendered yet (dialog just opened, search filter mid-pass), return WITHOUT
+            // stamping the guard so the next pass retries instead of skipping forever.
             const formLabel = row.querySelector(".form-label, label");
             if (!formLabel) return;
+
+            if (row.__badaDescApplied === `${targetLang || lang}|${isKo}`) return;
+            row.__badaDescApplied = `${targetLang || lang}|${isKo}`;
 
             let targetTitle = null;
             let targetDesc = null;

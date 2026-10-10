@@ -7,20 +7,15 @@
 //   a MutationObserver). Every new feature risked breaking the whole dialog. v2 is the
 //   clean replacement: native row types only, and no reliance on internal class names.
 //
-// MEASURED CONSTRAINT (Playwright, against this ComfyUI build) — READ BEFORE EDITING
-//   ComfyUI renders AT MOST ONE SETTING PER [category, subgroup] PAIR. Registering several
-//   rows that share a subgroup silently DROPS every row but the last one; there is no error
-//   and no console warning. Controlled experiment on a live instance:
-//
-//     3 rows, ONE shared subgroup   -> rendered: ["EXP.A3"]        (2 of 3 lost)
-//     3 rows, one subgroup each     -> rendered: ["EXP.B1","EXP.B2","EXP.B3"]
-//
-//   So every v2 row MUST carry its own subgroup. An earlier revision of this file put all
-//   15 rows in a single "General" subgroup on the theory that one group means zero forced
-//   dividers — that rendered exactly ONE row (the last registered). The "no dividers" look
-//   is a CSS concern, not a grouping concern: bada_core.js already hides the per-subgroup
-//   `> h3.text-base` labels and tightens `.my-8` for `[data-setting-id^="BadaUtils"]`.
-//   A regression test pins the row count so this cannot silently regress.
+// 3-TIER CATEGORIES (2026-10-10) — READ BEFORE EDITING
+//   The old rule below ("one subgroup per row") was measured against a 2-ELEMENT
+//   category ([Bada Utils, RowName]). It is REFUTED for 3-element categories:
+//   Crystools, VHS and KJNodes all register [Extension, Section, RowLabel] with a
+//   SHARED section, and every row renders. So category[1] is the shared section
+//   (7 total, user-defined 2026-10-10), category[2] is the unique row label taken
+//   from the setting id. Dividers then fall ONLY between sections — drawn by ComfyUI
+//   itself, nothing to hide, no observer needed for them.
+//   A regression test pins the row count so drops cannot silently regress.
 //
 // PHASE 1 STRATEGY (strangler pattern)
 //   1. The canonical `BadaUtils.*` setting IDs move to THIS module (it is authoritative).
@@ -447,16 +442,22 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     })();
     const resolvedLang = storedLang || lang;
 
-    // The subgroup label itself is hidden by bada_core.js's `> h3.text-base` rule, so the
-    // per-row subgroup is invisible in the UI — it exists only to keep the rows distinct.
-    const add = (config) => addSetting({
-        ...config,
-        category: [BADA_V2_CATEGORY, String(config.id).replace(/^BadaUtils\./, "")],
-    });
+    // 3-tier: category[1] is the shared SECTION (7 total), category[2] is the
+    // unique ROW LABEL. The section comes from the caller; row label from the id.
+    // The subgroup headings are VISIBLE (ComfyUI draws them as the bold line, like
+    // Crystools/VHS/KJNodes) — bada_core.js no longer hides them.
+    const add = (config) => {
+        const { section, ...rest } = config;
+        return addSetting({
+            ...rest,
+            category: [BADA_V2_CATEGORY, section, String(config.id).replace(/^BadaUtils\./, "")],
+        });
+    };
 
     // ① UI Language -----------------------------------------------------------
     add({
         id: "BadaUtils.Language",
+        section: "Language",
         name: "🌐 UI Language",
         type: "combo",
         sortOrder: 900,
@@ -515,6 +516,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     // ② Text & Prompt one-click translator (native toggle; lists are native rows below)
     add({
         id: "BadaUtils.NoteHelper",
+        section: "Translation",
         name: "📝 Text & Prompt One-Click Translator",
         type: "boolean",
         sortOrder: 850,
@@ -529,6 +531,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     //    mountLocalizedRows() instead - see its comment for the measured detail.
     add({
         id: "BadaUtils.TranslationBlacklist",
+        section: "Translation",
         name: "📝 Translation Blacklist",
         type: "text",
         sortOrder: 840,
@@ -536,6 +539,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     });
     add({
         id: "BadaUtils.TranslationWhitelist",
+        section: "Translation",
         name: "➕ Translation Forced-Add List",
         type: "text",
         sortOrder: 839,
@@ -559,6 +563,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     // ⑤ Sidebar workflows+ folder management ----------------------------------
     add({
         id: "BadaUtils.SidebarOrganizer",
+        section: "Sidebar",
         name: "📁 Sidebar Workflows+ Folder Management",
         type: "boolean",
         sortOrder: 800,
@@ -573,6 +578,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     //    row (its id mapping matches), so it looks identical to the legacy category.
     add({
         id: "BadaUtils.LegacyManagerCacheRefresh",
+        section: "Sidebar",
         name: "🧩 Legacy Manager Node-Name Cache Refresh",
         type: "boolean",
         sortOrder: 820,
@@ -582,6 +588,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     // ⑦ Save As folder picker -------------------------------------------------
     add({
         id: "BadaUtils.SaveAsFolderPicker",
+        section: "Sidebar",
         name: "💾 Save As Folder Picker",
         type: "boolean",
         sortOrder: 790,
@@ -594,6 +601,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     // ⑧ Mouse wheel zoom / middle-click pan fixer -----------------------------
     add({
         id: "BadaUtils.MouseFix",
+        section: "Canvas",
         name: "🖱️ Mouse Wheel Zoom & Middle-Click Pan Fixer",
         type: "boolean",
         sortOrder: 700,
@@ -603,6 +611,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     // ⑨ Compact sidebar -------------------------------------------------------
     add({
         id: "BadaUtils.CompactSidebar",
+        section: "Canvas",
         name: "📐 Compact Sidebar",
         type: "boolean",
         sortOrder: 650,
@@ -613,6 +622,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     // ⑩ Clean blank canvas startup -------------------------------------------
     add({
         id: "BadaUtils.BlankStartup",
+        section: "Canvas",
         name: "🧼 Clean Blank Canvas Startup",
         type: "boolean",
         sortOrder: 600,
@@ -622,6 +632,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     // ⑪ Global presets badges -------------------------------------------------
     add({
         id: "BadaUtils.ShowPresetBadges",
+        section: "Presets",
         name: "🏷️ Global Presets",
         type: "boolean",
         sortOrder: 500,
@@ -632,6 +643,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     // ⑫ Preset badge position -------------------------------------------------
     add({
         id: "BadaUtils.PresetBadgePosition",
+        section: "Presets",
         name: "🏷️ Preset Badge Position",
         type: "combo",
         options: PRESET_POSITION_OPTIONS,
@@ -647,6 +659,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     //    overview modal, which is the same modal the legacy row's popup button opened.
     add({
         id: "BadaUtils.GlobalPresetsPanel",
+        section: "Presets",
         name: "Global Presets",
         sortOrder: 400,
         defaultValue: null,
@@ -656,6 +669,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     // ⑭ Clipboard & LoadImage auto-error fixer --------------------------------
     add({
         id: "BadaUtils.LoadImageClipboardFix",
+        section: "Image Fix",
         name: "📋 Clipboard & LoadImage Auto-Error Fixer",
         type: "boolean",
         sortOrder: 300,
@@ -674,6 +688,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
     // ⑮ Node smart care -------------------------------------------------------
     add({
         id: "BadaUtils.MissingNodeDetective",
+        section: "Smart Care",
         name: "🩺 Node Smart Care (Missing Node Resolver & Model Assigner)",
         type: "boolean",
         sortOrder: 150,
