@@ -37,7 +37,7 @@ def _ensure_cloud_deps():
     except Exception:
         return  # find_spec error → skip install attempt (protect startup).
 
-    logger.warning(
+    logger.info(
         "[ComfyUI-Bada-Utils] Installing Cloud Sync dependencies "
         "(google-api-python-client)... first run only, may take a moment; "
         "usable this session once done."
