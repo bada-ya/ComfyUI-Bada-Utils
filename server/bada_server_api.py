@@ -1808,14 +1808,48 @@ def register_cloud_routes():
                 status["files"] = gdrive_sync.get_sync_file_details()
                 # 마지막 동기화 결과(시각/업·다운로드) 병합 — 새로고침 후에도 유지.
                 status["last_sync"] = gdrive_sync.get_last_sync_state()
+                # 현재 동기화 진행 여부 (폴링 없이 열 때 1회 질의).
+                status["syncing"] = gdrive_sync.is_syncing()
+                # 진행 중 분모/분자 스냅샷 — WS를 놓친 늦은 설정창이 숫자를 복원.
+                try:
+                    status["progress"] = gdrive_sync.get_last_progress()
+                except Exception:
+                    status["progress"] = {}
                 return web.json_response({"success": True, **status})
             except Exception as e:
                 logger.error(f"[ComfyUI-Bada-Utils] Cloud status error: {e}")
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
+        async def cloud_cancel_handler(request):
+            """POST /api/bada/cloud/cancel — 진행 중인 동기화 중단 요청."""
+            try:
+                result = gdrive_sync.request_sync_cancel()
+                return web.json_response({"success": True, **result})
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud cancel error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def cloud_remote_counts_handler(request):
+            """GET /api/bada/cloud/remote-counts — 팝업 열 때 1회: 원격 개수+경로."""
+            try:
+                snap = gdrive_sync.get_remote_counts_snapshot()
+                return web.json_response({"success": snap.get("success", False), **snap})
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud remote-counts error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
         routes.post("/api/bada/cloud/sync")(cloud_sync_handler)
         routes.get("/api/bada/cloud/status")(cloud_status_handler)
+        routes.post("/api/bada/cloud/cancel")(cloud_cancel_handler)
+        routes.get("/api/bada/cloud/remote-counts")(cloud_remote_counts_handler)
 
         logger.info("[ComfyUI-Bada-Utils] Cloud Sync (Google Drive) routes registered ☁️")
+
+        # 기동 직후 1회 자동 동기화 예약 (백그라운드, 기동 차단 없음).
+        # 미인증 상태면 내부에서 조용히 스킵 → OAuth 팝업이 기동을 방해하지 않는다.
+        try:
+            gdrive_sync.schedule_startup_autosync()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[ComfyUI-Bada-Utils] Startup auto-sync schedule failed: {e}")
     except Exception as e:
         logger.warning(f"[ComfyUI-Bada-Utils] Failed to register Cloud Sync routes: {e}")

@@ -410,12 +410,13 @@ function buildCloudSyncRow() {
 
     const texts = {
         statusIdle: "⏸️ Google Drive 연동 대기",
-        statusOk: "✅ Google Drive 연동 완료",
+        statusOk: "✅ Google Drive 연동됨",
         statusNoLibs: "⚠️ google-api-python-client 설치 필요",
         statusNoCreds: "⚠️ credentials.json 없음",
         statusAuth: "🔑 인증 필요",
         syncNow: "☁️ 지금 동기화",
-        syncing: "⏳ 동기화 중…",
+        syncing: "⏳ 동기화 중… (누르면 중단)",
+        cancelling: "⏳ 중단 중…",
         authBtn: "🔑 Google 계정 연동",
         filesLabel: "대상: presets · favorites · chat history",
     };
@@ -426,22 +427,16 @@ function buildCloudSyncRow() {
         statusNoCreds: "⚠️ credentials.json not found",
         statusAuth: "🔑 Authentication required",
         syncNow: "☁️ Sync Now",
-        syncing: "⏳ Syncing…",
+        syncing: "⏳ Syncing… (click to cancel)",
+        cancelling: "⏳ Cancelling…",
         authBtn: "🔑 Link Google Account",
         filesLabel: "Targets: presets · favorites · chat history",
     };
 
     const t = () => (BadaI18n.lang === "ko" ? texts : textsEn);
 
-    // [항목 라벨] 서버가 내려주는 파일명 → 사용자가 이해하는 기능명.
-    // engines_registry.json 하나가 Gemini·Prompt Generator 시스템 프롬프트를 모두 담는다.
-    const FILE_LABELS = {
-        "presets_data.json":        { ko: "⚓ 프리셋 (Regional Prompt)", en: "⚓ Presets (Regional Prompt)" },
-        "favorites_data.json":      { ko: "⭐ 즐겨찾기", en: "⭐ Favorites" },
-        "gemini_chat_history.json": { ko: "⚓ 제미나이 채팅 기록", en: "⚓ Gemini chat history" },
-        "engines_registry.json":    { ko: "⚓ 시스템 프롬프트 (Gemini · Prompt Generator)", en: "⚓ System prompts (Gemini · Prompt Generator)" },
-        "workflows":                { ko: "🗂️ 워크플로우 파일", en: "🗂️ Workflow files" },
-    };
+    // 항목별 표·용량 포맷은 팝업(cloud_sync_detail_modal.js)으로 이관.
+    // 행에는 마지막 동기화 시각만 남기므로 fmtTime만 유지.
 
     // [시간 포맷] epoch(초) → 로컬 "YYYY-MM-DD HH:MM"
     const fmtTime = (ts) => {
@@ -453,14 +448,6 @@ function buildCloudSyncRow() {
         } catch (_) { return null; }
     };
 
-    // [용량 포맷] bytes → "1.2 KB" / "3.4 MB"
-    const fmtSize = (b) => {
-        if (!b || b <= 0) return "";
-        const kb = b / 1024;
-        if (kb < 1024) return `${kb.toFixed(1)} KB`;
-        return `${(kb / 1024).toFixed(1)} MB`;
-    };
-
     const status = document.createElement("span");
     status.id = "bada-v2-cloudsync-status";
     status.style.cssText = "font-size:12px; color:#94a3b8;";
@@ -470,31 +457,36 @@ function buildCloudSyncRow() {
     topRow.id = "bada-v2-cloudsync-toprow";
     topRow.style.cssText = "width:100%; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; box-sizing:border-box;";
 
-    // 토글 버튼 (▸/▾ + 라벨). row 직접 자식으로 둬서 값 셀 높이에 잘리지 않는다.
+    // 상세 팝업 버튼 — 기존 펼침(detailBody) 대신 팝업으로 연다.
+    // (값 셀 절반 폭 + 잘림 + 흔들림 문제 → 팝업 분리로 해결)
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.id = "bada-v2-cloudsync-toggle";
     toggle.style.cssText = "background:rgba(148,163,184,0.1); border:1px solid rgba(148,163,184,0.28); border-radius:5px; padding:4px 10px; margin:0; color:#cbd5e1; font-size:11px; cursor:pointer; text-align:left; width:100%; display:flex; align-items:center; gap:6px; box-sizing:border-box;";
     row.appendChild(toggle);
 
-    // 펼쳐질 본문. 기본 숨김(접힘). row 직접 자식.
-    const detailBody = document.createElement("div");
-    detailBody.id = "bada-v2-cloudsync-body";
-    detailBody.style.cssText = "display:none; flex-direction:column; margin-top:2px;";
-    row.appendChild(detailBody);
-
-    let expanded = false; // 접힘 상태 유지 (renderStatus 재호출과 무관)
+    // 항목별 스냅샷 — 팝업에 넘길 최신값 (renderStatus가 갱신).
+    let filesSnapshot = [];
+    let lastSyncSnapshot = null;
     const paintToggle = () => {
         const isKo = (BadaI18n.lang === "ko");
-        const arrow = expanded ? "▾" : "▸";
-        const label = isKo ? "동기화 상세" : "Sync details";
-        toggle.textContent = `${arrow} ${label}`;
-        detailBody.style.display = expanded ? "flex" : "none";
+        toggle.textContent = `🔍 ${isKo ? "동기화 상세 보기" : "View sync details"}`;
     };
-    toggle.addEventListener("click", (e) => {
+    toggle.addEventListener("click", async (e) => {
         e.stopPropagation();
-        expanded = !expanded;
-        paintToggle();
+        // 스냅샷이 비었으면(첫 클릭) 즉시 1회 조회.
+        if (!filesSnapshot.length) {
+            try {
+                const r = await fetch("/api/bada/cloud/status");
+                const s = await r.json();
+                if (s.success) {
+                    filesSnapshot = Array.isArray(s.files) ? s.files : [];
+                    lastSyncSnapshot = s.last_sync || null;
+                }
+            } catch (_) { /* 팝업은 빈 표로 열림 */ }
+        }
+        const { openCloudDetailModal } = await import("./cloud_sync_detail_modal.js");
+        openCloudDetailModal(filesSnapshot, lastSyncSnapshot);
     });
     // 마우스 올리면 살짝 밝게 (버튼임을 인지).
     toggle.addEventListener("mouseenter", () => { toggle.style.background = "rgba(148,163,184,0.22)"; });
@@ -509,16 +501,107 @@ function buildCloudSyncRow() {
     syncBtn.style.cssText = "background:linear-gradient(135deg,#0ea5e9 0%,#0284c7 100%); color:#fff; border:1px solid rgba(255,255,255,0.25); padding:6px 14px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 4px 12px rgba(14,165,233,0.3);";
     syncBtn.textContent = t().syncNow;
 
+    // 동기화 중 여부 (버튼=중단 버튼 전환용). WS 푸시와 status 폴링으로 갱신.
+    let syncInProgress = false;
+    // 진행 중 폴링 타이머 — WS를 놓쳐도 숫자가 멈추지 않게. 종료 시 반드시 정리.
+    let progressTimer = null;
+    const stopProgressPoll = () => {
+        if (progressTimer) {
+            clearInterval(progressTimer);
+            progressTimer = null;
+        }
+    };
+    const setSyncUI = (on) => {
+        syncInProgress = !!on;
+        syncBtn.disabled = false; // 중단 요청도 눌러야 하므로 막지 않는다.
+        syncBtn.textContent = syncInProgress ? t().syncing : t().syncNow;
+        if (syncInProgress) {
+            startProgressPoll();
+        } else {
+            stopProgressPoll();
+        }
+    };
+
+    // 분모/분자 한 줄 그리기 — WS 푸시·status 폴링 공통.
+    // 파일명은 25자로 잘라 표시 (길이 들쭉날쭉 → 창 흔들림 방지). 전체는 title 참고.
+    const MAX_PROGRESS_NAME = 25;
+    const paintProgress = (prog) => {
+        if (!prog) return;
+        const isKo = (BadaI18n.lang === "ko");
+        if (prog.total === undefined) return;
+        let cur = "";
+        if (prog.current) {
+            const short = prog.current.length > MAX_PROGRESS_NAME
+                ? (prog.current.slice(0, MAX_PROGRESS_NAME) + "…")
+                : prog.current;
+            cur = ` · ${short}`;
+        }
+        const frac = `${prog.done ?? 0}/${prog.total}`;
+        status.textContent = isKo
+            ? `⏳ 동기화 중 ${frac}${cur}`
+            : `⏳ Syncing ${frac}${cur}`;
+        status.title = prog.current || "";
+    };
+
+    // 진행 중 한시 폴링 (1초 간격) — WS 수신과 무관하게 숫자를 갱신.
+    // 설정창이 늦게 열려 앞선 WS를 놓쳐도 서버 기억장치(_LAST_PROGRESS)로 복원.
+    // 동기화 중일 때만 돌고 끝나면 스스로 멈춘다.
+    const startProgressPoll = () => {
+        if (progressTimer) return;
+        const tick = async () => {
+            try {
+                const r = await fetch("/api/bada/cloud/status");
+                const s = await r.json();
+                if (!s.syncing) {
+                    // 서버는 끝났다 — 버튼 원복 + 실적 갱신.
+                    setSyncUI(false);
+                    renderStatus();
+                    return;
+                }
+                if (s.progress && s.progress.total !== undefined) {
+                    paintProgress(s.progress);
+                }
+            } catch (_) { /* 다음 틱에 재시도 */ }
+        };
+        tick();
+        progressTimer = setInterval(tick, 1000);
+    };
+
+    // 서버의 동기화 상태 푸시(WebSocket)를 구독 — 폴링과 병행(하이브리드).
+    // 기동 자동 동기화처럼 버튼을 안 눌렀을 때도 버튼이 "동기화 중(누르면 중단)"으로 바뀐다.
+    const installSettingsCloudWatcher = () => {
+        if (window.__BADA_CLOUD_SETTINGS_WATCHER__) return;
+        const api = window.app?.api;
+        if (!api?.addEventListener) return;
+        window.__BADA_CLOUD_SETTINGS_WATCHER__ = true;
+        api.addEventListener("bada.cloud.sync", (event) => {
+            const detail = event?.detail || {};
+            setSyncUI(!!detail.syncing);
+            // 진행 중이면 상태 줄에 "동기화 중 86/58 · 파일명" 표시.
+            // WS가 오면 즉시 그리고, 못 받아도 위 폴링이 1초 내로 메운다.
+            if (detail.syncing && detail.total !== undefined) {
+                paintProgress(detail);
+            }
+            // 취소/완료 푸시가 오면 버튼을 확실히 원복 (늦게 연 설정창도 동기화).
+            // phase 없는 종료 푸시(finally)도 처리 — 레이스에 안 갇히게.
+            if (!detail.syncing) {
+                setSyncUI(false);
+                renderStatus();
+            }
+        });
+    };
+    installSettingsCloudWatcher();
+
     const applyLang = () => {
-        const T = t();
-        syncBtn.textContent = T.syncNow;
+        setSyncUI(syncInProgress);
+        paintToggle();
         renderStatus();
     };
 
     const renderStatus = async () => {
         const T = t();
         status.textContent = T.statusIdle;
-        detailBody.textContent = "";
+        status.title = "";
         try {
             const res = await fetch("/api/bada/cloud/status");
             const data = await res.json();
@@ -533,7 +616,20 @@ function buildCloudSyncRow() {
             }
             syncBtn.style.display = "";
 
-            if (data.status === "missing_credentials") {
+            // status 조회로도 동기화 중 여부를 맞춘다 (설정창을 늦게 열었을 때).
+            // 진행 중이면 서버 기억장치(progress) 숫자를 즉시 그리고 폴링 시작.
+            // "연동됨" 문구는 인증 상태만 뜻하므로 진행 중엔 숫자로 덮는다.
+            // (잔여 오해 방지: "완료"라는 말을 쓰지 않는다.)
+            setSyncUI(!!data.syncing);
+            if (data.syncing) {
+                if (data.progress && data.progress.total !== undefined) {
+                    paintProgress(data.progress);
+                } else {
+                    status.textContent = (BadaI18n.lang === "ko")
+                        ? "⏳ 동기화 준비 중…"
+                        : "⏳ Preparing sync…";
+                }
+            } else if (data.status === "missing_credentials") {
                 status.textContent = T.statusNoCreds;
             } else if (!data.authorized) {
                 status.textContent = T.statusAuth;
@@ -541,54 +637,21 @@ function buildCloudSyncRow() {
                 status.textContent = T.statusOk;
             }
 
-            // ── 보조 정보: 항목별 대상 목록 + 마지막 동기화 결과 ──
-            const files = Array.isArray(data.files) ? data.files : [];
-            const ls = data.last_sync || {};
-            const when = fmtTime(ls.last_sync_at);
-            const up = ls.uploaded ?? 0;
-            const down = ls.downloaded ?? 0;
-            const isKo = (BadaI18n.lang === "ko");
-
-            // 본문만 비우고 다시 채운다 (토글 헤더는 유지).
-            detailBody.textContent = "";
-
-            const addLine = (leftHtml, rightText) => {
-                const line = document.createElement("div");
-                line.style.cssText = "display:flex; justify-content:space-between; gap:16px; line-height:1.6;";
-                const left = document.createElement("span");
-                left.innerHTML = leftHtml;
-                const right = document.createElement("span");
-                right.textContent = rightText;
-                right.style.cssText = "color:#475569; white-space:nowrap;";
-                line.appendChild(left);
-                line.appendChild(right);
-                detailBody.appendChild(line);
-            };
-
-            // 항목별 한 줄씩 (존재 ✅/➖ · 갯수 + 용량)
-            for (const f of files) {
-                const lbl = FILE_LABELS[f.name] || { ko: f.name, en: f.name };
-                const label = isKo ? lbl.ko : lbl.en;
-                const mark = f.exists ? "✅" : "➖";
-                const sz = fmtSize(f.size);
-                const cnt = (typeof f.count === "number") ? `${f.count}${isKo ? "개" : ""}` : "";
-
-                if (!f.exists) {
-                    addLine(`${mark} ${label}`, isKo ? "없음" : "absent");
-                    continue;
+            // ── 팝업용 스냅샷 갱신 (행 본문은 팝업이 그림) ──
+            filesSnapshot = Array.isArray(data.files) ? data.files : [];
+            lastSyncSnapshot = data.last_sync || null;
+            // 중단 후 잔여 표시: 진행 중 아닐 때 마지막 실적으로 한 줄 유지.
+            // (진행 중이면 위에서 숫자를 이미 그렸으므로 건드리지 않는다.)
+            if (!data.syncing && data.authorized && lastSyncSnapshot && lastSyncSnapshot.last_sync_at) {
+                const when = fmtTime(lastSyncSnapshot.last_sync_at);
+                const up = lastSyncSnapshot.uploaded ?? 0;
+                const down = lastSyncSnapshot.downloaded ?? 0;
+                if (when) {
+                    status.textContent = (BadaI18n.lang === "ko")
+                        ? `☁️ 마지막 동기화 ${when} (↑${up} ↓${down})`
+                        : `☁️ Last sync ${when} (↑${up} ↓${down})`;
                 }
-                // 존재 시: 갯수(있으면) · 용량(있으면) → "14개 · 660 B" 형태.
-                const parts = [cnt, sz].filter(Boolean);
-                addLine(`${mark} ${label}`, parts.length ? parts.join(" · ") : (isKo ? "있음" : "present"));
             }
-
-            // 마지막 동기화 한 줄 (구분선 위)
-            const syncLine = document.createElement("div");
-            syncLine.style.cssText = "margin-top:3px; padding-top:3px; border-top:1px solid rgba(148,163,184,0.3); color:#94a3b8;";
-            syncLine.textContent = when
-                ? (isKo ? `마지막 동기화 ${when} (↑${up} ↓${down})` : `Last sync ${when} (↑${up} ↓${down})`)
-                : (isKo ? "아직 동기화한 적 없음" : "Never synced yet");
-            detailBody.appendChild(syncLine);
 
             // 토글 헤더 텍스트/상태를 현재 언어·접힘 상태에 맞게 동기화.
             paintToggle();
@@ -599,12 +662,39 @@ function buildCloudSyncRow() {
 
     syncBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
-        syncBtn.disabled = true;
-        syncBtn.textContent = t().syncing;
+        // 동기화 중이면 같은 버튼이 중단 버튼 — 구름 아이콘과 동일 동작.
+        if (syncInProgress) {
+            syncBtn.textContent = t().cancelling;
+            try {
+                const res = await fetch("/api/bada/cloud/cancel", { method: "POST" });
+                const data = await res.json();
+                const isKo = (BadaI18n.lang === "ko");
+                status.textContent = (data.status === "cancelling")
+                    ? (isKo ? "⏳ 중단 요청… 진행 중인 파일까지만 마무리하고 멈춥니다." : "⏳ Cancelling… it stops after the current file.")
+                    : (isKo ? "ℹ️ 진행 중인 동기화가 없습니다." : "ℹ️ No sync is currently running.");
+                // 중단 요청 후: 공용 진행 폴링(1초)이 서버 종료를 감지해 복원한다.
+                // 여기서 renderStatus를 바로 부르면 "중단 요청…" 문구가 즉시 지워지므로
+                // 폴링이 끝을 확인할 때까지 문구를 유지한다. (고착 아님 — 폴링이 돌고 있음)
+                if (data.status !== "cancelling") {
+                    setSyncUI(false);
+                    renderStatus();
+                }
+            } catch (err) {
+                status.textContent = (BadaI18n.lang === "ko")
+                    ? `❌ 중단 요청 실패: ${err}`
+                    : `❌ Cancel request failed: ${err}`;
+            }
+            return;
+        }
+        setSyncUI(true);
         try {
             const res = await fetch("/api/bada/cloud/sync", { method: "POST" });
             const data = await res.json();
-            if (data.success) {
+            if (data.status === "cancelled") {
+                status.textContent = (BadaI18n.lang === "ko")
+                    ? `⏹️ ${data.message || "동기화가 중단되었습니다."}`
+                    : `⏹️ ${data.message || "Sync cancelled."}`;
+            } else if (data.success) {
                 const up = data.uploaded ?? 0;
                 const down = data.downloaded ?? 0;
                 status.textContent = (BadaI18n.lang === "ko")
@@ -620,14 +710,13 @@ function buildCloudSyncRow() {
                 ? `❌ 요청 실패: ${err}`
                 : `❌ Request failed: ${err}`;
         } finally {
-            syncBtn.disabled = false;
-            syncBtn.textContent = t().syncNow;
+            setSyncUI(false);
             renderStatus();
         }
     });
 
-    // column 레이아웃: 1행 topRow(status + 버튼) → 2행 toggle → 3행 detailBody.
-    // toggle·detailBody는 위에서 이미 row 에 직접 붙였다. 여기선 첫 줄만 채운다.
+    // column 레이아웃: 1행 topRow(status + 버튼) → 2행 상세팝업 버튼.
+    // 항목별 표·진행률 바는 팝업(cloud_sync_detail_modal.js)이 담당.
     topRow.appendChild(status);
     topRow.appendChild(syncBtn);
     row.insertBefore(topRow, row.firstChild); // topRow 를 맨 위(status+버튼 한 줄)로.

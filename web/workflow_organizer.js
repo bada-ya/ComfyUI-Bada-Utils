@@ -106,13 +106,14 @@ class WorkflowsPlusManager {
 
         await this.loadFavorites();
         await this.loadTree();
+        this.installCloudSyncWatcher();
         this.checkGDriveStatus();
         console.log("[BadaUtils] Workflows+ Manager initialized cleanly.");
     }
 
     /**
      * Cloud Sync (Google Drive) — 신규 엔진(gdrive_sync.py) 상태 조회.
-     * GET /api/bada/cloud/status → { success, libs_available, status, authorized, message }
+     * GET /api/bada/cloud/status → { success, libs_available, status, authorized, message, syncing }
      *   status: missing_libs | missing_credentials | authenticated | unauthenticated
      */
     async checkGDriveStatus() {
@@ -120,6 +121,7 @@ class WorkflowsPlusManager {
             const res = await fetch("/api/bada/cloud/status");
             if (!res.ok) return null;
             const data = await res.json();
+            this.applyGDriveSyncingState(!!data.syncing);
             const btn = document.querySelector("#qol-btn-gdrive-sync");
             if (btn) {
                 btn.classList.remove("gdrive-authed", "gdrive-unauth");
@@ -144,16 +146,102 @@ class WorkflowsPlusManager {
     }
 
     /**
+     * 구름 아이콘의 "동기화 중" 스핀 표시를 on/off 한다.
+     * 수동 버튼과 서버 자동 동기화 양쪽에서 공통으로 사용한다.
+     */
+    applyGDriveSyncingState(syncing) {
+        const iconSpan = document.querySelector("#qol-btn-gdrive-sync .gdrive-icon");
+        if (iconSpan) {
+            iconSpan.classList.toggle("bada-gdrive-syncing", !!syncing);
+        }
+    }
+
+    /**
+     * 서버가 밀어주는 동기화 상태(WebSocket)를 구독한다.
+     * 폴링 없이 시작/종료 이벤트만 받는다 — 기동 자동 동기화도 구름이 도는 이유.
+     * 중복 구독 방지를 위해 윈도우 전역 플래그로 1회만 건다.
+     */
+    installCloudSyncWatcher() {
+        if (window.__BADA_CLOUD_WATCHER__) return;
+        const api = window.app?.api;
+        if (!api?.addEventListener) return;
+        window.__BADA_CLOUD_WATCHER__ = true;
+
+        api.addEventListener("bada.cloud.sync", (event) => {
+            const detail = event?.detail || {};
+            this.applyGDriveSyncingState(!!detail.syncing);
+            // 진행 중이면 버튼 툴팁에 "86/58 · 파일명" 표시 (종료되면 checkGDriveStatus가 복원).
+            if (detail.syncing && detail.total !== undefined) {
+                const btn = document.querySelector("#qol-btn-gdrive-sync");
+                if (btn) {
+                    const cur = detail.current ? ` · ${detail.current}` : "";
+                    const frac = `${detail.done ?? 0}/${detail.total}`;
+                    btn.title = BadaI18n.lang === "ko"
+                        ? `Google Drive 동기화 중 ${frac}${cur}`
+                        : `Google Drive syncing ${frac}${cur}`;
+                }
+            }
+            // 취소/완료 푸시가 오면 스핀을 확실히 끈다 (늦게 붙은 구독자도 동기화).
+            // phase 없는 종료 푸시(finally)도 처리 — 레이스에 안 갇히게.
+            if (!detail.syncing) {
+                this.applyGDriveSyncingState(false);
+                this.checkGDriveStatus();
+            }
+        });
+    }
+
+    /**
      * Cloud Sync (Google Drive) — 수동 동기화 트리거.
      * POST /api/bada/cloud/sync → { success, status, message, uploaded, downloaded }
      * 성공 판정은 success 플래그 + status==="success" 모두 확인 (신규 엔진 계약).
+     *
+     * 동기화 중에는 같은 버튼이 **중단** 버튼이 된다.
+     * POST /api/bada/cloud/cancel → { success, status: "cancelling"|"idle" }
      */
     async triggerGDriveSync() {
         const btn = document.querySelector("#qol-btn-gdrive-sync");
         const iconSpan = btn?.querySelector(".gdrive-icon");
-        try {
-            const status = await this.checkGDriveStatus();
 
+        // 이미 동기화 중이면 → 중단 요청 (ComfyUI 를 끄지 않아도 된다).
+        const status = await this.checkGDriveStatus();
+        if (status?.syncing) {
+            try {
+                const res = await fetch("/api/bada/cloud/cancel", { method: "POST" });
+                const data = await res.json();
+                if (data.status === "cancelling") {
+                    this.showToast(
+                        BadaI18n.lang === "ko"
+                            ? "동기화 중단 요청… 진행 중인 파일까지만 마무리하고 멈춥니다."
+                            : "Cancelling sync… it stops after the current file."
+                    );
+                    // 설정창과 동일: WS만 믿지 않고 한시 폴링으로 스핀 복원.
+                    const started = Date.now();
+                    const pollDone = async () => {
+                        try {
+                            const r = await fetch("/api/bada/cloud/status");
+                            const s = await r.json();
+                            if (!s.syncing) {
+                                this.applyGDriveSyncingState(false);
+                                this.checkGDriveStatus();
+                                return;
+                            }
+                        } catch (_) { /* 다음 틱 재시도 */ }
+                        if (Date.now() - started < 30000) {
+                            setTimeout(pollDone, 2000);
+                        } else {
+                            this.applyGDriveSyncingState(false);
+                            this.checkGDriveStatus();
+                        }
+                    };
+                    setTimeout(pollDone, 2000);
+                }
+            } catch (e) {
+                this.showToast((BadaI18n.lang === "ko" ? "중단 요청 오류: " : "Cancel error: ") + e.message, true);
+            }
+            return;
+        }
+
+        try {
             if (status && !status.authorized) {
                 if (status.status === "missing_libs") {
                     this.showToast(
@@ -182,7 +270,11 @@ class WorkflowsPlusManager {
             const res = await fetch("/api/bada/cloud/sync", { method: "POST" });
             const data = await res.json();
 
-            if (res.ok && data.success && data.status === "success") {
+            if (data.status === "cancelled") {
+                this.showToast(
+                    data.message || (BadaI18n.lang === "ko" ? "동기화가 중단되었습니다." : "Sync cancelled.")
+                );
+            } else if (res.ok && data.success && data.status === "success") {
                 this.showToast(data.message || (BadaI18n.lang === "ko" ? "Google Drive 동기화 완료!" : "Google Drive sync complete!"));
                 await this.loadTree();
             } else if (data.status === "busy") {
@@ -193,7 +285,7 @@ class WorkflowsPlusManager {
         } catch (e) {
             this.showToast((BadaI18n.lang === "ko" ? "동기화 오류: " : "Sync error: ") + e.message, true);
         } finally {
-            if (iconSpan) iconSpan.classList.remove("bada-gdrive-syncing");
+            this.applyGDriveSyncingState(false);
             this.checkGDriveStatus();
         }
     }

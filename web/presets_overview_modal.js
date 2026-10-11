@@ -132,8 +132,11 @@ export function showGlobalPresetsOverviewModal() {
 
     const onKeyDown = (e) => {
         if (e.key === "Escape") {
-            closeGlobalPresetsOverviewModal();
             e.stopPropagation();
+            // ComfyUI 설정 다이얼로그의 ESC까지 막는다 (capture 단계).
+            // 안 막으면 모달만 닫히는 게 아니라 설정창까지 같이 닫힘.
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+            closeGlobalPresetsOverviewModal();
             e.preventDefault();
         }
     };
@@ -251,11 +254,22 @@ function renderOverviewModal() {
     `;
 
     // Event listeners
-    overviewModalEl.querySelector("#bada-overview-close-x")?.addEventListener("click", closeGlobalPresetsOverviewModal);
-    overviewModalEl.querySelector("#bada-overview-close-btn")?.addEventListener("click", closeGlobalPresetsOverviewModal);
+    // 닫기는 팝업만 닫고 설정창은 유지한다.
+    // 핵심: bubble 단계에서만 stopPropagation — 버튼이 클릭을 먼저 받고,
+    // 그 다음 document로 올라가기 전에 차단한다.
+    // (capture로 조상에서 막으면 버튼까지 이벤트가 안 내려가 먹통이 된다.
+    //  ESC는 내려가는 방향이라 capture가 맞고, 이미 위에서 처리됨.)
+    const stopBubble = (e) => { e.stopPropagation(); };
+    overviewModalEl.addEventListener("pointerdown", stopBubble);
+    overviewModalEl.addEventListener("mousedown", stopBubble);
+    overviewModalEl.addEventListener("mouseup", stopBubble);
+    overviewModalEl.addEventListener("click", stopBubble);
+    // 바깥(백드롭) 클릭 → 팝업만 닫기. 위에서 bubble 전파가 막혔으므로 안전.
     overviewModalEl.addEventListener("click", (e) => {
-        if (e.target === overviewModalEl) closeGlobalPresetsOverviewModal();
+        if (e.target === overviewModalEl) { closeGlobalPresetsOverviewModal(); }
     });
+    overviewModalEl.querySelector("#bada-overview-close-x")?.addEventListener("click", (e) => { stopBubble(e); closeGlobalPresetsOverviewModal(); });
+    overviewModalEl.querySelector("#bada-overview-close-btn")?.addEventListener("click", (e) => { stopBubble(e); closeGlobalPresetsOverviewModal(); });
 
     // Export handler
     overviewModalEl.querySelector("#bada-overview-export-btn")?.addEventListener("click", () => {

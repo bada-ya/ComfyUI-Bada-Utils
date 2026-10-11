@@ -12,8 +12,13 @@
 설계 원칙
   1. 라이브러리 미설치 시 서버 기동에 영향 없음 (GDRIVE_LIBS_AVAILABLE=False)
   2. 동기화는 넌블로킹 (ThreadPoolExecutor + run_in_executor)
-  3. 변경분만 pinpoint 업/다운 (manifest.json 의 SHA256+mtime+size Diff)
-  4. Drive 파일명 충돌 방지를 위해 상대경로는 `___` 로 인코딩
+  3. 변경분만 pinpoint 업/다운 (원격 폴더 목록 1회 조회 + modifiedTime Diff)
+     - 별도의 manifest 파일을 쓰지 않는다. 원격 폴더 자체가 상태이므로
+       버전 불일치/중단·오류 후 재업로드 문제가 구조적으로 없다.
+     - 루프 방지: 업/다운 직후 로컬 mtime 을 Drive modifiedTime 값으로 고정(os.utime)해
+       양쪽 시간을 일치시킨다. (Drive API v3 은 원격 modifiedTime 지정을 허용하지 않는다.)
+  4. 내부 동기화 지도 키는 rel_path 를 `___` 로 인코딩한 형태 (다운로드·스냅샷 공용 키).
+     Drive 에는 파일을 실제 중첩 폴더 구조로 저장한다 (Workflows/<subdir>/<file>.json).
   5. 중복 실행 방지 (_SYNC_LOCK)
   6. 두 네임스페이스 모두 realpath 로 루트 탈출(../) 차단
 
@@ -23,9 +28,10 @@
   - 워크플로우 출력물    : __pycache__ 등 무의미 파일은 스캔 제외.
 
 주의 (engines_registry.json)
-  GitHub 배포 기본값이지만 사용자가 UI 에서 프롬프트를 고치면 개인 데이터가 된다.
-  덮어쓰기 직전 항상 `.bak` 을 남기고 경고 로그를 기록하므로, `git pull` 직후
-  동기화로 프롬프트가 되돌려져도 `.bak` 에서 복구할 수 있다.
+  Drive 양방향 공유 파일이다. git 배포하지 않는다(.gitignore) — git pull이
+  로컬을 되돌리면 동기화가 핑퐁 업로드를 반복하므로 추적을 중단했다.
+  다른 PC 버전으로 덮어쓰기 직전 항상 `.bak` 을 남기고 경고 로그를 기록하므로,
+  덮여도 `.bak` 에서 복구할 수 있다.
 """
 
 
@@ -36,9 +42,30 @@ import time
 import asyncio
 import hashlib
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger("ComfyUI-Bada-Utils.GDrive")
+
+# 동기화 중복 실행 방지용 락 (수동 버튼과 기동 자동 동기화가 겹치는 경우).
+# _perform_sync_blocking 은 여러 경로(버튼·자동)에서 호출되므로 함수 진입부에서
+# 넌블로킹으로 획득해 이미 돌고 있으면 busy 로 즉시 반환한다.
+_SYNC_GUARD = threading.Lock()
+
+# 사용자 중단 요청 플래그. request_sync_cancel() 이 set 하면 진행 중인 동기화가
+# 다음 파일 경계에서 즉시 루프를 빠져나온다. (ComfyUI 를 끄지 않고도 중단 가능)
+_CANCEL_EVENT = threading.Event()
+
+# 기동 자동 동기화는 프로세스당 1회만 예약한다.
+_AUTOSYNC_SCHEDULED = False
+
+# 진행 중 동기화의 분모/분자 기억장치 (WS를 놓친 늦은 설정창용 폴링 백업).
+# _notify_sync_state 가 WS 푸시를 쏠 때마다 최신값을 덮어써 둔다.
+# /api/bada/cloud/status 가 이 값을 함께 내려주면 설정창은
+# "열 때 1회 조회 → 진행 중 폴링"만으로 숫자를 표시할 수 있다 (WS 의존 탈출).
+# 키: phase/uploaded/downloaded/done/total/current/syncing/updated_at
+_LAST_PROGRESS = {}
+_PROGRESS_LOCK = threading.Lock()
 
 # --- Google API client imports with safety fallback -------------------------
 try:
@@ -67,9 +94,8 @@ TOKEN_PATH = os.path.join(PARENT_DIR, 'token.json')
 
 # 동기화 대상 파일명 (커스텀 노드 루트 기준). 워크플로우 디렉터리와 무관하게 고정.
 # engines_registry.json 은 Gemini/Prompt Generator 의 사용자 시스템 프롬프트를 담는
-# 파일이다. GitHub 배포 기본값이지만 사용자가 UI 에서 프롬프트를 추가·수정하면
-# 개인 데이터가 되므로 동기화 대상에 포함한다. 다만 덮어쓰기 시 git 충돌로 인한
-# 프롬프트 유실을 막기 위해 `_download_single_file` 에서 .bak 백업 + 로그를 남긴다.
+# 파일이다. Drive 양방향 공유로 일원화했으므로 git 배포하지 않는다(.gitignore).
+# 덮어쓰기 시 프롬프트 유실을 막기 위해 `_download_single_file` 에서 .bak 백업 + 로그를 남긴다.
 SYNC_TARGET_FILES = [
     'presets_data.json',
     'favorites_data.json',
@@ -77,12 +103,26 @@ SYNC_TARGET_FILES = [
     'engines_registry.json',
 ]
 
-# 다운로드 전용(업로드 금지) 파일.
-# engines_registry.json 은 GitHub 에 커밋된 배포 파일이라 git pull 시 사용자가 UI 에서
-# 저장한 프롬프트와 충돌한다. 업로드하면 로컬 배포본이 Drive 의 사용자 프롬프트를 덮어
-# 유실시키고, 업/다운 판단이 어울져 무한 루프가 된다. 따라서 업로드하지 않고
-# 원격(사용자가 저장한 프롬프트)만 로컬로 내려받는다.
-DOWNLOAD_ONLY_FILES = {".configs/engines_registry.json"}
+# 로컬 상대경로(rel_path) → Drive 하위폴더 이름 매핑표.
+#   - config 4종은 각각 전용 하위폴더에 파일명만 저장 (Drive 탐색기에서 깔끔하게 표시)
+#   - workflows 는 로컬 디렉터리 구조를 Drive 실제 중첩 폴더로 그대로 재현
+#     (파일명은 basename 만 사용. 구 평면 '___' 이름 잔재는 첫 동기화에서 자동 이동)
+# Drive 구조:
+#   ComfyUI-Bada-Utils-Cloud-Sync/
+#     ├── Presets/       presets_data.json
+#     ├── Favorites/     favorites_data.json
+#     ├── GeminiChat/    gemini_chat_history.json
+#     ├── SystemPrompts/ engines_registry.json
+#     └── Workflows/
+#           ├── <file>.json
+#           └── <subdir>/<file>.json ...
+REMOTE_FOLDER_BY_REL = {
+    '.configs/presets_data.json':        'Presets',
+    '.configs/favorites_data.json':      'Favorites',
+    '.configs/gemini_chat_history.json': 'GeminiChat',
+    '.configs/engines_registry.json':    'SystemPrompts',
+}
+REMOTE_WORKFLOWS_FOLDER = 'Workflows'
 
 # 워크플로우 동기화에서 제외할 항목 (이름 기준).
 # manifest/상태 파일과 서버가 만든 출력물은 동기화해도 의미가 없고 충돌만 만든다.
@@ -120,6 +160,15 @@ def get_last_sync_state():
     except Exception:
         pass
     return {"last_sync_at": None, "uploaded": 0, "downloaded": 0}
+
+
+def get_last_progress():
+    """진행 중(또는 마지막) 동기화의 분모/분자 스냅샷. status API가 그대로 내려준다."""
+    try:
+        with _PROGRESS_LOCK:
+            return dict(_LAST_PROGRESS)
+    except Exception:
+        return {}
 
 
 def _save_last_sync_state(uploaded, downloaded):
@@ -319,13 +368,16 @@ def _iter_workflow_rel_paths():
 
 def build_local_manifest():
     """
-    로컬 대상 파일들의 매니페스트를 생성:
-    { "rel_path": { "sha256": str, "size": int, "mtime": float } }
+    로컬 대상 파일들의 목록을 생성:
+    { "rel_path": { "size": int, "mtime": float } }
     존재하지 않는 파일은 건너뛴다 (선택적 동기화).
 
     두 묶음을 합친다.
       1) `.configs/*` : 노드 루트 개인 데이터 (get_target_rel_paths)
       2) `workflows/*` : 워크플로우 폴더 재귀 스캔
+
+    SHA256 해시는 계산하지 않는다. 판단 기준은 modifiedTime(mtime) 뿐이므로
+    349개 파일을 전부 읽어 해시를 만드는 비용이 사라져 로컬 스캔이 빨라진다.
     """
     manifest = {}
 
@@ -336,7 +388,6 @@ def build_local_manifest():
         try:
             stat = os.stat(full_path)
             manifest[rel_path] = {
-                "sha256": calculate_sha256(full_path),
                 "size": stat.st_size,
                 "mtime": stat.st_mtime,
             }
@@ -345,10 +396,19 @@ def build_local_manifest():
     return manifest
 
 
-def _get_or_create_remote_folder(service, folder_name):
-    """Drive 대상 폴더 ID를 조회하거나 없으면 생성."""
-    query = (f"name = '{folder_name}' and "
+def _get_or_create_remote_folder(service, folder_name, parent_id=None):
+    """
+    Drive 대상 폴더 ID를 조회하거나 없으면 생성.
+
+    parent_id : 상위 폴더 ID. 주어지면 그 **안에서만** 이름을 찾고(동명 폴더 혼동 방지),
+      없으면 생성 시 상위 폴더 안에 넣는다. None 이면(루트) 기존과 동일하게
+      My Drive 최상위에서 찾는다.
+    """
+    escaped = folder_name.replace("\\", "\\\\").replace("'", "\\'")
+    query = (f"name = '{escaped}' and "
              f"mimeType = 'application/vnd.google-apps.folder' and trashed = false")
+    if parent_id:
+        query += f" and '{parent_id}' in parents"
     results = service.files().list(q=query, fields="files(id, name)").execute()
     items = results.get('files', [])
     if items:
@@ -358,13 +418,91 @@ def _get_or_create_remote_folder(service, folder_name):
         'name': folder_name,
         'mimeType': 'application/vnd.google-apps.folder'
     }
+    if parent_id:
+        file_metadata['parents'] = [parent_id]
     folder = service.files().create(body=file_metadata, fields='id').execute()
     return folder.get('id')
 
 
+def _get_subfolder_ids(service, root_id):
+    """
+    루트 폴더 아래 하위폴더 5종(Presets/Favorites/GeminiChat/SystemPrompts/Workflows)
+    의 ID 를 조회·생성해 {폴더명: ID} 로 반환. 이미 있으면 재사용한다.
+    """
+    all_names = list(REMOTE_FOLDER_BY_REL.values()) + [REMOTE_WORKFLOWS_FOLDER]
+    ids = {}
+    for name in all_names:
+        ids[name] = _get_or_create_remote_folder(service, name, parent_id=root_id)
+    return ids
+
+
+# 워크플로우 하위폴더 ID 캐시 (동기화 1회 단위 초기화 — 폴더당 조회 API 1회만 발생).
+_WORKFLOW_FOLDER_CACHE = {}
+
+
+def _ensure_workflow_folder(service, root_id, rel_dir):
+    """
+    'Workflows/<rel_dir>' 중첩 폴더를 단계별로 조회·생성해 마지막 폴더 ID 반환.
+
+    rel_dir 이 비면 Workflows 루트 ID 를 그대로 반환한다.
+    단계별 캐시를 써서 이미 만든 폴더는 추가 API 호출 없이 재사용한다.
+    """
+    if not rel_dir:
+        return root_id
+    cached = _WORKFLOW_FOLDER_CACHE.get(rel_dir)
+    if cached:
+        return cached
+    current = root_id
+    walked = []
+    for part in rel_dir.split("/"):
+        if not part or part == ".":
+            continue
+        walked.append(part)
+        key = "/".join(walked)
+        cached = _WORKFLOW_FOLDER_CACHE.get(key)
+        if cached:
+            current = cached
+            continue
+        current = _get_or_create_remote_folder(service, part, parent_id=current)
+        _WORKFLOW_FOLDER_CACHE[key] = current
+    return current
+
+
+def _target_folder_name(rel_path):
+    """rel_path 가 배정될 Drive 하위폴더 이름. 대상 밖이면 None."""
+    if rel_path in REMOTE_FOLDER_BY_REL:
+        return REMOTE_FOLDER_BY_REL[rel_path]
+    if rel_path.startswith(WORKFLOWS_NS):
+        return REMOTE_WORKFLOWS_FOLDER
+    return None
+
+
+def _stored_remote_name(rel_path):
+    """
+    Drive 하위폴더 안에 실제로 저장할 파일명 (모두 basename).
+
+    config 4종은 전용 하위폴더에 파일명만, workflows 도 하위 디렉터리 구조를
+    Drive 중첩 폴더로 표현하므로 파일명만 쓴다.
+    (내부 지도 키는 별도로 rel_path 전체를 '___' 로 인코딩하므로 이 차이는 투명하다)
+    """
+    return rel_path.split('/')[-1]
+
+
+def _remote_key_from_stored(stored_name):
+    """
+    config 하위폴더 안의 저장 파일명 → 내부 지도 키('.configs' 네임스페이스 '___' 인코딩).
+
+    워크플로우는 _list_workflows_recursive 가 중첩 폴더 경로 기준으로 키를 만든다.
+    """
+    return (_CONFIG_NS + stored_name).replace('/', '___')
+
+
 def _find_remote_file_in_folder(service, folder_id, file_name):
     """특정 폴더 안의 파일 ID 조회."""
-    query = f"name = '{file_name}' and '{folder_id}' in parents and trashed = false"
+    # 파일명에 작은따옴표(')나 백슬래시(\)가 있으면 Drive 쿼리 문법이 깨져
+    # 400 "Invalid Value" 가 발생한다(예: "Icekiub's Video..."). 쿼리용으로 이스케이프.
+    escaped = file_name.replace("\\", "\\\\").replace("'", "\\'")
+    query = f"name = '{escaped}' and '{folder_id}' in parents and trashed = false"
     results = service.files().list(q=query, fields="files(id, name)").execute()
     items = results.get('files', [])
     if items:
@@ -372,61 +510,258 @@ def _find_remote_file_in_folder(service, folder_id, file_name):
     return None
 
 
-def _download_remote_manifest(service, folder_id):
-    """원격 manifest.json 을 내려받아 (dict, file_id) 로 반환."""
-    file_id = _find_remote_file_in_folder(service, folder_id, MANIFEST_FILE_NAME)
-    if not file_id:
-        return {}, None
-    try:
-        request = service.files().get_media(fileId=file_id)
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done:
-            status, done = downloader.next_chunk()
-        fh.seek(0)
-        content = fh.read().decode('utf-8')
-        return json.loads(content), file_id
-    except Exception as e:
-        logger.warning(f"[GDrive] remote manifest download failed: {e}")
-        return {}, file_id
-
-
-def _upload_remote_manifest(service, folder_id, manifest_data, existing_file_id=None):
-    """갱신된 manifest.json 을 업로드."""
-    content_bytes = json.dumps(manifest_data, ensure_ascii=False, indent=2).encode('utf-8')
-    fh = io.BytesIO(content_bytes)
-    media = MediaIoBaseUpload(fh, mimetype='application/json', resumable=True)
-
-    if existing_file_id:
-        service.files().update(fileId=existing_file_id, media_body=media).execute()
-    else:
-        file_metadata = {
-            'name': MANIFEST_FILE_NAME,
-            'parents': [folder_id]
+def _list_folder_files(service, folder_id):
+    """단일 폴더의 파일 목록을 페이지네이션으로 조회. {저장 파일명: 메타} 반환."""
+    files_map = {}
+    page_token = None
+    while True:
+        params = {
+            "q": f"'{folder_id}' in parents and trashed = false",
+            "fields": "nextPageToken, files(id, name, modifiedTime, size)",
+            "pageSize": 1000,
         }
-        service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        if page_token:
+            params["pageToken"] = page_token
+        results = service.files().list(**params).execute()
+        for item in results.get("files", []):
+            name = item.get("name")
+            if not name:
+                continue
+            mt = _parse_drive_time(item.get("modifiedTime"))
+            try:
+                size = int(item.get("size") or 0)
+            except (TypeError, ValueError):
+                size = 0
+            files_map[name] = {
+                "id": item.get("id"),
+                "modifiedTime": mt,
+                "size": size,
+            }
+        page_token = results.get("nextPageToken")
+        if not page_token:
+            break
+    return files_map
 
 
-def _upload_single_file(service, folder_id, rel_path, local_meta):
-    """단일 파일 업로드 (신규 or 갱신)."""
+def _list_folder_entries(service, folder_id):
+    """
+    단일 폴더 안의 항목(파일 + 하위폴더)을 페이지네이션으로 조회.
+    반환: [{"name","id","is_folder","modifiedTime","size"}, ...]
+    """
+    entries = []
+    page_token = None
+    while True:
+        params = {
+            "q": f"'{folder_id}' in parents and trashed = false",
+            "fields": "nextPageToken, files(id, name, mimeType, modifiedTime, size)",
+            "pageSize": 1000,
+        }
+        if page_token:
+            params["pageToken"] = page_token
+        results = service.files().list(**params).execute()
+        for item in results.get("files", []):
+            name = item.get("name")
+            if not name:
+                continue
+            mt = _parse_drive_time(item.get("modifiedTime"))
+            try:
+                size = int(item.get("size") or 0)
+            except (TypeError, ValueError):
+                size = 0
+            entries.append({
+                "name": name,
+                "id": item.get("id"),
+                "is_folder": item.get("mimeType") == "application/vnd.google-apps.folder",
+                "modifiedTime": mt,
+                "size": size,
+            })
+        page_token = results.get("nextPageToken")
+        if not page_token:
+            break
+    return entries
+
+
+def _list_workflows_recursive(service, root_id, legacy_files=None):
+    """
+    Workflows 폴더를 재귀 열거해 로컬 디렉터리 구조를 그대로 지도로 복원한다.
+
+    반환: { '___' 인코딩 키: {"id","name","modifiedTime","size","folder_id"} }
+      - 하위폴더 안 파일: 'workflows/<subdir>/<file>' 를 '___' 로 인코딩한 키
+        (구 평면 저장 시의 키와 동일 → 다운로드/스냅샷/루프방지 로직 무변경)
+      - 루트 폴더의 구(舊) 잔재('workflows___...' 이름): 키=파일명 그대로,
+        legacy_files 리스트에 수집해 호출측이 중첩 폴더로 자동 이동(마이그레이션)
+      - folder_id: 파일이 실제로 속한 폴더 ID (업로드 parents / 이동 기준)
+    """
+    files_map = {}
+    stack = [(root_id, "")]  # (folder_id, Workflows 기준 상대경로)
+    while stack:
+        folder_id, rel_dir = stack.pop()
+        for entry in _list_folder_entries(service, folder_id):
+            name, item_id = entry["name"], entry["id"]
+            if entry["is_folder"]:
+                sub_rel = f"{rel_dir}/{name}" if rel_dir else name
+                stack.append((item_id, sub_rel))
+                continue
+            if not rel_dir:
+                if name.startswith("workflows___"):
+                    # 구(舊) 평면 잔재 — 기존 인코딩 키 그대로 지도에 포함하고 이동용으로 기록.
+                    key = name
+                    if legacy_files is not None:
+                        legacy_files.append({
+                            "key": key, "id": item_id, "name": name, "folder_id": folder_id,
+                        })
+                else:
+                    key = (WORKFLOWS_NS + name).replace("/", "___")
+            else:
+                key = (WORKFLOWS_NS + rel_dir + "/" + name).replace("/", "___")
+            files_map[key] = {
+                "id": item_id,
+                "name": name,
+                "modifiedTime": entry["modifiedTime"],
+                "size": entry["size"],
+                "folder_id": folder_id,
+            }
+    return files_map
+
+
+def _list_remote_files(service, subfolder_ids):
+    """
+    하위폴더 5종을 각각 조회해 하나의 지도로 병합한다.
+      - config 4종: 평면 조회 (파일명에 '.configs/' 네임스페이스를 붙여 키 복원)
+      - Workflows: _list_workflows_recursive 재귀 열거 (중첩 폴더 구조 → 키 복원)
+
+    반환: (files_map, legacy_workflows)
+      - files_map: { remote_key: {"id","name","modifiedTime","size","folder_id"} }
+        · remote_key: '___' 로 인코딩된 rel_path (다운로드/스냅샷 로직과 동일한 키)
+        · folder_id : 파일이 속은 하위폴더 ID (업로드 시 parents 지정용)
+        · modifiedTime: Drive modifiedTime 을 파싱한 epoch 초 (원격 상태의 유일한 시간 기준)
+        · size      : Drive 의 size (폴더/구글 문서는 없을 수 있어 0)
+      - legacy_workflows: Workflows 루트에 남은 구 평면 잔재 목록 (마이그레이션용)
+
+    이 목록이 곧 원격 상태이므로 별도의 manifest 파일은 쓰지 않는다.
+    (중단/오류/버전 불일치 없이 다음 동기화에서 원격을 그대로 보고 재개 가능)
+    """
+    files_map = {}
+    legacy_workflows = []
+    for folder_name, folder_id in subfolder_ids.items():
+        if folder_name == REMOTE_WORKFLOWS_FOLDER:
+            files_map.update(
+                _list_workflows_recursive(service, folder_id, legacy_files=legacy_workflows)
+            )
+            continue
+        for stored_name, meta in _list_folder_files(service, folder_id).items():
+            remote_key = _remote_key_from_stored(stored_name)
+            meta["name"] = stored_name
+            meta["folder_id"] = folder_id
+            files_map[remote_key] = meta
+    return files_map, legacy_workflows
+
+
+def _parse_drive_time(iso_str):
+    """Drive 의 ISO8601(UTC) 시간 문자열 또는 epoch 숫자를 epoch 초(float)로 변환. 실패 시 0."""
+    if iso_str is None:
+        return 0.0
+    # 다운로드 경로의 remote_meta 는 _list_remote_files 에서 이미 epoch float 으로
+    # 바꿔둔 값을 갖고 있으므로, 숫자는 파싱 없이 그대로 쓴다.
+    if isinstance(iso_str, (int, float)):
+        try:
+            epoch = float(iso_str)
+        except (TypeError, ValueError):
+            return 0.0
+        return epoch if epoch > 0 else 0.0
+    if not isinstance(iso_str, str) or not iso_str:
+        return 0.0
+    try:
+        import datetime as _dt
+        s = iso_str.replace("Z", "+00:00")
+        return _dt.datetime.fromisoformat(s).timestamp()
+    except Exception:
+        return 0.0
+
+
+def _pin_local_mtime(full_path, iso_time):
+    """
+    로컬 파일의 mtime 을 Drive modifiedTime 값과 일치시킨다 (업/다운 루프 방지의 핵심).
+
+    Drive API v3 은 원격 modifiedTime 을 클라이언트가 지정할 수 없다(읽기 전용).
+    따라서 '원격을 로컬에 맞추는' 대신 '로컬을 원격에 맞춘다'. 양쪽이 같아지면
+    다음 동기화에서 업로드/다운로드 조건이 모두 거짓이 되어 반복 전송이 사라진다.
+
+    iso_time 은 ISO8601 문자열(업로드 응답) 또는 epoch float(원격 목록 캐시)
+    둘 다 받는다. 다운로드 쪽은 _list_remote_files 가 이미 epoch 으로 바꿔두므로
+    이전 코드는 float.replace() 에서 예외가 나 고정이 조용히 실패했었다.
+
+    파싱 실패/적용 실패 시 False (호출측은 조용히 진행 — 다음 동기화에서 재시도).
+    """
+    epoch = _parse_drive_time(iso_time)
+    if epoch <= 0:
+        return False
+    try:
+        os.utime(full_path, (epoch, epoch))
+        return True
+    except Exception as e:
+        logger.debug(f"[GDrive] mtime pin failed {full_path}: {e}")
+        return False
+
+
+def _upload_single_file(service, folder_id, rel_path, local_meta,
+                        existing_id=None, existing_meta=None):
+    """
+    단일 파일 업로드 (신규 or 갱신).
+
+    folder_id     : 파일이 들어갈 Drive 하위폴더 ID (Presets/.../Workflows 또는 중첩 하위폴더).
+    existing_id   : 원격 목록에서 미리 찾은 파일 ID (없으면 신규 생성)
+    existing_meta : 원격 목록 메타 ({"name","folder_id"}). 이름/위치가 현재 대상과 다르면
+                    갱신과 동시에 이름 변경 + 폴더 이동 (구 평면 잔재 마이그레이션용).
+    업로드 후 **응답으로 돌아온 modifiedTime 을 읽어 로컬 mtime 에 그대로 고정**한다.
+    (Drive API v3 create()/update() 는 modifiedTime 파라미터를 받지 않으므로
+      원격 시간을 지정하는 방식은 쓸 수 없다.)
+    """
     full_path = _resolve_local_path(rel_path)
-    remote_name = rel_path.replace('/', '___')
-    existing_id = _find_remote_file_in_folder(service, folder_id, remote_name)
+    # 하위폴더 안 실제 저장 파일명 (모두 basename — 중첩 폴더가 디렉터리를 표현).
+    remote_name = _stored_remote_name(rel_path)
+    fields = 'id, modifiedTime'
 
     media = MediaFileUpload(full_path, mimetype='application/json', resumable=True)
     if existing_id:
-        service.files().update(fileId=existing_id, media_body=media).execute()
+        body = {}
+        kwargs = {}
+        if existing_meta:
+            if existing_meta.get("name") and existing_meta["name"] != remote_name:
+                body['name'] = remote_name
+            old_parent = existing_meta.get("folder_id")
+            if old_parent and old_parent != folder_id:
+                kwargs['addParents'] = folder_id
+                kwargs['removeParents'] = old_parent
+        resp = service.files().update(
+            fileId=existing_id,
+            body=body or None,
+            media_body=media,
+            fields=fields,
+            **kwargs,
+        ).execute()
     else:
         file_metadata = {'name': remote_name, 'parents': [folder_id]}
-        service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        resp = service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields=fields,
+        ).execute()
+
+    _pin_local_mtime(full_path, (resp or {}).get('modifiedTime'))
     return local_meta
 
 
-def _download_single_file(service, folder_id, rel_path, remote_meta):
-    """단일 파일 다운로드 (다운로드 전 기존 파일 .bak 백업)."""
-    remote_name = rel_path.replace('/', '___')
-    remote_file_id = _find_remote_file_in_folder(service, folder_id, remote_name)
+def _download_single_file(service, rel_path, remote_meta):
+    """
+    단일 파일 다운로드 (다운로드 전 기존 파일 .bak 백업).
+
+    remote_meta : 원격 목록에서 미리 찾은 {"id","modifiedTime","size"}
+    다운로드 후 로컬 mtime 을 원격 modifiedTime 으로 고정(os.utime) → 다음 동기화에서
+    양쪽 시간이 같아져 다시 다운로드/업로드하는 루프가 생기지 않는다.
+    (폴더 위치는 remote_meta["id"] 로 직접 접근하므로 부모 폴더 ID 가 필요 없다)
+    """
+    remote_file_id = remote_meta.get("id")
     if not remote_file_id:
         return None
 
@@ -452,7 +787,7 @@ def _download_single_file(service, folder_id, rel_path, remote_meta):
                 logger.warning(
                     "[GDrive] Overwriting engines_registry.json with the remote version. "
                     f"The existing content is kept at {full_path}.bak. "
-                    "(If this ran right after git pull, your saved prompts may have been restored)"
+                    "(If this happened during sync, your local changes were replaced by another PC's version)"
                 )
         except Exception:
             pass
@@ -460,86 +795,187 @@ def _download_single_file(service, folder_id, rel_path, remote_meta):
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     with open(full_path, 'wb') as f:
         f.write(payload)
+
+    # 원격 시간을 로컬 mtime 에 고정 (루프 방지의 핵심).
+    _pin_local_mtime(full_path, remote_meta.get("modifiedTime"))
     return remote_meta
 
 
 def _perform_sync_blocking():
     """
-    실제 동기화(차단) 작업. manifest Diff 로 변경분만 업/다운로드한다.
+    실제 동기화(차단) 작업.
+
+    원격 폴더 목록을 1회 조회해 {파일명: 메타} 지도를 만든 뒤, 로컬 스캔 결과와
+    modifiedTime(mtime) 기준으로 비교해 변경분만 업/다운로드한다.
+    (manifest 파일 없이도 중단·오류 시 다음 동기화에서 원격을 보고 그대로 재개)
+
     반환: {"status", "message", "uploaded", "downloaded", "last_sync_at"}
     """
+    # 이미 동기화가 돌고 있으면(수동 버튼/자동 겹침) 중복 실행하지 않는다.
+    if not _SYNC_GUARD.acquire(blocking=False):
+        return {"status": "busy", "message": "A sync is already in progress.", "uploaded": 0, "downloaded": 0}
+
     service, msg = get_drive_service()
     if not service:
+        _SYNC_GUARD.release()
+        _notify_sync_state(False)
         return {"status": "error", "message": msg, "uploaded": 0, "downloaded": 0}
 
+    _CANCEL_EVENT.clear()
+    _notify_sync_state(True)
+    cancelled = False
+
     try:
-        folder_id = _get_or_create_remote_folder(service, FOLDER_NAME)
+        # 루트 폴더 → 그 안의 하위폴더 5종 ID 조회/생성 (이미 있으면 재사용).
+        root_id = _get_or_create_remote_folder(service, FOLDER_NAME)
+        subfolder_ids = _get_subfolder_ids(service, root_id)
         local_manifest = build_local_manifest()
-        remote_manifest, remote_manifest_file_id = _download_remote_manifest(service, folder_id)
+        remote_files, legacy_workflows = _list_remote_files(service, subfolder_ids)
+        # 중첩 폴더 캐시는 이번 동기화 기준으로 초기화 (이전 세션의 stale 폴더 ID 방지).
+        _WORKFLOW_FOLDER_CACHE.clear()
 
         uploaded_count = 0
         downloaded_count = 0
-        updated_manifest = dict(remote_manifest)
 
-        # --- Diff: 업로드 (로컬이 더 새롭거나 원격에 없음) ---
-        uploaded = set()  # 이번 세션 업로드한 파일 (다운로드 루프 모순 방지용)
+        # --- B안: 업로드 대상 사전 계산 (정확한 분모) ---
+        # 전송 루프에 들어가기 전 메모리 내 비교만으로 대상을 확정한다.
+        # API 추가 호출·디스크 재스캔 없음 (local_manifest/remote_files 재사용).
+        to_upload = []
         for rel_path, local_meta in local_manifest.items():
-            # engines_registry.json 등 다운로드 전용 파일은 업로드하지 않는다.
-            if rel_path in DOWNLOAD_ONLY_FILES:
-                continue
-            remote_meta = remote_manifest.get(rel_path)
-            needs_upload = (
-                not remote_meta
-                or remote_meta.get("sha256") != local_meta["sha256"]
-                or remote_meta.get("mtime", 0) < local_meta["mtime"]
-            )
-            if not needs_upload:
-                continue
+            remote_name = rel_path.replace('/', '___')
+            remote_meta = remote_files.get(remote_name)
+            if (not remote_meta
+                    or remote_meta.get("modifiedTime", 0) < local_meta["mtime"] - 1):
+                to_upload.append(rel_path)
+        total_upload = len(to_upload)
 
-            updated_manifest[rel_path] = _upload_single_file(service, folder_id, rel_path, local_meta)
+        # --- 로컬 기준: 업로드 (원격에 없거나 로컬이 더 새로움) ---
+        uploaded = set()  # 이번 세션 업로드한 파일 (다운로드 루프 모순 방지)
+        for rel_path in to_upload:
+            if _CANCEL_EVENT.is_set():
+                cancelled = True
+                break
+            local_meta = local_manifest.get(rel_path)
+            if local_meta is None:
+                continue
+            remote_name = rel_path.replace('/', '___')
+            remote_meta = remote_files.get(remote_name)
+
+            existing_id = remote_meta.get("id") if remote_meta else None
+            # rel_path 성격에 맞는 하위폴더(Presets/.../Workflows) ID로 업로드.
+            target_folder_name = _target_folder_name(rel_path)
+            if target_folder_name is None:
+                # 매핑 밖(이론상 발생 불가 — 화이트리스트로 이미 걸러짐). 안전하게 건너뜀.
+                continue
+            if target_folder_name == REMOTE_WORKFLOWS_FOLDER:
+                # 로컬 하위 디렉터리 구조를 Drive 중첩 폴더로 그대로 재현한다.
+                subdir = os.path.dirname(rel_path[len(WORKFLOWS_NS):])
+                target_folder_id = _ensure_workflow_folder(
+                    service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
+                    subdir.replace("\\", "/"))
+            else:
+                target_folder_id = subfolder_ids[target_folder_name]
+            _upload_single_file(service, target_folder_id, rel_path, local_meta,
+                                existing_id, existing_meta=remote_meta)
             uploaded.add(rel_path)
             uploaded_count += 1
             logger.info(f"[GDrive] upload: {rel_path}")
+            # A안: 매 파일마다 푸시 — 작은 파일이 많아도 진행률이 살아움직인다.
+            # WS 350회 수준은 노이즈가 아니라 정상 범위.
+            _notify_sync_state(True, phase="uploading", done=uploaded_count,
+                              total=total_upload, current=rel_path)
 
-        # --- Diff: 다운로드 (원격이 더 새롭거나 로컬에 없음) ---
-        for rel_path, remote_meta in remote_manifest.items():
-            # 이번 세션 업로드한 파일은 다운로드하지 않는다 (업/다운 모순 → 무한루프 방지).
+        # --- B안: 다운로드 대상 사전 계산 (정확한 분모) ---
+        # remote_files 키는 '___' 인코딩 이름이므로 로컬 rel_path로 되돌려 판정.
+        # 이번 세션 업로드분 제외 + 화이트리스트 밖 잔재 제외까지 미리 반영.
+        to_download = []
+        for remote_name, remote_meta in remote_files.items():
+            rel_path = remote_name.replace('___', '/')
             if rel_path in uploaded:
                 continue
-            # 화이트리스트 밖 경로 방어 (구 manifest 잔재 등).
             try:
                 _resolve_local_path(rel_path)
             except ValueError:
                 continue
-
             local_meta = local_manifest.get(rel_path)
-            needs_download = (
-                not local_meta
-                or local_meta.get("sha256") != remote_meta.get("sha256")
-                or remote_meta.get("mtime", 0) > local_meta.get("mtime", 0)
-            )
-            if not needs_download:
+            if (not local_meta
+                    or remote_meta.get("modifiedTime", 0) > local_meta.get("mtime", 0) + 1):
+                to_download.append(rel_path)
+        total_download = len(to_download)
+
+        # --- 원격 기준: 다운로드 (원격이 더 새롭거나 로컬에 없음) ---
+        for rel_path in to_download:
+            if _CANCEL_EVENT.is_set():
+                cancelled = True
+                break
+            remote_name = rel_path.replace('/', '___')
+            remote_meta = remote_files.get(remote_name)
+            if remote_meta is None:
                 continue
 
-            result_meta = _download_single_file(service, folder_id, rel_path, remote_meta)
+            result_meta = _download_single_file(service, rel_path, remote_meta)
             if result_meta is not None:
-                updated_manifest[rel_path] = result_meta
                 downloaded_count += 1
                 logger.info(f"[GDrive] download: {rel_path}")
+                # A안: 매 파일마다 푸시 — "54/54"처럼 정확히 찬다.
+                _notify_sync_state(True, phase="downloading", done=downloaded_count,
+                                  total=total_download, current=rel_path)
 
-        # 원격 manifest 갱신
-        _upload_remote_manifest(service, folder_id, updated_manifest, remote_manifest_file_id)
-
-        # 로컬 캐시 manifest 저장 (노드 루트에 숨김 파일).
-        try:
-            with open(LOCAL_MANIFEST_CACHE, 'w', encoding='utf-8') as f:
-                json.dump(updated_manifest, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        # --- 워크플로우 구조 마이그레이션: 구 평면 잔재('workflows___...')를 중첩 폴더로 이동 ---
+        # 이름/위치만 정정하고 내용은 그대로다. 실패해도 잔재는 매번 재귀 열거에서
+        # 다시 잡히므로 다음 동기화에서 재시도된다.
+        if not cancelled and legacy_workflows:
+            for legacy in legacy_workflows:
+                if _CANCEL_EVENT.is_set():
+                    cancelled = True
+                    break
+                legacy_rel = legacy["key"].replace('___', '/')
+                try:
+                    _resolve_local_path(legacy_rel)
+                except ValueError:
+                    continue
+                basename = legacy_rel.split('/')[-1]
+                subdir = os.path.dirname(legacy_rel[len(WORKFLOWS_NS):])
+                target_id = _ensure_workflow_folder(
+                    service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
+                    subdir.replace("\\", "/"))
+                if legacy.get("name") == basename and legacy.get("folder_id") == target_id:
+                    continue
+                try:
+                    service.files().update(
+                        fileId=legacy["id"],
+                        body={'name': basename},
+                        addParents=target_id,
+                        removeParents=legacy["folder_id"],
+                        fields='id',
+                    ).execute()
+                    logger.info(
+                        f"[GDrive] migrate flat workflow file: {legacy['name']} -> {basename}"
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"[GDrive] workflow migration failed ({legacy['name']}): {e}")
 
         # 마지막 동기화 결과 영속 저장 → 설정창 status API 가 읽어 표시.
+        # (취소된 경우에도 이번에 실제로 옮긴 개수는 정확하므로 그대로 기록)
         _save_last_sync_state(uploaded_count, downloaded_count)
 
+        if cancelled:
+            logger.info(
+                f"[GDrive] sync cancelled by user (uploaded: {uploaded_count}, downloaded: {downloaded_count})"
+            )
+            _notify_sync_state(False, phase="cancelled", done=downloaded_count,
+                              total=total_download,
+                              uploaded=uploaded_count, downloaded=downloaded_count)
+            return {
+                "status": "cancelled",
+                "message": f"Sync cancelled (uploaded: {uploaded_count}, downloaded: {downloaded_count})",
+                "uploaded": uploaded_count,
+                "downloaded": downloaded_count,
+                "last_sync_at": time.time(),
+            }
+
+        _notify_sync_state(False, phase="done",
+                          uploaded=uploaded_count, downloaded=downloaded_count)
         return {
             "status": "success",
             "message": f"Sync completed (uploaded: {uploaded_count}, downloaded: {downloaded_count})",
@@ -551,17 +987,143 @@ def _perform_sync_blocking():
     except Exception as e:
         logger.error(f"[GDrive] sync error: {e}", exc_info=True)
         return {"status": "error", "message": str(e), "uploaded": 0, "downloaded": 0}
+    finally:
+        # 프론트에 "동기화 끝"을 알려 구름 아이콘/버튼 스핀을 멈추게 한다.
+        _notify_sync_state(False)
+        _SYNC_GUARD.release()
+
+
+def _notify_sync_state(syncing, uploaded=0, downloaded=0,
+                       phase=None, done=0, total=0, current=""):
+    """
+    동기화 시작/진행/종료를 연결된 프론트엔드에 WebSocket 으로 푸시한다.
+
+    - 폴링이 전혀 없다. 서버가 상태가 바뀔 때만 send 알린다.
+    - phase: "uploading"|"downloading" (진행 중, 매 파일마다) | "done"|"cancelled" (종료)
+    - 진행 중엔 done/total/current(현재 파일)로 "86/340" 표시가 가능하다.
+    - PromptServer.instance.send_sync 는 스레드에서 호출해도 안전하다
+      (내부적으로 loop.call_soon_threadsafe 사용).
+    - PromptServer 가 아직 준비되지 않았거나 실패해도 조용히 무시한다.
+    """
+    try:
+        from server import PromptServer
+        instance = getattr(PromptServer, "instance", None)
+        if instance is None:
+            return
+        payload = {
+            "syncing": bool(syncing),
+            "uploaded": int(uploaded),
+            "downloaded": int(downloaded),
+        }
+        if phase:
+            payload["phase"] = phase
+        # 원인1 수정: total=0이어도 done/total을 보낸다.
+        # 이전엔 `if total:`이라 할 일 0건이면 필드 자체가 없어
+        # 프론트가 숫자를 표시할 수 없었다.
+        if phase in ("uploading", "downloading", "cancelled", "done"):
+            payload["done"] = int(done)
+            payload["total"] = int(total)
+        if current:
+            # 전체 경로가 길면 파일명만 (토스트/툴팁용).
+            payload["current"] = str(current).split("/")[-1]
+        # WS 푸시와 별개로 최신 진행률을 기억장치에 저장.
+        # 설정창이 늦게 열려 WS를 놓쳐도 status 폴링으로 숫자를 복원한다.
+        try:
+            with _PROGRESS_LOCK:
+                _LAST_PROGRESS.clear()
+                _LAST_PROGRESS.update(payload)
+                _LAST_PROGRESS["updated_at"] = time.time()
+        except Exception:
+            pass
+        instance.send_sync("bada.cloud.sync", payload)
+    except Exception as e:
+        logger.debug(f"[GDrive] sync-state push failed (ignored): {e}")
+
+
+def is_syncing():
+    """현재 동기화가 돌고 있는지 (락 상태). 폴링 없이 1회 질의용."""
+    return _SYNC_GUARD.locked()
+
+
+def request_sync_cancel():
+    """
+    진행 중인 동기화 중단을 요청한다.
+
+    반환: {"status": "cancelling"|"idle", "message": ...}
+      - cancelling: 중단 플래그를 세웠다. 진행 중이던 파일이 끝나는 즉시 루프를 빠져나온다.
+      - idle      : 애초에 돌고 있는 동기화가 없다.
+    """
+    if not _SYNC_GUARD.locked():
+        return {"status": "idle", "message": "No sync is currently running."}
+    _CANCEL_EVENT.set()
+    logger.info("[GDrive] Sync cancellation requested by user.")
+    return {"status": "cancelling", "message": "Sync cancellation requested."}
 
 
 async def sync_gdrive_async():
     """넌블로킹 동기화 래퍼. 이미 동기화 중이면 busy 반환."""
-    if _SYNC_LOCK.locked():
+    # busy 판정도 수행부(_SYNC_GUARD)와 같은 락을 본다.
+    # (예전엔 asyncio 락을 별도로 봐서 둘의 상태가 어긋날 수 있었다.)
+    if _SYNC_GUARD.locked():
         return {"status": "busy", "message": "A sync operation is already in progress."}
 
-    async with _SYNC_LOCK:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(_THREAD_POOL, _perform_sync_blocking)
-        return result
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(_THREAD_POOL, _perform_sync_blocking)
+    return result
+
+
+def schedule_startup_autosync(delay_seconds=0.0):
+    """
+    ComfyUI 기동 시 1회 자동 동기화를 예약한다 (완전 비동기·논블로킹).
+
+    - 별도 데몬 스레드에서 돌므로 ComfyUI 기동/GUI 를 전혀 막지 않는다.
+    - delay_seconds 기본 0: 굳이 기다릴 이유가 없다. 동기화는 백그라운드이고,
+      manifest 를 쓰지 않으므로 중단·오류가 나도 다음 실행에 원격을 보고 재개한다.
+    - 미인증(token.json 없음) 상태에서는 아무 것도 하지 않는다. 기동과 동시에
+      OAuth 인증 브라우저 창이 뜨는 것을 막기 위함 — 인증은 설정창 버튼으로 유도.
+    - 라이브러리 미설치, 이미 예약됨, 이미 동기화 중인 경우도 조용히 스킵.
+    """
+    global _AUTOSYNC_SCHEDULED
+    if _AUTOSYNC_SCHEDULED:
+        return False
+    if not GDRIVE_LIBS_AVAILABLE:
+        return False
+    if not os.path.exists(TOKEN_PATH):
+        logger.info(
+            "[GDrive] Startup auto-sync skipped: Google account not linked yet "
+            "(press Cloud Sync in settings to authorize)."
+        )
+        return False
+
+    _AUTOSYNC_SCHEDULED = True
+
+    def _worker():
+        try:
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
+            result = _perform_sync_blocking()
+            status = result.get("status")
+            if status == "success":
+                logger.info(
+                    "[GDrive] Startup auto-sync done "
+                    f"(uploaded: {result.get('uploaded', 0)}, downloaded: {result.get('downloaded', 0)})"
+                )
+            elif status == "busy":
+                logger.debug("[GDrive] Startup auto-sync skipped: sync already running.")
+            elif status == "cancelled":
+                # 사용자가 끊은 것은 실패가 아니므로 WARNING이 아닌 INFO로 기록.
+                logger.info(
+                    "[GDrive] Startup auto-sync cancelled by user "
+                    f"(uploaded: {result.get('uploaded', 0)}, downloaded: {result.get('downloaded', 0)})"
+                )
+            else:
+                logger.warning(f"[GDrive] Startup auto-sync failed: {result.get('message')}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[GDrive] Startup auto-sync error (ignored): {e}")
+
+    threading.Thread(target=_worker, daemon=True, name="GDriveAutoSync").start()
+    logger.info("[GDrive] Startup auto-sync scheduled (background, does not block ComfyUI).")
+    return True
 
 
 def _count_config_items(filename, full_path):
@@ -671,3 +1233,159 @@ def get_sync_file_details():
         "count": wf_count,
     })
     return details
+
+
+def get_remote_counts_snapshot():
+    """
+    팝업 열 때 1회 호출 — 원격(Drive) 개수 + 추적 경로 스냅샷.
+
+    반환: {"success": bool, "targets": [...], "error": str}
+      targets 항목:
+        - name        : 파일명 또는 "workflows"
+        - local_path  : 로컬 절대경로 (config=파일, workflows=폴더)
+        - remote_name : Drive 원격 이름 (config='___' 인코딩 키 / workflows='Workflows' 구조 표시)
+        - local_count : 로컬 내용 개수 (config=내용, workflows=파일 수)
+        - remote_count: 원격 내용 개수 (config=원격 파일 있으면 로컬과 동일 취급 불가→None,
+                        workflows=원격 파일 수; config 원격은 존재 여부만)
+        - remote_exists: 원격에 파일/항목이 하나라도 있는지
+
+    설계:
+      - config 4종은 원격 파일을 메모리로 다운로드해 내용 개수까지 셈
+        (디스크 기록 없음, 합 ~100KB·1~2초, 팝업 열 때 1회만).
+        실패하면 remote_count=None → 팝업은 "원격 있음"으로 표시.
+      - workflows는 원격 파일 수 = 항목 수이므로 remote_count 확정 가능.
+      - 동기화 중이 아닐 때만 호출 권장 (동기화 중엔 개수 변동).
+      - 인증 실패 시 success=False + error.
+    """
+    targets = []
+    # 로컬 기준 골격 먼저 (원격 실패해도 경로는 보여준다).
+    try:
+        wf_root = _resolve_workflows_root()
+    except Exception:
+        wf_root = ""
+    for rel_path in get_target_rel_paths():
+        name = os.path.basename(rel_path)
+        try:
+            local_path = _resolve_local_path(rel_path)
+        except ValueError:
+            local_path = ""
+        local_count = None
+        if local_path and os.path.isfile(local_path):
+            try:
+                local_count = _count_config_items(name, local_path)
+            except Exception:
+                local_count = None
+        targets.append({
+            "name": name,
+            "local_path": local_path,
+            # rel_path('.configs/<name>') → 원격 이름 규칙과 동일하게 인코딩.
+            "remote_name": rel_path.replace("/", "___"),
+            "local_count": local_count,
+            "remote_count": None,
+            "remote_exists": False,
+            "kind": "config",
+        })
+    # 워크플로우 로컬 개수
+    wf_local_count = 0
+    try:
+        for rel_path in _iter_workflow_rel_paths():
+            try:
+                fp = _resolve_local_path(rel_path)
+            except ValueError:
+                continue
+            if os.path.isfile(fp):
+                wf_local_count += 1
+    except Exception:
+        pass
+    targets.append({
+        "name": "workflows",
+        "local_path": wf_root,
+        "remote_name": "Workflows/ (로컬 디렉터리 구조를 실제 중첩 폴더로 저장)",
+        "local_count": wf_local_count,
+        "remote_count": None,
+        "remote_exists": False,
+        "kind": "workflows",
+    })
+
+    # 원격 조회 (루트 1회 + 하위폴더 5종 조회·생성 후 각 폴더 목록 병합)
+    service, msg = get_drive_service()
+    if service is None:
+        return {"success": False, "error": msg, "targets": targets}
+    try:
+        # 루트 → 하위폴더 5종 ID 조회/생성 후 병합 목록 (동기화와 동일한 구조).
+        root_id = _get_or_create_remote_folder(service, FOLDER_NAME)
+        subfolder_ids = _get_subfolder_ids(service, root_id)
+        remote_files, _ = _list_remote_files(service, subfolder_ids)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[GDrive] remote counts snapshot failed: {e}")
+        return {"success": False, "error": str(e), "targets": targets}
+
+    # remote_files 키는 '___' 인코딩 이름.
+    wf_remote_count = 0
+    # config 원격 내용 개수 — 메모리로만 다운로드해 파싱 (디스크 기록 없음).
+    # 파일 4개, 합 ~100KB, 1~2초. 팝업 열 때 1회만이라 부담 없음.
+    def _count_remote_config(remote_name):
+        meta = remote_files.get(remote_name)
+        if not meta or not meta.get("id"):
+            return None
+        try:
+            request = service.files().get_media(fileId=meta["id"])
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            fh.seek(0)
+            data = json.loads(fh.read().decode("utf-8"))
+            # _count_config_items는 디스크 경로를 받으므로 여기서 직접 분기.
+            # (같은 구조 판정 — 파일 4종)
+            fname = remote_name.split("___")[-1]
+            if fname == "favorites_data.json":
+                if isinstance(data, list):
+                    return len(data)
+                if isinstance(data, dict) and isinstance(data.get("favorites"), list):
+                    return len(data["favorites"])
+                return None
+            if fname == "gemini_chat_history.json":
+                if isinstance(data, dict) and isinstance(data.get("chats"), list):
+                    return len(data["chats"])
+                return None
+            if fname == "engines_registry.json":
+                if not isinstance(data, dict):
+                    return None
+                total = 0
+                up = data.get("user_prompts")
+                gp = data.get("gemini_prompts")
+                if isinstance(up, list):
+                    total += len(up)
+                if isinstance(gp, list):
+                    total += len(gp)
+                return total
+            if fname == "presets_data.json":
+                if not isinstance(data, dict):
+                    return None
+                total = 0
+                for node_val in data.values():
+                    if isinstance(node_val, dict):
+                        total += len(node_val)
+                    elif isinstance(node_val, list):
+                        total += len(node_val)
+                return total
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"[GDrive] remote content count failed ({remote_name}): {e}")
+            return None
+        return None
+
+    for t in targets:
+        if t["kind"] == "config":
+            rn = t["remote_name"]
+            if rn in remote_files:
+                t["remote_exists"] = True
+                t["remote_count"] = _count_remote_config(rn)
+        else:
+            for rn in remote_files:
+                if rn.startswith("workflows___"):
+                    wf_remote_count += 1
+            t["remote_count"] = wf_remote_count
+            t["remote_exists"] = wf_remote_count > 0
+    return {"success": True, "targets": targets}
