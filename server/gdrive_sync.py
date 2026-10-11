@@ -43,6 +43,8 @@ import asyncio
 import hashlib
 import logging
 import threading
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger("ComfyUI-Bada-Utils.GDrive")
@@ -607,8 +609,10 @@ def _list_workflows_recursive(service, root_id, legacy_files=None):
                     # 구(舊) 평면 잔재 — 기존 인코딩 키 그대로 지도에 포함하고 이동용으로 기록.
                     key = name
                     if legacy_files is not None:
+                        # modifiedTime 포함 — 중첩 위치에同名 파일이 이미 있으면 dedup 시 신규 판정 기준.
                         legacy_files.append({
                             "key": key, "id": item_id, "name": name, "folder_id": folder_id,
+                            "modifiedTime": entry["modifiedTime"],
                         })
                 else:
                     key = (WORKFLOWS_NS + name).replace("/", "___")
@@ -636,7 +640,7 @@ def _list_remote_files(service, subfolder_ids):
         · folder_id : 파일이 속은 하위폴더 ID (업로드 시 parents 지정용)
         · modifiedTime: Drive modifiedTime 을 파싱한 epoch 초 (원격 상태의 유일한 시간 기준)
         · size      : Drive 의 size (폴더/구글 문서는 없을 수 있어 0)
-      - legacy_workflows: Workflows 루트에 남은 구 평면 잔재 목록 (마이그레이션용)
+      - legacy_workflows: Workflows 루트에 남은 구 평면 잔재 목록 (마이그레이션용, modifiedTime 포함)
 
     이 목록이 곧 원격 상태이므로 별도의 manifest 파일은 쓰지 않는다.
     (중단/오류/버전 불일치 없이 다음 동기화에서 원격을 그대로 보고 재개 가능)
@@ -801,6 +805,21 @@ def _download_single_file(service, rel_path, remote_meta):
     return remote_meta
 
 
+def _move_flat_workflow_file(service, file_id, new_name, target_folder_id, old_folder_id):
+    """평면 잔재를 basename 으로 rename 하고 중첩 폴더로 이동. 동일 폴더(최상위 파일)이면 rename 만."""
+    kwargs = {}
+    if old_folder_id and old_folder_id != target_folder_id:
+        # 같은 부모를 add/remove 동시에 보내는 건 모순이므로 동일 폴더면 생략.
+        kwargs['addParents'] = target_folder_id
+        kwargs['removeParents'] = old_folder_id
+    service.files().update(
+        fileId=file_id,
+        body={'name': new_name},
+        fields='id',
+        **kwargs,
+    ).execute()
+
+
 def _perform_sync_blocking():
     """
     실제 동기화(차단) 작업.
@@ -930,6 +949,10 @@ def _perform_sync_blocking():
                     cancelled = True
                     break
                 legacy_rel = legacy["key"].replace('___', '/')
+                # 이번 세션 업로드 루프가 이미 인라인 rename+move 로 옮긴 잔재는 스킵.
+                # (잔재 기록은 동기화 전 스냅샷이라 name/folder_id 가 stale 함.)
+                if legacy_rel in uploaded:
+                    continue
                 try:
                     _resolve_local_path(legacy_rel)
                 except ValueError:
@@ -941,14 +964,34 @@ def _perform_sync_blocking():
                     subdir.replace("\\", "/"))
                 if legacy.get("name") == basename and legacy.get("folder_id") == target_id:
                     continue
+                # 중첩 위치에同名 파일이 이미 있으면 (다른 PC 가 먼저 업로드/수동 복사)
+                # modifiedTime 으로 신규 쪽을 유지하고 낡은 쪽만 삭제.
+                # (그냥 rename 하면 같은 폴더에同名 파일 2개가 만들어진다.)
+                nested_meta = remote_files.get(legacy["key"])
+                if nested_meta and nested_meta.get("id") != legacy["id"]:
+                    try:
+                        if nested_meta.get("modifiedTime", 0) >= legacy.get("modifiedTime", 0):
+                            # 중첩이 더 새것 → 구 평면 잔재 삭제.
+                            service.files().delete(fileId=legacy["id"]).execute()
+                            logger.info(
+                                f"[GDrive] drop stale flat workflow file (nested is newer): {legacy['name']}"
+                            )
+                        else:
+                            # 평면이 더 새것 → 중첩 위치로 옮긴 뒤 낡은 중첩 파일 삭제.
+                            _move_flat_workflow_file(
+                                service, legacy["id"], basename, target_id,
+                                legacy.get("folder_id"))
+                            service.files().delete(fileId=nested_meta["id"]).execute()
+                            logger.info(
+                                f"[GDrive] replace stale nested workflow with newer flat copy: {legacy['name']}"
+                            )
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"[GDrive] workflow dedup failed ({legacy['name']}): {e}")
+                    continue
                 try:
-                    service.files().update(
-                        fileId=legacy["id"],
-                        body={'name': basename},
-                        addParents=target_id,
-                        removeParents=legacy["folder_id"],
-                        fields='id',
-                    ).execute()
+                    _move_flat_workflow_file(
+                        service, legacy["id"], basename, target_id,
+                        legacy.get("folder_id"))
                     logger.info(
                         f"[GDrive] migrate flat workflow file: {legacy['name']} -> {basename}"
                     )
@@ -1389,3 +1432,243 @@ def get_remote_counts_snapshot():
             t["remote_count"] = wf_remote_count
             t["remote_exists"] = wf_remote_count > 0
     return {"success": True, "targets": targets}
+
+
+# --- Web UI "Open Local" action -------------------------------------------------
+def _reveal_in_explorer(path):
+    """로컬 파일/폴더를 탐색기(Finder)에서 *열어 보여준다* — 파일 자체를 기본 프로그램으로 실행하지 않는다.
+
+    - Windows: 파일은 `explorer.exe /select,"<path>"` (부모 폴더 열기 + 해당 파일 하이라이트),
+      폴더는 바로 열기.
+    - macOS: 파일은 `open -R <path>` (Finder reveal), 폴더는 `open <path>`.
+    - Linux: 부모 디렉터리 xdg-open.
+    """
+    abs_path = os.path.abspath(path)
+    if os.name == "nt":
+        # path 는 항상 서버 측에서 화이트리스트로 해석된 값 (클라이언트 입력 아님).
+        if os.path.isfile(abs_path):
+            subprocess.Popen(["explorer.exe", f"/select,{abs_path}"])
+        else:
+            subprocess.Popen(["explorer.exe", abs_path])
+    elif sys.platform == "darwin":
+        if os.path.isfile(abs_path):
+            subprocess.Popen(["open", "-R", abs_path])
+        else:
+            subprocess.Popen(["open", abs_path])
+    else:
+        target = abs_path if os.path.isdir(abs_path) else (os.path.dirname(abs_path) or ".")
+        subprocess.Popen(["xdg-open", target])
+
+
+def _find_explorer_window(folder_name):
+    """타이틀이 folder_name 과 일치하는 보이는 탐색기 창 HWND 를 찾는다. (Windows 전용)
+
+    EnumWindows 순서는 Z-order 상단→하단이므로 첫 매칭 = 가장 앞쪽 매칭 창이다.
+    타이틀 완전 일치 우선, 없으면 부분(하위문자열) 일치로 폴백. 실패 시 None.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    target = (folder_name or "").strip().lower()
+    exact_hits = []
+    partial_hits = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def _enum_proc(hwnd, lparam):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        cls_buf = ctypes.create_unicode_buffer(64)
+        user32.GetClassNameW(hwnd, cls_buf, 64)
+        # 탐색기 창 클래스: CabinetWClass (폴더 뷰), ExploreWClass (검색/레거시).
+        if cls_buf.value not in ("CabinetWClass", "ExploreWClass"):
+            return True
+        title_buf = ctypes.create_unicode_buffer(512)
+        user32.GetWindowTextW(hwnd, title_buf, 512)
+        title = title_buf.value.strip().lower()
+        if target and (title == target or target in title):
+            (exact_hits if title == target else partial_hits).append(hwnd)
+        return True
+
+    # 콜백 참조를 살려두어 EnumWindows 도중 GC 로 사라지지 않게 한다.
+    user32.EnumWindows(_enum_proc, None)
+    if exact_hits:
+        return exact_hits[0]
+    if partial_hits:
+        return partial_hits[0]
+    return None
+
+
+def _bring_explorer_to_front(target_path):
+    """Best-effort: 방금 연 탐색기 창을 포어그라운드로 올린다.
+
+    Windows 의 SetForegroundWindow 락 정책(포어그라운드 잠금)이 백그라운드 프로세스의
+    포커스 탈취를 막으므로, AttachThreadInput + Alt 키 주입 조합으로 우회한다.
+    100% 성공 보장은 없다 — 사용자가 다른 앱에서 타이핑 중이면 OS 가 차단할 수 있고,
+    그 경우 작업표시줄 깜빡임으로 폴백된다 (창 자체는 열린다).
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        abs_path = os.path.abspath(target_path)
+        # /select 의 경우 창 타이틀은 부모 폴더 이름이다.
+        if os.path.isfile(abs_path):
+            match_name = os.path.basename(os.path.dirname(abs_path))
+        else:
+            match_name = os.path.basename(abs_path.rstrip("\\/"))
+
+        # 탐색기 창이 열릴 시간을 주며 최대 ~2초까지 폴링한다.
+        hwnd = None
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            hwnd = _find_explorer_window(match_name)
+            if hwnd:
+                break
+            time.sleep(0.15)
+        if not hwnd:
+            logger.debug("[GDrive] focus attempt skipped (no matching Explorer window)")
+            return
+
+        # 현재 스레드 입력 큐를 대상 창 스레드에 연결해 포어그라운드 권한을 임시로 획득한다.
+        fg_thread = user32.GetWindowThreadProcessId(hwnd, None)
+        cur_thread = kernel32.GetCurrentThreadId()
+        attached = bool(user32.AttachThreadInput(cur_thread, fg_thread, True))
+        try:
+            # Alt 키 주입 트릭: OS 의 포어그라운드 락 타이머를 초기화한다.
+            user32.keybd_event(0x12, 0, 0, 0)           # VK_MENU (Alt) down
+            user32.keybd_event(0x12, 0, 0x0002, 0)      # Alt up (KEYEVENTF_KEYUP)
+            if not user32.IsWindowVisible(hwnd):
+                user32.ShowWindow(hwnd, 9)              # SW_RESTORE — 최소화 상태면 복원
+            user32.BringWindowToTop(hwnd)
+            ok = bool(user32.SetForegroundWindow(hwnd))
+            logger.info(
+                f"[GDrive] focus attempt on Explorer window: "
+                f"{'ok' if ok else 'blocked by OS (taskbar blink fallback)'}"
+            )
+        finally:
+            if attached:
+                user32.AttachThreadInput(cur_thread, fg_thread, False)
+    except Exception as e:  # noqa: BLE001 — best-effort. 열기 동작 자체는 절대 깨뜨리지 않는다.
+        logger.debug(f"[GDrive] focus attempt failed (harmless): {e}")
+
+
+def open_local_target(target_name):
+    """
+    Web UI "로컬 열기" 액션 — 대상 이름에 해당하는 로컬 *폴더*를 탐색기로 연다 (파일 자체는 실행하지 않음).
+
+    - 폴더 대상(workflows): 폴더 바로 열기.
+    - 파일 대상(.configs/*): `explorer /select` 로 부모 폴더를 열고 해당 파일을 하이라이트.
+    열기 후 ctypes 로 창을 포어그라운드로 올리는 best-effort 시도를 한다 (_bring_explorer_to_front).
+
+    보안 설계: 클라이언트는 *이름*만 보내고(화이트리스트), 경로 해석은 전부 서버 측에서
+      _resolve_local_path / _resolve_workflows_root 를 통해 수행하므로 임의 경로·
+      트래버설(..\\..)은 구조적으로 불가능하다.
+
+    반환: {"success": bool, "path": str, "error": str}
+    """
+    name = str(target_name or "").strip()
+    try:
+        if name == "workflows":
+            full_path = _resolve_workflows_root()
+        elif name in SYNC_TARGET_FILES:
+            full_path = _resolve_local_path(f".configs/{name}")
+        else:
+            return {"success": False, "error": f"Unknown target: {name}"}
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+
+    if not os.path.exists(full_path):
+        kind = "folder" if name == "workflows" else "file"
+        return {
+            "success": False,
+            "path": full_path,
+            "error": f"Local {kind} does not exist yet (not downloaded)",
+        }
+    try:
+        _reveal_in_explorer(full_path)
+        # 포어그라운드 집중 best-effort — 짧은 폴링 대기(최대 ~2초)가 있으므로 워커 스레드에서 호출해야 한다.
+        _bring_explorer_to_front(full_path)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[GDrive] open local failed ({name}): {e}")
+        return {"success": False, "path": full_path, "error": str(e)}
+    logger.info(f"[GDrive] opened local target: {full_path}")
+    return {"success": True, "path": full_path}
+
+
+def _find_remote_folder_by_name(service, folder_name, parent_id=None):
+    """
+    Drive 폴더를 **조회만** 한다 (없어도 생성하지 않는다 — "열기" 액션이 Drive 를 오염시키면 안 된다).
+    parent_id 가 주어지면 그 안에서만 찾는다(동명 폴더 혼동 방지), 없으면 My Drive 최상위.
+    반환: 폴더 ID 또는 None.
+    """
+    escaped = folder_name.replace("\\", "\\\\").replace("'", "\\'")
+    query = (f"name = '{escaped}' and "
+             f"mimeType = 'application/vnd.google-apps.folder' and trashed = false")
+    if parent_id:
+        query += f" and '{parent_id}' in parents"
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    items = results.get('files', [])
+    return items[0]['id'] if items else None
+
+
+def open_drive_target(target_name):
+    """
+    Web UI "Drive 열기" 액션 — 대상 이름에 해당하는 Drive 파일/폴더의 URL 을 만들어 반환한다.
+    (실제 브라우저 오픈은 프론트에서 window.open 으로 처리 — 서버는 URL 조립·검증만 담당)
+
+    - 폴더 대상(workflows / config 4종 모두): **동기화 하위폴더까지만** 열린다.
+      · workflows → '.../Workflows' 폴더 URL
+      · config 4종 → '.../Presets' | 'Favorites' | 'GeminiChat' | 'SystemPrompts' 폴더 URL
+      (파일 자체를 여는 대신 폴더까지만 — 로컬 '폴더 열기'와 동일한 정책.
+       파일 URL 은 Drive 뷰어로 새 탭이 전환돼 UX 가 끊기고, 폴더가 더 유용하기 때문)
+
+    보안 설계: open_local_target 과 동일 — 클라이언트는 이름(화이트리스트)만 보내고
+      경로 해석은 전부 서버 측 매핑표를 통해 수행하므로 임의 경로 조작은 불가능하다.
+    조회 전용이므로 Drive 에 폴더/파일을 생성하지 않는다 (없으면 실패로 응답).
+
+    반환: {"success": bool, "url": str, "kind": "folder", "error": str}
+    """
+    name = str(target_name or "").strip()
+    if name != "workflows" and name not in SYNC_TARGET_FILES:
+        return {"success": False, "error": f"Unknown target: {name}"}
+
+    try:
+        service, reason = get_drive_service()
+        if not service:
+            return {"success": False, "error": f"Drive 연결 실패: {reason}"}
+
+        # 루트 폴더(조회만) — 한 번도 동기화하지 않았으면 존재하지 않는다.
+        root_id = _find_remote_folder_by_name(service, FOLDER_NAME)
+        if not root_id:
+            return {"success": False, "error": "Drive 에 동기화 폴더가 없습니다 (먼저 동기화하세요)"}
+
+        if name == "workflows":
+            folder_id = _find_remote_folder_by_name(service, REMOTE_WORKFLOWS_FOLDER, parent_id=root_id)
+            if not folder_id:
+                return {"success": False, "error": "Workflows 폴더가 Drive 에 아직 없습니다"}
+            url = f"https://drive.google.com/drive/folders/{folder_id}"
+            logger.info(f"[GDrive] drive target resolved: workflows → {url}")
+            return {"success": True, "kind": "folder", "url": url}
+
+        # config 4종 — workflows 와 동일하게 **전용 하위폴더까지만** 연다 (파일 URL 아님).
+        # 매핑표(REMOTE_FOLDER_BY_REL)로 서브폴더명만 확정하고, 파일명(_stored_remote_name)은 쓰지 않는다.
+        rel_path = f".configs/{name}"
+        subfolder_name = REMOTE_FOLDER_BY_REL.get(rel_path)
+        if not subfolder_name:
+            return {"success": False, "error": f"Unknown target: {name}"}
+
+        subfolder_id = _find_remote_folder_by_name(service, subfolder_name, parent_id=root_id)
+        if not subfolder_id:
+            return {"success": False, "error": f"'{subfolder_name}' 폴더가 Drive 에 아직 없습니다"}
+
+        url = f"https://drive.google.com/drive/folders/{subfolder_id}"
+        logger.info(f"[GDrive] drive target resolved: {name} → {url}")
+        return {"success": True, "kind": "folder", "url": url}
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[GDrive] open drive target failed ({name}): {e}")
+        return {"success": False, "error": str(e)}

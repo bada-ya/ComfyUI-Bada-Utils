@@ -64,3 +64,4 @@ _verify_settings.png
 _verify.log
 _verify.log.err
 *.log.err
+_backups/

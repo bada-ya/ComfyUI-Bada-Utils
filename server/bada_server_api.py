@@ -1838,10 +1838,34 @@ def register_cloud_routes():
                 logger.error(f"[ComfyUI-Bada-Utils] Cloud remote-counts error: {e}")
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
+        async def cloud_open_local_handler(request):
+            """POST /api/bada/cloud/open-local — Web UI "로컬 열기" 액션 (화이트리스트 검증)."""
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+            target = data.get("target", "") if isinstance(data, dict) else ""
+            # 포어그라운드 집중용 짧은 폴링 대기(최대 ~2초)가 있으므로 워커 스레드에서 실행.
+            result = await asyncio.to_thread(gdrive_sync.open_local_target, target)
+            return web.json_response(result)
+
+        async def cloud_open_drive_handler(request):
+            """POST /api/bada/cloud/open-drive — Web UI "Drive 열기" 액션 (화이트리스트 검증)."""
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+            target = data.get("target", "") if isinstance(data, dict) else ""
+            # Drive API 조회(네트워크 왕복)라 워커 스레드에서 실행 — 이벤트 루프 블로킹 방지.
+            result = await asyncio.to_thread(gdrive_sync.open_drive_target, target)
+            return web.json_response(result)
+
         routes.post("/api/bada/cloud/sync")(cloud_sync_handler)
         routes.get("/api/bada/cloud/status")(cloud_status_handler)
         routes.post("/api/bada/cloud/cancel")(cloud_cancel_handler)
         routes.get("/api/bada/cloud/remote-counts")(cloud_remote_counts_handler)
+        routes.post("/api/bada/cloud/open-local")(cloud_open_local_handler)
+        routes.post("/api/bada/cloud/open-drive")(cloud_open_drive_handler)
 
         logger.info("[ComfyUI-Bada-Utils] Cloud Sync (Google Drive) routes registered ☁️")
 

@@ -180,6 +180,56 @@ function remoteTargetByName(name) {
     if (!Array.isArray(detailRemoteSnapshot)) return null;
     return detailRemoteSnapshot.find((t) => t.name === name) || null;
 }
+// "로컬 열기" — 서버 측 화이트리스트 검증 + 탐색기에서 폴더 열림 (파일은 /select 하이라이트).
+// 피드백(✅/⚠️) 표시 후 재렌더링으로 원래 라벨 복원.
+async function callOpenLocal(name, btn) {
+    const isKo = BadaI18n.lang === "ko";
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    try {
+        const r = await fetch("/api/bada/cloud/open-local", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target: name }),
+        });
+        const s = await r.json();
+        if (s.success) {
+            btn.textContent = isKo ? "✅ 열림" : "✅ Opened";
+        } else {
+            btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+            btn.title = s.error || "";
+        }
+    } catch (_) {
+        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+    }
+    setTimeout(paintDetailFiles, 1600);
+}
+// "Drive 열기" — 서버 화이트리스트 검증 후 해당 Drive 파일/폴더 URL을 새 탭으로 오픈.
+// 피드백(✅/⚠️) 표시 후 재렌더링으로 원래 라벨 복원.
+async function callOpenDrive(name, btn) {
+    const isKo = BadaI18n.lang === "ko";
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    try {
+        const r = await fetch("/api/bada/cloud/open-drive", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target: name }),
+        });
+        const s = await r.json();
+        if (s.success && s.url) {
+            window.open(s.url, "_blank", "noopener");
+            btn.textContent = isKo ? "✅ 열림" : "✅ Opened";
+            btn.title = s.url;
+        } else {
+            btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+            btn.title = s.error || "";
+        }
+    } catch (_) {
+        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+    }
+    setTimeout(paintDetailFiles, 1600);
+}
 function paintDetailFiles() {
     if (!detailModalEl) return;
     const isKo = (BadaI18n.lang === "ko");
@@ -271,11 +321,37 @@ function paintDetailFiles() {
             const lp = (rt2 && rt2.local_path) || "";
             const rn = (rt2 && rt2.remote_name) || "";
             const l1 = document.createElement("div");
-            l1.textContent = `📁 ${lp || (isKo ? "로컬 경로 확인 중…" : "resolving local path…")}`;
-            l1.title = lp;
+            l1.style.cssText = "display:flex; align-items:center; gap:8px;";
+            const p1 = document.createElement("span");
+            p1.textContent = `📁 ${lp || (isKo ? "로컬 경로 확인 중…" : "resolving local path…")}`;
+            p1.title = lp;
+            l1.appendChild(p1);
+            // "로컬 열기" 버튼 — 서버 화이트리스트 검증 후 탐색기에서 폴더 오픈 (파일은 /select 하이라이트).
+            if (lp) {
+                const openBtn = document.createElement("button");
+                openBtn.type = "button";
+                openBtn.style.cssText = "flex-shrink:0; background:rgba(34,197,94,0.15); border:1px solid rgba(34,197,94,0.4); color:#bbf7d0; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
+                openBtn.textContent = isKo ? "📂 로컬 열기" : "📂 Open local";
+                openBtn.title = `${lp} · ${isKo ? "탐색기에서 폴더 열기 (파일은 하이라이트)" : "open folder in Explorer (file highlighted)"}`;
+                openBtn.addEventListener("click", (e) => { e.stopPropagation(); callOpenLocal(f.name, openBtn); });
+                l1.appendChild(openBtn);
+            }
             const l2 = document.createElement("div");
-            l2.textContent = `☁️ Drive: ${rn || (isKo ? "원격 확인 중…" : "checking remote…")}`;
-            l2.title = rn;
+            l2.style.cssText = "display:flex; align-items:center; gap:8px;";
+            const p2 = document.createElement("span");
+            p2.textContent = `☁️ Drive: ${rn || (isKo ? "원격 확인 중…" : "checking remote…")}`;
+            p2.title = rn;
+            l2.appendChild(p2);
+            // "Drive 열기" 버튼 — 서버 화이트리스트 검증 후 해당 **동기화 폴더**(Presets/SystemPrompts 등)를 새 탭으로 오픈.
+            if (rn) {
+                const driveBtn = document.createElement("button");
+                driveBtn.type = "button";
+                driveBtn.style.cssText = "flex-shrink:0; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#bae6fd; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
+                driveBtn.textContent = isKo ? "🔗 Drive 열기" : "🔗 Open Drive";
+                driveBtn.title = isKo ? "Google Drive 에서 해당 동기화 폴더 열기" : "Open the sync folder in Google Drive";
+                driveBtn.addEventListener("click", (e) => { e.stopPropagation(); callOpenDrive(f.name, driveBtn); });
+                l2.appendChild(driveBtn);
+            }
             sub.appendChild(l1);
             sub.appendChild(l2);
             wrap.appendChild(sub);
