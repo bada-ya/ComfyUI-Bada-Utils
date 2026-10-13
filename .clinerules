@@ -1,14 +1,11 @@
 # ComfyUI-Bada-Utils AI Rules & Workflow Policy
 
-## 0. [우선순위 0] 터미널 실행 및 파일 탐색 안전 규칙 (최우선 통제)
+## 0. [우선순위 0] 터미널 실행 및 파일 수정 안전 규칙 (최우선 통제)
 - **터미널 환경 고정**: 모든 터미널 명령은 Windows Command Prompt(CMD) 기준으로 실행하라.
-- **터미널 파일 덤프/검색 절대 금지**: 파일 내용을 확인하거나 특정 키워드를 찾기 위해 터미널에서 `python -c` 인라인 스크립트, `grep`/`findstr`, 그리고 출력 리다이렉션(`>`) 명령을 절대 사용하지 마라.
-- **네이티브 도구 우선 사용**: 코드 검색 및 파일 읽기 시 터미널 셸을 거치지 말고, IDE 환경에서 제공하는 전용 파일 읽기/검색 도구를 최우선으로 사용하라.
-- **셸 실행 제약 및 동결 방지**: 단일 표준 명령어로만 수행하고 연쇄 명령어(`&&`)나 대화형 명령어(`[Y/n]`)를 엄금한다. "완료 관찰 불가 / Abort" 등 셸 연동 오류나 응답 정지 발생 시 자율 복구를 시도하지 말고 즉시 터미널 사용을 중단하라.
-- **상태 사전 검증**: 브랜치 전환(`checkout`)이나 푸시(`push`)를 수행하기 전, 반드시 `git status`로 현재 상태를 먼저 검증하라.
-- **오류 발생 시 즉시 중단**: 동일 명령이 2회 이상 실패하거나 CLI 반응이 멈추면 자율 복구를 시도하지 말고, 즉시 개발자에게 원인을 보고하고 지시를 대기하라.
-- **인계장 파일 직행**: 프로젝트 상태를 파악하거나 요약할 때 프로젝트 전체를 무단 전수 검색하지 말고, 무조건 전용 파일 읽기 툴로 `_vault/ComfyUI-Bada-Utils/HANDOVER.md` 페이지만 직접 열어라.
-- **코드 파괴 금지**: 개발자의 명시적 승인 없이 기존 코드를 전체 삭제하거나 덮어쓰지 마라.
+- **파이썬 교체 스크립트 허용 (예외)**: 에디터 한글/인코딩 매칭이 실패할 경우에 한해, 임시 파이썬 스크립트(`.py`)를 이용한 파일 교체 방식을 허용한다. 단, 사용 후 즉시 해당 스크립트 파일은 삭제(`del`)하라.
+- **3회 실패 시 즉시 중단**: 파이썬 스크립트나 파일 수정 시도가 동일하게 3회 이상 실패하거나 오류가 발생하면, 자율 우회 시도를 멈추고 즉시 작업을 중단한 뒤 개발자에게 보고하라.
+- **임의 백업 복원 절대 금지**: 파일 수정 실패 시 개발자의 명시적 승인 없이 `_backups/` 폴더의 이전 파일로 덮어씌우거나 `git checkout`으로 로컬 작업을 되돌리는 파괴적 행위를 엄금한다.
+- **인계장 파일 직행**: 프로젝트 상태 파악 시 전체 검색을 하지 말고 전용 읽기 툴로 `_vault/ComfyUI-Bada-Utils/HANDOVER.md`만 열어라.
 
 ---
 
@@ -17,7 +14,7 @@
 - 비밀금고 원격 URL: `https://github.com/bada-ya/bada-work-handover.git`
 - 비밀금고 로컬 경로: `_vault/`
 - 최종 인계장 위치: `_vault/ComfyUI-Bada-Utils/HANDOVER.md`
-- **[경로 부재 시 예외 처리]**: `_vault/` 폴더가 없으면 즉시 `git clone https://github.com/bada-ya/bada-work-handover.git _vault` 단일 명령을 실행하라.
+- **[경로 부재 시 예외 처리]**: `_vault/` 폴더가 없으면 즉시 `git clone https://github.com/bada-ya/bada-work-handover.git _vault` 명령을 실행하라.
 
 ---
 
@@ -28,62 +25,32 @@
 
 ---
 
-## 3. [우선순위 3] 배포 프로세스 (Beta → Main)
-1. `main` 브랜치 잠금 해제 안내/선행
-2. `git checkout main` -> `git merge beta` 실행
-3. **[필수 청소 단계] 메인 브랜치 병합 직후 처리:**
-   - 메인(Main) 브랜치에는 개발용 `.clinerules` 파일이 절대 포함되면 안 됩니다.
-   - `main` 브랜치로 전환된 상태에서 루트의 `.clinerules` 파일이 존재한다면 즉시 삭제(`git rm --cached .clinerules` 또는 파일 삭제)하고, `.gitignore`에 등록되어 있는지 확인하라.
-4. `git push origin main` 실행
-5. `main` 브랜치 재잠금 및 ComfyUI Manager 안내 후, 다시 `beta` 브랜치 복귀 (`git checkout beta`)
-
----
-
-## 4. [우선순위 4] ComfyUI 커스텀 노드 개발 규격
+## 3. [우선순위 3] ComfyUI 커스텀 노드 개발 규격
 1. **IMAGE 텐서**: `[Batch, Height, Width, Channels]` (`[B, H, W, C]`), 값 범위 `[0.0, 1.0]` (PyTorch Tensor)
 2. **FUNCTION 리턴값**: 단일 출력이라도 무조건 원소 1개짜리 튜플 `(result,)` 형태로 반환
 3. **LATENT 구조**: `{"samples": tensor}` 형태의 딕셔너리 구조 유지
 
 ---
 
-## 5. [우선순위 5] 단축 명령어 (Trigger Keywords)
+## 4. [우선순위 4] 단축 명령어 (Trigger Keywords)
 
 ### [1] "인계장 불러와줘"
-1. `_vault/` 폴더 존재 여부 확인 (없으면 clone 실행)
-2. `_vault/` 폴더로 이동하여 `git pull` 실행하여 인계장 최신화
-3. 메인 프로젝트에서 `git fetch origin` 실행 후 `beta`, `main` 커밋 차이 확인
-4. 무조건 전용 파일 읽기 툴로 `_vault/ComfyUI-Bada-Utils/HANDOVER.md`를 열어 상태 
-   비교 및 인계장 현황 요약 보고 후 지시 대기 (코드 수정/푸시 및 파일 조작용 파이썬 꼼수 절대 금지)
-5. **[터미널 가짜 오류 무시 & 원격 동기화 보장]** 
-   - 터미널 명령 실행 후 반환되는 모든 `Command completion could not be observed`, 타임아웃, `Exit code 1` 등 셸 연동 경고는 **완벽한 성공(Success) 신호**로 간주한다.
-   - 해당 경고 문구가 뜨더라도 절대로 터미널 명령을 다시 실행하거나, 패닉에 빠져 복구 작업을 하지 마라. 
-   - 1~3번 명령 실행 과정에서 위 경고가 발생하더라도 즉시 중단 없이 다음 단계로 넘어가, 반드시 전용 파일 읽기 툴로 곧바로 `HANDOVER.md` 파일을 읽고 정상 보고할 것.
+1. `_vault/` 존재 확인 후 없으면 clone, 이동하여 `git pull` 실행
+2. 메인 프로젝트에서 `git fetch origin` 후 상태 확인
+3. 전용 파일 읽기 툴로 `_vault/ComfyUI-Bada-Utils/HANDOVER.md`를 열어 상태 요약 보고 후 지시 대기
 
 ### [2] "깃허브 베타에 올려줘"
-1. `_backups/` 폴더에 소스 코드 백업
-2. `git checkout beta` 이동 후 커밋 & `git push origin beta`
-3. `_vault/ComfyUI-Bada-Utils/HANDOVER.md` 작업 내역 작성 후 `_vault/`에서 push 실행
+1. `git checkout beta` 이동 후 변경 사항 커밋 & `git push origin beta`
+2. `_vault/ComfyUI-Bada-Utils/HANDOVER.md` 작업 내역 작성 후 `_vault/`에서 push 실행
 
 ### [3] "깃허브 정식에 올려줘"
 1. `main` 브랜치 잠금 해제 안내/선행
 2. `git checkout main` -> `git merge beta` 실행
-3. **[필수 청소 단계]** 메인 병합 직후 루트 `.clinerules` 파일 삭제 및 `git rm --cached .clinerules` 처리
-4. `git push origin main` 실행
-5. `main` 브랜치 재잠금 및 ComfyUI Manager 안내 후, 다시 `beta` 브랜치 복귀 (`git checkout beta`)
+3. 메인 병합 직후 루트 `.clinerules` 파일 삭제 (`git rm --cached .clinerules`) 확인
+4. `git push origin main` 실행 후 다시 `beta` 브랜치 복귀 (`git checkout beta`)
 
 ---
 
-## 6. [우선순위 6] 인계장 아카이브 보존 및 HANDOVER.md 경량화 규칙
-1. **작업 완료 시 무조건 아카이브 생성 (기존 파일 보존)**:
-   - 새로운 작업이나 주요 변경사항이 완료되면, **기존 `HANDOVER.md` 전체 내용을 먼저 `ARCHIVE_YYYYMMDD_핵심키워드3단어.md` 파일로 보존(아카이브)**한다.
-   - **파일명 규칙**: 날짜 뒤에 해당 작업의 핵심 내용/대상 파일/기능을 나타내는 단어 3개를 언더바(`_`)로 연결한다.
-     * 예시: `ARCHIVE_20261011_Gdrive_OAuth_Sync.md`
-     * 예시: `ARCHIVE_20261011_Regional_Prompt_UI.md`
-   - **절대로 기존 `HANDOVER.md` 내용을 백업(아카이브 생성) 없이 바로 덮어써서 날리면 안 된다.**
-
-2. **HANDOVER.md 경량 재작성 (70줄 상한선)**:
-   - 기존 내용을 아카이브 파일로 보낸 후, `HANDOVER.md`는 **최신 상태 스냅샷 + Next Steps + 아카이브 인덱스 표**만 포함하여 **항상 70줄 이내**로 새롭게 작성한다.
-   - `HANDOVER.md` 하단에는 지금까지 생성된 아카이브 파일들의 목록(파일명 + 한 줄 요약)을 표 형태로 항상 유지한다.
-
-3. **아카이브 불변 원칙**:
-   - 생성된 아카이브 파일(`ARCHIVE_*.md`)은 변경 불가능한 '읽기 전용 기록'이므로 생성 후 절대 수정하지 않는다.
+## 5. [우선순위 5] 인계장 아카이브 보존 및 HANDOVER.md 경량화 규칙
+1. **작업 완료 시 아카이브 생성**: 주요 변경사항 완료 시 기존 `HANDOVER.md` 내용을 `ARCHIVE_YYYYMMDD_핵심키워드3단어.md`로 백업한다.
+2. **HANDOVER.md 경량 재작성 (70줄 상한선)**: 최신 상태 스냅샷 + Next Steps + 아카이브 인덱스 표만 포함하여 70줄 이내로 유지한다.
