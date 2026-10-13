@@ -93,6 +93,7 @@ PARENT_DIR = os.path.dirname(CURRENT_DIR)
 
 CREDENTIALS_PATH = os.path.join(PARENT_DIR, 'credentials.json')
 TOKEN_PATH = os.path.join(PARENT_DIR, 'token.json')
+GDRIVE_SETTINGS_PATH = os.path.join(PARENT_DIR, '.gdrive_settings.json')
 
 # 동기화 대상 파일명 (커스텀 노드 루트 기준). 워크플로우 디렉터리와 무관하게 고정.
 # engines_registry.json 은 Gemini/Prompt Generator 의 사용자 시스템 프롬프트를 담는
@@ -1113,6 +1114,46 @@ async def sync_gdrive_async():
     loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(_THREAD_POOL, _perform_sync_blocking)
     return result
+
+
+def get_gdrive_settings() -> dict:
+    """
+    Cloud Sync 전용 설정(.gdrive_settings.json)을 로드한다.
+    - 보안상 config.json(Gemini API 키 등)과 완전히 분리.
+    - 기본값: startup_autosync = True (기존 동작 호환).
+    """
+    defaults = {"startup_autosync": True}
+    if not os.path.exists(GDRIVE_SETTINGS_PATH):
+        return defaults
+    try:
+        with open(GDRIVE_SETTINGS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                defaults.update(data)
+    except Exception as e:
+        logger.warning(f"[GDrive] Failed to read {GDRIVE_SETTINGS_PATH}: {e}")
+    return defaults
+
+
+def set_gdrive_settings(new_settings: dict) -> dict:
+    """
+    Cloud Sync 전용 설정을 갱신 및 파일에 저장한다.
+    """
+    current = get_gdrive_settings()
+    if isinstance(new_settings, dict):
+        current.update(new_settings)
+    try:
+        with open(GDRIVE_SETTINGS_PATH, "w", encoding="utf-8") as f:
+            json.dump(current, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"[GDrive] Failed to save {GDRIVE_SETTINGS_PATH}: {e}")
+    return current
+
+
+def is_startup_autosync_enabled() -> bool:
+    """시작 시 자동 동기화 활성화 여부 확인 (기본값 True)."""
+    settings = get_gdrive_settings()
+    return bool(settings.get("startup_autosync", True))
 
 
 def schedule_startup_autosync(delay_seconds=0.0):

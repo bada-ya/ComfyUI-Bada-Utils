@@ -1860,19 +1860,47 @@ def register_cloud_routes():
             result = await asyncio.to_thread(gdrive_sync.open_drive_target, target)
             return web.json_response(result)
 
+        async def cloud_settings_get_handler(request):
+            """GET /api/bada/cloud/settings — Cloud Sync 전용 설정 조회."""
+            try:
+                settings = gdrive_sync.get_gdrive_settings()
+                return web.json_response({"success": True, **settings})
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud settings get error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def cloud_settings_post_handler(request):
+            """POST /api/bada/cloud/settings — Cloud Sync 전용 설정 저장."""
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+            try:
+                saved = gdrive_sync.set_gdrive_settings(data)
+                return web.json_response({"success": True, **saved})
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud settings post error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
         routes.post("/api/bada/cloud/sync")(cloud_sync_handler)
         routes.get("/api/bada/cloud/status")(cloud_status_handler)
         routes.post("/api/bada/cloud/cancel")(cloud_cancel_handler)
         routes.get("/api/bada/cloud/remote-counts")(cloud_remote_counts_handler)
         routes.post("/api/bada/cloud/open-local")(cloud_open_local_handler)
         routes.post("/api/bada/cloud/open-drive")(cloud_open_drive_handler)
+        routes.get("/api/bada/cloud/settings")(cloud_settings_get_handler)
+        routes.post("/api/bada/cloud/settings")(cloud_settings_post_handler)
 
         logger.info("[ComfyUI-Bada-Utils] Cloud Sync (Google Drive) routes registered ☁️")
 
         # 기동 직후 1회 자동 동기화 예약 (백그라운드, 기동 차단 없음).
+        # 사용자가 시작 시 자동동기화를 OFF한 경우 스킵.
         # 미인증 상태면 내부에서 조용히 스킵 → OAuth 팝업이 기동을 방해하지 않는다.
         try:
-            gdrive_sync.schedule_startup_autosync()
+            if gdrive_sync.is_startup_autosync_enabled():
+                gdrive_sync.schedule_startup_autosync()
+            else:
+                logger.info("[GDrive] Startup auto-sync skipped (disabled in settings).")
         except Exception as e:  # noqa: BLE001
             logger.warning(f"[ComfyUI-Bada-Utils] Startup auto-sync schedule failed: {e}")
     except Exception as e:

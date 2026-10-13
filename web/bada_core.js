@@ -86,7 +86,7 @@ const BADA_SETTINGS_TEXTS = {
         detectiveName: "⚓ Node Smart Care (Missing Node Resolver & Model Assigner)",
         detectiveDesc: "Smartly resolves uninstalled missing nodes (red X) and missing models/LoRAs via right-click menu, providing one-click installation and smart auto-assignment.",
         cloudSyncName: "☁️ Cloud Sync (Google Drive)",
-        cloudSyncDesc: "Back up presets, favorites, Gemini chat history, system prompts and workflows to Google Drive and sync only the changed parts in the background.",
+        cloudSyncDesc: "Automatically synchronizes presets, favorites, Gemini chat history, system prompts, and custom user files with Google Drive in the background on ComfyUI startup.",
 
         noteHelperName: "📝 Text & Prompt One-Click Translator",
         noteHelperDesc: "Automatically adds a one-click translation button to nodes with text inputs or displayed text.",
@@ -140,7 +140,7 @@ const BADA_SETTINGS_TEXTS = {
         detectiveName: "⚓ 노드 스마트 케어 (미싱 노드 복구 & 모델 자동 장착)",
         detectiveDesc: "캔버스 빈 공간 또는 노드 우클릭 시, 미설치 미싱 노드(빨간 X) 탐색/설치 및 누락된 모델/LoRA를 탭별로 한눈에 케어하고 스마트 자동 장착합니다.",
         cloudSyncName: "☁️ 클라우드 동기화 (Google Drive)",
-        cloudSyncDesc: "프리셋·즐겨찾기·제미나이 채팅 기록·시스템 프롬프트·워크플로우를 Google Drive에 백업하고 변경된 부분만 백그라운드에서 자동 동기화합니다.",
+        cloudSyncDesc: "컴피유아이 시작시 프리셋·즐겨찾기·제미나이 채팅 기록·시스템 프롬프트·사용자 추가 파일을 구글 드라이브에 자동으로 백그라운드에서 자동 동기화 합니다.",
 
         noteHelperName: "📝 텍스트 & 프롬프트 원클릭 번역기",
         noteHelperDesc: "텍스트 입력 또는 표시 위젯이 있는 노드에 번역 버튼을 자동으로 추가합니다.",
@@ -574,6 +574,80 @@ let isPresetsExpanded = true;
         }
         div[data-setting-id="BadaUtils.GlobalPresetsPanel"] #BadaUtils\\.GlobalPresetsPanel {
             width: 100% !important;
+        }
+
+        /* 3. Layout styling for Bada Cloud Sync row */
+        div[data-setting-id="BadaUtils.CloudSync"] {
+            width: 100% !important;
+            margin-top: 2px !important;
+        }
+        div[data-setting-id="BadaUtils.CloudSync"] > div {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            width: 100% !important;
+        }
+        div[data-setting-id="BadaUtils.CloudSync"] .form-label {
+            display: none !important;
+        }
+        div[data-setting-id="BadaUtils.CloudSync"] .form-input {
+            width: 100% !important;
+            max-width: 100% !important;
+            display: block !important;
+            justify-content: stretch !important;
+            padding: 0 !important;
+        }
+        div[data-setting-id="BadaUtils.CloudSync"] #BadaUtils\\.CloudSync {
+            width: 100% !important;
+        }
+
+        /* Toggle switch component for Cloud Sync startup auto-sync */
+        .bada-cloud-switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+            flex-shrink: 0;
+            cursor: pointer;
+            margin: 0;
+        }
+        .bada-cloud-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+            position: absolute;
+            margin: 0;
+        }
+        .bada-cloud-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.16);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            transition: all 0.2s ease;
+            border-radius: 24px;
+        }
+        .bada-cloud-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 2px;
+            bottom: 2px;
+            background-color: #94a3b8;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 50%;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+        }
+        .bada-cloud-switch input:checked + .bada-cloud-slider {
+            background-color: #0284c7;
+            border-color: #38bdf8;
+        }
+        .bada-cloud-switch input:checked + .bada-cloud-slider:before {
+            transform: translateX(20px);
+            background-color: #ffffff;
         }
 
         /* PHASE 3: the .bada-trans-* and #bada-inline-presets-panel rules are deleted with the
