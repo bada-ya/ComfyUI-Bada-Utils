@@ -132,10 +132,11 @@ REMOTE_WORKFLOWS_FOLDER = 'Workflows'
 WORKFLOW_EXCLUDE_NAMES = {
     '.gdrive_manifest.json',
     '.gdrive_sync_state.json',
+    '.gdrive_snapshot.json',
 }
 
-# 워크플로우 폴더를 재귀 스캔할 때 건너뛸 디렉터리.
-WORKFLOW_EXCLUDE_DIRS = {'__pycache__'}
+# 워크플로우 폴더를 재귀 스캔할 때 건너뛸 디렉터리 (휴지통 폴더 포함).
+WORKFLOW_EXCLUDE_DIRS = {'__pycache__', '_deleted_workflows'}
 
 # 1차 버전의 로컬 캐시 매니페스트 경로 (워크플로우 폴더를 더럽히지 않도록 노드 루트).
 LOCAL_MANIFEST_CACHE = os.path.join(PARENT_DIR, '.gdrive_manifest.json')
@@ -143,6 +144,9 @@ LOCAL_MANIFEST_CACHE = os.path.join(PARENT_DIR, '.gdrive_manifest.json')
 # 마지막 동기화 결과(시각/업·다운로드 수) 영속 파일.
 # status API 가 매번 이걸 읽어 설정창에 "언제·무엇을" 보여준다. 새로고침 후에도 유지.
 LAST_SYNC_STATE_FILE = os.path.join(PARENT_DIR, '.gdrive_sync_state.json')
+
+# 3-Way Snapshot 파일 (삭제 및 이동 추적을 통한 좀비 파일 방지용).
+SNAPSHOT_STATE_FILE = os.path.join(PARENT_DIR, '.gdrive_snapshot.json')
 
 _SYNC_LOCK = asyncio.Lock()
 _THREAD_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="GDriveSyncWorker")
@@ -184,6 +188,73 @@ def _save_last_sync_state(uploaded, downloaded):
             )
     except Exception as exc:
         logger.debug(f"[GDrive] last-sync state save failed (ignored): {exc}")
+
+
+def get_base_snapshot():
+    """
+    직전 동기화 성공 시점의 3-Way 비교 기준 스냅샷(Base)을 로드.
+    반환: { rel_path: { "mtime": float, "size": int } } 또는 None (첫 동기화)
+    """
+    if not os.path.exists(SNAPSHOT_STATE_FILE):
+        return None
+    try:
+        with open(SNAPSHOT_STATE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except Exception as e:
+        logger.warning(f"[GDrive] Failed to load base snapshot: {e}")
+    return None
+
+
+def save_base_snapshot(snapshot_dict):
+    """동기화 완료 후 최종 합의된 파일 목록과 mtime을 스냅샷으로 영속 저장."""
+    try:
+        with open(SNAPSHOT_STATE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(snapshot_dict, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"[GDrive] Failed to save base snapshot: {e}")
+
+
+def trash_local_workflow(rel_path):
+    """
+    로컬 워크플로우를 영구 삭제하지 않고 `_deleted_workflows/` 안전 보관함으로 이동.
+    (실수로 인한 유실 0% 보장 — 마우스로 즉시 복원 가능)
+    """
+    try:
+        full_path = _resolve_local_path(rel_path)
+        if not os.path.exists(full_path):
+            return True
+        root = _resolve_workflows_root()
+        sub_rel = rel_path[len(WORKFLOWS_NS):]  # workflows/ 이후 상대경로
+        trash_dir = os.path.join(root, "_deleted_workflows", os.path.dirname(sub_rel))
+        os.makedirs(trash_dir, exist_ok=True)
+        trash_target = os.path.join(trash_dir, os.path.basename(sub_rel))
+        # 만약 휴지통에 이미 동명 파일이 있다면 덮어쓰거나 타임스탬프 부여
+        if os.path.exists(trash_target):
+            base_n, ext = os.path.splitext(os.path.basename(sub_rel))
+            trash_target = os.path.join(trash_dir, f"{base_n}_{int(time.time())}{ext}")
+        import shutil
+        shutil.move(full_path, trash_target)
+        logger.info(f"[GDrive] Local workflow safely moved to trash: {rel_path} -> {trash_target}")
+        return True
+    except Exception as e:
+        logger.error(f"[GDrive] Failed to move local workflow to trash ({rel_path}): {e}")
+        return False
+
+
+def trash_remote_file(service, file_id, file_name=""):
+    """
+    구글 드라이브 파일을 영구 파기(delete)하지 않고 '구글 드라이브 휴지통'으로 안전 이동.
+    (구글 드라이브 휴지통에서 30일간 언제든 복원 가능)
+    """
+    try:
+        service.files().update(fileId=file_id, body={'trashed': True}).execute()
+        logger.info(f"[GDrive] Remote file safely moved to Drive trash: {file_name} (ID: {file_id})")
+        return True
+    except Exception as e:
+        logger.error(f"[GDrive] Failed to move remote file to trash ({file_name}): {e}")
+        return False
 
 
 def check_gdrive_libs():
@@ -857,20 +928,101 @@ def _perform_sync_blocking():
         uploaded_count = 0
         downloaded_count = 0
 
-        # --- B안: 업로드 대상 사전 계산 (정확한 분모) ---
-        # 전송 루프에 들어가기 전 메모리 내 비교만으로 대상을 확정한다.
-        # API 추가 호출·디스크 재스캔 없음 (local_manifest/remote_files 재사용).
-        to_upload = []
-        for rel_path, local_meta in local_manifest.items():
-            remote_name = rel_path.replace('/', '___')
-            remote_meta = remote_files.get(remote_name)
-            if (not remote_meta
-                    or remote_meta.get("modifiedTime", 0) < local_meta["mtime"] - 1):
-                to_upload.append(rel_path)
-        total_upload = len(to_upload)
+        uploaded_count = 0
+        downloaded_count = 0
+        trashed_local_count = 0
+        trashed_remote_count = 0
 
-        # --- 로컬 기준: 업로드 (원격에 없거나 로컬이 더 새로움) ---
-        uploaded = set()  # 이번 세션 업로드한 파일 (다운로드 루프 모순 방지)
+        # --- 3-Way Snapshot 판정 (Smart Merge & Ghost/Zombie 방지) ---
+        base_snapshot = get_base_snapshot()
+
+        to_upload = []
+        to_download = []
+        to_trash_remote = []
+        to_trash_local = []
+
+        # 원격 파일 맵 변환: remote_key('___' 인코딩) -> rel_path('/')
+        remote_by_rel = {}
+        for r_name, r_meta in remote_files.items():
+            r_rel = r_name.replace('___', '/')
+            try:
+                _resolve_local_path(r_rel)
+                remote_by_rel[r_rel] = r_meta
+            except ValueError:
+                continue
+
+        all_keys = set(local_manifest.keys()) | set(remote_by_rel.keys())
+        if base_snapshot is not None:
+            all_keys |= set(base_snapshot.keys())
+
+        for rel_path in all_keys:
+            is_workflow = rel_path.startswith(WORKFLOWS_NS)
+            in_local = rel_path in local_manifest
+            in_remote = rel_path in remote_by_rel
+            in_base = bool(base_snapshot and (rel_path in base_snapshot))
+
+            l_meta = local_manifest.get(rel_path)
+            r_meta = remote_by_rel.get(rel_path)
+            b_meta = base_snapshot.get(rel_path) if base_snapshot else None
+
+            # [CASE 1: 양쪽 모두 존재]
+            if in_local and in_remote:
+                r_mtime = r_meta.get("modifiedTime", 0)
+                l_mtime = l_meta["mtime"]
+                # 1초 오차 허용
+                if l_mtime > r_mtime + 1:
+                    to_upload.append(rel_path)
+                elif r_mtime > l_mtime + 1:
+                    to_download.append(rel_path)
+                # 동일하면 no-op
+
+            # [CASE 2: 로컬에만 있음]
+            elif in_local and not in_remote:
+                if is_workflow and in_base:
+                    # 직전엔 있었는데 원격에서 사라짐 -> 원격(타 PC)에서 삭제된 것으로 판정
+                    to_trash_local.append(rel_path)
+                else:
+                    # 직전에 없었거나 Base 없음 -> 로컬에서 새로 만든 파일 -> 원격 업로드
+                    to_upload.append(rel_path)
+
+            # [CASE 3: 원격에만 있음]
+            elif in_remote and not in_local:
+                if is_workflow and in_base:
+                    # 직전엔 있었는데 로컬에서 사라짐 -> 현재 PC에서 사용자가 삭제/이동한 것으로 판정
+                    to_trash_remote.append((rel_path, r_meta.get("id"), r_meta.get("name", "")))
+                else:
+                    # 직전에 없었거나 Base 없음 -> 원격(타 PC)에서 새로 만든 파일 -> 로컬 다운로드
+                    to_download.append(rel_path)
+
+            # [CASE 4: 양쪽 다 없음 (Base에만 잔재)]
+            # 둘 다 이미 삭제된 상태 -> Base에서 자연 소멸 (아무 조치 불필요)
+
+        total_actions = len(to_upload) + len(to_download) + len(to_trash_local) + len(to_trash_remote)
+        logger.info(
+            f"[GDrive Smart Sync Plan] Upload: {len(to_upload)}, Download: {len(to_download)}, "
+            f"Trash Local: {len(to_trash_local)}, Trash Remote: {len(to_trash_remote)}"
+        )
+
+        # --- 1) 안전 휴지통 처리: 원격 및 로컬 ---
+        for rel_path, f_id, f_name in to_trash_remote:
+            if _CANCEL_EVENT.is_set():
+                cancelled = True
+                break
+            if f_id and trash_remote_file(service, f_id, f_name):
+                trashed_remote_count += 1
+                logger.info(f"[GDrive] Remote trash: {rel_path}")
+
+        for rel_path in to_trash_local:
+            if _CANCEL_EVENT.is_set():
+                cancelled = True
+                break
+            if trash_local_workflow(rel_path):
+                trashed_local_count += 1
+                logger.info(f"[GDrive] Local trash: {rel_path}")
+
+        # --- 2) 로컬 기준: 업로드 ---
+        total_upload = len(to_upload)
+        uploaded = set()
         for rel_path in to_upload:
             if _CANCEL_EVENT.is_set():
                 cancelled = True
@@ -882,13 +1034,10 @@ def _perform_sync_blocking():
             remote_meta = remote_files.get(remote_name)
 
             existing_id = remote_meta.get("id") if remote_meta else None
-            # rel_path 성격에 맞는 하위폴더(Presets/.../Workflows) ID로 업로드.
             target_folder_name = _target_folder_name(rel_path)
             if target_folder_name is None:
-                # 매핑 밖(이론상 발생 불가 — 화이트리스트로 이미 걸러짐). 안전하게 건너뜀.
                 continue
             if target_folder_name == REMOTE_WORKFLOWS_FOLDER:
-                # 로컬 하위 디렉터리 구조를 Drive 중첩 폴더로 그대로 재현한다.
                 subdir = os.path.dirname(rel_path[len(WORKFLOWS_NS):])
                 target_folder_id = _ensure_workflow_folder(
                     service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
@@ -900,30 +1049,11 @@ def _perform_sync_blocking():
             uploaded.add(rel_path)
             uploaded_count += 1
             logger.info(f"[GDrive] upload: {rel_path}")
-            # A안: 매 파일마다 푸시 — 작은 파일이 많아도 진행률이 살아움직인다.
-            # WS 350회 수준은 노이즈가 아니라 정상 범위.
             _notify_sync_state(True, phase="uploading", done=uploaded_count,
                               total=total_upload, current=rel_path)
 
-        # --- B안: 다운로드 대상 사전 계산 (정확한 분모) ---
-        # remote_files 키는 '___' 인코딩 이름이므로 로컬 rel_path로 되돌려 판정.
-        # 이번 세션 업로드분 제외 + 화이트리스트 밖 잔재 제외까지 미리 반영.
-        to_download = []
-        for remote_name, remote_meta in remote_files.items():
-            rel_path = remote_name.replace('___', '/')
-            if rel_path in uploaded:
-                continue
-            try:
-                _resolve_local_path(rel_path)
-            except ValueError:
-                continue
-            local_meta = local_manifest.get(rel_path)
-            if (not local_meta
-                    or remote_meta.get("modifiedTime", 0) > local_meta.get("mtime", 0) + 1):
-                to_download.append(rel_path)
+        # --- 3) 원격 기준: 다운로드 ---
         total_download = len(to_download)
-
-        # --- 원격 기준: 다운로드 (원격이 더 새롭거나 로컬에 없음) ---
         for rel_path in to_download:
             if _CANCEL_EVENT.is_set():
                 cancelled = True
@@ -937,7 +1067,6 @@ def _perform_sync_blocking():
             if result_meta is not None:
                 downloaded_count += 1
                 logger.info(f"[GDrive] download: {rel_path}")
-                # A안: 매 파일마다 푸시 — "54/54"처럼 정확히 찬다.
                 _notify_sync_state(True, phase="downloading", done=downloaded_count,
                                   total=total_download, current=rel_path)
 
@@ -1003,9 +1132,19 @@ def _perform_sync_blocking():
         # (취소된 경우에도 이번에 실제로 옮긴 개수는 정확하므로 그대로 기록)
         _save_last_sync_state(uploaded_count, downloaded_count)
 
+        # 3-Way Snapshot 갱신: 동기화가 정상 완료되었거나 일부라도 반영된 경우,
+        # 최신 로컬 상태를 기준으로 Base 스냅샷을 캡처해 다음 동기화의 기준으로 삼는다.
+        try:
+            latest_local = build_local_manifest()
+            save_base_snapshot(latest_local)
+            logger.info(f"[GDrive] Base snapshot updated with {len(latest_local)} files.")
+        except Exception as e:
+            logger.warning(f"[GDrive] Failed to update base snapshot: {e}")
+
         if cancelled:
             logger.info(
-                f"[GDrive] sync cancelled by user (uploaded: {uploaded_count}, downloaded: {downloaded_count})"
+                f"[GDrive] sync cancelled by user (uploaded: {uploaded_count}, downloaded: {downloaded_count}, "
+                f"trash_local: {trashed_local_count}, trash_remote: {trashed_remote_count})"
             )
             _notify_sync_state(False, phase="cancelled", done=downloaded_count,
                               total=total_download,
@@ -1020,11 +1159,19 @@ def _perform_sync_blocking():
 
         _notify_sync_state(False, phase="done",
                           uploaded=uploaded_count, downloaded=downloaded_count)
+        msg_parts = [f"uploaded: {uploaded_count}", f"downloaded: {downloaded_count}"]
+        if trashed_local_count > 0:
+            msg_parts.append(f"local trash: {trashed_local_count}")
+        if trashed_remote_count > 0:
+            msg_parts.append(f"remote trash: {trashed_remote_count}")
+
         return {
             "status": "success",
-            "message": f"Sync completed (uploaded: {uploaded_count}, downloaded: {downloaded_count})",
+            "message": f"Sync completed ({', '.join(msg_parts)})",
             "uploaded": uploaded_count,
             "downloaded": downloaded_count,
+            "trashed_local": trashed_local_count,
+            "trashed_remote": trashed_remote_count,
             "last_sync_at": time.time(),
         }
 

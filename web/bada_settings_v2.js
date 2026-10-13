@@ -731,9 +731,18 @@ function buildCloudSyncRow() {
             } else if (data.success) {
                 const up = data.uploaded ?? 0;
                 const down = data.downloaded ?? 0;
-                status.textContent = (BadaI18n.lang === "ko")
-                    ? `✅ 동기화 완료 (업로드 ${up} · 다운로드 ${down})`
-                    : `✅ Sync done (upload ${up} · download ${down})`;
+                const tLocal = data.trashed_local ?? 0;
+                const tRemote = data.trashed_remote ?? 0;
+                const isKo = (BadaI18n.lang === "ko");
+                let extra = "";
+                if (tLocal > 0 || tRemote > 0) {
+                    extra = isKo
+                        ? ` · 정리(휴지통): 로컬 ${tLocal}, 드라이브 ${tRemote}`
+                        : ` · Cleaned(trash): local ${tLocal}, drive ${tRemote}`;
+                }
+                status.textContent = isKo
+                    ? `✅ 동기화 완료 (업로드 ${up} · 다운로드 ${down}${extra})`
+                    : `✅ Sync done (upload ${up} · download ${down}${extra})`;
             } else {
                 status.textContent = (BadaI18n.lang === "ko")
                     ? `❌ ${data.error || data.message || "실패"}`
