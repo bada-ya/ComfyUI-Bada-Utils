@@ -1267,9 +1267,13 @@ def get_gdrive_settings() -> dict:
     """
     Cloud Sync 전용 설정(.gdrive_settings.json)을 로드한다.
     - 보안상 config.json(Gemini API 키 등)과 완전히 분리.
-    - 기본값: startup_autosync = True (기존 동작 호환).
+    - 기본값: cloud_sync_enabled=True, startup_autosync=True, realtime_autosync=True.
     """
-    defaults = {"startup_autosync": True}
+    defaults = {
+        "cloud_sync_enabled": True,
+        "startup_autosync": True,
+        "realtime_autosync": True,
+    }
     if not os.path.exists(GDRIVE_SETTINGS_PATH):
         return defaults
     try:
@@ -1298,9 +1302,42 @@ def set_gdrive_settings(new_settings: dict) -> dict:
 
 
 def is_startup_autosync_enabled() -> bool:
-    """시작 시 자동 동기화 활성화 여부 확인 (기본값 True)."""
+    """시작 시 자동 동기화 활성화 여부 확인 (마스터 ON 및 startup_autosync ON)."""
     settings = get_gdrive_settings()
-    return bool(settings.get("startup_autosync", True))
+    return bool(settings.get("cloud_sync_enabled", True)) and bool(settings.get("startup_autosync", True))
+
+
+def trigger_realtime_sync() -> dict:
+    """
+    실시간 변경 감지 시 백그라운드 동기화를 즉시 트리거한다 (Zero-Delay + Tail-Dedup).
+    - 마스터 OFF 또는 realtime_autosync OFF 면 실행하지 않음
+    - 이미 동기화가 진행 중이면 status="busy" 반환 (클라이언트에서 pending 처리)
+    - 백그라운드 데몬 스레드로 즉시 _perform_sync_blocking 실행
+    """
+    settings = get_gdrive_settings()
+    if not bool(settings.get("cloud_sync_enabled", True)):
+        return {"status": "disabled", "reason": "master_off"}
+    if not bool(settings.get("realtime_autosync", True)):
+        return {"status": "disabled", "reason": "realtime_off"}
+
+    if not GDRIVE_LIBS_AVAILABLE or not os.path.exists(TOKEN_PATH):
+        return {"status": "disabled", "reason": "not_authenticated"}
+
+    acquired = _SYNC_GUARD.acquire(blocking=False)
+    if not acquired:
+        return {"status": "busy", "reason": "sync_in_progress"}
+    _SYNC_GUARD.release()
+
+    def _worker():
+        try:
+            logger.info("[GDrive] Realtime sync triggered...")
+            _perform_sync_blocking()
+            logger.info("[GDrive] Realtime sync completed.")
+        except Exception as e:
+            logger.error(f"[GDrive] Realtime sync error: {e}")
+
+    threading.Thread(target=_worker, name="GDriveRealtimeSync", daemon=True).start()
+    return {"status": "queued", "message": "Realtime sync started in background"}
 
 
 def schedule_startup_autosync(delay_seconds=0.0):

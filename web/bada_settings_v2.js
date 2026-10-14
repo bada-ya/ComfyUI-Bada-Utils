@@ -408,8 +408,10 @@ function buildCloudSyncRow() {
 
     const texts = {
         title: "☁️ 클라우드 동기화 (Google Drive)",
-        desc: "컴피유아이 시작시 프리셋·즐겨찾기·제미나이 채팅 기록·시스템 프롬프트·사용자 추가 파일을 구글 드라이브에 자동으로 백그라운드에서 자동 동기화 합니다.",
-        toggleTitle: "시작 시 자동 동기화 ON/OFF",
+        desc: "컴피유아이 워크플로우와 설정을 구글 드라이브와 자동으로 동기화합니다.",
+        masterTitle: "마스터 동기화 ON/OFF",
+        optStartup: "시작 시 자동 동기화",
+        optRealtime: "실시간 변경 시 자동 동기화",
         statusIdle: "⏸️ Google Drive 연동 대기",
         statusOk: "✅ Google Drive 연동됨",
         statusNoLibs: "⚠️ google-api-python-client 설치 필요",
@@ -422,8 +424,10 @@ function buildCloudSyncRow() {
     };
     const textsEn = {
         title: "☁️ Cloud Sync (Google Drive)",
-        desc: "Automatically synchronizes presets, favorites, Gemini chat history, system prompts, and custom user files with Google Drive in the background on ComfyUI startup.",
-        toggleTitle: "Toggle auto-sync on startup ON/OFF",
+        desc: "Automatically synchronizes ComfyUI workflows and settings with Google Drive.",
+        masterTitle: "Master Cloud Sync ON/OFF",
+        optStartup: "Auto-sync on Startup",
+        optRealtime: "Auto-sync on Realtime Changes",
         statusIdle: "⏸️ Google Drive not linked",
         statusOk: "✅ Google Drive linked",
         statusNoLibs: "⚠️ Install google-api-python-client",
@@ -447,53 +451,79 @@ function buildCloudSyncRow() {
         } catch (_) { return null; }
     };
 
-    // ── 1. Top Bar: Left Title & Right Toggle Switch ──
+    // ── 1. Top Bar: Left Title & Right Master Toggle Switch ──
     const topBar = document.createElement("div");
     topBar.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; box-sizing:border-box;";
 
     const titleEl = document.createElement("div");
     titleEl.style.cssText = "font-size:13px; font-weight:700; color:#f8fafc; display:flex; align-items:center; gap:6px;";
 
-    // Auto-sync Toggle Switch Container
-    const switchLabel = document.createElement("label");
-    switchLabel.className = "bada-cloud-switch";
-    switchLabel.style.cssText = "margin:0; flex-shrink:0;";
+    const masterSwitchLabel = document.createElement("label");
+    masterSwitchLabel.className = "bada-cloud-switch";
+    masterSwitchLabel.style.cssText = "margin:0; flex-shrink:0;";
 
-    const switchInput = document.createElement("input");
-    switchInput.type = "checkbox";
-    switchInput.checked = true; // default true until fetched
+    const masterSwitchInput = document.createElement("input");
+    masterSwitchInput.type = "checkbox";
+    masterSwitchInput.checked = true;
 
-    const sliderSpan = document.createElement("span");
-    sliderSpan.className = "bada-cloud-slider";
+    const masterSliderSpan = document.createElement("span");
+    masterSliderSpan.className = "bada-cloud-slider";
 
-    switchLabel.appendChild(switchInput);
-    switchLabel.appendChild(sliderSpan);
+    masterSwitchLabel.appendChild(masterSwitchInput);
+    masterSwitchLabel.appendChild(masterSliderSpan);
 
     topBar.appendChild(titleEl);
-    topBar.appendChild(switchLabel);
+    topBar.appendChild(masterSwitchLabel);
     row.appendChild(topBar);
 
-    // ── 2. Content Row: Left Info (Description + Status) & Right Actions (Sync + Detail) ──
+    // ── 2. Content Row: Left Column (Desc + Sub-options + Status) & Right Column (Buttons) ──
     const contentRow = document.createElement("div");
-    contentRow.style.cssText = "display:flex; align-items:flex-start; justify-content:space-between; gap:20px; width:100%; box-sizing:border-box;";
+    contentRow.style.cssText = "display:flex; align-items:flex-start; justify-content:space-between; gap:20px; width:100%; box-sizing:border-box; margin-top:2px;";
 
-    // Left Column: Description + Last Sync Status
     const leftCol = document.createElement("div");
     leftCol.style.cssText = "flex:1 1 auto; display:flex; flex-direction:column; gap:8px; min-width:0;";
 
+    // Description
     const descEl = document.createElement("div");
-    descEl.style.cssText = "font-size:11px; color:#cbd5e1; line-height:1.5; font-weight:400; word-break:keep-all;";
+    descEl.style.cssText = "font-size:11px; color:#94a3b8; line-height:1.5; font-weight:400; word-break:keep-all;";
+    leftCol.appendChild(descEl);
 
+    // Sub-options Row (Checkboxes: Startup + Realtime)
+    const subOptionsRow = document.createElement("div");
+    subOptionsRow.id = "bada-v2-cloudsync-suboptions";
+    subOptionsRow.style.cssText = "display:flex; align-items:center; gap:20px; padding:2px 0; transition:opacity 0.2s ease;";
+
+    const createCheckbox = (id, labelText) => {
+        const wrap = document.createElement("label");
+        wrap.style.cssText = "display:inline-flex; align-items:center; gap:6px; font-size:12px; color:#cbd5e1; cursor:pointer; user-select:none;";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.id = id;
+        cb.checked = true;
+        cb.style.cssText = "cursor:pointer; accent-color:#0ea5e9; width:14px; height:14px; margin:0;";
+        const span = document.createElement("span");
+        span.textContent = labelText;
+        wrap.appendChild(cb);
+        wrap.appendChild(span);
+        return { wrap, cb, span };
+    };
+
+    const startupOpt = createCheckbox("bada-cloud-opt-startup", texts.optStartup);
+    const realtimeOpt = createCheckbox("bada-cloud-opt-realtime", texts.optRealtime);
+
+    subOptionsRow.appendChild(startupOpt.wrap);
+    subOptionsRow.appendChild(realtimeOpt.wrap);
+    leftCol.appendChild(subOptionsRow);
+
+    // Status
     const status = document.createElement("div");
     status.id = "bada-v2-cloudsync-status";
     status.style.cssText = "font-size:12px; color:#94a3b8; font-weight:500; display:flex; align-items:center; gap:6px; min-height:18px;";
-
-    leftCol.appendChild(descEl);
     leftCol.appendChild(status);
 
-    // Right Column: Sync Button + Detail Modal Button
+    // Right Column: Buttons (Top aligned!)
     const rightCol = document.createElement("div");
-    rightCol.style.cssText = "flex:0 0 160px; display:flex; flex-direction:column; gap:8px; align-items:stretch;";
+    rightCol.style.cssText = "flex:0 0 160px; display:flex; flex-direction:column; gap:8px; align-items:stretch; align-self:flex-start;";
 
     const syncBtn = document.createElement("button");
     syncBtn.type = "button";
@@ -504,39 +534,73 @@ function buildCloudSyncRow() {
     toggle.type = "button";
     toggle.id = "bada-v2-cloudsync-toggle";
     toggle.style.cssText = "background:rgba(148,163,184,0.1); border:1px solid rgba(148,163,184,0.28); border-radius:5px; padding:6px 12px; margin:0; color:#cbd5e1; font-size:11px; cursor:pointer; text-align:center; display:flex; align-items:center; justify-content:center; gap:6px; box-sizing:border-box; transition:background 0.15s ease;";
-
     toggle.addEventListener("mouseenter", () => { toggle.style.background = "rgba(148,163,184,0.22)"; });
     toggle.addEventListener("mouseleave", () => { toggle.style.background = "rgba(148,163,184,0.1)"; });
 
     rightCol.appendChild(syncBtn);
     rightCol.appendChild(toggle);
-
     contentRow.appendChild(leftCol);
     contentRow.appendChild(rightCol);
     row.appendChild(contentRow);
 
-    // ── Toggle Switch Backend Sync ──
+    // ── Settings Fetch / Save ──
+    const saveSettings = async (patch) => {
+        try {
+            await fetch("/api/bada/cloud/settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(patch),
+            });
+        } catch (err) {
+            console.error("[Bada CloudSync] Failed to save settings:", err);
+        }
+    };
+
+    const updateSubOptionsState = (masterEnabled) => {
+        if (masterEnabled) {
+            subOptionsRow.style.opacity = "1";
+            subOptionsRow.style.pointerEvents = "auto";
+        } else {
+            subOptionsRow.style.opacity = "0.45";
+            subOptionsRow.style.pointerEvents = "none";
+        }
+    };
+
     const fetchSettings = async () => {
         try {
             const r = await fetch("/api/bada/cloud/settings");
             const s = await r.json();
-            if (s.success && typeof s.startup_autosync === "boolean") {
-                switchInput.checked = s.startup_autosync;
+            if (s.success) {
+                if (typeof s.cloud_sync_enabled === "boolean") {
+                    masterSwitchInput.checked = s.cloud_sync_enabled;
+                }
+                if (typeof s.startup_autosync === "boolean") {
+                    startupOpt.cb.checked = s.startup_autosync;
+                }
+                if (typeof s.realtime_autosync === "boolean") {
+                    realtimeOpt.cb.checked = s.realtime_autosync;
+                }
+                updateSubOptionsState(masterSwitchInput.checked);
             }
         } catch (_) { /* ignore */ }
     };
     fetchSettings();
 
-    switchInput.addEventListener("change", async () => {
-        const enabled = switchInput.checked;
-        try {
-            await fetch("/api/bada/cloud/settings", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ startup_autosync: enabled }),
-            });
-        } catch (err) {
-            console.error("[Bada CloudSync] Failed to save settings:", err);
+    masterSwitchInput.addEventListener("change", () => {
+        const enabled = masterSwitchInput.checked;
+        updateSubOptionsState(enabled);
+        saveSettings({ cloud_sync_enabled: enabled });
+    });
+
+    startupOpt.cb.addEventListener("change", () => {
+        saveSettings({ startup_autosync: startupOpt.cb.checked });
+    });
+
+    realtimeOpt.cb.addEventListener("change", () => {
+        const enabled = realtimeOpt.cb.checked;
+        saveSettings({ realtime_autosync: enabled });
+        if (enabled) {
+            window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__?.setupRealtimeSync?.();
         }
     });
 
@@ -639,7 +703,9 @@ function buildCloudSyncRow() {
         const T = t();
         titleEl.textContent = T.title;
         descEl.textContent = T.desc;
-        switchLabel.title = T.toggleTitle;
+        masterSwitchLabel.title = T.masterTitle;
+        startupOpt.span.textContent = T.optStartup;
+        realtimeOpt.span.textContent = T.optRealtime;
         toggle.textContent = T.detailBtn;
         setSyncUI(syncInProgress);
         renderStatus();
@@ -976,7 +1042,7 @@ export function registerBadaV2Settings(addSetting, opts = {}) {
         name: "💾 Save As Folder Picker",
         type: "boolean",
         sortOrder: 790,
-        defaultValue: true,
+        defaultValue: false,
         onChange: () => {
             window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__?.setupSaveAsFolderPicker?.();
         },

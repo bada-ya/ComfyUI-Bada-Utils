@@ -20,6 +20,8 @@ token.json
 # 클라우드 동기화 로컬 상태/매니페스트 (개인 데이터, 배포 불필요).
 .gdrive_manifest.json
 .gdrive_sync_state.json
+.gdrive_settings.json
+.gdrive_snapshot.json
 
 # 🔞 제미나이 채팅 기록 — 개인 데이터.
 # 사용자가 만든 프롬프트와 이미지가 base64로 들어 있으므로 저장소에 커밋되면

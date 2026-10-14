@@ -1885,7 +1885,17 @@ def register_cloud_routes():
                 logger.error(f"[ComfyUI-Bada-Utils] Cloud settings post error: {e}")
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
+        async def cloud_realtime_sync_handler(request):
+            """POST /api/bada/cloud/realtime_sync — 실시간 변경 시 비동기 즉시 동기화 트리거."""
+            try:
+                result = gdrive_sync.trigger_realtime_sync()
+                return web.json_response(result)
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud realtime sync error: {e}")
+                return web.json_response({"status": "error", "error": str(e)}, status=500)
+
         routes.post("/api/bada/cloud/sync")(cloud_sync_handler)
+        routes.post("/api/bada/cloud/realtime_sync")(cloud_realtime_sync_handler)
         routes.get("/api/bada/cloud/status")(cloud_status_handler)
         routes.post("/api/bada/cloud/cancel")(cloud_cancel_handler)
         routes.get("/api/bada/cloud/remote-counts")(cloud_remote_counts_handler)

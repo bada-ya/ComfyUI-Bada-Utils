@@ -1480,13 +1480,21 @@ class WorkflowsPlusManager {
                 const url = typeof args[0] === "string" ? args[0] : args[0]?.url || "";
                 const method = (args[1]?.method || "GET").toUpperCase();
 
-                if (url.includes("userdata") || url.includes("workflow") || url.includes("graph") || url.includes("/api/qol")) {
-                    if (method === "POST" || method === "PUT" || method === "DELETE") {
-                        setTimeout(() => {
-                            self.loadTree();
-                            self.detectActiveWorkflowFromUI();
-                        }, 250);
-                        setTimeout(() => self.loadTree(), 1200);
+                // Cloud Sync 자체 API는 제외하여 재귀 호출 방지
+                if (!url.includes("/api/bada/cloud")) {
+                    if (url.includes("userdata") || url.includes("workflow") || url.includes("graph") || url.includes("/api/qol")) {
+                        if (method === "POST" || method === "PUT" || method === "DELETE") {
+                            setTimeout(() => {
+                                self.loadTree();
+                                self.detectActiveWorkflowFromUI();
+                            }, 250);
+                            setTimeout(() => self.loadTree(), 1200);
+
+                            // 파일 저장 및 변경 시 실시간 동기화 트리거
+                            if (res && res.ok) {
+                                setTimeout(() => self.triggerRealtimeCloudSync("fetch_" + method.toLowerCase()), 500);
+                            }
+                        }
                     }
                 }
             } catch (e) { console.debug("[Bada] ignored:", e); }
@@ -1501,8 +1509,109 @@ class WorkflowsPlusManager {
                     self.detectActiveWorkflowFromUI();
                 }, 400);
                 setTimeout(() => self.loadTree(), 1200);
+                // 실시간 동기화: 단축키 저장 시 트리거
+                setTimeout(() => self.triggerRealtimeCloudSync("ctrl_s"), 600);
             }
         }, true);
+    }
+
+    /**
+     * Zero-Delay + Tail-Dedup 실시간 동기화 트리거.
+     * - syncInProgress=false이면 즉시 POST /api/bada/cloud/realtime_sync
+     * - syncInProgress=true이면 pendingSync=true 세팅 (동기화 완료 후 1회만 추가 실행)
+     * @param {string} reason - 로그용 트리거 이유 ("save"|"move"|"delete")
+     */
+    async triggerRealtimeCloudSync(reason = "change") {
+        try {
+            if (window.__BADA_REALTIME_SYNC_DISABLED__) return;
+        } catch (_) { }
+
+        if (window.__BADA_SYNC_IN_PROGRESS__) {
+            window.__BADA_SYNC_PENDING__ = true;
+            console.debug(`[Bada] Realtime sync pending (${reason}): sync already in progress`);
+            return;
+        }
+
+        // 1. 즉시 시각적 피드백: 구름 아이콘 회전 활성화!
+        this.applyGDriveSyncingState(true);
+        window.__BADA_SYNC_IN_PROGRESS__ = true;
+        console.log(`[Bada] ☁️ Realtime sync triggered (${reason})`);
+
+        // 안전 타임아웃 가드 (30초 후 스턱 방지 자동 해제)
+        clearTimeout(window.__BADA_SYNC_SAFETY_TIMER__);
+        window.__BADA_SYNC_SAFETY_TIMER__ = setTimeout(() => {
+            if (window.__BADA_SYNC_IN_PROGRESS__) {
+                console.warn("[Bada] Realtime sync safety timeout reached (30s) — resetting lock.");
+                window.__BADA_SYNC_IN_PROGRESS__ = false;
+                this.applyGDriveSyncingState(false);
+            }
+        }, 30000);
+
+        try {
+            const res = await fetch("/api/bada/cloud/realtime_sync", { method: "POST" });
+            if (!res.ok) {
+                // 404/500 등의 경우: 서버가 아직 재시작되지 않았거나 오류
+                console.warn(`[Bada] Realtime sync endpoint returned HTTP ${res.status}. ComfyUI restart may be required.`);
+                window.__BADA_SYNC_IN_PROGRESS__ = false;
+                this.applyGDriveSyncingState(false);
+                return;
+            }
+
+            const data = await res.json();
+
+            if (data.status === "disabled") {
+                // 마스터 OFF 또는 실시간 OFF
+                console.debug(`[Bada] Realtime sync disabled by settings (${data.reason}).`);
+                window.__BADA_SYNC_IN_PROGRESS__ = false;
+                this.applyGDriveSyncingState(false);
+                return;
+            }
+
+            if (data.status === "busy") {
+                // 서버에서도 이미 동기화 중 → pending 처리
+                window.__BADA_SYNC_PENDING__ = true;
+                window.__BADA_SYNC_IN_PROGRESS__ = false;
+                setTimeout(() => {
+                    if (window.__BADA_SYNC_PENDING__) {
+                        window.__BADA_SYNC_PENDING__ = false;
+                        this.triggerRealtimeCloudSync("retry_after_busy");
+                    }
+                }, 3000);
+                return;
+            }
+
+            // status === "queued" → 백그라운드 스레드에서 시작됨
+            // 완료는 WebSocket 이벤트(bada.cloud.sync) 또는 폴링으로 감지
+            if (!window.__BADA_REALTIME_SYNC_WATCHER__) {
+                window.__BADA_REALTIME_SYNC_WATCHER__ = true;
+                const api = window.app?.api;
+                if (api?.addEventListener) {
+                    api.addEventListener("bada.cloud.sync", (event) => {
+                        const detail = event?.detail || {};
+                        this.applyGDriveSyncingState(!!detail.syncing);
+                        if (!detail.syncing) {
+                            window.__BADA_SYNC_IN_PROGRESS__ = false;
+                            clearTimeout(window.__BADA_SYNC_SAFETY_TIMER__);
+                            if (window.__BADA_SYNC_PENDING__) {
+                                window.__BADA_SYNC_PENDING__ = false;
+                                console.log("[Bada] Tail-dedup: firing pending realtime sync");
+                                this.triggerRealtimeCloudSync("tail_dedup");
+                            }
+                        }
+                    });
+                }
+            }
+        } catch (e) {
+            console.warn("[Bada] Realtime sync request failed:", e);
+            window.__BADA_SYNC_IN_PROGRESS__ = false;
+            this.applyGDriveSyncingState(false);
+        }
+    }
+
+    /** setupRealtimeSync: 설정 창에서 실시간 동기화 옵션을 켤 때 호출 (재활성화) */
+    setupRealtimeSync() {
+        window.__BADA_REALTIME_SYNC_DISABLED__ = false;
+        console.log("[Bada] Realtime cloud sync re-enabled.");
     }
 
     detectActiveWorkflowFromUI() {
@@ -2407,6 +2516,7 @@ class WorkflowsPlusManager {
 
                 this.highlightedItem = cleanSource.split("/").pop();
                 await this.loadTree();
+                this.triggerRealtimeCloudSync("move");
                 return true;
             } else {
                 this.showToast(data.error || (BadaI18n.lang === "ko" ? "이동 실패" : "Failed to move"), true);
@@ -2471,6 +2581,7 @@ class WorkflowsPlusManager {
 
             this.highlightedItem = folderName;
             await this.loadTree();
+            this.triggerRealtimeCloudSync("move_folder");
             return true;
         } catch (e) {
             this.showToast((isKo ? "이동 오류: " : "Move error: ") + e.message, true);
@@ -3254,7 +3365,7 @@ class WorkflowsPlusManager {
             const local = localStorage.getItem("Comfy.Settings.BadaUtils.SaveAsFolderPicker");
             if (local !== null) return JSON.parse(local);
         } catch (e) { console.debug("[Bada] ignored:", e); }
-        return true;
+        return false;
     }
 
     findComfyWorkflowPrototype() {
@@ -4079,6 +4190,7 @@ class WorkflowsPlusManager {
             : `📦 Moved ${moved.length} item(s) to ${targetLabel}${failedNote}`);
 
         await this.loadTree();
+        if (moved.length) this.triggerRealtimeCloudSync("multi_move");
         this.applySelectionHighlight();
         return { moved, failed };
     }
@@ -4320,6 +4432,7 @@ class WorkflowsPlusManager {
                         await this.saveFavorites();
                     }
                     await this.loadTree();
+                    this.triggerRealtimeCloudSync("delete");
                 } else {
                     this.showToast(data.error || (isKo ? "삭제 실패" : "Failed to delete"), true);
                 }
