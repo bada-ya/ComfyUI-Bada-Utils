@@ -14,7 +14,7 @@ let detailLastSyncSnapshot = null;
 // 원격 개수+경로 스냅샷 (팝업 열 때 1회 조회, 1초 폴링과 분리).
 let detailRemoteSnapshot = null;
 let detailRemoteError = "";
-// 펼침 상태 (항목명 → true/false). 팝업 닫아도 유지 안 함(열 때마다 접힘).
+// expand state (name -> false means collapsed). Default expanded; paths prefilled from status.
 let detailExpanded = {};
 
 const MAX_NAME_LEN = 40;
@@ -125,6 +125,16 @@ async function fetchRemoteSnapshot() {
         detailRemoteError = String(e && e.message || e);
     }
     paintDetailFiles();
+    try {
+        const isKoNow = (BadaI18n.lang === "ko");
+        const fracNow = detailModalEl ? detailModalEl.querySelector("#bada-detail-progress-frac") : null;
+        const syncBtnNow = detailModalEl ? detailModalEl.querySelector("#bada-detail-sync-btn") : null;
+        const busyNow = !!syncBtnNow && syncBtnNow.dataset && syncBtnNow.dataset.mode === "cancel";
+        if (fracNow && !busyNow) {
+            if (detailRemoteSnapshot === null && !detailRemoteError) { fracNow.textContent = isKoNow ? "\ud655\uc778 \uc911\u2026" : "Checking..."; }
+            else { fracNow.textContent = isKoNow ? "\ud300\uae30 \uc911" : "Idle"; }
+        }
+    } catch (_) {}
 }
 function paintDetailProgress(s) {
     if (!detailModalEl) return;
@@ -166,7 +176,7 @@ function paintDetailProgress(s) {
             : "⏳ Syncing — continues in background if closed.";
     } else {
         if (bar) bar.style.width = "0%";
-        if (frac) frac.textContent = isKo ? "대기 중" : "Idle";
+        if (frac) { if (detailRemoteSnapshot === null && !detailRemoteError) { frac.textContent = isKo ? "\ud655\uc778 \uc911\u2026" : "Checking..."; } else { frac.textContent = isKo ? "\ud300\uae30 \uc911" : "Idle"; } }
         if (cur) { cur.textContent = ""; cur.title = ""; }
         const ls = s.last_sync || detailLastSyncSnapshot || {};
         const when = fmtTime(ls.last_sync_at);
@@ -175,6 +185,10 @@ function paintDetailProgress(s) {
             : (isKo ? "아직 동기화한 적 없음" : "Never synced yet");
     }
     paintDetailFiles();
+}
+function localPathByName(name) {
+    for (const f of detailFilesSnapshot) { if (f.name === name) return f; }
+    return null;
 }
 function remoteTargetByName(name) {
     if (!Array.isArray(detailRemoteSnapshot)) return null;
@@ -186,6 +200,8 @@ async function callOpenLocal(name, btn) {
     const isKo = BadaI18n.lang === "ko";
     if (!btn || btn.disabled) return;
     btn.disabled = true;
+    // 체감 완화: 서버 응답(즉시) 전이라도 버튼을 먼저 "여는 중…"으로 전환 — 탐색기는 곧 떠 있음.
+    btn.textContent = isKo ? "⏳ 여는 중…" : "⏳ Opening…";
     try {
         const r = await fetch("/api/bada/cloud/open-local", {
             method: "POST",
@@ -300,7 +316,7 @@ function paintDetailFiles() {
         line.style.cssText = "width:100%; display:flex; justify-content:space-between; gap:16px; line-height:1.9; background:none; border:none; padding:0; cursor:pointer; font-size:13px; color:#cbd5e1; text-align:left;";
         line.title = isKo ? "클릭하면 추적 경로 표시" : "Click for tracked paths";
         const left = document.createElement("span");
-        const arrow = detailExpanded[f.name] ? "▾" : "▸";
+        const arrow = detailExpanded[f.name] !== false ? "\u25be" : "\u25b8";
         left.textContent = `${arrow} ${mark} ${label}`;
         const rightEl = document.createElement("span");
         rightEl.textContent = rightParts.join(" · ") || "";
@@ -309,17 +325,18 @@ function paintDetailFiles() {
         line.appendChild(rightEl);
         line.addEventListener("click", (e) => {
             e.stopPropagation();
-            detailExpanded[f.name] = !detailExpanded[f.name];
+            detailExpanded[f.name] = (detailExpanded[f.name] !== false) ? false : true;
             paintDetailFiles();
         });
         wrap.appendChild(line);
         // 펼침: 로컬 절대경로 + Drive 원격 이름 (읽기 전용, 추후 사용자 설정 대비).
-        if (detailExpanded[f.name]) {
+        if (detailExpanded[f.name] !== false) {
             const sub = document.createElement("div");
             sub.style.cssText = "padding:2px 0 8px 22px; font-size:11px; color:#64748b; line-height:1.7; word-break:break-all;";
-            const rt2 = remoteTargetByName(f.name);
+            const rt2 = remoteTargetByName(f.name) || localPathByName(f.name);
             const lp = (rt2 && rt2.local_path) || "";
-            const rn = (rt2 && rt2.remote_name) || "";
+            let rn = (rt2 && rt2.remote_name) || "";
+            if (!rn) { const fb = localPathByName(f.name); rn = (fb && (fb.remote_name || fb.remoteName)) || ""; }
             const l1 = document.createElement("div");
             l1.style.cssText = "display:flex; align-items:center; gap:8px;";
             const p1 = document.createElement("span");
@@ -376,7 +393,7 @@ function renderDetailModal() {
             </div>
             <div style="padding:18px 24px; overflow-y:auto;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                    <span id="bada-detail-progress-frac" style="font-size:14px; font-weight:700; color:#e2e8f0;">—</span>
+                    <span id="bada-detail-progress-frac" style="font-size:14px; font-weight:700; color:#e2e8f0;">${isKo ? "\ud655\uc778 \uc911\u2026" : "Checking..."}</span>
                     <button id="bada-detail-sync-btn" data-mode="sync" style="background:rgba(14,165,233,0.2); border:1px solid rgba(14,165,233,0.4); color:#e0f2fe; border-radius:6px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer;">${isKo ? "☁️ 지금 동기화" : "☁️ Sync now"}</button>
                 </div>
                 <div style="width:100%; height:10px; background:rgba(148,163,184,0.15); border-radius:5px; overflow:hidden; margin-bottom:8px;">

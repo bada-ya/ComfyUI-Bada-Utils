@@ -1463,7 +1463,48 @@ def get_sync_file_details():
         "size": wf_bytes,
         "count": wf_count,
     })
+    _apply_path_prefill(details)
     return details
+
+
+
+def _resolve_workflows_root_safe():
+    try:
+        return _resolve_workflows_root()
+    except Exception:
+        return ""
+
+
+def _build_path_prefill():
+    m = {}
+    for rel_path in get_target_rel_paths():
+        name = os.path.basename(rel_path)
+        try:
+            lp = _resolve_local_path(rel_path)
+        except ValueError:
+            lp = ""
+        m[name] = {
+            "local_path": lp,
+            "remote_name": rel_path.replace("/", "___"),
+        }
+    wf_root = _resolve_workflows_root_safe()
+    m["workflows"] = {
+        "local_path": wf_root,
+        "remote_name": "Workflows/",
+    }
+    return m
+
+def _apply_path_prefill(details):
+    try:
+        prefill = _build_path_prefill()
+    except Exception:
+        return
+    for entry in details:
+        pp = prefill.get(entry.get("name"), {})
+        if pp.get("local_path"):
+            entry["local_path"] = pp["local_path"]
+        if pp.get("remote_name"):
+            entry["remote_name"] = pp["remote_name"]
 
 
 def get_remote_counts_snapshot():
@@ -1779,11 +1820,19 @@ def open_local_target(target_name):
         }
     try:
         _reveal_in_explorer(full_path)
-        # 포어그라운드 집중 best-effort — 짧은 폴링 대기(최대 ~2초)가 있으므로 워커 스레드에서 호출해야 한다.
-        _bring_explorer_to_front(full_path)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"[GDrive] open local failed ({name}): {e}")
         return {"success": False, "path": full_path, "error": str(e)}
+
+    # 포어그라운드 집중(_bring_explorer_to_front)은 최대 ~2초 폴링 대기가 있어 응답을 지연시킨다.
+    # 탐색기는 이미 떠 있으므로, 열기 동작은 즉시 성공으로 응답하고 집중은 백그라운드 데몬 스레드에서 비동기 처리한다.
+    try:
+        threading.Thread(
+            target=_bring_explorer_to_front, args=(full_path,), daemon=True
+        ).start()
+    except Exception as e:  # noqa: BLE001 — 집중 실패는 열기 동작에 영향 없음.
+        logger.debug(f"[GDrive] background focus scheduling failed (harmless): {e}")
+
     logger.info(f"[GDrive] opened local target: {full_path}")
     return {"success": True, "path": full_path}
 

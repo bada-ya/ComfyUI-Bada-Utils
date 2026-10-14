@@ -1832,7 +1832,10 @@ def register_cloud_routes():
         async def cloud_remote_counts_handler(request):
             """GET /api/bada/cloud/remote-counts — 팝업 열 때 1회: 원격 개수+경로."""
             try:
-                snap = gdrive_sync.get_remote_counts_snapshot()
+                # 원격 개수 집계는 Drive API 왕복(수 초)이라 워커 스레드에서 실행한다.
+                # 동기 호출 시 이벤트 루프를 점유해, 그 사이 들어온 open-local/open-drive·
+                # 상태 폴링까지 모두 막힌다(원격 확정 순간에 몰아서 처리되는 현상).
+                snap = await asyncio.to_thread(gdrive_sync.get_remote_counts_snapshot)
                 return web.json_response({"success": snap.get("success", False), **snap})
             except Exception as e:
                 logger.error(f"[ComfyUI-Bada-Utils] Cloud remote-counts error: {e}")
@@ -1845,7 +1848,7 @@ def register_cloud_routes():
             except Exception:
                 data = {}
             target = data.get("target", "") if isinstance(data, dict) else ""
-            # 포어그라운드 집중용 짧은 폴링 대기(최대 ~2초)가 있으므로 워커 스레드에서 실행.
+            # open_local_target 은 내부에서 포어그라운드 집중을 백그라운드 데몬 스레드로 분리하므로 응답이 즉시 완료된다.
             result = await asyncio.to_thread(gdrive_sync.open_local_target, target)
             return web.json_response(result)
 
