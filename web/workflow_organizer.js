@@ -1516,24 +1516,34 @@ class WorkflowsPlusManager {
     }
 
     /**
-     * Zero-Delay + Tail-Dedup 실시간 동기화 트리거.
+     * Zero-Delay + Debounce + Tail-Dedup 실시간 동기화 트리거.
+     * - 연달아 들어오는 이벤트(Ctrl+S + fetch_post 등)를 300ms 디바운스로 1회로 병합하여 불필요한 2회차 실행 차단
      * - syncInProgress=false이면 즉시 POST /api/bada/cloud/realtime_sync
      * - syncInProgress=true이면 pendingSync=true 세팅 (동기화 완료 후 1회만 추가 실행)
      * @param {string} reason - 로그용 트리거 이유 ("save"|"move"|"delete")
      */
-    async triggerRealtimeCloudSync(reason = "change") {
+    triggerRealtimeCloudSync(reason = "change") {
         try {
             if (window.__BADA_REALTIME_SYNC_DISABLED__) return;
         } catch (_) { }
 
+        // 1. 즉시 시각적 피드백: 구름 아이콘 즉각 회전
+        this.applyGDriveSyncingState(true);
+
+        // 2. 디바운스: 300ms 이내에 연달아 들어오는 트리거(Ctrl+S 후 fetch_post 등)는 1회로 통합
+        clearTimeout(window.__BADA_DEBOUNCE_TIMER__);
+        window.__BADA_DEBOUNCE_TIMER__ = setTimeout(() => {
+            this._executeRealtimeCloudSync(reason);
+        }, 300);
+    }
+
+    async _executeRealtimeCloudSync(reason) {
         if (window.__BADA_SYNC_IN_PROGRESS__) {
             window.__BADA_SYNC_PENDING__ = true;
             console.debug(`[Bada] Realtime sync pending (${reason}): sync already in progress`);
             return;
         }
 
-        // 1. 즉시 시각적 피드백: 구름 아이콘 회전 활성화!
-        this.applyGDriveSyncingState(true);
         window.__BADA_SYNC_IN_PROGRESS__ = true;
         console.log(`[Bada] ☁️ Realtime sync triggered (${reason})`);
 
@@ -1595,7 +1605,7 @@ class WorkflowsPlusManager {
                             if (window.__BADA_SYNC_PENDING__) {
                                 window.__BADA_SYNC_PENDING__ = false;
                                 console.log("[Bada] Tail-dedup: firing pending realtime sync");
-                                this.triggerRealtimeCloudSync("tail_dedup");
+                                setTimeout(() => this._executeRealtimeCloudSync("tail_dedup"), 200);
                             }
                         }
                     });
