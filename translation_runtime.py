@@ -1,6 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import BoundedSemaphore
-import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -30,6 +29,14 @@ TRANSLATION_POST_CONTENT_TYPE = "application/x-www-form-urlencoded"
 # would write in a prompt box, and well under the request-size limits of the endpoints.
 TRANSLATION_MAX_CHARS = 200_000
 
+# Realistic browser headers to prevent 429 bot blocking.
+# Single source of truth — nodes import this instead of redefining it.
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Referer": "https://translate.google.com/",
+}
 
 def parse_translate_response(res_json):
     """

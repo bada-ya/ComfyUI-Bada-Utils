@@ -49,6 +49,14 @@
 2. `git checkout main` -> `git merge beta` 실행
 3. 메인 병합 직후 루트 `.clinerules` 파일 삭제 (`git rm --cached .clinerules`) 확인
 4. `git push origin main` 실행 후 다시 `beta` 브랜치 복귀 (`git checkout beta`)
+5. `main` 푸시 및 `beta` 복귀 완료 후, 반드시 사용자에게 "레지스트리에 올릴까요?"라고 자동으로 물어본 뒤, 승인 시에만 `[4] "레지스트리에 올려줘"`를 따른다
+
+### [4] "레지스트리에 올려줘"
+1. `pyproject.toml` version 확인 (기존 발행 버전보다 올랐는지)
+2. `node.zip` 빌드 여부 확인 (루트, 커밋 금지)
+3. `comfy node publish` 실행 또는 Actions 자동발행 확인
+4. 구버전 내리기가 필요하면 `deprecate_version.py` (베타repo, Firebase 토큰) 1회 실행
+5. 상세 절차는 `_vault/ComfyUI-Bada-Utils/REGISTRY_PUBLISH.md`를 따른다 (발행 전 사용자 2차 승인 필수)
 
 ---
 

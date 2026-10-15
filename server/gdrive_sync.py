@@ -19,7 +19,7 @@
        양쪽 시간을 일치시킨다. (Drive API v3 은 원격 modifiedTime 지정을 허용하지 않는다.)
   4. 내부 동기화 지도 키는 rel_path 를 `___` 로 인코딩한 형태 (다운로드·스냅샷 공용 키).
      Drive 에는 파일을 실제 중첩 폴더 구조로 저장한다 (Workflows/<subdir>/<file>.json).
-  5. 중복 실행 방지 (_SYNC_LOCK)
+  5. 중복 실행 방지 (_SYNC_GUARD)
   6. 두 네임스페이스 모두 realpath 로 루트 탈출(../) 차단
 
 의도적 제외 대상
@@ -75,7 +75,7 @@ try:
     from google_auth_oauthlib.flow import InstalledAppFlow
     from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload, MediaIoBaseUpload
+    from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
     GDRIVE_LIBS_AVAILABLE = True
 except ImportError:
     GDRIVE_LIBS_AVAILABLE = False
@@ -148,7 +148,6 @@ LAST_SYNC_STATE_FILE = os.path.join(PARENT_DIR, '.gdrive_sync_state.json')
 # 3-Way Snapshot 파일 (삭제 및 이동 추적을 통한 좀비 파일 방지용).
 SNAPSHOT_STATE_FILE = os.path.join(PARENT_DIR, '.gdrive_snapshot.json')
 
-_SYNC_LOCK = asyncio.Lock()
 _THREAD_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="GDriveSyncWorker")
 
 
@@ -346,18 +345,6 @@ def get_drive_service():
     except Exception as e:
         logger.error(f"[GDrive] Drive service build failed: {e}")
         return None, f"Drive service creation failed: {str(e)}"
-
-
-def calculate_sha256(filepath):
-    """파일 SHA256 (64KB 청크 스트리밍)."""
-    hasher = hashlib.sha256()
-    with open(filepath, 'rb') as f:
-        while True:
-            chunk = f.read(65536)
-            if not chunk:
-                break
-            hasher.update(chunk)
-    return hasher.hexdigest()
 
 
 WORKFLOWS_NS = "workflows/"
@@ -885,8 +872,11 @@ def _download_single_file(service, rel_path, remote_meta):
             pass
 
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
-    with open(full_path, 'wb') as f:
+    # 비원자적 쓰기 방지: tmp에 쓴 뒤 os.replace로 교체 (중단 시 잘린 파일 방지).
+    tmp_path = full_path + ".tmp"
+    with open(tmp_path, 'wb') as f:
         f.write(payload)
+    os.replace(tmp_path, full_path)
 
     # 원격 시간을 로컬 mtime 에 고정 (루프 방지의 핵심).
     _pin_local_mtime(full_path, remote_meta.get("modifiedTime"))
@@ -940,9 +930,6 @@ def _perform_sync_blocking():
         remote_files, legacy_workflows = _list_remote_files(service, subfolder_ids)
         # 중첩 폴더 캐시는 이번 동기화 기준으로 초기화 (이전 세션의 stale 폴더 ID 방지).
         _WORKFLOW_FOLDER_CACHE.clear()
-
-        uploaded_count = 0
-        downloaded_count = 0
 
         uploaded_count = 0
         downloaded_count = 0
@@ -1602,7 +1589,9 @@ def trigger_realtime_sync(details: dict = None) -> dict:
     acquired = _SYNC_GUARD.acquire(blocking=False)
     if not acquired:
         return {"status": "busy", "reason": "sync_in_progress"}
-    _SYNC_GUARD.release()
+    # TOCTOU 방지: 스레드 생성까지 가드를 들고 있다가, 생성 직후 놓는다.
+    # 내부 수행부(_perform_*_blocking)가 진입 시 같은 가드를 acquire하므로,
+    # 생성~수행부 진입 사이 찰나의 중복 호출이 가드에 걸려 busy로 걸러진다.
 
     def _worker():
         try:
@@ -1618,7 +1607,13 @@ def trigger_realtime_sync(details: dict = None) -> dict:
         except Exception as e:
             logger.error(f"[GDrive] Realtime sync error: {e}")
 
-    threading.Thread(target=_worker, name="GDriveRealtimeSync", daemon=True).start()
+    try:
+        threading.Thread(target=_worker, name="GDriveRealtimeSync", daemon=True).start()
+    finally:
+        try:
+            _SYNC_GUARD.release()
+        except RuntimeError:
+            pass
     return {"status": "queued", "message": "Realtime sync started in background"}
 
 

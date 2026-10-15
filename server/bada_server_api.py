@@ -579,6 +579,7 @@ def get_all_available_models():
 # =========================================================================
 
 CACHED_DETECTIVE_DB = None
+_DETECTIVE_DB_LOCK = threading.Lock()
 
 def clean_node_key(s):
     """Normalizes string to alphanumeric lowercase (e.g. 'Power Lora Loader (rgthree)' -> 'powerloraloaderrgthree')"""
@@ -595,6 +596,8 @@ def get_detective_database():
     """
     global CACHED_DETECTIVE_DB
     import glob
+
+    # 빠른 경로: 캐시 유효하면 락 없이 반환.
 
     # Collect search directories
     search_dirs = []
@@ -650,6 +653,18 @@ def get_detective_database():
 
     if CACHED_DETECTIVE_DB and CACHED_DETECTIVE_DB[0] == latest_mtime:
         return CACHED_DETECTIVE_DB[1]
+
+    with _DETECTIVE_DB_LOCK:
+        # 락 재확인 (먼저 들어간 스레드가 이미 파싱했을 수 있음).
+        if CACHED_DETECTIVE_DB and CACHED_DETECTIVE_DB[0] == latest_mtime:
+            return CACHED_DETECTIVE_DB[1]
+
+        return _build_detective_database(latest_mtime, ext_map_files, nodes_json_files, cn_list_files, stats_files)
+
+
+def _build_detective_database(latest_mtime, ext_map_files, nodes_json_files, cn_list_files, stats_files):
+    """실제 DB 파싱 (호출자가 _DETECTIVE_DB_LOCK 보유)."""
+    global CACHED_DETECTIVE_DB
 
     logger.info("[Bada-Detective] Indexing comprehensive custom node database from manager caches...")
 

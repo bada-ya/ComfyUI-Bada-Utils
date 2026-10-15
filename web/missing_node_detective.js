@@ -485,7 +485,13 @@ export async function showMissingNodeModal(node) {
     requestAnimationFrame(() => overlay.classList.add("visible"));
 
     // Event Listeners for close
+    const escListener = (e) => {
+        if (e.key === "Escape") {
+            closeModal();
+        }
+    };
     const closeModal = () => {
+        window.removeEventListener("keydown", escListener);
         overlay.classList.remove("visible");
         setTimeout(() => overlay.remove(), 220);
     };
@@ -496,12 +502,6 @@ export async function showMissingNodeModal(node) {
         if (e.target === overlay) closeModal();
     });
 
-    const escListener = (e) => {
-        if (e.key === "Escape") {
-            closeModal();
-            window.removeEventListener("keydown", escListener);
-        }
-    };
     window.addEventListener("keydown", escListener);
 
     // Copy Type Button

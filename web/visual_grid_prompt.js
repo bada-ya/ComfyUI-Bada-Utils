@@ -894,19 +894,19 @@ app.registerExtension({
                 .mockup-svg { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.28; pointer-events: none; }
                 .vg-tree-drawer { background: #2e2e2e; border: 1px solid #4f46e5; border-radius: 6px; max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px; box-sizing: border-box; }
                 .vg-tree-drawer.collapsed { display: none; }
-                .tree-folder { font-size: 11.5px; font-weight: 600; color: #f4f4f5; background: #3d3d3d; padding: 6px 8px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
-                .tree-folder:hover { background: #4e4e4e; color: #fff; }
-                .tree-children { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px; padding: 6px; background: rgba(0,0,0,0.18); border-radius: 4px; }
-                .tree-children.collapsed { display: none; }
-                .tree-item { font-size: 11px; color: #e4e4e7; background: #2a2a2a; border: 1px solid #4e4e4e; padding: 5px 6px; cursor: pointer; border-radius: 4px; text-align: center; line-height: 1.2; word-break: keep-all; }
-                .tree-item:hover { background: #4f46e5; border-color: #6366f1; color: #fff; font-weight: 600; }
+                .vg-tree-folder { font-size: 11.5px; font-weight: 600; color: #f4f4f5; background: #3d3d3d; padding: 6px 8px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+                .vg-tree-folder:hover { background: #4e4e4e; color: #fff; }
+                .vg-tree-children { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px; padding: 6px; background: rgba(0,0,0,0.18); border-radius: 4px; }
+                .vg-tree-children.collapsed { display: none; }
+                .vg-tree-item { font-size: 11px; color: #e4e4e7; background: #2a2a2a; border: 1px solid #4e4e4e; padding: 5px 6px; cursor: pointer; border-radius: 4px; text-align: center; line-height: 1.2; word-break: keep-all; }
+                .vg-tree-item:hover { background: #4f46e5; border-color: #6366f1; color: #fff; font-weight: 600; }
                 .vg-drawer { background: #2a2a2a; border: 1px solid #3d3d3d; border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; box-sizing: border-box; }
                 .vg-drawer.collapsed { display: none; }
                 .vg-char-manager-drawer { background: #2e2e2e; border: 1px solid #6366f1; border-radius: 6px; padding: 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.6); }
                 .vg-char-item { background: #333333; border: 1px solid #4e4e4e; border-radius: 4px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
-                .custom-chip { display: flex; align-items: center; justify-content: space-between; background: #3d3d3d; border: 1px solid #4e4e4e; border-radius: 4px; padding: 3px 6px; font-size: 11px; cursor: grab; }
-                .custom-chip.dragging { opacity: 0.4; }
-                .custom-chip-del { color: #ef4444; font-weight: 700; cursor: pointer; padding: 0 4px; }
+                .vg-custom-chip { display: flex; align-items: center; justify-content: space-between; background: #3d3d3d; border: 1px solid #4e4e4e; border-radius: 4px; padding: 3px 6px; font-size: 11px; cursor: grab; }
+                .vg-custom-chip.dragging { opacity: 0.4; }
+                .vg-custom-chip-del { color: #ef4444; font-weight: 700; cursor: pointer; padding: 0 4px; }
                 .vg-stepper-input::-webkit-outer-spin-button,
                 .vg-stepper-input::-webkit-inner-spin-button {
                     -webkit-appearance: none !important;
@@ -1638,16 +1638,16 @@ app.registerExtension({
                     fWrap.style.cssText = "display:flex; flex-direction:column; gap:4px;";
 
                     const fHead = document.createElement("div");
-                    fHead.className = "tree-folder";
+                    fHead.className = "vg-tree-folder";
                     const gTitle = isEn ? (grp.group_en || grp.group) : grp.group;
                     fHead.innerHTML = `<span>${grp.icon} ${gTitle}</span> <span style="font-size:10px; color:#a1a1aa;">(${grp.items.length}) ▶</span>`;
                     
                     const fChildren = document.createElement("div");
-                    fChildren.className = "tree-children collapsed";
+                    fChildren.className = "vg-tree-children collapsed";
 
                     grp.items.forEach(it => {
                         const itEl = document.createElement("div");
-                        itEl.className = "tree-item";
+                        itEl.className = "vg-tree-item";
                         const iLabel = isEn ? (it.label_en || it.label) : it.label;
                         itEl.dataset.label = it.label;
                         itEl.dataset.label_en = it.label_en || "";
@@ -1678,9 +1678,9 @@ app.registerExtension({
 
             treeSearch.addEventListener("input", () => {
                 const q = treeSearch.value.trim().toLowerCase();
-                treeList.querySelectorAll(".tree-children").forEach(c => {
+                treeList.querySelectorAll(".vg-tree-children").forEach(c => {
                     let has = false;
-                    c.querySelectorAll(".tree-item").forEach(it => {
+                    c.querySelectorAll(".vg-tree-item").forEach(it => {
                         const m = !q || (it.dataset.label + " " + (it.dataset.label_en || "") + " " + it.dataset.ko + " " + it.dataset.en).toLowerCase().includes(q);
                         it.style.display = m ? "block" : "none";
                         if (m) has = true;
@@ -2744,7 +2744,7 @@ app.registerExtension({
                 updateSelectionBox(rect, cellW, cellH);
             });
 
-            window.addEventListener("mousemove", (e) => {
+            node._badaMouseMove = (e) => {
                 if (!isDragging || !dragStart) return;
                 const rect = canvasWrapper.getBoundingClientRect();
                 const x = e.clientX - rect.left;
@@ -2756,9 +2756,10 @@ app.registerExtension({
                 const r = Math.min(rows - 1, Math.max(0, Math.floor(y / cellH)));
                 dragCurrent = { c, r };
                 updateSelectionBox(rect, cellW, cellH);
-            });
+            };
+            window.addEventListener("mousemove", node._badaMouseMove);
 
-            window.addEventListener("mouseup", () => {
+            node._badaMouseUp = () => {
                 if (!isDragging || !dragStart || !dragCurrent) return;
                 isDragging = false;
                 selectionBox.style.display = "none";
@@ -2779,7 +2780,8 @@ app.registerExtension({
                 syncToWidgets();
                 dragStart = null;
                 dragCurrent = null;
-            });
+            };
+            window.addEventListener("mouseup", node._badaMouseUp);
 
             function updateSelectionBox(rect, cellW, cellH) {
                 const c1 = Math.min(dragStart.c, dragCurrent.c);
@@ -3020,6 +3022,14 @@ app.registerExtension({
             const origOnRemoved = node.onRemoved;
             node.onRemoved = function () {
                 BadaI18n.unsubscribe(langListener);
+                if (this._badaMouseMove) {
+                    window.removeEventListener("mousemove", this._badaMouseMove);
+                    this._badaMouseMove = null;
+                }
+                if (this._badaMouseUp) {
+                    window.removeEventListener("mouseup", this._badaMouseUp);
+                    this._badaMouseUp = null;
+                }
                 if (origOnRemoved) origOnRemoved.apply(this, arguments);
             };
         };

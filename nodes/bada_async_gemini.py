@@ -19,7 +19,7 @@ class BadaAsyncGeminiStudio:
     - Independent non-blocking execution via in-node [Generate] button
     - Multimodal image drag & drop / clipboard paste (Ctrl+V)
     - One-click copy & direct injection to active CLIP Text Encode nodes
-    - Standard STRING output for downstream workflow connection
+    - UI-only node: no downstream output (RETURN_TYPES is empty)
     """
 
     @classmethod

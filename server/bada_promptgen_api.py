@@ -41,7 +41,7 @@ import os
 import re
 import uuid
 
-from .atomic_json import write_json_atomic
+from .atomic_json import read_json_fallback, write_json_atomic
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 
@@ -54,16 +54,7 @@ SLUG_RE = re.compile(r"[^a-z0-9가-힣._-]+")
 
 
 def _read_json(path: str, fallback):
-    try:
-        if not os.path.exists(path):
-            return fallback
-        import io
-
-        with io.open(path, "r", encoding="utf-8") as handle:
-            return json.load(handle)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[BadaPromptGen] failed to read %s: %s", path, exc)
-        return fallback
+    return read_json_fallback(path, fallback, log_prefix="[BadaPromptGen]")
 
 
 def _write_json(path: str, payload: dict) -> None:

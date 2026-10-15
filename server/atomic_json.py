@@ -29,6 +29,19 @@ import tempfile
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 
 
+def read_json_fallback(path: str, fallback, *, log_prefix: str = "[Bada]"):
+    """Read JSON, returning ``fallback`` when missing/unreadable (logged, never raised)."""
+    try:
+        if not os.path.exists(path):
+            return fallback
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("%s failed to read %s: %s", log_prefix, path, exc)
+        return fallback
+
+
+
 def write_json_atomic(path: str, payload, *, indent: int = 2, backup: bool = True) -> None:
     """Serialise ``payload`` to ``path`` without ever leaving a partial file behind.
 

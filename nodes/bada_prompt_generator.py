@@ -35,10 +35,16 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+try:
+    import numpy as np
+except Exception:  # noqa: BLE001 — numpy 없는 환경에서도 노드 로드는 유지
+    np = None
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 
@@ -48,8 +54,8 @@ CONFIG_FILE = os.path.join(ROOT_DIR, "config.json")
 
 GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
-# Realistic Chrome headers (mirrors nodes/bada_google_translator.py) to reduce bot blocking.
-BROWSER_HEADERS = {
+# JSON API headers for Gemini (distinct from translation_runtime.BROWSER_HEADERS).
+JSON_API_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -304,7 +310,7 @@ def _post_generate_content(model: str, api_key: str, payload: dict, timeout: int
     sep = "&" if "?" in url else "?"
     full = f"{url}{sep}key={urllib.parse.quote(api_key)}"
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(full, data=body, headers=BROWSER_HEADERS, method="POST")
+    req = urllib.request.Request(full, data=body, headers=JSON_API_HEADERS, method="POST")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
         with opener.open(req, timeout=timeout) as resp:
@@ -560,16 +566,21 @@ def _schema_for(submenu: dict):
 # ---------------------------------------------------------------------------
 _RESULT_CACHE = collections.OrderedDict()
 _RESULT_CACHE_MAX = 24
+_RESULT_CACHE_LOCK = threading.Lock()
 
 
 def _tensor_digest(tensor) -> str:
     """Cheap, collision-resistant fingerprint of a ComfyUI IMAGE tensor."""
     try:
-        import numpy as np
+        if np is None:
+            return "unhashable"
         arr = tensor
         if hasattr(arr, "detach"):
             arr = arr.detach().cpu().numpy()
         arr = np.ascontiguousarray(np.asarray(arr, dtype="float32"))
+        # 메모리 폭탄 방지: 해시 전에 1/8 다운샘플 (판별력 유지, 메모리 1/64).
+        if arr.ndim >= 2:
+            arr = arr[::8, ::8]
         return hashlib.sha1(str(arr.shape).encode("utf-8") + arr.tobytes()).hexdigest()[:20]
     except Exception:  # noqa: BLE001
         return "unhashable"
@@ -594,17 +605,19 @@ def result_cache_key(registry, target, submenu, request_text, tensors, duration=
 
 
 def cache_lookup(key):
-    entry = _RESULT_CACHE.get(key)
-    if entry is not None:
-        _RESULT_CACHE.move_to_end(key)
-    return entry
+    with _RESULT_CACHE_LOCK:
+        entry = _RESULT_CACHE.get(key)
+        if entry is not None:
+            _RESULT_CACHE.move_to_end(key)
+        return entry
 
 
 def cache_store(key, prompt: str, wh_ratio: str) -> None:
-    _RESULT_CACHE[key] = (prompt, wh_ratio)
-    _RESULT_CACHE.move_to_end(key)
-    while len(_RESULT_CACHE) > _RESULT_CACHE_MAX:
-        _RESULT_CACHE.popitem(last=False)
+    with _RESULT_CACHE_LOCK:
+        _RESULT_CACHE[key] = (prompt, wh_ratio)
+        _RESULT_CACHE.move_to_end(key)
+        while len(_RESULT_CACHE) > _RESULT_CACHE_MAX:
+            _RESULT_CACHE.popitem(last=False)
 
 
 def _ui_text(ui_language, english, korean):
@@ -860,12 +873,8 @@ class BadaPromptGenerator:
             "hidden": {"unique_id": "UNIQUE_ID"},
         }
 
-    @classmethod
-    def VALIDATE_INPUTS(cls, target="", submenu="", **kwargs):
-        return True
-
     # -- validation & caching ----------------------------------------------
-    # NOTE: `VALIDATE_INPUTS` was removed on purpose.
+    # NOTE: no `VALIDATE_INPUTS` on purpose.
     #   ComfyUI calls it through `get_input_data(..., execution_list=None)`
     #   (execution.py ~L1083 and, for IS_CHANGED, L95), which marks every
     #   *linked* input as `(None,)`.  A validator therefore can never see

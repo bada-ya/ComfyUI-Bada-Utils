@@ -830,9 +830,14 @@ class AutoModelAssigner {
      * 스마트 모델 매핑 모달 UI 렌더링
      */
     static showResolverModal(items, alreadyMatchedCount, missingCount = 0, missingNodes = [], targetNode = null) {
-        // 기존 열린 모달 제거
+        // 기존 열린 모달 제거 (고아 키보드 리스너도 함께 해제)
         const existing = document.querySelector(".auto-assign-overlay");
-        if (existing) existing.remove();
+        if (existing) {
+            if (existing._badaKeyHandler) {
+                document.removeEventListener("keydown", existing._badaKeyHandler, true);
+            }
+            existing.remove();
+        }
 
         const overlay = document.createElement("div");
         overlay.className = "auto-assign-overlay";
@@ -850,6 +855,7 @@ class AutoModelAssigner {
             }
         };
         document.addEventListener("keydown", handleKeyDown, true);
+        overlay._badaKeyHandler = handleKeyDown;
 
         overlay.addEventListener("click", (e) => {
             if (e.target === overlay) closeOverlay();

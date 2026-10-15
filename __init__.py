@@ -3,7 +3,6 @@ ComfyUI-Bada-Utils (All-in-One Quality of Life, Presets, Auto-Assigner & Regiona
 Author: bada-ya (https://github.com/bada-ya)
 """
 import logging
-import os
 import sys
 import subprocess
 
@@ -49,10 +48,15 @@ def _ensure_cloud_deps():
              "google-api-python-client", "google-auth-oauthlib"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            timeout=600,
+            timeout=60,
             check=False,
         )
         logger.info("[ComfyUI-Bada-Utils] Cloud Sync dependencies installed — usable this session.")
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "[ComfyUI-Bada-Utils] Cloud Sync dependency install timed out after 60s "
+            "(likely offline — will retry on next startup, server continues)."
+        )
     except Exception as exc:
         logger.warning(
             f"[ComfyUI-Bada-Utils] Cloud Sync dependency install failed "
@@ -67,8 +71,6 @@ from .nodes import (
     NODE_DISPLAY_NAME_MAPPINGS,
 )
 from .server import register_bada_api_routes, register_gemini_api_routes, register_promptgen_api_routes, register_cloud_routes
-
-logger = logging.getLogger("ComfyUI-Bada-Utils")
 
 # 1. Register Web Frontend Assets Directory
 WEB_DIRECTORY = "./web"

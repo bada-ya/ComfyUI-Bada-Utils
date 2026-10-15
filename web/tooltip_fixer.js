@@ -17,6 +17,9 @@
 
     // 1. Intercept legacy manager's aggressive capture phase mouseenter/mouseleave
     const origAddEventListener = EventTarget.prototype.addEventListener;
+    const origRemoveEventListener = EventTarget.prototype.removeEventListener;
+    // 래핑 매핑: removeEventListener(원본) 호출 시 래핑본으로 변환해 해제 (A안).
+    const wrappedListeners = new WeakMap();
     EventTarget.prototype.addEventListener = function (type, listener, options) {
         if (this === document.body && (type === "mouseenter" || type === "mouseleave") && (options === true || options?.capture)) {
             const safeListener = function (e) {
@@ -25,9 +28,32 @@
                     return listener.apply(this, arguments);
                 }
             };
+            // 원본 -> 래핑 매핑 보관 (같은 원본 재등록 시 기존 래핑 재사용).
+            let perTarget = wrappedListeners.get(this);
+            if (!perTarget) {
+                perTarget = new Map();
+                wrappedListeners.set(this, perTarget);
+            }
+            let perType = perTarget.get(type);
+            if (!perType) {
+                perType = new Map();
+                perTarget.set(type, perType);
+            }
+            perType.set(listener, safeListener);
             return origAddEventListener.call(this, type, safeListener, false);
         }
         return origAddEventListener.apply(this, arguments);
+    };
+    EventTarget.prototype.removeEventListener = function (type, listener, options) {
+        try {
+            const perTarget = wrappedListeners.get(this);
+            const wrapped = perTarget?.get(type)?.get(listener);
+            if (wrapped) {
+                perTarget.get(type).delete(listener);
+                return origRemoveEventListener.call(this, type, wrapped, false);
+            }
+        } catch (_) { console.debug("[Bada] ignored:", _); }
+        return origRemoveEventListener.apply(this, arguments);
     };
 
     // 2. Track the actively hovered host element

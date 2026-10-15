@@ -21,7 +21,6 @@ CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 CONFIG_FILE = os.path.join(PARENT_DIR, "config.json")
 REGISTRY_FILE = os.path.join(PARENT_DIR, "engines_registry.json")
-REGISTRY_FILE = os.path.join(PARENT_DIR, "engines_registry.json")
 
 # 3 Fast & Robust Verified Gemini Models
 EXACT_MODELS = [
@@ -757,7 +756,8 @@ def register_gemini_api_routes():
                             async with session.post(url, json=payload_p1) as resp:
                                 if resp.status == 200:
                                     res_json = await resp.json()
-                                    candidate = res_json.get("candidates", [{}])[0]
+                                    candidates = res_json.get("candidates") or []
+                                    candidate = candidates[0] if candidates else {}
                                     finish_reason = candidate.get("finishReason", "")
 
                                     if finish_reason == "SAFETY":
@@ -816,7 +816,8 @@ def register_gemini_api_routes():
                                 async with session.post(url2, json=payload_p2) as resp2:
                                     if resp2.status == 200:
                                         res2_json = await resp2.json()
-                                        cand2 = res2_json.get("candidates", [{}])[0]
+                                        candidates2 = res2_json.get("candidates") or []
+                                        cand2 = candidates2[0] if candidates2 else {}
                                         parts2 = cand2.get("content", {}).get("parts", [])
                                         text2 = "".join([p.get("text", "") for p in parts2]).strip()
                                         if text2 and not is_refusal_response(text2):
@@ -851,7 +852,8 @@ def register_gemini_api_routes():
                                 async with session.post(url3, json=payload_p3) as resp3:
                                     if resp3.status == 200:
                                         res3_json = await resp3.json()
-                                        cand3 = res3_json.get("candidates", [{}])[0]
+                                        candidates3 = res3_json.get("candidates") or []
+                                        cand3 = candidates3[0] if candidates3 else {}
                                         parts3 = cand3.get("content", {}).get("parts", [])
                                         text3 = "".join([p.get("text", "") for p in parts3]).strip()
                                         if text3 and not is_refusal_response(text3):
@@ -999,7 +1001,8 @@ def register_gemini_api_routes():
                             async with session.post(url, json=payload) as resp:
                                 if resp.status == 200:
                                     data = await resp.json()
-                                    candidate = data.get("candidates", [{}])[0]
+                                    candidates = data.get("candidates") or []
+                                    candidate = candidates[0] if candidates else {}
                                     parts = candidate.get("content", {}).get("parts", [])
                                     reply_text = "".join([p.get("text", "") for p in parts]).strip()
                                     successful_model = cur_model

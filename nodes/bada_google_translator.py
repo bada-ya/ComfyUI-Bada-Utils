@@ -21,6 +21,7 @@ import urllib.request
 from concurrent.futures import TimeoutError as FutureTimeoutError
 
 from ..translation_runtime import (
+    BROWSER_HEADERS,
     TRANSLATION_ATTEMPT_TIMEOUT_SECONDS,
     TRANSLATION_MAX_CHARS,
     TRANSLATION_TIMEOUT_SECONDS,
@@ -30,14 +31,6 @@ from ..translation_runtime import (
 )
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
-
-# Realistic browser headers to prevent 429 bot blocking
-BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Referer": "https://translate.google.com/",
-}
 
 class BadaGoogleTranslator:
     """
@@ -159,6 +152,13 @@ class BadaGoogleTranslator:
             return ("",)
 
         if from_lang != "auto" and from_lang == to_lang:
+            return (text,)
+
+        if len(text) > TRANSLATION_MAX_CHARS:
+            logger.warning(
+                f"[ComfyUI-Bada-Utils] Text too long ({len(text):,} chars, max {TRANSLATION_MAX_CHARS:,}). "
+                "Returning input unchanged."
+            )
             return (text,)
 
         if len(text) > 5000:

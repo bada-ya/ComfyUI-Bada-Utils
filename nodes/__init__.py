@@ -1,8 +1,12 @@
 """
 ComfyUI-Bada-Utils Pure Node Registry
-Only 2 clean, powerful master nodes:
+6 mappings (5 nodes + 1 legacy alias):
 1. BadaPresetHub (Wireless Smart Presets Master Hub)
 2. BadaRegionalPrompt (Visual Interactive Regional Prompt)
+3. VisualGridPromptNode (legacy alias of BadaRegionalPrompt)
+4. BadaAsyncGeminiStudio (Async Gemini Studio, UI-only)
+5. BadaGoogleTranslator (Zero-Dependency Google Translator)
+6. BadaPromptGenerator (Queue-Synchronous Prompt Compiler)
 """
 from .bada_preset_hub import BadaPresetHub
 from .bada_regional_prompt import BadaRegionalPrompt
