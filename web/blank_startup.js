@@ -67,11 +67,19 @@ function overrideDefaultGraph() {
 }
 
 // Immediate prototype patch with precise default template detection
+// IMPORTANT: The wrapper function MUST contain 'loadGraphData' in its name.
+// Impact Pack (onConnectionsChange) inspects `new Error().stack` for 'loadGraphData'
+// to skip reconnection logic during workflow loading. Since ComfyUI 0.40.0 bundles
+// the frontend (minifying function names), wrapping LGraph.prototype.configure with
+// an anonymous function removes 'loadGraphData' from the call stack, causing
+// Impact Pack to mistakenly run connect() on half-constructed nodes →
+// "TypeError: t.findInputSlot is not a function".
 function patchLGraph() {
     if (window.LGraph && LGraph.prototype && !LGraph.prototype._qolBlankConfigured) {
         LGraph.prototype._qolBlankConfigured = true;
         const origConfigure = LGraph.prototype.configure;
-        LGraph.prototype.configure = function (data, clean) {
+        // Named function: Impact Pack checks stack for 'loadGraphData'
+        LGraph.prototype.configure = function loadGraphData_QoLBlankStartup(data, clean) {
             if (data && isBuiltinDefaultTemplate(data)) {
                 if (shouldStartBlank()) {
                     console.log("[QoL-Utils] Intercepted built-in default template -> Starting with clean blank graph.");

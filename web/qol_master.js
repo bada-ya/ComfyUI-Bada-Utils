@@ -37,10 +37,18 @@ app.registerExtension({
         } catch (e) { console.debug("[Bada] ignored:", e); }
     },
 
-    async loadedGraphNode(node, app) {
-        try {
-            healImageNode(node);
-        } catch (e) { console.debug("[Bada] ignored:", e); }
+    // NOTE:
+    // Do NOT hook loadedGraphNode or nodeType.prototype.onConfigure synchronously.
+    // ComfyUI's workflow loading restores links and slots in onConnectionsChange.
+    // Calling healImageNode synchronously during configure triggers Impact Pack's
+    // "findInputSlot is not a function" error.
+    // Instead, safely heal all image nodes AFTER the entire graph configuration is completely finished.
+    async afterConfigureGraph() {
+        setTimeout(() => {
+            try {
+                healAllImageNodes();
+            } catch (e) { console.debug("[Bada] ignored:", e); }
+        }, 300);
     },
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
@@ -49,15 +57,6 @@ app.registerExtension({
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function () {
                 const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
-                try {
-                    healImageNode(this);
-                } catch (e) { console.debug("[Bada] ignored:", e); }
-                return r;
-            };
-
-            const onConfigure = nodeType.prototype.onConfigure;
-            nodeType.prototype.onConfigure = function () {
-                const r = onConfigure ? onConfigure.apply(this, arguments) : undefined;
                 try {
                     healImageNode(this);
                 } catch (e) { console.debug("[Bada] ignored:", e); }
