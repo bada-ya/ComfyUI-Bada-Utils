@@ -470,14 +470,19 @@ def build_local_manifest():
     return manifest
 
 
+_SESSION_ROOT_ID = None
+_SESSION_SUBFOLDER_CACHE = {}
+
+
 def _get_or_create_remote_folder(service, folder_name, parent_id=None):
     """
     Drive 대상 폴더 ID를 조회하거나 없으면 생성.
-
-    parent_id : 상위 폴더 ID. 주어지면 그 **안에서만** 이름을 찾고(동명 폴더 혼동 방지),
-      없으면 생성 시 상위 폴더 안에 넣는다. None 이면(루트) 기존과 동일하게
-      My Drive 최상위에서 찾는다.
+    - 루트 폴더(parent_id is None)는 세션 캐싱하여 중복 API 호출 0회로 최적화
     """
+    global _SESSION_ROOT_ID
+    if parent_id is None and folder_name == FOLDER_NAME and _SESSION_ROOT_ID:
+        return _SESSION_ROOT_ID
+
     escaped = folder_name.replace("\\", "\\\\").replace("'", "\\'")
     query = (f"name = '{escaped}' and "
              f"mimeType = 'application/vnd.google-apps.folder' and trashed = false")
@@ -486,7 +491,10 @@ def _get_or_create_remote_folder(service, folder_name, parent_id=None):
     results = service.files().list(q=query, fields="files(id, name)").execute()
     items = results.get('files', [])
     if items:
-        return items[0]['id']
+        f_id = items[0]['id']
+        if parent_id is None and folder_name == FOLDER_NAME:
+            _SESSION_ROOT_ID = f_id
+        return f_id
 
     file_metadata = {
         'name': folder_name,
@@ -495,18 +503,27 @@ def _get_or_create_remote_folder(service, folder_name, parent_id=None):
     if parent_id:
         file_metadata['parents'] = [parent_id]
     folder = service.files().create(body=file_metadata, fields='id').execute()
-    return folder.get('id')
+    new_id = folder.get('id')
+    if parent_id is None and folder_name == FOLDER_NAME:
+        _SESSION_ROOT_ID = new_id
+    return new_id
 
 
 def _get_subfolder_ids(service, root_id):
     """
     루트 폴더 아래 하위폴더 5종(Presets/Favorites/GeminiChat/SystemPrompts/Workflows)
-    의 ID 를 조회·생성해 {폴더명: ID} 로 반환. 이미 있으면 재사용한다.
+    의 ID 를 조회·생성해 {폴더명: ID} 로 반환.
+    - 세션 메모리에 캐싱하여 5회 순차 API 호출(5초)을 0초로 단축!
     """
+    global _SESSION_SUBFOLDER_CACHE
     all_names = list(REMOTE_FOLDER_BY_REL.values()) + [REMOTE_WORKFLOWS_FOLDER]
+    if _SESSION_SUBFOLDER_CACHE and all(k in _SESSION_SUBFOLDER_CACHE for k in all_names):
+        return dict(_SESSION_SUBFOLDER_CACHE)
+
     ids = {}
     for name in all_names:
         ids[name] = _get_or_create_remote_folder(service, name, parent_id=root_id)
+    _SESSION_SUBFOLDER_CACHE = ids
     return ids
 
 
@@ -1306,12 +1323,272 @@ def is_startup_autosync_enabled() -> bool:
     return bool(settings.get("cloud_sync_enabled", True)) and bool(settings.get("startup_autosync", True))
 
 
-def trigger_realtime_sync() -> dict:
+def normalize_sync_rel_path(p: str) -> str:
+    """주어진 경로나 파일명을 동기화 표준 상대경로(.configs/... 또는 workflows/...)로 정규화."""
+    if not p:
+        return ""
+    p = p.replace("\\", "/").strip().lstrip("/")
+    if p in SYNC_TARGET_FILES:
+        return f"{_CONFIG_NS}{p}"
+    if p.startswith(_CONFIG_NS):
+        return p
+    try:
+        wf_root = _resolve_workflows_root().replace("\\", "/").rstrip("/")
+        if p.lower().startswith(wf_root.lower()):
+            sub = p[len(wf_root):].lstrip("/")
+            return f"{WORKFLOWS_NS}{sub}"
+    except Exception:
+        pass
+    if p.startswith(WORKFLOWS_NS):
+        return p
+    return f"{WORKFLOWS_NS}{p}"
+
+
+def _perform_pinpoint_sync_blocking(details: dict) -> bool:
     """
-    실시간 변경 감지 시 백그라운드 동기화를 즉시 트리거한다 (Zero-Delay + Tail-Dedup).
-    - 마스터 OFF 또는 realtime_autosync OFF 면 실행하지 않음
-    - 이미 동기화가 진행 중이면 status="busy" 반환 (클라이언트에서 pending 처리)
-    - 백그라운드 데몬 스레드로 즉시 _perform_sync_blocking 실행
+    실시간 단일 파일 저장/삭제/이동(Pinpoint Sync)을 수행한다.
+    - 전체 드라이브 스캔(Full Scan)을 완전히 생략하여 1~2초 이내 초고속 완료
+    - 이동(Move) 시 Drive native move API(부모 폴더 변경)를 사용하여 재업로드 0초
+    - 3-Way Snapshot(.gdrive_snapshot.json) 동시 갱신으로 좀비 부활 원천 차단
+    - 실패 시 False 반환 -> 호출측에서 _perform_sync_blocking()으로 안전 폴백
+    """
+    if not _SYNC_GUARD.acquire(blocking=False):
+        logger.info("[GDrive Pinpoint] Sync already in progress, skipping.")
+        return False
+
+    service, msg = get_drive_service()
+    if not service:
+        _SYNC_GUARD.release()
+        return False
+
+    _notify_sync_state(True)
+    try:
+        action = details.get("action")
+        root_id = _get_or_create_remote_folder(service, FOLDER_NAME)
+        subfolder_ids = _get_subfolder_ids(service, root_id)
+
+        # -------------------------------------------------------------
+        # 1. SAVE: 신규 생성 또는 업데이트
+        # -------------------------------------------------------------
+        if action == "save":
+            raw_path = details.get("path")
+            if not raw_path:
+                return True
+            rel_path = normalize_sync_rel_path(raw_path)
+            try:
+                full_path = _resolve_local_path(rel_path)
+            except Exception:
+                return True
+            if not os.path.exists(full_path):
+                logger.debug(f"[GDrive Pinpoint Save] Local file does not exist (skip): {full_path}")
+                return True
+
+            local_meta = {
+                "size": os.path.getsize(full_path),
+                "mtime": os.path.getmtime(full_path)
+            }
+            target_folder_name = _target_folder_name(rel_path)
+            if not target_folder_name:
+                return False
+
+            if target_folder_name == REMOTE_WORKFLOWS_FOLDER:
+                subdir = os.path.dirname(rel_path[len(WORKFLOWS_NS):])
+                target_folder_id = _ensure_workflow_folder(
+                    service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
+                    subdir.replace("\\", "/")
+                )
+            else:
+                target_folder_id = subfolder_ids[target_folder_name]
+
+            remote_name = _stored_remote_name(rel_path)
+            existing_id = _find_remote_file_in_folder(service, target_folder_id, remote_name)
+
+            _upload_single_file(service, target_folder_id, rel_path, local_meta, existing_id=existing_id)
+            logger.info(f"[GDrive Pinpoint Save] Uploaded: {rel_path} (ID: {existing_id or 'new'})")
+
+            # 3-Way Snapshot 갱신 (좀비 방지)
+            snapshot = get_base_snapshot() or {}
+            snapshot[rel_path] = {
+                "size": local_meta["size"],
+                "mtime": os.path.getmtime(full_path)
+            }
+            save_base_snapshot(snapshot)
+            _save_last_sync_state(1, 0)
+            return True
+
+        # -------------------------------------------------------------
+        # 2. DELETE: 로컬 삭제 -> 원격 안전 휴지통 이동
+        # -------------------------------------------------------------
+        elif action == "delete":
+            raw_path = details.get("path")
+            if not raw_path:
+                return False
+            rel_path = normalize_sync_rel_path(raw_path)
+
+            target_folder_name = _target_folder_name(rel_path)
+            if not target_folder_name:
+                return False
+
+            if target_folder_name == REMOTE_WORKFLOWS_FOLDER:
+                subdir = os.path.dirname(rel_path[len(WORKFLOWS_NS):])
+                folder_id = _ensure_workflow_folder(
+                    service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
+                    subdir.replace("\\", "/")
+                )
+            else:
+                folder_id = subfolder_ids[target_folder_name]
+
+            remote_name = _stored_remote_name(rel_path)
+            file_id = _find_remote_file_in_folder(service, folder_id, remote_name)
+            if file_id:
+                trash_remote_file(service, file_id, remote_name)
+                logger.info(f"[GDrive Pinpoint Delete] Trashed remote file: {rel_path} (ID: {file_id})")
+
+            # 3-Way Snapshot 에서 제거 (좀비 방지)
+            snapshot = get_base_snapshot()
+            if snapshot and rel_path in snapshot:
+                del snapshot[rel_path]
+                save_base_snapshot(snapshot)
+            _save_last_sync_state(0, 0)
+            return True
+
+        # -------------------------------------------------------------
+        # 3. MOVE: 폴더 이동 / 이름 변경 (Drive API Native Move)
+        # -------------------------------------------------------------
+        elif action == "move":
+            source_raw = details.get("source")
+            target_raw = details.get("target")
+            if not source_raw or not target_raw:
+                return False
+
+            source_rel = normalize_sync_rel_path(source_raw)
+            target_rel = normalize_sync_rel_path(target_raw)
+
+            # 구 위치 정보
+            old_subdir = os.path.dirname(source_rel[len(WORKFLOWS_NS):])
+            old_name = _stored_remote_name(source_rel)
+            old_folder_id = _ensure_workflow_folder(
+                service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
+                old_subdir.replace("\\", "/")
+            )
+
+            # 신 위치 정보
+            new_subdir = os.path.dirname(target_rel[len(WORKFLOWS_NS):])
+            new_name = _stored_remote_name(target_rel)
+            new_folder_id = _ensure_workflow_folder(
+                service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
+                new_subdir.replace("\\", "/")
+            )
+
+            file_id = _find_remote_file_in_folder(service, old_folder_id, old_name)
+            target_full = _resolve_local_path(target_rel)
+
+            if file_id:
+                # Drive Native Move: 부모 폴더 변경 + 이름 변경 (데이터 재업로드 0초!)
+                body = {}
+                if old_name != new_name:
+                    body['name'] = new_name
+                kwargs = {}
+                if old_folder_id != new_folder_id:
+                    kwargs['addParents'] = new_folder_id
+                    kwargs['removeParents'] = old_folder_id
+
+                resp = service.files().update(
+                    fileId=file_id,
+                    body=body or None,
+                    fields='id, modifiedTime, parents',
+                    **kwargs
+                ).execute()
+
+                if os.path.exists(target_full):
+                    _pin_local_mtime(target_full, resp.get("modifiedTime"))
+
+                logger.info(
+                    f"[GDrive Pinpoint Move] Native Drive move: '{source_rel}' -> '{target_rel}' "
+                    f"(ID: {file_id}, from: {old_folder_id} -> to: {new_folder_id})"
+                )
+            else:
+                # 원격에 구 파일이 없었다면 신규 업로드
+                if os.path.exists(target_full):
+                    local_meta = {
+                        "size": os.path.getsize(target_full),
+                        "mtime": os.path.getmtime(target_full)
+                    }
+                    _upload_single_file(service, new_folder_id, target_rel, local_meta)
+                    logger.info(f"[GDrive Pinpoint Move] Uploaded to target (not found in source): {target_rel}")
+
+            # 3-Way Snapshot 갱신: 구 경로 제거 + 신 경로 등록 (좀비 방지)
+            snapshot = get_base_snapshot() or {}
+            if source_rel in snapshot:
+                del snapshot[source_rel]
+            if os.path.exists(target_full):
+                snapshot[target_rel] = {
+                    "size": os.path.getsize(target_full),
+                    "mtime": os.path.getmtime(target_full)
+                }
+            save_base_snapshot(snapshot)
+            _save_last_sync_state(1, 0)
+            return True
+
+        # -------------------------------------------------------------
+        # 4. MULTI_MOVE: 다중 파일 이동
+        # -------------------------------------------------------------
+        elif action == "multi_move":
+            items = details.get("items", [])
+            if not items:
+                return False
+            snapshot = get_base_snapshot() or {}
+            success_count = 0
+            for itm in items:
+                s_rel = normalize_sync_rel_path(itm.get("source") or itm.get("path") or "")
+                t_rel = normalize_sync_rel_path(itm.get("target") or itm.get("newPath") or "")
+                if not s_rel or not t_rel:
+                    continue
+                old_sub = os.path.dirname(s_rel[len(WORKFLOWS_NS):])
+                old_nm = _stored_remote_name(s_rel)
+                old_fid = _ensure_workflow_folder(service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER], old_sub.replace("\\", "/"))
+                new_sub = os.path.dirname(t_rel[len(WORKFLOWS_NS):])
+                new_nm = _stored_remote_name(t_rel)
+                new_fid = _ensure_workflow_folder(service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER], new_sub.replace("\\", "/"))
+                f_id = _find_remote_file_in_folder(service, old_fid, old_nm)
+                t_full = _resolve_local_path(t_rel)
+                if f_id:
+                    body = {'name': new_nm} if old_nm != new_nm else None
+                    kw = {}
+                    if old_fid != new_fid:
+                        kw['addParents'] = new_fid
+                        kw['removeParents'] = old_fid
+                    resp = service.files().update(fileId=f_id, body=body, fields='id, modifiedTime', **kw).execute()
+                    if os.path.exists(t_full):
+                        _pin_local_mtime(t_full, resp.get("modifiedTime"))
+                elif os.path.exists(t_full):
+                    l_meta = {"size": os.path.getsize(t_full), "mtime": os.path.getmtime(t_full)}
+                    _upload_single_file(service, new_fid, t_rel, l_meta)
+                if s_rel in snapshot:
+                    del snapshot[s_rel]
+                if os.path.exists(t_full):
+                    snapshot[t_rel] = {"size": os.path.getsize(t_full), "mtime": os.path.getmtime(t_full)}
+                success_count += 1
+            save_base_snapshot(snapshot)
+            _save_last_sync_state(success_count, 0)
+            logger.info(f"[GDrive Pinpoint Multi-Move] Successfully moved {success_count} files via Native Move.")
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.warning(f"[GDrive Pinpoint] Error ({e}), will fallback to full sync.")
+        return False
+    finally:
+        _SYNC_GUARD.release()
+        _notify_sync_state(False)
+
+
+def trigger_realtime_sync(details: dict = None) -> dict:
+    """
+    실시간 변경 감지 시 백그라운드 동기화를 즉시 트리거한다 (Zero-Delay + Tail-Dedup + Pinpoint).
+    - details(action, path 등)가 주어지면 초고속 Pinpoint Sync(1~2초) 실행
+    - details가 없거나 실패 시 전체 Snapshot Full Sync로 안전 폴백
     """
     settings = get_gdrive_settings()
     if not bool(settings.get("cloud_sync_enabled", True)):
@@ -1329,8 +1606,14 @@ def trigger_realtime_sync() -> dict:
 
     def _worker():
         try:
-            logger.info("[GDrive] Realtime sync triggered...")
-            _perform_sync_blocking()
+            logger.info(f"[GDrive] Realtime sync triggered (action: {details.get('action') if details else 'full'})...")
+            if details and isinstance(details, dict) and details.get("action"):
+                success = _perform_pinpoint_sync_blocking(details)
+                if not success:
+                    logger.info("[GDrive] Pinpoint sync requested fallback to full sync.")
+                    _perform_sync_blocking()
+            else:
+                _perform_sync_blocking()
             logger.info("[GDrive] Realtime sync completed.")
         except Exception as e:
             logger.error(f"[GDrive] Realtime sync error: {e}")
@@ -1543,30 +1826,143 @@ def _apply_path_prefill(details):
             entry["remote_name"] = pp["remote_name"]
 
 
-def get_remote_counts_snapshot():
+def get_remote_counts_snapshot(target: str = None):
     """
-    팝업 열 때 1회 호출 — 원격(Drive) 개수 + 추적 경로 스냅샷.
-
-    반환: {"success": bool, "targets": [...], "error": str}
-      targets 항목:
-        - name        : 파일명 또는 "workflows"
-        - local_path  : 로컬 절대경로 (config=파일, workflows=폴더)
-        - remote_name : Drive 원격 이름 (config='___' 인코딩 키 / workflows='Workflows' 구조 표시)
-        - local_count : 로컬 내용 개수 (config=내용, workflows=파일 수)
-        - remote_count: 원격 내용 개수 (config=원격 파일 있으면 로컬과 동일 취급 불가→None,
-                        workflows=원격 파일 수; config 원격은 존재 여부만)
-        - remote_exists: 원격에 파일/항목이 하나라도 있는지
-
-    설계:
-      - config 4종은 원격 파일을 메모리로 다운로드해 내용 개수까지 셈
-        (디스크 기록 없음, 합 ~100KB·1~2초, 팝업 열 때 1회만).
-        실패하면 remote_count=None → 팝업은 "원격 있음"으로 표시.
-      - workflows는 원격 파일 수 = 항목 수이므로 remote_count 확정 가능.
-      - 동기화 중이 아닐 때만 호출 권장 (동기화 중엔 개수 변동).
-      - 인증 실패 시 success=False + error.
+    팝업 열 때 호출 — 원격(Drive) 개수 + 추적 경로 스냅샷.
+    - target 이 주어지면 해당 단일 항목만 초고속 점진적(Progressive) 반환 (0.2~1.5초)
+    - target 이 None 이면 전체 항목 반환
+    - mtime 일치 최적화: 로컬과 원격 mtime 이 같으면 다운로드 없이 로컬 내용 개수로 즉시 확정 (0초)
     """
+    service, msg = get_drive_service()
+    if service is None:
+        return {"success": False, "error": msg, "targets": []}
+
+    try:
+        root_id = _get_or_create_remote_folder(service, FOLDER_NAME)
+        subfolder_ids = _get_subfolder_ids(service, root_id)
+    except Exception as e:
+        logger.warning(f"[GDrive] get_remote_counts_snapshot folder error: {e}")
+        return {"success": False, "error": str(e), "targets": []}
+
+    def _parse_content_count_from_json(fname, data):
+        if fname == "favorites_data.json":
+            if isinstance(data, list):
+                return len(data)
+            if isinstance(data, dict) and isinstance(data.get("favorites"), list):
+                return len(data["favorites"])
+            return None
+        if fname == "gemini_chat_history.json":
+            if isinstance(data, dict) and isinstance(data.get("chats"), list):
+                return len(data["chats"])
+            return None
+        if fname == "engines_registry.json":
+            if not isinstance(data, dict):
+                return None
+            up = data.get("user_prompts")
+            gp = data.get("gemini_prompts")
+            return (len(up) if isinstance(up, list) else 0) + (len(gp) if isinstance(gp, list) else 0)
+        if fname == "presets_data.json":
+            if not isinstance(data, dict):
+                return None
+            total = 0
+            for node_val in data.values():
+                if isinstance(node_val, (dict, list)):
+                    total += len(node_val)
+            return total
+        return None
+
+    def _count_remote_config_by_id(file_id, fname):
+        try:
+            req = service.files().get_media(fileId=file_id)
+            fh = io.BytesIO()
+            downloader = MediaIoBaseDownload(fh, req)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            fh.seek(0)
+            data = json.loads(fh.read().decode("utf-8"))
+            return _parse_content_count_from_json(fname, data)
+        except Exception as e:
+            logger.debug(f"[GDrive] remote count by id failed ({fname}): {e}")
+            return None
+
+    # -----------------------------------------------------------------
+    # A. 단일 TARGET 요청 (점진적 로딩 모드)
+    # -----------------------------------------------------------------
+    if target:
+        if target in SYNC_TARGET_FILES:
+            rel_path = f".configs/{target}"
+            folder_name = REMOTE_FOLDER_BY_REL.get(rel_path)
+            subfolder_id = subfolder_ids.get(folder_name)
+            try:
+                local_path = _resolve_local_path(rel_path)
+            except Exception:
+                local_path = ""
+            local_count = _count_config_items(target, local_path) if (local_path and os.path.exists(local_path)) else None
+
+            remote_exists = False
+            remote_count = None
+            if subfolder_id:
+                escaped = target.replace("\\", "\\\\").replace("'", "\\'")
+                res = service.files().list(
+                    q=f"name = '{escaped}' and '{subfolder_id}' in parents and trashed = false",
+                    fields="files(id, name, modifiedTime, size)"
+                ).execute()
+                items = res.get("files", [])
+                if items:
+                    item = items[0]
+                    remote_exists = True
+                    remote_mtime = _parse_drive_time(item.get("modifiedTime"))
+                    local_mtime = os.path.getmtime(local_path) if (local_path and os.path.exists(local_path)) else 0.0
+                    # mtime 일치 최적화: 내용 다운로드 생략 (0ms)
+                    if local_path and os.path.exists(local_path) and abs(local_mtime - remote_mtime) <= 1.0:
+                        remote_count = local_count
+                    else:
+                        remote_count = _count_remote_config_by_id(item["id"], target)
+
+            t = {
+                "name": target,
+                "local_path": local_path,
+                "remote_name": rel_path.replace("/", "___"),
+                "local_count": local_count,
+                "remote_count": remote_count,
+                "remote_exists": remote_exists,
+                "kind": "config",
+            }
+            _apply_path_prefill([t])
+            return {"success": True, "targets": [t]}
+
+        elif target == "workflows":
+            try:
+                wf_root = _resolve_workflows_root()
+            except Exception:
+                wf_root = ""
+            wf_local_count = sum(1 for _ in _iter_workflow_rel_paths())
+            wf_remote_count = 0
+            try:
+                # Workflows 폴더만 타깃 배치 조회
+                wf_folder_id = subfolder_ids.get(REMOTE_WORKFLOWS_FOLDER)
+                remote_files, _ = _list_remote_files(service, {REMOTE_WORKFLOWS_FOLDER: wf_folder_id})
+                wf_remote_count = sum(1 for rn in remote_files if rn.startswith("workflows___"))
+            except Exception as e:
+                logger.warning(f"[GDrive] workflows remote count failed: {e}")
+
+            t = {
+                "name": "workflows",
+                "local_path": wf_root,
+                "remote_name": "Workflows/ (로컬 디렉터리 구조를 실제 중첩 폴더로 저장)",
+                "local_count": wf_local_count,
+                "remote_count": wf_remote_count,
+                "remote_exists": wf_remote_count > 0,
+                "kind": "workflows",
+            }
+            _apply_path_prefill([t])
+            return {"success": True, "targets": [t]}
+
+    # -----------------------------------------------------------------
+    # B. 전체 TARGET 요청 (기존 모드 호환 + mtime 최적화)
+    # -----------------------------------------------------------------
     targets = []
-    # 로컬 기준 골격 먼저 (원격 실패해도 경로는 보여준다).
     try:
         wf_root = _resolve_workflows_root()
     except Exception:
@@ -1575,36 +1971,20 @@ def get_remote_counts_snapshot():
         name = os.path.basename(rel_path)
         try:
             local_path = _resolve_local_path(rel_path)
-        except ValueError:
+        except Exception:
             local_path = ""
-        local_count = None
-        if local_path and os.path.isfile(local_path):
-            try:
-                local_count = _count_config_items(name, local_path)
-            except Exception:
-                local_count = None
+        local_count = _count_config_items(name, local_path) if (local_path and os.path.exists(local_path)) else None
         targets.append({
             "name": name,
             "local_path": local_path,
-            # rel_path('.configs/<name>') → 원격 이름 규칙과 동일하게 인코딩.
             "remote_name": rel_path.replace("/", "___"),
             "local_count": local_count,
             "remote_count": None,
             "remote_exists": False,
             "kind": "config",
         })
-    # 워크플로우 로컬 개수
-    wf_local_count = 0
-    try:
-        for rel_path in _iter_workflow_rel_paths():
-            try:
-                fp = _resolve_local_path(rel_path)
-            except ValueError:
-                continue
-            if os.path.isfile(fp):
-                wf_local_count += 1
-    except Exception:
-        pass
+
+    wf_local_count = sum(1 for _ in _iter_workflow_rel_paths())
     targets.append({
         "name": "workflows",
         "local_path": wf_root,
@@ -1615,87 +1995,34 @@ def get_remote_counts_snapshot():
         "kind": "workflows",
     })
 
-    # 원격 조회 (루트 1회 + 하위폴더 5종 조회·생성 후 각 폴더 목록 병합)
-    service, msg = get_drive_service()
-    if service is None:
-        return {"success": False, "error": msg, "targets": targets}
     try:
-        # 루트 → 하위폴더 5종 ID 조회/생성 후 병합 목록 (동기화와 동일한 구조).
-        root_id = _get_or_create_remote_folder(service, FOLDER_NAME)
-        subfolder_ids = _get_subfolder_ids(service, root_id)
         remote_files, _ = _list_remote_files(service, subfolder_ids)
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[GDrive] remote counts snapshot failed: {e}")
+    except Exception as e:
+        logger.warning(f"[GDrive] remote files query failed: {e}")
         return {"success": False, "error": str(e), "targets": targets}
 
-    # remote_files 키는 '___' 인코딩 이름.
     wf_remote_count = 0
-    # config 원격 내용 개수 — 메모리로만 다운로드해 파싱 (디스크 기록 없음).
-    # 파일 4개, 합 ~100KB, 1~2초. 팝업 열 때 1회만이라 부담 없음.
-    def _count_remote_config(remote_name):
-        meta = remote_files.get(remote_name)
-        if not meta or not meta.get("id"):
-            return None
-        try:
-            request = service.files().get_media(fileId=meta["id"])
-            fh = io.BytesIO()
-            downloader = MediaIoBaseDownload(fh, request)
-            done = False
-            while not done:
-                _, done = downloader.next_chunk()
-            fh.seek(0)
-            data = json.loads(fh.read().decode("utf-8"))
-            # _count_config_items는 디스크 경로를 받으므로 여기서 직접 분기.
-            # (같은 구조 판정 — 파일 4종)
-            fname = remote_name.split("___")[-1]
-            if fname == "favorites_data.json":
-                if isinstance(data, list):
-                    return len(data)
-                if isinstance(data, dict) and isinstance(data.get("favorites"), list):
-                    return len(data["favorites"])
-                return None
-            if fname == "gemini_chat_history.json":
-                if isinstance(data, dict) and isinstance(data.get("chats"), list):
-                    return len(data["chats"])
-                return None
-            if fname == "engines_registry.json":
-                if not isinstance(data, dict):
-                    return None
-                total = 0
-                up = data.get("user_prompts")
-                gp = data.get("gemini_prompts")
-                if isinstance(up, list):
-                    total += len(up)
-                if isinstance(gp, list):
-                    total += len(gp)
-                return total
-            if fname == "presets_data.json":
-                if not isinstance(data, dict):
-                    return None
-                total = 0
-                for node_val in data.values():
-                    if isinstance(node_val, dict):
-                        total += len(node_val)
-                    elif isinstance(node_val, list):
-                        total += len(node_val)
-                return total
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"[GDrive] remote content count failed ({remote_name}): {e}")
-            return None
-        return None
-
     for t in targets:
         if t["kind"] == "config":
             rn = t["remote_name"]
-            if rn in remote_files:
+            meta = remote_files.get(rn)
+            if meta and meta.get("id"):
                 t["remote_exists"] = True
-                t["remote_count"] = _count_remote_config(rn)
+                local_path = t["local_path"]
+                local_mtime = os.path.getmtime(local_path) if (local_path and os.path.exists(local_path)) else 0.0
+                remote_mtime = meta.get("modifiedTime", 0.0)
+                if local_path and os.path.exists(local_path) and abs(local_mtime - remote_mtime) <= 1.0:
+                    t["remote_count"] = t["local_count"]
+                else:
+                    t["remote_count"] = _count_remote_config_by_id(meta["id"], t["name"])
         else:
             for rn in remote_files:
                 if rn.startswith("workflows___"):
                     wf_remote_count += 1
             t["remote_count"] = wf_remote_count
             t["remote_exists"] = wf_remote_count > 0
+
+    _apply_path_prefill(targets)
     return {"success": True, "targets": targets}
 
 

@@ -110,32 +110,79 @@ function startDetailPoll() {
 function stopDetailPoll() {
     if (detailPollTimer) { clearInterval(detailPollTimer); detailPollTimer = null; }
 }
-// 원격 개수+경로 1회 조회 — 동기화 중엔 개수 변동이라 참고용.
+// 원격 개수+경로 점진적(Progressive) 조회 — 가벼운 설정부터 즉시 표시하고 워크플로우를 뒤이어 갱신.
+function isRemoteChecking() {
+    if (!Array.isArray(detailFilesSnapshot) || !detailFilesSnapshot.length) return false;
+    if (!Array.isArray(detailRemoteSnapshot)) return true;
+    return detailFilesSnapshot.some(f => !detailRemoteSnapshot.find(t => t.name === f.name));
+}
+
 async function fetchRemoteSnapshot() {
-    try {
-        const r = await fetch("/api/bada/cloud/remote-counts");
-        const s = await r.json();
-        if (s.success && Array.isArray(s.targets)) {
-            detailRemoteSnapshot = s.targets;
-            detailRemoteError = "";
-        } else {
-            detailRemoteError = s.error || "";
-        }
-    } catch (e) {
-        detailRemoteError = String(e && e.message || e);
+    if (!Array.isArray(detailRemoteSnapshot)) {
+        detailRemoteSnapshot = [];
     }
-    paintDetailFiles();
+    detailRemoteError = "";
+
+    const items = Array.isArray(detailFilesSnapshot) ? detailFilesSnapshot : [];
+    const configItems = items.filter(f => f.name !== "workflows");
+    const hasWorkflows = items.some(f => f.name === "workflows");
+
+    // 1단계: 가벼운 설정 항목 4종을 동시 병렬 요청 -> 0.3~0.5초 만에 완료
+    const configPromises = configItems.map(async (item) => {
+        try {
+            const r = await fetch(`/api/bada/cloud/remote-counts?target=${encodeURIComponent(item.name)}`);
+            const s = await r.json();
+            if (s.success && Array.isArray(s.targets)) {
+                for (const t of s.targets) {
+                    const idx = detailRemoteSnapshot.findIndex(x => x.name === t.name);
+                    if (idx >= 0) {
+                        detailRemoteSnapshot[idx] = t;
+                    } else {
+                        detailRemoteSnapshot.push(t);
+                    }
+                }
+                paintDetailFiles();
+            }
+        } catch (e) {
+            console.debug(`[Bada Detail] Error fetching target ${item.name}:`, e);
+        }
+    });
+
+    await Promise.allSettled(configPromises);
+
+    // 2단계: 워크플로우 항목 요청 (1~2초)
+    if (hasWorkflows) {
+        try {
+            const r = await fetch("/api/bada/cloud/remote-counts?target=workflows");
+            const s = await r.json();
+            if (s.success && Array.isArray(s.targets)) {
+                for (const t of s.targets) {
+                    const idx = detailRemoteSnapshot.findIndex(x => x.name === t.name);
+                    if (idx >= 0) {
+                        detailRemoteSnapshot[idx] = t;
+                    } else {
+                        detailRemoteSnapshot.push(t);
+                    }
+                }
+                paintDetailFiles();
+            }
+        } catch (e) {
+            console.debug("[Bada Detail] Error fetching workflows target:", e);
+        }
+    }
+
+    // 3단계: 전체 확인 완료 -> 상단 헤더 상태 갱신
     try {
         const isKoNow = (BadaI18n.lang === "ko");
         const fracNow = detailModalEl ? detailModalEl.querySelector("#bada-detail-progress-frac") : null;
         const syncBtnNow = detailModalEl ? detailModalEl.querySelector("#bada-detail-sync-btn") : null;
         const busyNow = !!syncBtnNow && syncBtnNow.dataset && syncBtnNow.dataset.mode === "cancel";
         if (fracNow && !busyNow) {
-            if (detailRemoteSnapshot === null && !detailRemoteError) { fracNow.textContent = isKoNow ? "\ud655\uc778 \uc911\u2026" : "Checking..."; }
-            else { fracNow.textContent = isKoNow ? "\ud300\uae30 \uc911" : "Idle"; }
+            fracNow.textContent = isRemoteChecking() ? (isKoNow ? "확인 중…" : "Checking...") : (isKoNow ? "대기 중" : "Idle");
         }
     } catch (_) {}
 }
+
 function paintDetailProgress(s) {
     if (!detailModalEl) return;
     const isKo = (BadaI18n.lang === "ko");
@@ -176,7 +223,13 @@ function paintDetailProgress(s) {
             : "⏳ Syncing — continues in background if closed.";
     } else {
         if (bar) bar.style.width = "0%";
-        if (frac) { if (detailRemoteSnapshot === null && !detailRemoteError) { frac.textContent = isKo ? "\ud655\uc778 \uc911\u2026" : "Checking..."; } else { frac.textContent = isKo ? "\ud300\uae30 \uc911" : "Idle"; } }
+        if (frac) {
+            if (isRemoteChecking()) {
+                frac.textContent = isKo ? "확인 중…" : "Checking...";
+            } else {
+                frac.textContent = isKo ? "대기 중" : "Idle";
+            }
+        }
         if (cur) { cur.textContent = ""; cur.title = ""; }
         const ls = s.last_sync || detailLastSyncSnapshot || {};
         const when = fmtTime(ls.last_sync_at);

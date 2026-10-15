@@ -1830,12 +1830,12 @@ def register_cloud_routes():
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
         async def cloud_remote_counts_handler(request):
-            """GET /api/bada/cloud/remote-counts — 팝업 열 때 1회: 원격 개수+경로."""
+            """GET /api/bada/cloud/remote-counts — 팝업 열 때: 원격 개수+경로 (전체 또는 target 단일 항목)."""
             try:
                 # 원격 개수 집계는 Drive API 왕복(수 초)이라 워커 스레드에서 실행한다.
-                # 동기 호출 시 이벤트 루프를 점유해, 그 사이 들어온 open-local/open-drive·
-                # 상태 폴링까지 모두 막힌다(원격 확정 순간에 몰아서 처리되는 현상).
-                snap = await asyncio.to_thread(gdrive_sync.get_remote_counts_snapshot)
+                # target 파라미터가 있으면 해당 항목만 초고속 점진적(Progressive) 반환.
+                target = request.rel_url.query.get("target", None)
+                snap = await asyncio.to_thread(gdrive_sync.get_remote_counts_snapshot, target)
                 return web.json_response({"success": snap.get("success", False), **snap})
             except Exception as e:
                 logger.error(f"[ComfyUI-Bada-Utils] Cloud remote-counts error: {e}")
@@ -1886,9 +1886,14 @@ def register_cloud_routes():
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
         async def cloud_realtime_sync_handler(request):
-            """POST /api/bada/cloud/realtime_sync — 실시간 변경 시 비동기 즉시 동기화 트리거."""
+            """POST /api/bada/cloud/realtime_sync — 실시간 변경 시 비동기 즉시 동기화 트리거 (Pinpoint 지원)."""
             try:
-                result = gdrive_sync.trigger_realtime_sync()
+                try:
+                    payload = await request.json()
+                except Exception:
+                    payload = {}
+                details = payload.get("details") if isinstance(payload, dict) else None
+                result = gdrive_sync.trigger_realtime_sync(details=details)
                 return web.json_response(result)
             except Exception as e:
                 logger.error(f"[ComfyUI-Bada-Utils] Cloud realtime sync error: {e}")

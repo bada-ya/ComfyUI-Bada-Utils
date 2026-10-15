@@ -1480,8 +1480,8 @@ class WorkflowsPlusManager {
                 const url = typeof args[0] === "string" ? args[0] : args[0]?.url || "";
                 const method = (args[1]?.method || "GET").toUpperCase();
 
-                // Cloud Sync 자체 API는 제외하여 재귀 호출 방지
-                if (!url.includes("/api/bada/cloud")) {
+                // Cloud Sync 및 Bada 자체 API(이동, 삭제, 이름변경 등)는 직접 전용 핀포인트를 호출하므로 가짜 save 트리거 방지를 위해 제외
+                if (!url.includes("/api/bada/")) {
                     if (url.includes("userdata") || url.includes("workflow") || url.includes("graph") || url.includes("/api/qol")) {
                         if (method === "POST" || method === "PUT" || method === "DELETE") {
                             setTimeout(() => {
@@ -1492,7 +1492,11 @@ class WorkflowsPlusManager {
 
                             // 파일 저장 및 변경 시 실시간 동기화 트리거
                             if (res && res.ok) {
-                                setTimeout(() => self.triggerRealtimeCloudSync("fetch_" + method.toLowerCase()), 500);
+                                setTimeout(() => {
+                                    const active = self.activeWorkflowPath;
+                                    const details = active ? { action: "save", path: active } : null;
+                                    self.triggerRealtimeCloudSync("fetch_" + method.toLowerCase(), details);
+                                }, 500);
                             }
                         }
                     }
@@ -1509,20 +1513,26 @@ class WorkflowsPlusManager {
                     self.detectActiveWorkflowFromUI();
                 }, 400);
                 setTimeout(() => self.loadTree(), 1200);
-                // 실시간 동기화: 단축키 저장 시 트리거
-                setTimeout(() => self.triggerRealtimeCloudSync("ctrl_s"), 600);
+                // 실시간 동기화: 단축키 저장 시 트리거 (Pinpoint 활성화)
+                setTimeout(() => {
+                    const active = self.activeWorkflowPath;
+                    const details = active ? { action: "save", path: active } : null;
+                    self.triggerRealtimeCloudSync("ctrl_s", details);
+                }, 600);
             }
         }, true);
     }
 
     /**
-     * Zero-Delay + Debounce + Tail-Dedup 실시간 동기화 트리거.
+     * Zero-Delay + Debounce + Tail-Dedup + Pinpoint 실시간 동기화 트리거.
      * - 연달아 들어오는 이벤트(Ctrl+S + fetch_post 등)를 300ms 디바운스로 1회로 병합하여 불필요한 2회차 실행 차단
+     * - details(action, path, source, target 등)가 주어지면 서버로 전달하여 1~2초 Pinpoint 초고속 동기화 수행
      * - syncInProgress=false이면 즉시 POST /api/bada/cloud/realtime_sync
      * - syncInProgress=true이면 pendingSync=true 세팅 (동기화 완료 후 1회만 추가 실행)
      * @param {string} reason - 로그용 트리거 이유 ("save"|"move"|"delete")
+     * @param {object|null} details - Pinpoint 동기화용 세부 객체
      */
-    triggerRealtimeCloudSync(reason = "change") {
+    triggerRealtimeCloudSync(reason = "change", details = null) {
         try {
             if (window.__BADA_REALTIME_SYNC_DISABLED__) return;
         } catch (_) { }
@@ -1530,22 +1540,26 @@ class WorkflowsPlusManager {
         // 1. 즉시 시각적 피드백: 구름 아이콘 즉각 회전
         this.applyGDriveSyncingState(true);
 
-        // 2. 디바운스: 300ms 이내에 연달아 들어오는 트리거(Ctrl+S 후 fetch_post 등)는 1회로 통합
+        // 2. 디바운스: 300ms 이내에 연달아 들어오는 트리거는 1회로 통합하며 가장 구체적인 details 보존
+        if (details) window.__BADA_LATEST_SYNC_DETAILS__ = details;
         clearTimeout(window.__BADA_DEBOUNCE_TIMER__);
         window.__BADA_DEBOUNCE_TIMER__ = setTimeout(() => {
-            this._executeRealtimeCloudSync(reason);
+            const finalDetails = window.__BADA_LATEST_SYNC_DETAILS__ || details;
+            window.__BADA_LATEST_SYNC_DETAILS__ = null;
+            this._executeRealtimeCloudSync(reason, finalDetails);
         }, 300);
     }
 
-    async _executeRealtimeCloudSync(reason) {
+    async _executeRealtimeCloudSync(reason, details = null) {
         if (window.__BADA_SYNC_IN_PROGRESS__) {
             window.__BADA_SYNC_PENDING__ = true;
+            if (details) window.__BADA_PENDING_SYNC_DETAILS__ = details;
             console.debug(`[Bada] Realtime sync pending (${reason}): sync already in progress`);
             return;
         }
 
         window.__BADA_SYNC_IN_PROGRESS__ = true;
-        console.log(`[Bada] ☁️ Realtime sync triggered (${reason})`);
+        console.log(`[Bada] ☁️ Realtime sync triggered (${reason}, pinpoint: ${!!details?.action})`);
 
         // 안전 타임아웃 가드 (30초 후 스턱 방지 자동 해제)
         clearTimeout(window.__BADA_SYNC_SAFETY_TIMER__);
@@ -1558,7 +1572,11 @@ class WorkflowsPlusManager {
         }, 30000);
 
         try {
-            const res = await fetch("/api/bada/cloud/realtime_sync", { method: "POST" });
+            const res = await fetch("/api/bada/cloud/realtime_sync", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reason, details }),
+            });
             if (!res.ok) {
                 // 404/500 등의 경우: 서버가 아직 재시작되지 않았거나 오류
                 console.warn(`[Bada] Realtime sync endpoint returned HTTP ${res.status}. ComfyUI restart may be required.`);
@@ -1584,7 +1602,9 @@ class WorkflowsPlusManager {
                 setTimeout(() => {
                     if (window.__BADA_SYNC_PENDING__) {
                         window.__BADA_SYNC_PENDING__ = false;
-                        this.triggerRealtimeCloudSync("retry_after_busy");
+                        const pDetails = window.__BADA_PENDING_SYNC_DETAILS__ || null;
+                        window.__BADA_PENDING_SYNC_DETAILS__ = null;
+                        this.triggerRealtimeCloudSync("retry_after_busy", pDetails);
                     }
                 }, 3000);
                 return;
@@ -1604,8 +1624,10 @@ class WorkflowsPlusManager {
                             clearTimeout(window.__BADA_SYNC_SAFETY_TIMER__);
                             if (window.__BADA_SYNC_PENDING__) {
                                 window.__BADA_SYNC_PENDING__ = false;
+                                const pDetails = window.__BADA_PENDING_SYNC_DETAILS__ || null;
+                                window.__BADA_PENDING_SYNC_DETAILS__ = null;
                                 console.log("[Bada] Tail-dedup: firing pending realtime sync");
-                                setTimeout(() => this._executeRealtimeCloudSync("tail_dedup"), 200);
+                                setTimeout(() => this._executeRealtimeCloudSync("tail_dedup", pDetails), 200);
                             }
                         }
                     });
@@ -2526,7 +2548,11 @@ class WorkflowsPlusManager {
 
                 this.highlightedItem = cleanSource.split("/").pop();
                 await this.loadTree();
-                this.triggerRealtimeCloudSync("move");
+                this.triggerRealtimeCloudSync("move", {
+                    action: "move",
+                    source: cleanSource,
+                    target: newPath
+                });
                 return true;
             } else {
                 this.showToast(data.error || (BadaI18n.lang === "ko" ? "이동 실패" : "Failed to move"), true);
@@ -4200,7 +4226,10 @@ class WorkflowsPlusManager {
             : `📦 Moved ${moved.length} item(s) to ${targetLabel}${failedNote}`);
 
         await this.loadTree();
-        if (moved.length) this.triggerRealtimeCloudSync("multi_move");
+        if (moved.length) {
+            const items = moved.filter(e => e.kind !== "folder").map(e => ({ source: e.path, target: e.newPath }));
+            this.triggerRealtimeCloudSync("multi_move", items.length ? { action: "multi_move", items } : null);
+        }
         this.applySelectionHighlight();
         return { moved, failed };
     }
@@ -4442,7 +4471,10 @@ class WorkflowsPlusManager {
                         await this.saveFavorites();
                     }
                     await this.loadTree();
-                    this.triggerRealtimeCloudSync("delete");
+                    this.triggerRealtimeCloudSync("delete", {
+                        action: "delete",
+                        path: targetPath
+                    });
                 } else {
                     this.showToast(data.error || (isKo ? "삭제 실패" : "Failed to delete"), true);
                 }
