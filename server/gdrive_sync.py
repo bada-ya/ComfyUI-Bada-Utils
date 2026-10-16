@@ -40,7 +40,6 @@ import io
 import json
 import time
 import asyncio
-import hashlib
 import logging
 import threading
 import subprocess
