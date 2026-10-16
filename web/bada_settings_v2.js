@@ -464,7 +464,8 @@ function buildCloudSyncRow() {
 
     const masterSwitchInput = document.createElement("input");
     masterSwitchInput.type = "checkbox";
-    masterSwitchInput.checked = true;
+    // 최초 사용자 기본값: 서버와 동일하게 OFF (fetch 완료 전 깜빡임 방지)
+    masterSwitchInput.checked = false;
 
     const masterSliderSpan = document.createElement("span");
     masterSliderSpan.className = "bada-cloud-slider";
@@ -499,7 +500,8 @@ function buildCloudSyncRow() {
         const cb = document.createElement("input");
         cb.type = "checkbox";
         cb.id = id;
-        cb.checked = true;
+        // 최초 사용자 기본값: 서버와 동일하게 OFF
+        cb.checked = false;
         cb.style.cssText = "cursor:pointer; accent-color:#0ea5e9; width:14px; height:14px; margin:0;";
         const span = document.createElement("span");
         span.textContent = labelText;
@@ -584,6 +586,8 @@ function buildCloudSyncRow() {
             }
         } catch (_) { /* ignore */ }
     };
+    // 초기 렌더링: 기본값(OFF) 기준으로 서브옵션 상태 즉시 반영 (fetch 전 깜빡임 방지)
+    updateSubOptionsState(masterSwitchInput.checked);
     fetchSettings();
 
     masterSwitchInput.addEventListener("change", () => {

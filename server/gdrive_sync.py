@@ -1269,12 +1269,14 @@ def get_gdrive_settings() -> dict:
     """
     Cloud Sync 전용 설정(.gdrive_settings.json)을 로드한다.
     - 보안상 config.json(Gemini API 키 등)과 완전히 분리.
-    - 기본값: cloud_sync_enabled=True, startup_autosync=True, realtime_autosync=True.
+    - 기본값(최초 사용자): 전부 OFF — cloud_sync_enabled=False, startup_autosync=False,
+      realtime_autosync=False. 사용자가 한 번이라도 토글하면 .gdrive_settings.json 에
+      저장된 값이 우선하여 이후 업데이트와 무관하게 유지된다.
     """
     defaults = {
-        "cloud_sync_enabled": True,
-        "startup_autosync": True,
-        "realtime_autosync": True,
+        "cloud_sync_enabled": False,
+        "startup_autosync": False,
+        "realtime_autosync": False,
     }
     if not os.path.exists(GDRIVE_SETTINGS_PATH):
         return defaults
@@ -1306,7 +1308,7 @@ def set_gdrive_settings(new_settings: dict) -> dict:
 def is_startup_autosync_enabled() -> bool:
     """시작 시 자동 동기화 활성화 여부 확인 (마스터 ON 및 startup_autosync ON)."""
     settings = get_gdrive_settings()
-    return bool(settings.get("cloud_sync_enabled", True)) and bool(settings.get("startup_autosync", True))
+    return bool(settings.get("cloud_sync_enabled", False)) and bool(settings.get("startup_autosync", False))
 
 
 def normalize_sync_rel_path(p: str) -> str:
@@ -1577,9 +1579,9 @@ def trigger_realtime_sync(details: dict = None) -> dict:
     - details가 없거나 실패 시 전체 Snapshot Full Sync로 안전 폴백
     """
     settings = get_gdrive_settings()
-    if not bool(settings.get("cloud_sync_enabled", True)):
+    if not bool(settings.get("cloud_sync_enabled", False)):
         return {"status": "disabled", "reason": "master_off"}
-    if not bool(settings.get("realtime_autosync", True)):
+    if not bool(settings.get("realtime_autosync", False)):
         return {"status": "disabled", "reason": "realtime_off"}
 
     if not GDRIVE_LIBS_AVAILABLE or not os.path.exists(TOKEN_PATH):
