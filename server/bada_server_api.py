@@ -1974,13 +1974,14 @@ def register_cloud_routes():
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
         async def cloud_custom_folder_add_handler(request):
-            """POST /api/bada/cloud/custom-folder-add — 커스텀 폴더 등록 (JSON {path})."""
+            """POST /api/bada/cloud/custom-folder-add — 커스텀 동기화 대상 등록 (JSON {path, name?})."""
             try:
                 data = await request.json()
             except Exception:
                 data = {}
             path = data.get("path", "") if isinstance(data, dict) else ""
-            result = await asyncio.to_thread(gdrive_sync.add_custom_folder, path)
+            drive_name = data.get("name", "") if isinstance(data, dict) else ""
+            result = await asyncio.to_thread(gdrive_sync.add_custom_folder, path, drive_name or None)
             return web.json_response(result)
 
         async def cloud_custom_folder_remove_handler(request):

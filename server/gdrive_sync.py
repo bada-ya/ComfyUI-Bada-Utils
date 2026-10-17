@@ -1973,29 +1973,36 @@ def get_remote_counts_snapshot(target: str = None):
             return {"success": True, "targets": [t]}
 
         elif target.startswith("custom:"):
-            # 커스텀 폴더 — Drive 에는 <루트>/Custom/<폴더명>/ 으로 미러 (조회 전용).
+            # 커스텀 동기화 대상 — Drive 에는 <루트>/Custom/<이름> 으로 미러 (조회 전용).
             folder_name = target.split(":", 1)[1].strip()
             reg = _get_registered_custom_folder(folder_name)
-            if not reg or not os.path.isdir(reg["path"]):
+            if not reg:
                 return {"success": False, "error": f"Unknown custom target: {target}", "targets": []}
 
-            local_count = _count_local_files(reg["path"])
+            is_file = bool(reg.get("is_file", False))
+            local_count = (1 if reg["exists"] else 0) if is_file else _count_local_files(reg["path"])
             remote_exists = False
             remote_count = None
             try:
                 custom_root_id = _find_remote_folder_by_name(service, CUSTOM_REMOTE_ROOT, parent_id=root_id)
                 if custom_root_id:
-                    folder_id = _find_remote_folder_by_name(service, reg["name"], parent_id=custom_root_id)
-                    if folder_id:
-                        remote_exists = True
-                        remote_count = _count_remote_folder_tree(service, folder_id)
+                    if is_file:
+                        file_id = _find_remote_file_by_name(service, reg["name"], parent_id=custom_root_id)
+                        if file_id:
+                            remote_exists = True
+                            remote_count = 1
+                    else:
+                        folder_id = _find_remote_folder_by_name(service, reg["name"], parent_id=custom_root_id)
+                        if folder_id:
+                            remote_exists = True
+                            remote_count = _count_remote_folder_tree(service, folder_id)
             except Exception as e:  # noqa: BLE001 — 원격 확인 실패는 로컬 개수만 반환.
                 logger.warning(f"[GDrive] custom remote count failed ({folder_name}): {e}")
 
             t = {
                 "name": target,
                 "local_path": reg["path"],
-                "remote_name": f"{CUSTOM_REMOTE_ROOT}/{reg['name']}/",
+                "remote_name": f"{CUSTOM_REMOTE_ROOT}/{reg['name']}" + ("" if is_file else "/"),
                 "local_count": local_count,
                 "remote_count": remote_count if remote_exists else None,
                 "remote_exists": remote_exists,
@@ -2198,9 +2205,9 @@ def _bring_explorer_to_front(target_path):
 # -----------------------------------------------------------------------------
 # - PRO: credentials_pro.json 이 존재하고 그 client_id 가 번들 BASIC 과 다르면 활성.
 #   동기화 엔진 자체는 이 단계에서 변경 없음 — PRO 는 자격증명 슬롯이다.
-# - 커스텀 폴더: 사용자가 지정한 로컬 디렉터리(ComfyUI 루트 내부만)를 설정 필드
-#   custom_sync {enabled, folders:[{name,path}]} 에 등록하고, Drive 에는
-#   <루트>/Custom/<폴더명>/ 으로 미러한다. 이 단계는 관리+열기+개수 표시까지 —
+# - 커스텀 대상: 사용자가 지정한 로컬 폴더 또는 파일(ComfyUI 루트 외부 포함)을 설정 필드
+#   custom_sync {enabled, folders:[{name,path,is_file}]} 에 등록하고, Drive 에는
+#   <루트>/Custom/<이름> 으로 미러한다. 이 단계는 관리+열기+개수 표시까지 —
 #   3-way 동기화 엔진 연동은 차세대 작업.
 # =============================================================================
 
@@ -2275,48 +2282,25 @@ def activate_pro_from_bytes(raw) -> dict:
 
 
 # -----------------------------------------------------------------------------
-# 커스텀 폴더 관리 — 설정 필드 custom_sync {enabled, folders:[{name,path}]}
-# 보안: 클라이언트는 경로/이름만 보내고, 포함 검증은 서버가 realpath + commonpath 로 수행.
-# (open_local_target 의 화이트리스트 설계와 동일한 패턴)
+# 커스텀 동기화 대상 관리 — 설정 필드 custom_sync {enabled, folders:[{name,path,is_file}]}
+# 폴더 또는 파일 모두 허용 (ComfyUI 루트 외부 포함). 클라이언트는 경로/이름만 보내고,
+# 서버가 realpath 로 정규화한다. (open_local_target 의 화이트리스트 설계와 동일한 패턴)
 # -----------------------------------------------------------------------------
 
-def _resolve_comfyui_root() -> str:
-    """ComfyUI 루트 디렉터리 (user/ 한 단계 위). folder_paths 미사용 시 3단계 상위 폴백."""
-    try:
-        import folder_paths
-        return os.path.realpath(os.path.dirname(folder_paths.get_user_directory()))
-    except Exception:
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        return os.path.realpath(base_dir)
 
-
-def _is_within_comfyui_root(target_path: str) -> bool:
-    """target 이 ComfyUI 루트 내부인지 확인 (realpath + commonpath — .. 트래버설 차단)."""
-    root = _resolve_comfyui_root()
-    t = os.path.realpath(os.path.abspath(target_path))
-    if os.name == "nt":  # Windows 는 대소문자 무시 비교
-        r, t2 = root.lower(), t.lower()
-    else:
-        r, t2 = root, t
-    try:
-        return os.path.commonpath([r, t2]) == r and t2 != r
-    except ValueError:
-        return False  # 다른 드라이브 / 유효하지 않은 조합
-
-
-def _validate_custom_folder_name(name: str):
-    """폴더명 검증 — 문제 있으면 에러 메시지, 없으면 None."""
+def _validate_custom_target_name(name: str):
+    """동기화 대상 이름 검증 — 문제 있으면 에러 메시지, 없으면 None."""
     if not name or len(name) > 64:
-        return "폴더명은 1~64자여야 합니다"
+        return "이름은 1~64자여야 합니다"
     if any(ch in name for ch in '\\/:*?"<>|') or name in (".", ".."):
-        return "잘못된 폴더명입니다"
+        return "잘못된 이름입니다(특수문자 포함)"
     if name.lower() in _CUSTOM_FOLDER_RESERVED_NAMES:
         return f"'{name}' 은(는) 예약 이름입니다"
     return None
 
 
 def get_custom_folders() -> list:
-    """등록된 커스텀 폴더 목록 — [{name, path, exists}]."""
+    """등록된 커스텀 동기화 대상 목록 — [{name, path, exists, is_file}]."""
     settings = get_gdrive_settings()
     cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
     raw = cs.get("folders")
@@ -2328,7 +2312,9 @@ def get_custom_folders() -> list:
         path = str(item.get("path", "")).strip()
         if not name or not path:
             continue
-        out.append({"name": name, "path": path, "exists": os.path.isdir(path)})
+        is_file = bool(item.get("is_file", False))
+        exists = os.path.isfile(path) if is_file else os.path.isdir(path)
+        out.append({"name": name, "path": path, "exists": exists, "is_file": is_file})
     return out
 
 
@@ -2340,21 +2326,24 @@ def _get_registered_custom_folder(name) -> dict:
     return None
 
 
-def add_custom_folder(local_path) -> dict:
-    """커스텀 폴더 등록 — ComfyUI 루트 포함 + 디렉터리 존재 + 이름 검증.
+def add_custom_folder(local_path, drive_name=None) -> dict:
+    """커스텀 동기화 대상(폴더 또는 파일) 등록 — ComfyUI 루트 외부 포함.
 
-    반환: {"success": bool, "error"?: str, "name"?, "path"?}
+    - local_path: 로컬 폴더/파일 경로 (따옴표·공백 자동 제거).
+    - drive_name: 선택 — Drive 에 올릴 이름. 비워두면 로컬 basename(파일은 확장자 포함) 사용.
+
+    반환: {"success": bool, "error"?: str, "name"?, "path"?, "is_file"?}
     """
-    p = str(local_path or "").strip().strip('"')
+    p = str(local_path or "").strip().strip('"').strip()
     if not p:
         return {"success": False, "error": "경로가 비어 있습니다"}
-    if not _is_within_comfyui_root(p):
-        return {"success": False, "error": "ComfyUI 루트 내부 경로만 가능합니다"}
     target = os.path.realpath(os.path.abspath(p))
-    if not os.path.isdir(target):
-        return {"success": False, "error": "폴더가 아니거나 존재하지 않습니다"}
-    name = os.path.basename(target.rstrip("\\/"))
-    err = _validate_custom_folder_name(name)
+    is_file = os.path.isfile(target)
+    if not (is_file or os.path.isdir(target)):
+        return {"success": False, "error": "존재하지 않는 경로입니다 (파일 또는 폴더)"}
+    dn = str(drive_name or "").strip().strip('"').strip()
+    name = dn if dn else os.path.basename(target.rstrip("\\/"))
+    err = _validate_custom_target_name(name)
     if err:
         return {"success": False, "error": err}
     for f in get_custom_folders():
@@ -2362,22 +2351,24 @@ def add_custom_folder(local_path) -> dict:
             same_path = os.path.realpath(f["path"]) == target
         except Exception:
             same_path = False
-        if f["name"] == name or same_path:
-            return {"success": False, "error": "이미 등록된 폴더입니다"}
+        if same_path:
+            return {"success": False, "error": "이미 등록된 대상입니다"}
+        if f["name"] == name:
+            return {"success": False, "error": f"'{name}' 이름은 이미 사용 중입니다 — Drive 이름 칸에서 다른 이름을 지정하세요"}
     settings = get_gdrive_settings()
     cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
     folders = [f for f in (cs.get("folders") or []) if isinstance(f, dict)]
     if len(folders) >= _MAX_CUSTOM_FOLDERS:
-        return {"success": False, "error": f"커스텀 폴더는 최대 {_MAX_CUSTOM_FOLDERS}개까지 가능합니다"}
-    folders.append({"name": name, "path": target})
+        return {"success": False, "error": f"동기화 대상은 최대 {_MAX_CUSTOM_FOLDERS}개까지 가능합니다"}
+    folders.append({"name": name, "path": target, "is_file": is_file})
     cs["folders"] = folders
     set_gdrive_settings({"custom_sync": cs})
-    logger.info(f"[GDrive] 커스텀 폴더 등록: {name} → {target}")
-    return {"success": True, "name": name, "path": target}
+    logger.info(f"[GDrive] 커스텀 대상 등록: {name} → {target} ({'파일' if is_file else '폴더'})")
+    return {"success": True, "name": name, "path": target, "is_file": is_file}
 
 
 def remove_custom_folder(name) -> dict:
-    """커스텀 폴더 제거 (로컬 파일은 삭제하지 않음)."""
+    """커스텀 동기화 대상 제거 (로컬 파일/폴더는 삭제하지 않음)."""
     n = str(name or "").strip()
     settings = get_gdrive_settings()
     cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
@@ -2389,10 +2380,10 @@ def remove_custom_folder(name) -> dict:
         else:
             kept.append(f)
     if not removed:
-        return {"success": False, "error": "등록된 폴더가 아닙니다"}
+        return {"success": False, "error": "등록된 대상이 아닙니다"}
     cs["folders"] = kept
     set_gdrive_settings({"custom_sync": cs})
-    logger.info(f"[GDrive] 커스텀 폴더 해제: {n}")
+    logger.info(f"[GDrive] 커스텀 대상 해제: {n}")
     return {"success": True}
 
 
@@ -2469,10 +2460,10 @@ def open_local_target(target_name):
         elif name in SYNC_TARGET_FILES:
             full_path = _resolve_local_path(f".configs/{name}")
         elif name.startswith("custom:"):
-            # 커스텀 폴더 — 등록 정보(설정)로만 해석, 임의 경로 불가.
+            # 커스텀 동기화 대상 — 등록 정보(설정)로만 해석, 임의 경로 불가.
             folder_name = name.split(":", 1)[1].strip()
             reg = _get_registered_custom_folder(folder_name)
-            if not reg or not os.path.isdir(reg["path"]):
+            if not reg or not reg.get("exists", False):
                 return {"success": False, "error": f"Unknown custom target: {name}"}
             full_path = reg["path"]
         else:
@@ -2481,7 +2472,13 @@ def open_local_target(target_name):
         return {"success": False, "error": str(e)}
 
     if not os.path.exists(full_path):
-        kind = "folder" if (name == "workflows" or name.startswith("custom:")) else "file"
+        if name.startswith("custom:"):
+            _reg = _get_registered_custom_folder(name.split(":", 1)[1].strip())
+            kind = "file" if (_reg and _reg.get("is_file")) else "folder"
+        elif name == "workflows":
+            kind = "folder"
+        else:
+            kind = "file"
         return {
             "success": False,
             "path": full_path,
@@ -2522,6 +2519,21 @@ def _find_remote_folder_by_name(service, folder_name, parent_id=None):
     return items[0]['id'] if items else None
 
 
+def _find_remote_file_by_name(service, file_name, parent_id=None):
+    """
+    Drive 파일을 **조회만** 한다 (없어도 생성하지 않는다 — "열기" 액션이 Drive 를 오염시키면 안 된다).
+    parent_id 가 주어지면 그 안에서만 찾는다(동명 항목 혼동 방지), 없으면 My Drive 최상위.
+    반환: 파일 ID 또는 None. (폴더는 제외)
+    """
+    escaped = file_name.replace("\\", "\\\\").replace("'", "\\'")
+    query = f"name = '{escaped}' and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
+    if parent_id:
+        query += f" and '{parent_id}' in parents"
+    results = service.files().list(q=query, fields="files(id, name)").execute()
+    items = results.get('files', [])
+    return items[0]['id'] if items else None
+
+
 def open_drive_target(target_name):
     """
     Web UI "Drive 열기" 액션 — 대상 이름에 해당하는 Drive 파일/폴더의 URL 을 만들어 반환한다.
@@ -2555,7 +2567,7 @@ def open_drive_target(target_name):
             return {"success": False, "error": "Drive 에 동기화 폴더가 없습니다 (먼저 동기화하세요)"}
 
         if is_custom:
-            # 커스텀 폴더 — <루트>/Custom/<폴더명> 조회 전용 (없으면 실패, 생성하지 않음).
+            # 커스텀 동기화 대상 — <루트>/Custom/<이름> 조회 전용 (없으면 실패, 생성하지 않음).
             folder_name = name.split(":", 1)[1].strip()
             reg = _get_registered_custom_folder(folder_name)
             if not reg:
@@ -2563,6 +2575,11 @@ def open_drive_target(target_name):
             custom_root_id = _find_remote_folder_by_name(service, CUSTOM_REMOTE_ROOT, parent_id=root_id)
             if not custom_root_id:
                 return {"success": False, "error": "'Custom' 폴더가 Drive 에 아직 없습니다 (동기화 후 이용하세요)"}
+            if reg.get("is_file"):
+                # 파일 대상 — 파일 URL 대신 Custom/ 부모 폴더까지만 열기 (config 파일과 동일한 정책).
+                url = f"https://drive.google.com/drive/folders/{custom_root_id}"
+                logger.info(f"[GDrive] drive target resolved: {name} → {url} (file → parent folder)")
+                return {"success": True, "kind": "folder", "url": url}
             folder_id = _find_remote_folder_by_name(service, reg["name"], parent_id=custom_root_id)
             if not folder_id:
                 return {"success": False, "error": f"'{reg['name']}' 폴더가 Drive 에 아직 없습니다 (동기화 후 이용하세요)"}
