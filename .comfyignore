@@ -8,6 +8,8 @@
 # IDE / 에이전트 산물
 .vscode/
 .clinerules
+CLAUDE.md
+agentic-workflow/
 
 # 비밀금고 및 인계장
 _vault/
