@@ -12,21 +12,15 @@ Features:
 - Resilient error handling & fallback
 """
 import html
-import json
 import logging
 import re
 import time
-import urllib.parse
-import urllib.request
 from concurrent.futures import TimeoutError as FutureTimeoutError
 
 from ..translation_runtime import (
-    BROWSER_HEADERS,
-    TRANSLATION_ATTEMPT_TIMEOUT_SECONDS,
     TRANSLATION_MAX_CHARS,
     TRANSLATION_TIMEOUT_SECONDS,
-    parse_translate_response,
-    post_translation,
+    fetch_translation_with_failover,
     submit_translation,
 )
 
@@ -59,93 +53,14 @@ class BadaGoogleTranslator:
 
     def _fetch_translation(self, query_text, from_lang, to_lang, deadline=None):
         """
-        Execute request with multi-endpoint fallback to bypass 429 Too Many Requests
+        Execute request with multi-endpoint fallback to bypass 429 Too Many Requests.
+        Delegates to the shared 4-strategy POST→GET failover (translation_runtime) —
+        previously this method carried its own copy of that loop.
         """
-        deadline = deadline or (time.monotonic() + TRANSLATION_TIMEOUT_SECONDS)
-        strategies = [
-            # 1. Google Chrome Extension official client (highest quota, practically immune to 429)
-            (
-                "https://translate.googleapis.com/translate_a/single",
-                {"client": "dict-chrome-ex", "sl": from_lang, "tl": to_lang, "dt": "t", "q": query_text},
-            ),
-            # 2. Clients5 translate endpoint
-            (
-                "https://clients5.google.com/translate_a/t",
-                {"client": "dict-chrome-ex", "sl": from_lang, "tl": to_lang, "q": query_text},
-            ),
-            # 3. Standard GTX client on translate.googleapis.com
-            (
-                "https://translate.googleapis.com/translate_a/single",
-                {"client": "gtx", "sl": from_lang, "tl": to_lang, "dt": "t", "q": query_text},
-            ),
-            # 4. Standard GTX client on translate.google.com
-            (
-                "https://translate.google.com/translate_a/single",
-                {"client": "gtx", "sl": from_lang, "tl": to_lang, "dt": "t", "q": query_text},
-            ),
-        ]
-
-        last_error = None
-        # Create direct opener (ignoring corrupted local proxies)
-        direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-
-        # TRANSPORT FIRST (2026-10-04). These requests used to be sent as GET with the text
-        # percent-encoded into the query string; Google rejects that URL with HTTP 400 once it
-        # passes ~16.5k characters (~2,300 Korean characters). Long prompts therefore failed not
-        # because of the translation, but because the request was too long to be sent. POST
-        # carries the same parameters in a body with no such ceiling (verified to 40,000 chars).
-        # GET stays as a fallback so no endpoint that worked before can regress.
-        for base_url, params in strategies:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError("Translation exceeded the 20-second overall timeout")
-            try:
-                raw_bytes = post_translation(
-                    base_url,
-                    params,
-                    BROWSER_HEADERS,
-                    min(TRANSLATION_ATTEMPT_TIMEOUT_SECONDS, remaining),
-                )
-                parsed = parse_translate_response(json.loads(raw_bytes.decode("utf-8")))
-                if parsed:
-                    return parsed
-            except Exception as err:
-                last_error = err
-                logger.warning(
-                    "[ComfyUI-Bada-Utils] POST %s (%s) failed, falling back to GET: %s",
-                    base_url, params.get("client"), err,
-                )
-                continue
-
-        for base_url, params in strategies:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError("Translation exceeded the 20-second overall timeout")
-            try:
-                url = f"{base_url}?{urllib.parse.urlencode(params)}"
-                req = urllib.request.Request(url, headers=BROWSER_HEADERS)
-
-                with direct_opener.open(
-                    req,
-                    timeout=min(TRANSLATION_ATTEMPT_TIMEOUT_SECONDS, remaining),
-                ) as response:
-                    parsed = parse_translate_response(json.loads(response.read().decode("utf-8")))
-                    if parsed:
-                        return parsed
-
-            except Exception as err:
-                last_error = err
-                logger.warning(
-                    "[ComfyUI-Bada-Utils] Translation endpoint %s (%s) fallback: %s",
-                    base_url, params.get("client"), err,
-                )
-                continue
-
-        if time.monotonic() >= deadline:
-            raise TimeoutError("Translation exceeded the 20-second overall timeout")
-        if last_error:
-            raise last_error
-        return query_text
+        return fetch_translation_with_failover(
+            query_text, from_lang, to_lang,
+            deadline=deadline, context="translator-node",
+        )
 
     def translate(self, text, from_lang="ko", to_lang="en", preserve_quotes=True):
         if not text or not text.strip():

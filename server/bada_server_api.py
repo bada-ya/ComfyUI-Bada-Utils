@@ -16,16 +16,13 @@ import html
 import time
 import threading
 import urllib.parse
-import urllib.request
 from aiohttp import web
 from server import PromptServer
 import folder_paths
 from ..translation_runtime import (
-    TRANSLATION_ATTEMPT_TIMEOUT_SECONDS,
     TRANSLATION_MAX_CHARS,
     TRANSLATION_TIMEOUT_SECONDS,
-    post_translation,
-    parse_translate_response,
+    fetch_translation_with_failover,
     submit_translation,
 )
 
@@ -1066,96 +1063,16 @@ def register_bada_api_routes():
                 for pat in patterns:
                     protected_text = re.sub(pat, protect_match, protected_text, flags=re.MULTILINE)
 
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-                    "Referer": "https://translate.google.com/",
-                }
-
-                strategies = [
-                    (
-                        "https://translate.googleapis.com/translate_a/single",
-                        {"client": "dict-chrome-ex", "sl": source_lang, "tl": target_lang, "dt": "t", "q": protected_text},
-                    ),
-                    (
-                        "https://clients5.google.com/translate_a/t",
-                        {"client": "dict-chrome-ex", "sl": source_lang, "tl": target_lang, "q": protected_text},
-                    ),
-                    (
-                        "https://translate.googleapis.com/translate_a/single",
-                        {"client": "gtx", "sl": source_lang, "tl": target_lang, "dt": "t", "q": protected_text},
-                    ),
-                    (
-                        "https://translate.google.com/translate_a/single",
-                        {"client": "gtx", "sl": source_lang, "tl": target_lang, "dt": "t", "q": protected_text},
-                    ),
-                ]
-
+                # Shared 4-strategy POST→GET failover (translation_runtime.fetch_translation_with_failover).
+                # The Note Helper used to carry its own copy of that loop plus an inline
+                # BROWSER_HEADERS dict — both are now single-sourced in translation_runtime.
                 deadline = time.monotonic() + TRANSLATION_TIMEOUT_SECONDS
 
-                def fetch_translation_with_failover():
-                    direct_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-                    last_err = None
-
-                    # TRANSPORT FIRST (2026-10-04). Every strategy below used to be sent as a GET
-                    # with the text percent-encoded into the query string. Measured: that URL is
-                    # rejected with HTTP 400 once it exceeds ~16.5k characters, which is only
-                    # ~2,300 Korean characters — so "long text doesn't translate" was never a
-                    # translation failure, it was the request being too long to be sent. Try the
-                    # same endpoints as POST first, where the body has no such ceiling (verified
-                    # to 40,000 characters), and keep the GET attempts below as a fallback so no
-                    # endpoint/mirror that used to work can regress.
-                    for base_url, params in strategies:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            raise TimeoutError("Translation exceeded the 20-second overall timeout")
-                        try:
-                            raw_bytes = post_translation(
-                                base_url,
-                                params,
-                                headers,
-                                min(TRANSLATION_ATTEMPT_TIMEOUT_SECONDS, remaining),
-                            )
-                            res_json = json.loads(raw_bytes.decode('utf-8'))
-                            parsed = parse_translate_response(res_json)
-                            if parsed:
-                                return parsed
-                        except Exception as err:
-                            last_err = err
-                            logger.warning(
-                                f"[Bada-Utils] Note Helper POST {base_url} ({params.get('client')}) "
-                                f"failed, falling back to GET: {err}"
-                            )
-                            continue
-
-                    for base_url, params in strategies:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            raise TimeoutError("Translation exceeded the 20-second overall timeout")
-                        try:
-                            url = f"{base_url}?{urllib.parse.urlencode(params)}"
-                            req = urllib.request.Request(url, headers=headers)
-                            with direct_opener.open(
-                                req,
-                                timeout=min(TRANSLATION_ATTEMPT_TIMEOUT_SECONDS, remaining),
-                            ) as response:
-                                raw_bytes = response.read()
-                                res_json = json.loads(raw_bytes.decode('utf-8'))
-                                parsed = parse_translate_response(res_json)
-                                if parsed:
-                                    return parsed
-                        except Exception as err:
-                            last_err = err
-                            logger.warning(f"[Bada-Utils] Note Helper translate endpoint {base_url} ({params.get('client')}) failover: {err}")
-                            continue
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError("Translation exceeded the 20-second overall timeout")
-                    if last_err:
-                        raise last_err
-                    return protected_text
-
-                future = submit_translation(fetch_translation_with_failover)
+                future = submit_translation(
+                    fetch_translation_with_failover,
+                    protected_text, source_lang, target_lang,
+                    deadline=deadline, context="note-helper",
+                )
                 if future is None:
                     return web.json_response({
                         "success": False,

@@ -211,7 +211,9 @@ import ssl
 def google_translate_robust(text: str) -> str:
     """
     다중 API 엔드포인트를 통한 고신뢰도 실시간 번역 (Google Clients5 -> Mobile Web -> GTX -> MyMemory)
-    NOTE(legacy): ko->en 전용 구식 폴백. 신규 통일 대상이나 동작 변경 리스크로 이번 정리에서 제외.
+    NOTE(legacy): ko->en 전용 구식 폴백 — GET-only, 3초/엔드포인트, MyMemory 최종 폴백이라
+    translation_runtime.fetch_translation_with_failover()의 POST-first 4전략 체인과 동작이 다름.
+    동작 변경 리스크로 의도적으로 분리 유지 (통합 시 이 함수를 공유 구현으로 교체할 것).
     """
     if not text or not text.strip():
         return ""
