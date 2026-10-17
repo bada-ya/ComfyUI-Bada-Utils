@@ -409,6 +409,7 @@ function paintCustomSection(body, isKo) {
         form.style.cssText = "display:flex; align-items:center; gap:8px; padding:6px 0 2px 4px;";
         const input = document.createElement("input");
         input.type = "text";
+        input.dataset.field = "customPath"; // 재렌더 시 포커스 복원용 식별자
         input.value = customAddDraft;
         input.placeholder = isKo ? '로컬 폴더 또는 파일 경로 (탐색기 마우스 오른쪽 → "경로로 복사" 후 붙여넣기)' : 'Local folder or file path (Explorer right-click → "Copy as path", then paste)';
         input.style.cssText = "flex:1; min-width:0; background:rgba(30,41,59,0.6); border:1px solid rgba(148,163,184,0.35); color:#e2e8f0; border-radius:6px; padding:5px 10px; font-size:12px;";
@@ -417,6 +418,7 @@ function paintCustomSection(body, isKo) {
         // Drive 이름(선택) — 비워두면 로컬 파일/폴더명 자동 사용. (따옴표·공백은 서버가 제거)
         const nameInput = document.createElement("input");
         nameInput.type = "text";
+        nameInput.dataset.field = "customName"; // 재렌더 시 포커스 복원용 식별자
         nameInput.value = customAddName;
         nameInput.placeholder = isKo ? "(선택 — 비워두면 로컬 이름 사용)" : "(optional — blank = use local name)";
         nameInput.style.cssText = "flex:0 1 220px; min-width:0; background:rgba(30,41,59,0.6); border:1px dashed rgba(148,163,184,0.4); color:#e2e8f0; border-radius:6px; padding:5px 10px; font-size:12px;";
@@ -629,6 +631,14 @@ function paintDetailFiles() {
     const isKo = (BadaI18n.lang === "ko");
     const body = detailModalEl.querySelector("#bada-detail-files-body");
     if (!body) return;
+    // 1초 폴링 재렌더 시 포커스 유지 — 커스텀 추가 폼 입력 중 DOM 재생성으로 포커스가
+    // 날아가 타이핑이 끊기는 문제 방지. (값은 customAddDraft/customAddName 이 보존)
+    let restoreField = null, selStart = 0, selEnd = 0;
+    const activeEl = document.activeElement;
+    if (activeEl && body.contains(activeEl) && activeEl.dataset && activeEl.dataset.field) {
+        restoreField = activeEl.dataset.field;
+        try { selStart = activeEl.selectionStart ?? 0; selEnd = activeEl.selectionEnd ?? 0; } catch (_) {}
+    }
     body.textContent = "";
     for (const f of detailFilesSnapshot) {
         const lbl = FILE_LABELS[f.name] || { ko: f.name, en: f.name };
@@ -755,6 +765,16 @@ function paintDetailFiles() {
     }
     // 커스텀 폴더 섹션 — 내장 5개 섹션 아래에 추가 (동일 스타일 재사용).
     paintCustomSection(body, isKo);
+    // 재렌더 후 포커스·커서 복원 — 입력 중이던 입력란으로 되돌린다.
+    if (restoreField) {
+        const el = body.querySelector(`[data-field="${restoreField}"]`);
+        if (el && typeof el.focus === "function") {
+            try {
+                el.focus({ preventScroll: true });
+                el.setSelectionRange(selStart, selEnd);
+            } catch (_) {}
+        }
+    }
 }
 
 function renderDetailModal() {
