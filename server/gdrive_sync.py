@@ -9,6 +9,10 @@
 
   B. `workflows/*` (ComfyUI 사용자 워크플로우 폴더, .json 재귀)
 
+  C. `custom/<name>[/<subpath>]` (사용자 등록 로컬 폴더/파일 — ComfyUI 루트 외부 포함)
+     - 설정 필드 custom_sync {enabled, folders:[{name,path,is_file}]}
+     - 원격 레이아웃 <루트>/Custom/<name>... · 마스터 OFF 시 양쪽 모두 제외(데이터 보존)
+
 설계 원칙
   1. 라이브러리 미설치 시 서버 기동에 영향 없음 (GDRIVE_LIBS_AVAILABLE=False)
   2. 동기화는 넌블로킹 (ThreadPoolExecutor + run_in_executor)
@@ -20,7 +24,7 @@
   4. 내부 동기화 지도 키는 rel_path 를 `___` 로 인코딩한 형태 (다운로드·스냅샷 공용 키).
      Drive 에는 파일을 실제 중첩 폴더 구조로 저장한다 (Workflows/<subdir>/<file>.json).
   5. 중복 실행 방지 (_SYNC_GUARD)
-  6. 두 네임스페이스 모두 realpath 로 루트 탈출(../) 차단
+  6. 세 네임스페이스 모두 경로 탈출(../) 차단 — custom 은 등록 정보(설정)로만 해석
 
 의도적 제외 대상
   - config.json          : Gemini API 키 등 시크릿 포함. Drive 업로드 금지.
@@ -267,6 +271,35 @@ def trash_local_workflow(rel_path):
         return False
 
 
+def trash_local_custom(rel_path):
+    """
+    커스텀 대상의 로컬 파일을 `<pack 루트>/_deleted_custom/<대상명>/<subpath>` 안전 보관함으로 이동.
+    (워크플로우와 동일한 정책 — 실수로 인한 유실 0% 보장, 마우스로 즉시 복원 가능)
+
+    파일 대상: `_deleted_custom/<name>`, 폴더 대상: `_deleted_custom/<name>/<subdir>`.
+    원본이 ComfyUI 루트 외부(예: E:\\Downloads)여도 shutil.move 로 안전하게 이동한다.
+    """
+    try:
+        full_path = _resolve_local_path(rel_path)
+        if not os.path.exists(full_path):
+            return True
+        sub_rel = rel_path[len(CUSTOM_NS):]  # <name> 또는 <name>/<subpath>
+        trash_dir = os.path.join(PARENT_DIR, "_deleted_custom", os.path.dirname(sub_rel))
+        os.makedirs(trash_dir, exist_ok=True)
+        trash_target = os.path.join(trash_dir, os.path.basename(sub_rel))
+        # 만약 휴지통에 이미 동명 파일이 있다면 타임스탬프 부여
+        if os.path.exists(trash_target):
+            base_n, ext = os.path.splitext(os.path.basename(sub_rel))
+            trash_target = os.path.join(trash_dir, f"{base_n}_{int(time.time())}{ext}")
+        import shutil
+        shutil.move(full_path, trash_target)
+        logger.info(f"[GDrive] Local custom file safely moved to trash: {rel_path} -> {trash_target}")
+        return True
+    except Exception as e:
+        logger.error(f"[GDrive] Failed to move local custom file to trash ({rel_path}): {e}")
+        return False
+
+
 def trash_remote_file(service, file_id, file_name=""):
     """
     구글 드라이브 파일을 영구 파기(delete)하지 않고 '구글 드라이브 휴지통'으로 안전 이동.
@@ -365,6 +398,9 @@ def get_drive_service():
 
 WORKFLOWS_NS = "workflows/"
 _CONFIG_NS = ".configs/"
+# 커스텀 동기화 대상 네임스페이스 — 사용자가 등록한 로컬 폴더/파일 (ComfyUI 루트 외부 포함).
+# 원격 레이아웃: <루트>/Custom/<name> (파일) | <루트>/Custom/<name>/<subpath> (폴더).
+CUSTOM_NS = "custom/"
 
 
 def _resolve_workflows_root():
@@ -396,11 +432,12 @@ def _resolve_local_path(rel_path):
     """
     동기화 상대경로를 실제 로컬 절대경로로 변환.
 
-    두 가지 네임스페이스를 허용한다.
+    세 가지 네임스페이스를 허용한다.
       - `.configs/<filename>` : 노드 루트의 개인 데이터 (화이트리스트 강제)
       - `workflows/<subpath>` : ComfyUI 워크플로우 폴더 내부
+      - `custom/<name>[/<subpath>]` : 사용자 등록 커스텀 대상 (설정 등록 정보로만 해석)
 
-    양쪽 모두 경로 탈출(../)을 realpath 로 검사해 루트 밖으로 나가지 못하게 막는다.
+    모두 경로 탈출(../)을 realpath 로 검사해 루트 밖으로 나가지 못하게 막는다.
     """
     clean_rel = rel_path.replace("\\", "/").lstrip("/")
 
@@ -419,7 +456,41 @@ def _resolve_local_path(rel_path):
             raise ValueError(f"허용되지 않은 동기화 경로: {rel_path}")
         return target
 
+    if clean_rel.startswith(CUSTOM_NS):
+        # custom/<name>[/<subpath>] — 등록 정보(설정)로만 해석, 임의 경로는 불가.
+        return _resolve_custom_local_path(clean_rel[len(CUSTOM_NS):])
+
     raise ValueError(f"허용되지 않은 동기화 경로: {rel_path}")
+
+
+def _resolve_custom_local_path(custom_rel):
+    """
+    `custom/<name>[/<subpath>]` → 등록 대상의 로컬 절대경로 (등록 정보만 사용, 임의 경로 불가).
+
+      - 파일 대상: 정확한 경로만 허용 (서브패스 불가) — 이름은 확장자 포함 basename.
+      - 폴더 대상: <등록 폴더>/<subpath> — realpath+commonpath 로 탈출 검사.
+    미등록 이름은 ValueError 를 던지며, 동기화 쪽 원격 키 검증에서 조용히 스킵된다
+    (Drive 에 남아있는 미등록/제거된 대상의 파일은 절대 삭제되지 않는다).
+    """
+    parts = [p for p in custom_rel.split("/") if p and p != "."]
+    if not parts:
+        raise ValueError(f"잘못된 커스텀 동기화 경로: {custom_rel}")
+    name, sub_parts = parts[0], parts[1:]
+    reg = _get_registered_custom_folder(name)
+    if not reg:
+        raise ValueError(f"등록되지 않은 커스텀 대상: {name}")
+    base = os.path.realpath(reg["path"])
+    if reg.get("is_file"):
+        if sub_parts:
+            raise ValueError(f"파일 대상은 서브패스를 지원하지 않습니다: {custom_rel}")
+        return base
+    if not sub_parts:
+        # 폴더 대상 루트 자체는 디렉터리이므로 동기화 파일이 될 수 없다.
+        raise ValueError(f"폴더 대상은 서브패스가 필요합니다: {custom_rel}")
+    target = os.path.realpath(os.path.join(base, *sub_parts))
+    if os.path.commonpath((base, target)) != base:
+        raise ValueError(f"허용되지 않은 커스텀 동기화 경로(탈출): {custom_rel}")
+    return target
 
 
 def _iter_workflow_rel_paths():
@@ -443,22 +514,66 @@ def _iter_workflow_rel_paths():
             yield f"{WORKFLOWS_NS}{rel}"
 
 
+def _iter_custom_rel_paths():
+    """
+    등록 커스텀 대상의 상대경로 (`custom/<name>[/<subpath>]`) 를 yield.
+
+    - 마스터 스위치(custom_sync.enabled) ON 이고 대상이 실제로 존재할 때만 포함.
+      (OFF 일 때 양쪽(로컬+원격) 모두에서 제외 → base 스냅샷 키는 CASE 4 로 자연 소멸,
+       OFF 전환은 절대 데이터를 삭제하지 않는다.)
+    - 파일 대상: `custom/<name>` (존재 시). 폴더 대상: 재귀 스캔 (WORKFLOW_EXCLUDE_DIRS 제외).
+    - '___' 포함 경로 구성요소는 스킵 — 내부 지도 키가 '/'→'___' 인코딩이라 이런 이름은
+      라운트립이 깨져 오삭제 위험이 있다. 로컬+원격 양쪽에서 동일하게 스킵하므로 안전 no-op.
+    """
+    settings = get_gdrive_settings()
+    cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
+    if not cs.get("enabled"):
+        return
+    for f in get_custom_folders():
+        name, path = f["name"], f["path"]
+        if "___" in name or not f["exists"]:
+            continue
+        try:
+            if f["is_file"]:
+                yield f"{CUSTOM_NS}{name}"
+                continue
+            root_real = os.path.realpath(path)
+            for dirpath, dirnames, filenames in os.walk(path):
+                dirnames[:] = [d for d in dirnames
+                               if d not in WORKFLOW_EXCLUDE_DIRS and "___" not in d]
+                for fname in filenames:
+                    if "___" in fname:
+                        continue
+                    full_path = os.path.join(dirpath, fname)
+                    if not os.path.isfile(full_path):
+                        continue
+                    rel = os.path.relpath(os.path.realpath(full_path), root_real).replace("\\", "/")
+                    if any("___" in part for part in rel.split("/")):
+                        continue
+                    yield f"{CUSTOM_NS}{name}/{rel}"
+        except Exception as e:  # noqa: BLE001 — 대상 하나 실패가 전체 스캔을 멈추게 하면 안 된다.
+            logger.warning(f"[GDrive] custom target scan failed ({name}): {e}")
+
+
 def build_local_manifest():
     """
     로컬 대상 파일들의 목록을 생성:
     { "rel_path": { "size": int, "mtime": float } }
     존재하지 않는 파일은 건너뛴다 (선택적 동기화).
 
-    두 묶음을 합친다.
+    세 묶음을 합친다.
       1) `.configs/*` : 노드 루트 개인 데이터 (get_target_rel_paths)
       2) `workflows/*` : 워크플로우 폴더 재귀 스캔
+      3) `custom/*`   : 사용자 등록 커스텀 대상 (마스터 ON + 대상 존재 시)
 
     SHA256 해시는 계산하지 않는다. 판단 기준은 modifiedTime(mtime) 뿐이므로
     349개 파일을 전부 읽어 해시를 만드는 비용이 사라져 로컬 스캔이 빨라진다.
     """
     manifest = {}
 
-    for rel_path in get_target_rel_paths() + list(_iter_workflow_rel_paths()):
+    for rel_path in (get_target_rel_paths()
+                     + list(_iter_workflow_rel_paths())
+                     + list(_iter_custom_rel_paths())):
         full_path = _resolve_local_path(rel_path)
         if not os.path.isfile(full_path):
             continue
@@ -562,13 +677,99 @@ def _ensure_workflow_folder(service, root_id, rel_dir):
     return current
 
 
+# 커스텀 대상 중첩 폴더 ID 캐시 — Workflows 와 **별도**.
+# _WORKFLOW_FOLDER_CACHE 의 키는 부모를 구분하지 않는 rel_dir 문자열이라,
+# Workflows 하위폴더와 Custom 대상 이름이 동명일 때 ID 충돌 위험이 있다.
+_CUSTOM_FOLDER_CACHE = {}
+
+_SESSION_CUSTOM_ROOT_ID = None
+
+
+def _get_or_create_custom_root(service, root_id):
+    """
+    <루트>/Custom 폴더 ID (세션 캐시) — 고정 5종 하위폴더 캐시(_SESSION_SUBFOLDER_CACHE)
+    와는 분리한다. Custom/ 은 동기화 대상이 실제로 있을 때만 생성된다.
+    """
+    global _SESSION_CUSTOM_ROOT_ID
+    if _SESSION_CUSTOM_ROOT_ID:
+        return _SESSION_CUSTOM_ROOT_ID
+    fid = _find_remote_folder_by_name(service, CUSTOM_REMOTE_ROOT, parent_id=root_id)
+    if not fid:
+        folder = service.files().create(
+            body={
+                'name': CUSTOM_REMOTE_ROOT,
+                'mimeType': 'application/vnd.google-apps.folder',
+                'parents': [root_id],
+            },
+            fields='id',
+        ).execute()
+        fid = folder.get('id')
+    _SESSION_CUSTOM_ROOT_ID = fid
+    return fid
+
+
+def _ensure_custom_target_folder(service, custom_root_id, rel_dir):
+    """
+    'Custom/<rel_dir>' 중첩 폴더를 단계별로 조회·생성해 마지막 폴더 ID 반환.
+
+    rel_dir 이 비면 Custom 루트 ID 를 그대로 반환한다 (파일 대상 / 최상위 파일).
+    별도 캐시(_CUSTOM_FOLDER_CACHE) 로 Workflows 동명 하위폴더와 충돌을 방지한다.
+    """
+    if not rel_dir:
+        return custom_root_id
+    cached = _CUSTOM_FOLDER_CACHE.get(rel_dir)
+    if cached:
+        return cached
+    current = custom_root_id
+    walked = []
+    for part in rel_dir.split("/"):
+        if not part or part == ".":
+            continue
+        walked.append(part)
+        key = "/".join(walked)
+        cached = _CUSTOM_FOLDER_CACHE.get(key)
+        if cached:
+            current = cached
+            continue
+        current = _get_or_create_remote_folder(service, part, parent_id=current)
+        _CUSTOM_FOLDER_CACHE[key] = current
+    return current
+
+
 def _target_folder_name(rel_path):
     """rel_path 가 배정될 Drive 하위폴더 이름. 대상 밖이면 None."""
     if rel_path in REMOTE_FOLDER_BY_REL:
         return REMOTE_FOLDER_BY_REL[rel_path]
     if rel_path.startswith(WORKFLOWS_NS):
         return REMOTE_WORKFLOWS_FOLDER
+    if rel_path.startswith(CUSTOM_NS):
+        return CUSTOM_REMOTE_ROOT
     return None
+
+
+def _resolve_target_folder_id(service, root_id, subfolder_ids, rel_path):
+    """
+    rel_path 가 저장될 Drive 폴더 ID (대상 밖이면 None).
+
+      - config 4종 : 전용 고정 하위폴더
+      - workflows  : Workflows/<subdir> 중첩 (캐시)
+      - custom     : Custom/<name>[/<subdir>] 중첩 (별도 캐시 — 파일 대상은 Custom 루트 자체)
+    """
+    target_folder_name = _target_folder_name(rel_path)
+    if not target_folder_name:
+        return None
+    if target_folder_name == REMOTE_WORKFLOWS_FOLDER:
+        subdir = os.path.dirname(rel_path[len(WORKFLOWS_NS):])
+        return _ensure_workflow_folder(
+            service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
+            subdir.replace("\\", "/"))
+    if target_folder_name == CUSTOM_REMOTE_ROOT:
+        # 파일 대상(custom/<name>)은 dirname 이 비어 Custom 루트 자체에 저장된다.
+        subdir = os.path.dirname(rel_path[len(CUSTOM_NS):])
+        custom_root_id = _get_or_create_custom_root(service, root_id)
+        return _ensure_custom_target_folder(
+            service, custom_root_id, subdir.replace("\\", "/"))
+    return subfolder_ids.get(target_folder_name)
 
 
 def _stored_remote_name(rel_path):
@@ -697,6 +898,48 @@ def _list_workflows_recursive_fast(service, root_id, legacy_files=None):
                         key = (WORKFLOWS_NS + name).replace("/", "___")
                 else:
                     key = (WORKFLOWS_NS + rdir + "/" + name).replace("/", "___")
+                files_map[key] = {
+                    "id": item_id,
+                    "name": name,
+                    "modifiedTime": entry["modifiedTime"],
+                    "size": entry["size"],
+                    "folder_id": fid,
+                }
+        current_level = next_level
+
+    return files_map
+
+
+def _list_custom_remote_files(service, custom_root_id):
+    """
+    Custom/ 하위 트리를 BFS 배치 쿼리로 열거 — 키는 'custom/<name>[/<subpath>]' ('___' 인코딩).
+
+    - 파일 대상: `Custom/<name>` (루트 바로 아래), 폴더 대상: `Custom/<name>/<subpath>`.
+    - 이름에 '___' 가 포함된 항목은 스킵 — 키 라운트립 깨짐 방지 (로컬 매니페스트와 동일한 정책).
+      해당 폴더의 하위 트리는 통째로 건너뛴다.
+    - 미등록 대상의 파일도 열거되지만, 동기화 쪽 `_resolve_local_path` 검증에서
+      ValueError → 조용히 스킵된다 (제거된 대상의 Drive 데이터는 절대 삭제되지 않음).
+    """
+    files_map = {}
+    current_level = [(custom_root_id, "")]
+
+    while current_level:
+        parent_ids = [fid for fid, _ in current_level]
+        batch_results = _list_entries_in_parents_batch(service, parent_ids)
+
+        next_level = []
+        for fid, rdir in current_level:
+            entries = batch_results.get(fid, [])
+            for entry in entries:
+                name, item_id = entry["name"], entry["id"]
+                if "___" in name:
+                    continue  # 키 라운트립 깨짐 — 파일은 스킵, 폴더는 하위 트리 통째로 스킵
+                if entry["is_folder"]:
+                    sub_rel = f"{rdir}/{name}" if rdir else name
+                    next_level.append((item_id, sub_rel))
+                    continue
+                rel = f"{rdir}/{name}" if rdir else name
+                key = (CUSTOM_NS + rel).replace("/", "___")
                 files_map[key] = {
                     "id": item_id,
                     "name": name,
@@ -914,6 +1157,13 @@ def _move_flat_workflow_file(service, file_id, new_name, target_folder_id, old_f
     ).execute()
 
 
+def _custom_sync_state():
+    """(마스터 ON/OFF, 등록 대상 목록) — 엔진 연동용 (매니페스트·원격 열거·워커 공용)."""
+    settings = get_gdrive_settings()
+    cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
+    return bool(cs.get("enabled")), get_custom_folders()
+
+
 def _perform_sync_blocking():
     """
     실제 동기화(차단) 작업.
@@ -946,6 +1196,15 @@ def _perform_sync_blocking():
         remote_files, legacy_workflows = _list_remote_files(service, subfolder_ids)
         # 중첩 폴더 캐시는 이번 동기화 기준으로 초기화 (이전 세션의 stale 폴더 ID 방지).
         _WORKFLOW_FOLDER_CACHE.clear()
+        _CUSTOM_FOLDER_CACHE.clear()
+
+        # 커스텀 대상 — 마스터 ON + 등록 대상 1개 이상일 때만 Custom/ 루트 생성·열거.
+        # OFF 일 때는 로컬 매니페스트+원격 열거 양쪽에서 제외되므로 base 스냅샷 키는
+        # CASE 4(양쪽 모두 없음)로 자연 소멸 — OFF 전환은 절대 데이터를 삭제하지 않는다.
+        custom_enabled, custom_targets = _custom_sync_state()
+        if custom_enabled and custom_targets:
+            custom_root_id = _get_or_create_custom_root(service, root_id)
+            remote_files.update(_list_custom_remote_files(service, custom_root_id))
 
         uploaded_count = 0
         downloaded_count = 0
@@ -976,6 +1235,7 @@ def _perform_sync_blocking():
 
         for rel_path in all_keys:
             is_workflow = rel_path.startswith(WORKFLOWS_NS)
+            is_custom = rel_path.startswith(CUSTOM_NS)
             in_local = rel_path in local_manifest
             in_remote = rel_path in remote_by_rel
             in_base = bool(base_snapshot and (rel_path in base_snapshot))
@@ -995,18 +1255,18 @@ def _perform_sync_blocking():
                     to_download.append(rel_path)
                 # 동일하면 no-op
 
-            # [CASE 2: 로컬에만 있음]
+            # [CASE 2: 로컬에만 있음] — 커스텀 대상도 워크플로우와 동일한 삭제 전파 정책.
             elif in_local and not in_remote:
-                if is_workflow and in_base:
+                if (is_workflow or is_custom) and in_base:
                     # 직전엔 있었는데 원격에서 사라짐 -> 원격(타 PC)에서 삭제된 것으로 판정
                     to_trash_local.append(rel_path)
                 else:
                     # 직전에 없었거나 Base 없음 -> 로컬에서 새로 만든 파일 -> 원격 업로드
                     to_upload.append(rel_path)
 
-            # [CASE 3: 원격에만 있음]
+            # [CASE 3: 원격에만 있음] — 커스텀 대상도 워크플로우와 동일한 삭제 전파 정책.
             elif in_remote and not in_local:
-                if is_workflow and in_base:
+                if (is_workflow or is_custom) and in_base:
                     # 직전엔 있었는데 로컬에서 사라짐 -> 현재 PC에서 사용자가 삭제/이동한 것으로 판정
                     to_trash_remote.append((rel_path, r_meta.get("id"), r_meta.get("name", "")))
                 else:
@@ -1035,7 +1295,10 @@ def _perform_sync_blocking():
             if _CANCEL_EVENT.is_set():
                 cancelled = True
                 break
-            if trash_local_workflow(rel_path):
+            # 네임스페이스별 안전 휴지통 — workflows 는 워크플로우 루트, 커스텀은 <pack 루트>/_deleted_custom/.
+            trashed_ok = (trash_local_custom(rel_path) if rel_path.startswith(CUSTOM_NS)
+                          else trash_local_workflow(rel_path))
+            if trashed_ok:
                 trashed_local_count += 1
                 logger.info(f"[GDrive] Local trash: {rel_path}")
 
@@ -1053,16 +1316,10 @@ def _perform_sync_blocking():
             remote_meta = remote_files.get(remote_name)
 
             existing_id = remote_meta.get("id") if remote_meta else None
-            target_folder_name = _target_folder_name(rel_path)
-            if target_folder_name is None:
+            target_folder_id = _resolve_target_folder_id(
+                service, root_id, subfolder_ids, rel_path)
+            if target_folder_id is None:
                 continue
-            if target_folder_name == REMOTE_WORKFLOWS_FOLDER:
-                subdir = os.path.dirname(rel_path[len(WORKFLOWS_NS):])
-                target_folder_id = _ensure_workflow_folder(
-                    service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
-                    subdir.replace("\\", "/"))
-            else:
-                target_folder_id = subfolder_ids[target_folder_name]
             _upload_single_file(service, target_folder_id, rel_path, local_meta,
                                 existing_id, existing_meta=remote_meta)
             uploaded.add(rel_path)
@@ -1329,7 +1586,7 @@ def is_startup_autosync_enabled() -> bool:
 
 
 def normalize_sync_rel_path(p: str) -> str:
-    """주어진 경로나 파일명을 동기화 표준 상대경로(.configs/... 또는 workflows/...)로 정규화."""
+    """주어진 경로나 파일명을 동기화 표준 상대경로(.configs/... | workflows/... | custom/...)로 정규화."""
     if not p:
         return ""
     p = p.replace("\\", "/").strip().lstrip("/")
@@ -1337,6 +1594,22 @@ def normalize_sync_rel_path(p: str) -> str:
         return f"{_CONFIG_NS}{p}"
     if p.startswith(_CONFIG_NS):
         return p
+    # 커스텀 동기화 대상 — 등록 경로(파일 또는 폴더) → custom/<name>[/<subpath>].
+    # workflows 폴백 **이전**에 검사해야 외부 절대경로가 workflows 로 오분류되지 않는다.
+    try:
+        for f in get_custom_folders():
+            base = str(f["path"]).replace("\\", "/").rstrip("/")
+            if not base:
+                continue
+            if f["is_file"]:
+                if p.lower() == base.lower():
+                    return f"{CUSTOM_NS}{f['name']}"
+            elif p.lower().startswith(base.lower() + "/"):
+                sub = p[len(base):].lstrip("/")
+                if sub:
+                    return f"{CUSTOM_NS}{f['name']}/{sub}"
+    except Exception:
+        pass
     try:
         wf_root = _resolve_workflows_root().replace("\\", "/").rstrip("/")
         if p.lower().startswith(wf_root.lower()):
@@ -1392,18 +1665,11 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
                 "size": os.path.getsize(full_path),
                 "mtime": os.path.getmtime(full_path)
             }
-            target_folder_name = _target_folder_name(rel_path)
-            if not target_folder_name:
+            # 네임스페이스별 폴더 ID — config 4종 / Workflows 중첩 / Custom 중첩(파일 대상은 Custom 루트).
+            target_folder_id = _resolve_target_folder_id(
+                service, root_id, subfolder_ids, rel_path)
+            if not target_folder_id:
                 return False
-
-            if target_folder_name == REMOTE_WORKFLOWS_FOLDER:
-                subdir = os.path.dirname(rel_path[len(WORKFLOWS_NS):])
-                target_folder_id = _ensure_workflow_folder(
-                    service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
-                    subdir.replace("\\", "/")
-                )
-            else:
-                target_folder_id = subfolder_ids[target_folder_name]
 
             remote_name = _stored_remote_name(rel_path)
             existing_id = _find_remote_file_in_folder(service, target_folder_id, remote_name)
@@ -1430,18 +1696,11 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
                 return False
             rel_path = normalize_sync_rel_path(raw_path)
 
-            target_folder_name = _target_folder_name(rel_path)
-            if not target_folder_name:
+            # 네임스페이스별 폴더 ID — 커스텀 대상(외부 폴더/파일)도 동일 경로로 처리.
+            folder_id = _resolve_target_folder_id(
+                service, root_id, subfolder_ids, rel_path)
+            if not folder_id:
                 return False
-
-            if target_folder_name == REMOTE_WORKFLOWS_FOLDER:
-                subdir = os.path.dirname(rel_path[len(WORKFLOWS_NS):])
-                folder_id = _ensure_workflow_folder(
-                    service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
-                    subdir.replace("\\", "/")
-                )
-            else:
-                folder_id = subfolder_ids[target_folder_name]
 
             remote_name = _stored_remote_name(rel_path)
             file_id = _find_remote_file_in_folder(service, folder_id, remote_name)
@@ -1595,6 +1854,7 @@ def trigger_realtime_sync(details: dict = None) -> dict:
     - details(action, path 등)가 주어지면 초고속 Pinpoint Sync(1~2초) 실행
     - details가 없거나 실패 시 전체 Snapshot Full Sync로 안전 폴백
     """
+    _ensure_custom_watcher()  # 워커 확보 (멱등) — UI 트리거 경로에서도 워커가 항상 살아있도록 보장
     settings = get_gdrive_settings()
     if not bool(settings.get("cloud_sync_enabled", False)):
         return {"status": "disabled", "reason": "master_off"}
@@ -1646,6 +1906,8 @@ def schedule_startup_autosync(delay_seconds=0.0):
       OAuth 인증 브라우저 창이 뜨는 것을 막기 위함 — 인증은 설정창 버튼으로 유도.
     - 라이브러리 미설치, 이미 예약됨, 이미 동기화 중인 경우도 조용히 스킵.
     """
+    _ensure_custom_watcher()  # 기동 시 커스텀 대상 워커 확보 (게이트는 루프 내부에서 매 사이클 재확인)
+
     global _AUTOSYNC_SCHEDULED
     if _AUTOSYNC_SCHEDULED:
         return False
@@ -1687,6 +1949,99 @@ def schedule_startup_autosync(delay_seconds=0.0):
     threading.Thread(target=_worker, daemon=True, name="GDriveAutoSync").start()
     logger.info("[GDrive] Startup auto-sync scheduled (background, does not block ComfyUI).")
     return True
+
+
+# =============================================================================
+# 커스텀 대상 변경 워커 — 서버 사이드 mtime 폴러
+# -----------------------------------------------------------------------------
+# 프론트엔드 실시간 트리거는 UI 이벤트(워크플로우 저장 fetch 인터셉트 + Ctrl+S)로만
+# 감지되므로 외부 폴더/파일의 변경은 알 수 없다. 데몬 스레드가 5초 간격으로 등록 대상의
+# (size, mtime) 시그니처를 폴링하고 변경 시 trigger_realtime_sync(None) 을 재사용한다.
+# 게이트는 실시간 동기화와 동일: 마스터 ON + realtime_autosync ON + 인증 완료.
+# =============================================================================
+
+_CUSTOM_WATCHER_THREAD = None
+_CUSTOM_WATCHER_LOCK = threading.Lock()
+_custom_watcher_sig = {}  # {rel_path: (size, int(mtime))} — 직전 사이클 시그니처
+
+
+def _custom_targets_signature():
+    """등록 커스텀 대상의 시그니처 — build_local_manifest() 의 스캔 정책과 정확히 일치해야 한다."""
+    sig = {}
+    for f in get_custom_folders():
+        if not f["exists"] or "___" in f["name"]:
+            continue
+        name, path = f["name"], f["path"]
+        try:
+            if f["is_file"]:
+                st = os.stat(path)
+                sig[f"{CUSTOM_NS}{name}"] = (st.st_size, int(st.st_mtime))
+            else:
+                root_real = os.path.realpath(path)
+                for dirpath, dirnames, filenames in os.walk(path):
+                    dirnames[:] = [d for d in dirnames
+                                   if d not in WORKFLOW_EXCLUDE_DIRS and "___" not in d]
+                    for fname in filenames:
+                        if "___" in fname:
+                            continue
+                        full_path = os.path.join(dirpath, fname)
+                        try:
+                            st = os.stat(full_path)
+                        except OSError:
+                            continue
+                        rel = os.path.relpath(os.path.realpath(full_path), root_real).replace("\\", "/")
+                        if any("___" in part for part in rel.split("/")):
+                            continue
+                        sig[f"{CUSTOM_NS}{name}/{rel}"] = (st.st_size, int(st.st_mtime))
+        except Exception as e:  # noqa: BLE001 — 대상 하나 실패가 워커 전체를 멈추게 하면 안 된다.
+            logger.debug(f"[GDrive] Custom watcher stat failed ({name}): {e}")
+    return sig
+
+
+def _custom_watcher_loop():
+    """폴링 루프 — 시그니처 변경 감지 시 실시간 동기화(전체 폴백) 트리거."""
+    global _custom_watcher_sig
+    while True:
+        time.sleep(5)
+        try:
+            settings = get_gdrive_settings()
+            cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
+            # 게이트는 trigger_realtime_sync 와 동일 — OFF 이면 시그니처를 유지한 채 대기
+            # (재활성화 시 OFF 기간 동안의 변경도 감지된다).
+            gates_ok = (bool(settings.get("cloud_sync_enabled"))
+                        and bool(cs.get("enabled"))
+                        and bool(settings.get("realtime_autosync")))
+            if not gates_ok:
+                continue
+            sig = _custom_targets_signature()
+            if _custom_watcher_sig and sig != _custom_watcher_sig:
+                logger.info("[GDrive] Custom target change detected → realtime sync (full fallback)")
+                result = trigger_realtime_sync(None)
+                status = result.get("status") if isinstance(result, dict) else ""
+                if status == "queued":
+                    # 트리거한 동기화 완료 후 재베이스라인 — mtime pinning 으로 인한
+                    # 이중 트리거를 막는다. (busy 이면 구 시그니처 유지 → 다음 사이클 재시도)
+                    deadline = time.time() + 90
+                    while is_syncing() and time.time() < deadline:
+                        time.sleep(1)
+                    _custom_watcher_sig = {}
+            else:
+                _custom_watcher_sig = sig
+        except Exception as e:  # noqa: BLE001 — 워커 오류는 ComfyUI 를 절대 깨뜨리면 안 된다.
+            logger.debug(f"[GDrive] Custom watcher loop error (ignored): {e}")
+
+
+def _ensure_custom_watcher():
+    """커스텀 대상 워커 데몬 스레드 시작 (멱등 — 이미 살아있으면 즉시 반환)."""
+    global _CUSTOM_WATCHER_THREAD, _custom_watcher_sig
+    with _CUSTOM_WATCHER_LOCK:
+        if _CUSTOM_WATCHER_THREAD is not None and _CUSTOM_WATCHER_THREAD.is_alive():
+            return
+        _custom_watcher_sig = {}
+        t = threading.Thread(target=_custom_watcher_loop, name="GDriveCustomWatcher", daemon=True)
+        t.start()
+        _CUSTOM_WATCHER_THREAD = t
+        logger.info("[GDrive] Custom target watcher started (5s poll).")
 
 
 def _count_config_items(filename, full_path):
@@ -2294,6 +2649,9 @@ def _validate_custom_target_name(name: str):
         return "이름은 1~64자여야 합니다"
     if any(ch in name for ch in '\\/:*?"<>|') or name in (".", ".."):
         return "잘못된 이름입니다(특수문자 포함)"
+    # '___' 는 내부 동기화 키 인코딩('/') 구분자와 충돌해 라운트립이 깨진다 — 등록 자체를 차단.
+    if "___" in name:
+        return "이름에 '___'(밑줄 3연속)는 사용할 수 없습니다 (동기화 키 인코딩 충돌)"
     if name.lower() in _CUSTOM_FOLDER_RESERVED_NAMES:
         return f"'{name}' 은(는) 예약 이름입니다"
     return None
@@ -2364,6 +2722,13 @@ def add_custom_folder(local_path, drive_name=None) -> dict:
     cs["folders"] = folders
     set_gdrive_settings({"custom_sync": cs})
     logger.info(f"[GDrive] 커스텀 대상 등록: {name} → {target} ({'파일' if is_file else '폴더'})")
+    # 워커 확보 + 즉시 1회 동기화 시도 — 등록한 대상을 Drive Custom/ 에 바로 반영.
+    # (게이트가 OFF 이면 trigger_realtime_sync 가 조용히 disabled 로 반환)
+    _ensure_custom_watcher()
+    try:
+        trigger_realtime_sync(None)
+    except Exception as e:  # noqa: BLE001 — 등록 자체는 성공, 트리거 실패는 워커가 다음 사이클에 재시도.
+        logger.debug(f"[GDrive] post-register sync trigger failed (watcher will retry): {e}")
     return {"success": True, "name": name, "path": target, "is_file": is_file}
 
 
@@ -2388,11 +2753,21 @@ def remove_custom_folder(name) -> dict:
 
 
 def set_custom_sync_enabled(enabled) -> dict:
-    """커스텀 폴더 동기화 마스터 ON/OFF (설정 영속)."""
+    """커스텀 폴더 동기화 마스터 ON/OFF (설정 영속).
+
+    ON 전환 시 워커를 확보하고 즉시 1회 전체 동기화를 시도해
+    등록 대상을 Drive Custom/ 에 바로 반영한다 (게이트 OFF 이면 조용히 스킵).
+    """
     settings = get_gdrive_settings()
     cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
     cs["enabled"] = bool(enabled)
     set_gdrive_settings({"custom_sync": cs})
+    _ensure_custom_watcher()
+    if enabled:
+        try:
+            trigger_realtime_sync(None)
+        except Exception as e:  # noqa: BLE001 — 토글 자체는 성공, 트리거 실패는 워커가 재시도.
+            logger.debug(f"[GDrive] post-toggle sync trigger failed (watcher will retry): {e}")
     return {"success": True, "enabled": bool(enabled)}
 
 
