@@ -1963,10 +1963,17 @@ def schedule_startup_autosync(delay_seconds=0.0):
 _CUSTOM_WATCHER_THREAD = None
 _CUSTOM_WATCHER_LOCK = threading.Lock()
 _custom_watcher_sig = {}  # {rel_path: (size, int(mtime))} — 직전 사이클 시그니처
+_custom_watcher_pending = False  # 동기화 대기 중 실제 변경 감지 → 완료 후 한 번만 재트리거
 
 
 def _custom_targets_signature():
-    """등록 커스텀 대상의 시그니처 — build_local_manifest() 의 스캔 정책과 정확히 일치해야 한다."""
+    """등록 커스텀 대상의 시그니처 — build_local_manifest() 의 스캔 정책과 정확히 일치해야 한다.
+
+    mtime 은 int(초) 단위로 버림한다. 동기화 자체(_upload/_download_single_file)가
+    로컬 mtime 을 Drive modifiedTime 으로 고정(os.utime, 소수점 포함)하므로 float
+    그대로 비교하면 '변경 없음'이어도 매 사이클 시그니처가 달라져 false-positive
+    트리거가 반복된다. 초 단위로 버리면 pinning(정초)과 정렬이 되어 안정화된다.
+    """
     sig = {}
     for f in get_custom_folders():
         if not f["exists"] or "___" in f["name"]:
@@ -1999,8 +2006,20 @@ def _custom_targets_signature():
 
 
 def _custom_watcher_loop():
-    """폴링 루프 — 시그니처 변경 감지 시 실시간 동기화(전체 폴백) 트리거."""
-    global _custom_watcher_sig
+    """폴링 루프 — 시그니처 변경 감지 시 실시간 동기화(전체 폴백) 트리거.
+
+    false-positive 방지 설계:
+      1. mtime pinning 으로 인한 이중 트리거 차단 — 동기화 완료 후 시그니처를
+         '동기화 이후 상태'로 재베이스라인한다 ({} 로 초기화하면 다음 사이클에
+         무조건 한 번 더 트리거되는 구조적 결함 방지).
+      2. busy 스탬프 — 이미 동기화가 진행 중이면(수동 버튼·기동 자동 등) 중복
+         트리거를 하지 않고, 진행 중인 실행이 끝나면 재베이스라인한다.
+         (구 구현은 busy 시에도 매 사이클 로그+재시도를 반복해 로그가 홍수)
+      3. 동기화 대기 중(최대 ~120초)에 로컬 파일이 실제로 바뀌면
+         _custom_watcher_pending 이 True 로 남고, 재베이스라인 후 다음 사이클에
+         한 번만 추가 트리거한다 (실제 변경은 절대 놓치지 않음).
+    """
+    global _custom_watcher_sig, _custom_watcher_pending
     while True:
         time.sleep(5)
         try:
@@ -2014,17 +2033,26 @@ def _custom_watcher_loop():
             if not gates_ok:
                 continue
             sig = _custom_targets_signature()
-            if _custom_watcher_sig and sig != _custom_watcher_sig:
+            if _custom_watcher_sig and (sig != _custom_watcher_sig or _custom_watcher_pending):
+                # 이미 동기화가 진행 중이면(수동 버튼·기동 자동 등) 중복 트리거 금지.
+                # 진행 중인 실행이 끝나면 재베이스라인 → 실제 변경은 다음 사이클에 감지.
+                if is_syncing():
+                    _custom_watcher_pending = True
+                    continue
                 logger.info("[GDrive] Custom target change detected → realtime sync (full fallback)")
                 result = trigger_realtime_sync(None)
                 status = result.get("status") if isinstance(result, dict) else ""
-                if status == "queued":
-                    # 트리거한 동기화 완료 후 재베이스라인 — mtime pinning 으로 인한
-                    # 이중 트리거를 막는다. (busy 이면 구 시그니처 유지 → 다음 사이클 재시도)
-                    deadline = time.time() + 90
-                    while is_syncing() and time.time() < deadline:
-                        time.sleep(1)
-                    _custom_watcher_sig = {}
+                # queued/disabled 모두 동일 처리: 진행 중인 실행(있다면) 끝나고
+                # '동기화 이후 상태'로 재베이스라인. mtime pinning(정초)으로 시그니처가
+                # 안정화되므로 {} 로 초기화하면 다음 사이클에 무조건 한 번 더 트리거되는
+                # 구조적 결함이 생긴다.
+                deadline = time.time() + 120
+                while is_syncing() and time.time() < deadline:
+                    time.sleep(1)
+                _custom_watcher_sig = _custom_targets_signature()
+                # 대기 중 로컬이 실제로 바뀌었다면 다음 사이클에 한 번만 재트리거.
+                # (무조건 할당 — stale pending 이 남으면 매 사이클 무한 트리거가 된다.)
+                _custom_watcher_pending = (sig != _custom_watcher_sig)
             else:
                 _custom_watcher_sig = sig
         except Exception as e:  # noqa: BLE001 — 워커 오류는 ComfyUI 를 절대 깨뜨리면 안 된다.
@@ -2033,11 +2061,12 @@ def _custom_watcher_loop():
 
 def _ensure_custom_watcher():
     """커스텀 대상 워커 데몬 스레드 시작 (멱등 — 이미 살아있으면 즉시 반환)."""
-    global _CUSTOM_WATCHER_THREAD, _custom_watcher_sig
+    global _CUSTOM_WATCHER_THREAD, _custom_watcher_sig, _custom_watcher_pending
     with _CUSTOM_WATCHER_LOCK:
         if _CUSTOM_WATCHER_THREAD is not None and _CUSTOM_WATCHER_THREAD.is_alive():
             return
         _custom_watcher_sig = {}
+        _custom_watcher_pending = False
         t = threading.Thread(target=_custom_watcher_loop, name="GDriveCustomWatcher", daemon=True)
         t.start()
         _CUSTOM_WATCHER_THREAD = t
