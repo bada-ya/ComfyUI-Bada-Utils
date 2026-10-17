@@ -1742,7 +1742,9 @@ def register_bada_api_routes():
                 if not node_type and not node_title:
                     return web.json_response({"success": False, "error": "Missing node type parameter"}, status=400)
 
-                match = lookup_node_repo(node_type, node_title)
+                # The first call may build the 40k+ entry detective DB (seconds of synchronous parsing).
+                # Running it inline would freeze the aiohttp event loop, so offload to a worker thread.
+                match = await asyncio.to_thread(lookup_node_repo, node_type, node_title)
                 if match:
                     return web.json_response({
                         "success": True,

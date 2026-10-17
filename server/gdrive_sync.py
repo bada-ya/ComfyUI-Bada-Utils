@@ -530,15 +530,21 @@ def _iter_workflow_rel_paths():
     """
     워크플로우 루트를 재귀 스캔해 `workflows/<subpath>` 형태의 상대경로를 yield.
     .json 만 대상으로 하고, manifest/상태 파일과 __pycache__ 는 건너뛴다.
+
+    '___' 포함 경로(파일·폴더)는 스킵 — 내부 지도 키가 '/'→'___' 인코딩이라 이런 이름은
+    라운트립이 깨져 원격 디코드가 잘못된 중첩경로가 된다 (중복 다운로드 + 원본 오삭제 벡터).
+    커스텀 대상과 동일한 정책 (로컬+원격 양쪽에서 동일하게 스킵 → 안전 no-op).
     """
     root = _resolve_workflows_root()
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in WORKFLOW_EXCLUDE_DIRS]
+        dirnames[:] = [d for d in dirnames if d not in WORKFLOW_EXCLUDE_DIRS and "___" not in d]
         for name in filenames:
             if not name.lower().endswith(".json"):
                 continue
             if name in WORKFLOW_EXCLUDE_NAMES:
                 continue
+            if "___" in name:
+                continue  # '___' 는 내부 키 구분자 — 라운트립 깨짐 방지 (커스텀과 동일 정책)
             full_path = os.path.join(dirpath, name)
             if not os.path.isfile(full_path):
                 continue
@@ -916,21 +922,30 @@ def _list_workflows_recursive_fast(service, root_id, legacy_files=None):
             for entry in entries:
                 name, item_id = entry["name"], entry["id"]
                 if entry["is_folder"]:
+                    # '___' 포함 폴더는 키 라운트립을 깨므로 하위 트리 통째로 스킵 (커스텀과 동일 정책).
+                    # 루트의 'workflows___...' 이름 폴더(레거시 혼선 잔재)도 포함 — 스킵하지 않으면
+                    # 매 동기화 재다운로드 churn 이 생긴다.
+                    if "___" in name:
+                        continue
                     sub_rel = f"{rdir}/{name}" if rdir else name
                     next_level.append((item_id, sub_rel))
                     continue
-                if not rdir:
-                    if name.startswith("workflows___"):
-                        key = name
-                        if legacy_files is not None:
-                            legacy_files.append({
-                                "key": key, "id": item_id, "name": name, "folder_id": fid,
-                                "modifiedTime": entry["modifiedTime"],
-                            })
-                    else:
-                        key = (WORKFLOWS_NS + name).replace("/", "___")
+                if not rdir and name.startswith("workflows___"):
+                    # 구 평면 잔재 — 의도된 '___' 인코딩 키(마이그레이션 대상)이므로 스킵하지 않음.
+                    key = name
+                    if legacy_files is not None:
+                        legacy_files.append({
+                            "key": key, "id": item_id, "name": name, "folder_id": fid,
+                            "modifiedTime": entry["modifiedTime"],
+                        })
+                elif "___" in name:
+                    # 파일명에 '___' 가 있으면 디코딩 시 잘못된 중첩경로가 됨 — 로컬+원격 양쪽에서 스킵.
+                    continue
                 else:
-                    key = (WORKFLOWS_NS + rdir + "/" + name).replace("/", "___")
+                    if not rdir:
+                        key = (WORKFLOWS_NS + name).replace("/", "___")
+                    else:
+                        key = (WORKFLOWS_NS + rdir + "/" + name).replace("/", "___")
                 files_map[key] = {
                     "id": item_id,
                     "name": name,
@@ -1761,21 +1776,20 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
             source_rel = normalize_sync_rel_path(source_raw)
             target_rel = normalize_sync_rel_path(target_raw)
 
-            # 구 위치 정보
-            old_subdir = os.path.dirname(source_rel[len(WORKFLOWS_NS):])
-            old_name = _stored_remote_name(source_rel)
-            old_folder_id = _ensure_workflow_folder(
-                service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
-                old_subdir.replace("\\", "/")
-            )
+            # Same-location move is a no-op — skip the pointless API call and snapshot churn.
+            if source_rel == target_rel:
+                return True
 
-            # 신 위치 정보
-            new_subdir = os.path.dirname(target_rel[len(WORKFLOWS_NS):])
+            # 구/신 위치 폴더 ID — 세 네임스페이스(.configs/workflows/custom)를 모두 처리하는 공용 경로 해석 사용.
+            # 이전 구현은 `rel[len(WORKFLOWS_NS):]` 슬라이싱이라 workflows 접두사를 전제했고, 그 외 대상에서
+            # 잘못된 하위경로를 계산해 Drive Workflows/ 에 잡폴더를 만들 수 있었다 (SAVE/DELETE 분기와의 불일치).
+            old_folder_id = _resolve_target_folder_id(service, root_id, subfolder_ids, source_rel)
+            new_folder_id = _resolve_target_folder_id(service, root_id, subfolder_ids, target_rel)
+            if not old_folder_id or not new_folder_id:
+                return False
+
+            old_name = _stored_remote_name(source_rel)
             new_name = _stored_remote_name(target_rel)
-            new_folder_id = _ensure_workflow_folder(
-                service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER],
-                new_subdir.replace("\\", "/")
-            )
 
             file_id = _find_remote_file_in_folder(service, old_folder_id, old_name)
             target_full = _resolve_local_path(target_rel)
@@ -1839,14 +1853,15 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
             for itm in items:
                 s_rel = normalize_sync_rel_path(itm.get("source") or itm.get("path") or "")
                 t_rel = normalize_sync_rel_path(itm.get("target") or itm.get("newPath") or "")
-                if not s_rel or not t_rel:
+                if not s_rel or not t_rel or s_rel == t_rel:
                     continue
-                old_sub = os.path.dirname(s_rel[len(WORKFLOWS_NS):])
+                # MOVE 분기와 동일 — 공용 경로 해석으로 세 네임스페이스 모두正确处理 (workflows 전용 슬라이싱 제거).
+                old_fid = _resolve_target_folder_id(service, root_id, subfolder_ids, s_rel)
+                new_fid = _resolve_target_folder_id(service, root_id, subfolder_ids, t_rel)
+                if not old_fid or not new_fid:
+                    continue
                 old_nm = _stored_remote_name(s_rel)
-                old_fid = _ensure_workflow_folder(service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER], old_sub.replace("\\", "/"))
-                new_sub = os.path.dirname(t_rel[len(WORKFLOWS_NS):])
                 new_nm = _stored_remote_name(t_rel)
-                new_fid = _ensure_workflow_folder(service, subfolder_ids[REMOTE_WORKFLOWS_FOLDER], new_sub.replace("\\", "/"))
                 f_id = _find_remote_file_in_folder(service, old_fid, old_nm)
                 t_full = _resolve_local_path(t_rel)
                 if f_id:

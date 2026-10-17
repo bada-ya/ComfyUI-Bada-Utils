@@ -320,18 +320,37 @@ def translate_prompt_to_english(text: str) -> str:
 
 # Register ComfyUI Server API for Translation Proxy
 try:
+    import asyncio
     import server
     from aiohttp import web
 
-    @server.PromptServer.instance.routes.post("/visual_grid_prompt/translate")
-    async def api_translate_prompt(request):
-        try:
-            data = await request.json()
-            text = data.get("text", "")
-            translated = translate_prompt_to_english(text)
-            return web.json_response({"translated": translated, "status": "success"})
-        except Exception as e:
-            return web.json_response({"translated": text, "error": str(e), "status": "error"})
+    if getattr(server.PromptServer, "instance", None) is not None:
+
+        @server.PromptServer.instance.routes.post("/visual_grid_prompt/translate")
+        async def api_translate_prompt(request):
+            # Parse the body first so `text` is always defined — previously a failed
+            # request.json() left it unbound and the except path raised NameError (500).
+            text = ""
+            try:
+                data = await request.json()
+                raw_text = data.get("text", "") if isinstance(data, dict) else ""
+                # Non-string input (number/object) would crash the translator with AttributeError.
+                text = str(raw_text) if raw_text is not None else ""
+            except Exception:
+                return web.json_response(
+                    {"translated": "", "error": "Invalid JSON body", "status": "error"}, status=400
+                )
+
+            try:
+                # translate_prompt_to_english() does blocking HTTP (up to ~12s across 4 endpoints).
+                # Running it inline would freeze the whole aiohttp event loop, so offload to a worker thread.
+                translated = await asyncio.to_thread(translate_prompt_to_english, text)
+                return web.json_response({"translated": translated, "status": "success"})
+            except Exception as e:
+                logger.warning(f"[Bada] visual_grid_prompt/translate failed: {e}")
+                return web.json_response(
+                    {"translated": text, "error": str(e), "status": "error"}, status=502
+                )
 except Exception as _ignored_err:
     logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
 
