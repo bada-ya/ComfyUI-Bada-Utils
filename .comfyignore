@@ -32,7 +32,7 @@ build/
 # 로컬 시크릿 (gitignore에도 동일)
 config.json
 credentials.json
-credentials_2.json
+credentials_pro.json
 token.json
 
 # 테스트/임시

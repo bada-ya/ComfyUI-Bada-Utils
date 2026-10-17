@@ -16,6 +16,13 @@ let detailRemoteSnapshot = null;
 let detailRemoteError = "";
 // expand state (name -> false means collapsed). Default expanded; paths prefilled from status.
 let detailExpanded = {};
+// ── 커스텀 폴더 섹션 상태 — 팝업 열 때 1회 조회 + 추가/제거 후 갱신 (1초 폴링과 분리). ──
+let customFolders = [];        // [{name, path, exists}]
+let customSyncEnabled = false; // 마스터 ON/OFF (custom_sync.enabled)
+let customCounts = {};         // name -> remote-counts target ({local_count, remote_count, remote_exists, local_path, remote_name})
+let customAddOpen = false;     // 인라인 추가 폼 표시 여부
+let customAddError = "";       // 인라인 검증 에러 (빨간 글씨)
+let customAddDraft = "";       // 입력 중 내용 보존 (재렌더링 시 복원)
 
 const MAX_NAME_LEN = 40;
 const truncName = (s) => {
@@ -54,6 +61,12 @@ export function openCloudDetailModal(files, lastSync) {
     detailRemoteSnapshot = null;
     detailRemoteError = "";
     detailExpanded = {};
+    customFolders = [];
+    customSyncEnabled = false;
+    customCounts = {};
+    customAddOpen = false;
+    customAddError = "";
+    customAddDraft = "";
     if (!detailModalEl) {
         detailModalEl = document.createElement("div");
         detailModalEl.id = "bada-cloud-detail-modal";
@@ -65,6 +78,8 @@ export function openCloudDetailModal(files, lastSync) {
     startDetailPoll();
     // 원격 개수+경로는 열 때 1회만 (API 1회, 1초 폴링과 분리).
     fetchRemoteSnapshot();
+    // 커스텀 폴더 목록 + 폴더별 개수도 동일하게 열 때 1회.
+    fetchCustomFolders();
     const onKeyDown = (e) => {
         if (e.key === "Escape") {
             e.stopPropagation();
@@ -299,6 +314,284 @@ async function callOpenDrive(name, btn) {
     }
     setTimeout(paintDetailFiles, 1600);
 }
+// 커스텀 폴더 목록 + 마스터 토글 조회 — 팝업 열 때 1회, 추가/제거 후 재호출.
+async function fetchCustomFolders() {
+    try {
+        const r = await fetch("/api/bada/cloud/custom-folders");
+        const s = await r.json();
+        if (s.success) {
+            customSyncEnabled = !!s.enabled;
+            customFolders = Array.isArray(s.folders) ? s.folders : [];
+        }
+    } catch (_) { /* 서버 미응답 — 빈 섹션 유지 */ }
+    paintDetailFiles();
+    // 폴더별 개수는 built-in과 동일한 점진적 패턴 (폴더당 1회, 열 때만).
+    for (const f of customFolders) fetchCustomCounts(f.name);
+}
+
+// 폴더별 로컬/원격 개수 — remote-counts?target=custom:<name> (조회 전용, 생성하지 않음).
+async function fetchCustomCounts(name) {
+    try {
+        const r = await fetch(`/api/bada/cloud/remote-counts?target=${encodeURIComponent("custom:" + name)}`);
+        const s = await r.json();
+        if (s.success && Array.isArray(s.targets)) {
+            for (const t of s.targets) {
+                customCounts[String(t.name || "").replace(/^custom:/, "")] = t;
+            }
+            paintDetailFiles();
+        }
+    } catch (_) {}
+}
+
+// 커스텀 폴더 섹션 렌더 — 내장 5개 섹션 아래에 추가 (동일 스타일 재사용).
+function paintCustomSection(body, isKo) {
+    const sec = document.createElement("div");
+    sec.style.cssText = "border-top:1px solid rgba(148,163,184,0.25); margin-top:8px; padding-top:10px;";
+
+    // 헤더: [📁 커스텀 폴더 (N개)]  ...  [마스터 토글] [+추가]
+    const header = document.createElement("div");
+    header.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:12px; line-height:1.9;";
+    const title = document.createElement("span");
+    title.textContent = isKo ? `📁 커스텀 폴더 (${customFolders.length}개)` : `📁 Custom folders (${customFolders.length})`;
+    title.style.cssText = "font-size:13px; font-weight:700; color:#e2e8f0;";
+    header.appendChild(title);
+
+    const rightCtl = document.createElement("div");
+    rightCtl.style.cssText = "display:flex; align-items:center; gap:10px; flex-shrink:0;";
+
+    // 마스터 토글 — .bada-cloud-switch/.bada-cloud-slider 재사용 (bada_core.js 전역 CSS).
+    const swLabel = document.createElement("label");
+    swLabel.className = "bada-cloud-switch";
+    swLabel.style.cssText = "margin:0; flex-shrink:0; cursor:pointer;";
+    const swInput = document.createElement("input");
+    swInput.type = "checkbox";
+    swInput.checked = customSyncEnabled;
+    swInput.title = isKo ? "커스텀 폴더 동기화 ON/OFF" : "Custom folder sync ON/OFF";
+    const swSpan = document.createElement("span");
+    swSpan.className = "bada-cloud-slider";
+    swLabel.appendChild(swInput);
+    swLabel.appendChild(swSpan);
+    // 마스터 토글 — 서버 영속화 (custom_sync.enabled), 실패 시 체크박스 되돌림.
+    swInput.addEventListener("change", async () => {
+        const next = swInput.checked;
+        try {
+            const r = await fetch("/api/bada/cloud/custom-sync-toggle", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ enabled: next }),
+            });
+            const s = await r.json();
+            if (s.success) {
+                customSyncEnabled = next;
+            } else {
+                swInput.checked = customSyncEnabled; // 실패 시 되돌림
+            }
+        } catch (_) {
+            swInput.checked = customSyncEnabled;
+        }
+    });
+    rightCtl.appendChild(swLabel);
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.style.cssText = "background:rgba(14,165,233,0.2); border:1px solid rgba(14,165,233,0.4); color:#e0f2fe; border-radius:6px; padding:3px 12px; font-size:12px; font-weight:700; cursor:pointer;";
+    addBtn.textContent = isKo ? "+ 추가" : "+ Add";
+    rightCtl.appendChild(addBtn);
+
+    header.appendChild(rightCtl);
+    sec.appendChild(header);
+
+    // 인라인 추가 폼 — [경로 입력][확인][✕] + 빨간 검증 에러 (팝업 없음).
+    if (customAddOpen) {
+        const form = document.createElement("div");
+        form.style.cssText = "display:flex; align-items:center; gap:8px; padding:6px 0 2px 4px;";
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = customAddDraft;
+        input.placeholder = isKo ? "로컬 폴더 경로 (예: D:\\ComfyUI\\user\\my-workflows)" : "Local folder path (e.g. D:\\ComfyUI\\user\\my-workflows)";
+        input.style.cssText = "flex:1; min-width:0; background:rgba(30,41,59,0.6); border:1px solid rgba(148,163,184,0.35); color:#e2e8f0; border-radius:6px; padding:5px 10px; font-size:12px;";
+        input.addEventListener("input", () => { customAddDraft = input.value; });
+
+        const okBtn = document.createElement("button");
+        okBtn.type = "button";
+        okBtn.style.cssText = "flex-shrink:0; background:rgba(34,197,94,0.2); border:1px solid rgba(34,197,94,0.5); color:#bbf7d0; border-radius:6px; padding:5px 14px; font-size:12px; font-weight:700; cursor:pointer;";
+        okBtn.textContent = isKo ? "확인" : "Add";
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.style.cssText = "flex-shrink:0; background:none; border:1px solid rgba(148,163,184,0.35); color:#94a3b8; border-radius:6px; padding:5px 10px; font-size:12px; cursor:pointer;";
+        cancelBtn.textContent = "✕";
+
+        const submitAdd = async () => {
+            if (okBtn.disabled) return;
+            okBtn.disabled = true;
+            try {
+                const r = await fetch("/api/bada/cloud/custom-folder-add", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: customAddDraft }),
+                });
+                const s = await r.json();
+                if (s.success) {
+                    customAddOpen = false;
+                    customAddError = "";
+                    customAddDraft = "";
+                    fetchCustomFolders(); // 목록 + 개수 갱신
+                } else {
+                    customAddError = s.error || (isKo ? "등록 실패" : "Failed to add");
+                    paintDetailFiles();
+                }
+            } catch (_) {
+                customAddError = isKo ? "서버 오류 — 다시 시도하세요" : "Server error — retry";
+                paintDetailFiles();
+            }
+        };
+        okBtn.addEventListener("click", submitAdd);
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submitAdd(); } });
+
+        cancelBtn.addEventListener("click", () => {
+            customAddOpen = false;
+            customAddError = "";
+            customAddDraft = "";
+            paintDetailFiles();
+        });
+
+        form.appendChild(input);
+        form.appendChild(okBtn);
+        form.appendChild(cancelBtn);
+        sec.appendChild(form);
+
+        if (customAddError) {
+            const errEl = document.createElement("div");
+            errEl.style.cssText = "padding:2px 4px; font-size:11px; color:#fca5a5;";
+            errEl.textContent = `⚠️ ${customAddError}`;
+            sec.appendChild(errEl);
+        }
+    } else {
+        addBtn.addEventListener("click", () => { customAddOpen = true; paintDetailFiles(); });
+    }
+
+    // 폴더가 없으면 점선 플레이스홀더 (클릭 = 추가 폼 표시).
+    if (!customFolders.length) {
+        const empty = document.createElement("div");
+        empty.style.cssText = "border:1px dashed rgba(148,163,184,0.35); border-radius:8px; padding:12px 14px; margin-top:8px; font-size:12px; color:#94a3b8; text-align:center; cursor:pointer;";
+        empty.textContent = isKo ? "아직 커스텀 폴더가 없습니다 — 클릭하여 폴더 추가" : "No custom folders yet — click to add one";
+        empty.addEventListener("click", () => { customAddOpen = true; paintDetailFiles(); });
+        sec.appendChild(empty);
+    }
+
+    for (const f of customFolders) {
+        const cnt = customCounts[f.name];
+        const mark = f.exists ? "✅" : "⚠️";
+        // 오른쪽: 로컬 개수 · 원격 개수/상태 (built-in workflows 패턴 재사용).
+        let rightTxt;
+        if (!f.exists) {
+            rightTxt = isKo ? "로컬 폴더 없음" : "folder missing locally";
+        } else if (cnt && typeof cnt.local_count === "number") {
+            const lc = `${isKo ? "로컬 " : "local "}${cnt.local_count}${isKo ? "개" : ""}`;
+            let rc;
+            if (typeof cnt.remote_count === "number") {
+                rc = `${isKo ? "원격 " : "remote "}${cnt.remote_count}${isKo ? "개" : ""}`;
+                const diff = cnt.local_count - cnt.remote_count;
+                if (diff > 0) rc += isKo ? ` (⏳ ${diff}개 차이)` : ` (⏳ ${diff} pending)`;
+                else if (diff < 0) rc += isKo ? ` (☁️ ${-diff}개 많음)` : ` (☁️ ${-diff} more)`;
+                else rc += " ✅";
+            } else {
+                rc = cnt.remote_exists ? (isKo ? "원격 있음" : "remote ✓") : (isKo ? "원격 없음" : "no remote");
+            }
+            rightTxt = `${lc} · ${rc}`;
+        } else {
+            rightTxt = isKo ? "확인 중…" : "checking…";
+        }
+
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "border-bottom:1px solid rgba(148,163,184,0.12); padding-top:6px; margin-top:6px;";
+
+        // 1행: ✅ 폴더명 ... 로컬 N개 · 원격 M개
+        const line = document.createElement("div");
+        line.style.cssText = "display:flex; justify-content:space-between; gap:12px; line-height:1.9; font-size:13px; color:#cbd5e1;";
+        const left = document.createElement("span");
+        left.textContent = `${mark} ${f.name}`;
+        left.title = f.path;
+        const rightEl = document.createElement("span");
+        rightEl.textContent = rightTxt;
+        rightEl.style.cssText = "color:#94a3b8; white-space:nowrap;";
+        line.appendChild(left);
+        line.appendChild(rightEl);
+        wrap.appendChild(line);
+
+        // 2행: 📁 로컬 경로 + [📂 로컬 열기] + [✕ 제거] (target=custom:<name>).
+        const l1 = document.createElement("div");
+        l1.style.cssText = "display:flex; align-items:center; gap:8px; padding-left:22px; font-size:11px; color:#64748b; line-height:1.7; word-break:break-all;";
+        const p1 = document.createElement("span");
+        p1.textContent = `📁 ${f.path}`;
+        p1.title = f.path;
+        l1.appendChild(p1);
+        if (f.exists) {
+            const openBtn = document.createElement("button");
+            openBtn.type = "button";
+            openBtn.style.cssText = "flex-shrink:0; background:rgba(34,197,94,0.15); border:1px solid rgba(34,197,94,0.4); color:#bbf7d0; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
+            openBtn.textContent = isKo ? "📂 로컬 열기" : "📂 Open local";
+            openBtn.title = f.path;
+            openBtn.addEventListener("click", (e) => { e.stopPropagation(); callOpenLocal(`custom:${f.name}`, openBtn); });
+            l1.appendChild(openBtn);
+        }
+        const rmBtn = document.createElement("button");
+        rmBtn.type = "button";
+        rmBtn.style.cssText = "flex-shrink:0; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
+        rmBtn.textContent = isKo ? "✕ 제거" : "✕ Remove";
+        rmBtn.title = isKo ? "등록 해제 (로컬·Drive 파일은 삭제되지 않음)" : "Unregister only — local & Drive files are kept";
+        rmBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            if (rmBtn.disabled) return;
+            rmBtn.disabled = true;
+            try {
+                const r = await fetch("/api/bada/cloud/custom-folder-remove", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name: f.name }),
+                });
+                const s = await r.json();
+                if (s.success) {
+                    rmBtn.textContent = isKo ? "✅ 제거됨" : "✅ Removed";
+                    delete customCounts[f.name];
+                    fetchCustomFolders(); // 목록 갱신
+                } else {
+                    rmBtn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+                    rmBtn.title = s.error || "";
+                    setTimeout(paintDetailFiles, 1600);
+                }
+            } catch (_) {
+                rmBtn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+                setTimeout(paintDetailFiles, 1600);
+            }
+        });
+        l1.appendChild(rmBtn);
+
+        // 3행: ☁️ Drive 경로 + [🔗 Drive 열기] (조회 전용 — 아직 동기화 전이면 서버가 실패로 응답).
+        const l2 = document.createElement("div");
+        l2.style.cssText = "display:flex; align-items:center; gap:8px; padding-left:22px; font-size:11px; color:#64748b; line-height:1.7; word-break:break-all;";
+        const rn = (cnt && cnt.remote_name) || `Custom/${f.name}/`;
+        const p2 = document.createElement("span");
+        p2.textContent = `☁️ Drive: ${rn}`;
+        p2.title = rn;
+        l2.appendChild(p2);
+        const driveBtn = document.createElement("button");
+        driveBtn.type = "button";
+        driveBtn.style.cssText = "flex-shrink:0; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#bae6fd; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
+        driveBtn.textContent = isKo ? "🔗 Drive 열기" : "🔗 Open Drive";
+        driveBtn.title = isKo ? "Google Drive 에서 해당 커스텀 폴더 열기 (아직 동기화 전이면 실패)" : "Open in Google Drive (fails if not synced yet)";
+        driveBtn.addEventListener("click", (e) => { e.stopPropagation(); callOpenDrive(`custom:${f.name}`, driveBtn); });
+        l2.appendChild(driveBtn);
+
+        wrap.appendChild(l1);
+        wrap.appendChild(l2);
+        sec.appendChild(wrap);
+    }
+
+    body.appendChild(sec);
+}
+
 function paintDetailFiles() {
     if (!detailModalEl) return;
     const isKo = (BadaI18n.lang === "ko");
@@ -428,6 +721,8 @@ function paintDetailFiles() {
         }
         body.appendChild(wrap);
     }
+    // 커스텀 폴더 섹션 — 내장 5개 섹션 아래에 추가 (동일 스타일 재사용).
+    paintCustomSection(body, isKo);
 }
 
 function renderDetailModal() {

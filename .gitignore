@@ -12,10 +12,14 @@ favorites_data.json
 *.bak
 
 # 🔐 Google OAuth 개인 인증 토큰 — 절대 배포 금지.
-# 구글 로그인 후 자동 생성되는 사용자 개인 토큰이다. 반면 credentials.json(OAuth
-# 클라이언트 ID)은 개발자가 의도적으로 배포한다 — 사용자는 이 파일을 내려받아
-# 구글 로그인 + 동의만 하면 클라우드 동기화를 쓸 수 있다. 토큰만은 차단.
+# 구글 로그인 후 자동 생성되는 사용자 개인 토큰이다.
+# (2026-10-17) credentials.json 파일은 폐지됨 — BASIC 클라이언트 설정이 코드에
+# 임베드되어(server/gdrive_sync.py _BASIC_CLIENT_CONFIG_B64) node.zip에도 존재하지 않는다.
+# 로컬에 남아 있는 옛 credentials.json이 실수로 커밋되는 것을 막기 위해 무시 목록에 추가.
 token.json
+credentials.json
+# Bada PRO 자격증명 (사용자 발급 OAuth 클라이언트).
+credentials_pro.json
 
 # 클라우드 동기화 로컬 상태/매니페스트 (개인 데이터, 배포 불필요).
 .gdrive_manifest.json

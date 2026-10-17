@@ -421,6 +421,15 @@ function buildCloudSyncRow() {
         syncing: "⏳ 동기화 중… (누르면 중단)",
         cancelling: "⏳ 중단 중…",
         detailBtn: "🔍 동기화 상세 보기",
+        proTitle: "👑 Bada PRO",
+        proGuideBtn: "📄 발급",
+        proGuideTip: "발급 방법 안내 열기 (새 탭)",
+        proHint: '원하는 파일·폴더를 <b style="color:#fbbf24">무료로</b>, 용량에 상관없이 동기화하세요<br>발급받은 JSON 파일을 드래그&드롭하면 PRO가 활성화됩니다',
+        proPickFile: "📎 파일 선택",
+        proActive: "👑 Bada PRO 활성화됨 ✓ · 무제한 용량",
+        proErrNotCred: "⚠️ PRO 자격증명이 아닙니다 (client_id 없음)",
+        proErrInvalid: "⚠️ 올바른 JSON 자격증명 파일이 아닙니다",
+        proErrSameAsBasic: "⚠️ 기본(BASIC) 자격증명과 동일합니다 — PRO 전용 파일을 올려주세요",
     };
     const textsEn = {
         title: "☁️ Cloud Sync (Google Drive)",
@@ -437,6 +446,15 @@ function buildCloudSyncRow() {
         syncing: "⏳ Syncing… (click to cancel)",
         cancelling: "⏳ Cancelling…",
         detailBtn: "🔍 View sync details",
+        proTitle: "👑 Bada PRO",
+        proGuideBtn: "📄 Get",
+        proGuideTip: "Open activation guide (new tab)",
+        proHint: 'Sync any files or folders you want — <b style="color:#fbbf24">free</b>, no capacity limits.<br>Drag &amp; drop your issued JSON file here to activate PRO.',
+        proPickFile: "📎 Choose file",
+        proActive: "👑 Bada PRO Active ✓ · Unlimited capacity",
+        proErrNotCred: "⚠️ Not a valid PRO credential (no client_id)",
+        proErrInvalid: "⚠️ Not a valid JSON credentials file",
+        proErrSameAsBasic: "⚠️ Same as the bundled BASIC credential — upload your own PRO file",
     };
 
     const t = () => (BadaI18n.lang === "ko" ? texts : textsEn);
@@ -544,6 +562,183 @@ function buildCloudSyncRow() {
     contentRow.appendChild(leftCol);
     contentRow.appendChild(rightCol);
     row.appendChild(contentRow);
+
+    // ── 3. Bada PRO Zone — 클라우드 동기화 섹션 하단 인셋 서브패널 (가로줄 없음, 한 섹션) ──
+    // 비활성 = 점선 골드 박스(DnD + 파일 선택), 활성 = 동일 슬롯의 채워진 스트립 (레이아웃 이동 0).
+    const proZone = document.createElement("div");
+    proZone.id = "bada-v2-cloudsync-pro-zone";
+    proZone.style.cssText = "width:100%; box-sizing:border-box; margin-top:4px; border-radius:8px; padding:9px 14px; min-height:56px; display:flex; align-items:center; justify-content:space-between; gap:12px; transition:all 0.2s ease;";
+
+    const proLeft = document.createElement("div");
+    proLeft.style.cssText = "display:flex; flex-direction:column; gap:3px; min-width:0;";
+
+    const proTitleEl = document.createElement("div");
+    proTitleEl.style.cssText = "font-size:12px; font-weight:700; color:#fbbf24; display:flex; align-items:center; gap:6px;";
+
+    const proTitleText = document.createElement("span");
+
+    // [발급 버튼] 가이드 페이지 열기 — GET /api/bada/cloud/pro/guide?lang=ko|en (self-contained HTML, 이미지 내장)
+    const proGuideBtn = document.createElement("button");
+    proGuideBtn.type = "button";
+    proGuideBtn.style.cssText = "background:transparent; border:1px solid rgba(245,158,11,0.35); color:#fbbf24; font-size:10px; font-weight:600; padding:2px 8px; border-radius:4px; cursor:pointer; flex-shrink:0; transition:all 0.15s ease;";
+    proGuideBtn.addEventListener("mouseenter", () => { proGuideBtn.style.background = "rgba(245,158,11,0.15)"; });
+    proGuideBtn.addEventListener("mouseleave", () => { proGuideBtn.style.background = "transparent"; });
+    proGuideBtn.addEventListener("click", () => {
+        const lang = (BadaI18n.lang === "en") ? "en" : "ko";
+        window.open("/api/bada/cloud/pro/guide?lang=" + lang, "_blank", "noopener");
+    });
+
+    proTitleEl.appendChild(proTitleText);
+    proTitleEl.appendChild(proGuideBtn);
+
+    const proHintEl = document.createElement("div");
+    proHintEl.style.cssText = "font-size:11px; color:#94a3b8; line-height:1.45; word-break:keep-all;";
+
+    proLeft.appendChild(proTitleEl);
+    proLeft.appendChild(proHintEl);
+
+    const proPickBtn = document.createElement("button");
+    proPickBtn.type = "button";
+    proPickBtn.style.cssText = "background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.45); color:#fbbf24; font-size:11px; font-weight:700; padding:6px 12px; border-radius:6px; cursor:pointer; flex-shrink:0; transition:all 0.15s ease;";
+    proPickBtn.addEventListener("mouseenter", () => { if (!proActive) proPickBtn.style.background = "rgba(245,158,11,0.25)"; });
+    proPickBtn.addEventListener("mouseleave", () => { proPickBtn.style.background = "rgba(245,158,11,0.12)"; });
+
+    const proFileInput = document.createElement("input");
+    proFileInput.type = "file";
+    proFileInput.accept = ".json,application/json";
+    proFileInput.style.cssText = "display:none;";
+
+    proZone.appendChild(proLeft);
+    proZone.appendChild(proPickBtn);
+    proZone.appendChild(proFileInput);
+    row.appendChild(proZone);
+
+    // ── PRO Zone 상태 관리 (비활성=점선 골드 / 활성=채워진 스트립 — 동일 슬롯, 레이아웃 이동 없음) ──
+    let proActive = false;
+
+    const setProZoneStyle = (active) => {
+        if (active) {
+            proZone.style.border = "1px solid rgba(245,158,11,0.7)";
+            proZone.style.background = "rgba(245,158,11,0.14)";
+        } else {
+            proZone.style.border = "1.5px dashed rgba(245,158,11,0.45)";
+            proZone.style.background = "rgba(245,158,11,0.06)";
+        }
+    };
+
+    const paintProZone = (active) => {
+        const T = t();
+        setProZoneStyle(active);
+        if (active) {
+            proTitleText.textContent = T.proActive;
+            proGuideBtn.style.display = "none";
+            proHintEl.style.display = "none";
+            proPickBtn.style.display = "none";
+            proFileInput.disabled = true;
+        } else {
+            proTitleText.textContent = T.proTitle;
+            proGuideBtn.style.display = "";
+            proGuideBtn.textContent = T.proGuideBtn;
+            proGuideBtn.title = T.proGuideTip;
+            setProHintHtml(T.proHint); // 무료 강조 포함 HTML (고정 문자열 — 사용자 입력 없음)
+            proPickBtn.style.display = "";
+            proPickBtn.textContent = T.proPickFile;
+            proFileInput.disabled = false;
+        }
+    };
+
+    const setProHintHtml = (html) => { proHintEl.innerHTML = html; };
+
+    let proErrorTimer = null;
+    const showProError = (msg) => {
+        if (!msg || proActive) return;
+        proHintEl.style.display = "";
+        proHintEl.textContent = msg;
+        proHintEl.style.color = "#f87171";
+        if (proErrorTimer) clearTimeout(proErrorTimer);
+        proErrorTimer = setTimeout(() => {
+            proHintEl.style.color = "";
+            setProHintHtml(t().proHint);
+        }, 4000);
+    };
+
+    const proActivateErrorMessage = (code) => {
+        const T = t();
+        switch (code) {
+            case "same_as_basic": return T.proErrSameAsBasic;
+            case "no_client_id": return T.proErrNotCred;
+            case "not_json": return T.proErrInvalid;
+            default: return code ? `⚠️ ${code}` : "";
+        }
+    };
+
+    const activateProFromFile = async (file) => {
+        if (!file || proActive) return;
+        try {
+            const fd = new FormData();
+            fd.append("file", file, file.name || "credentials_pro.json");
+            const res = await fetch("/api/bada/cloud/pro/activate", { method: "POST", body: fd });
+            const data = await res.json().catch(() => ({}));
+            if (data.success) {
+                proActive = true;
+                paintProZone(true);
+            } else {
+                showProError(proActivateErrorMessage(data.error));
+            }
+        } catch (err) {
+            const isKo = (BadaI18n.lang === "ko");
+            showProError(isKo ? `⚠️ 요청 실패: ${err}` : `⚠️ Request failed: ${err}`);
+        }
+    };
+
+    proPickBtn.addEventListener("click", () => { if (!proActive) proFileInput.click(); });
+    proFileInput.addEventListener("change", () => {
+        const f = proFileInput.files && proFileInput.files[0];
+        if (f) activateProFromFile(f);
+        proFileInput.value = ""; // 같은 파일 재선택 가능
+    });
+
+    // Drag & Drop — dragover 시 실선 보더로 강조, drop 시 활성화.
+    let proDragDepth = 0;
+    const onProDragEnter = (e) => {
+        e.preventDefault();
+        if (proActive) return;
+        proDragDepth++;
+        proZone.style.borderStyle = "solid";
+        proZone.style.borderColor = "rgba(245,158,11,0.9)";
+        proZone.style.background = "rgba(245,158,11,0.16)";
+    };
+    const onProDragLeave = (e) => {
+        e.preventDefault();
+        if (proActive) return;
+        proDragDepth = Math.max(0, proDragDepth - 1);
+        if (proDragDepth === 0) setProZoneStyle(false);
+    };
+    proZone.addEventListener("dragenter", onProDragEnter);
+    proZone.addEventListener("dragover", (e) => { e.preventDefault(); });
+    proZone.addEventListener("dragleave", onProDragLeave);
+    proZone.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        proDragDepth = 0;
+        if (proActive) return;
+        setProZoneStyle(false);
+        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f) await activateProFromFile(f);
+    });
+
+    // 초기 PRO 상태 — GET /api/bada/cloud/pro/status (비동기, fire-and-forget)
+    paintProZone(false);
+    const loadProStatus = async () => {
+        try {
+            const res = await fetch("/api/bada/cloud/pro/status");
+            const data = await res.json();
+            if (data.success) {
+                proActive = !!data.active;
+                paintProZone(proActive);
+            }
+        } catch (_) { /* 비활성 상태로 유지 */ }
+    };
+    loadProStatus();
 
     // ── Settings Fetch / Save ──
     const saveSettings = async (patch) => {
@@ -711,6 +906,7 @@ function buildCloudSyncRow() {
         startupOpt.span.textContent = T.optStartup;
         realtimeOpt.span.textContent = T.optRealtime;
         toggle.textContent = T.detailBtn;
+        paintProZone(proActive); // PRO 존 라벨도 현재 언어로 갱신
         setSyncUI(syncInProgress);
         renderStatus();
     };

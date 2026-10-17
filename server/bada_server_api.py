@@ -1913,6 +1913,96 @@ def register_cloud_routes():
                 logger.error(f"[ComfyUI-Bada-Utils] Cloud realtime sync error: {e}")
                 return web.json_response({"status": "error", "error": str(e)}, status=500)
 
+        async def cloud_pro_status_handler(request):
+            """GET /api/bada/cloud/pro/status — Bada PRO 활성화 상태 (가볍고 동기)."""
+            try:
+                return web.json_response({"success": True, **gdrive_sync.get_pro_status()})
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud pro-status error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def cloud_pro_activate_handler(request):
+            """POST /api/bada/cloud/pro/activate — PRO 자격증명 업로드 (multipart 파일)."""
+            try:
+                raw = None
+                reader = await request.multipart()
+                async for part in reader:
+                    if raw is None:
+                        raw = await part.read(decode=False)
+                if not raw:
+                    return web.json_response({"success": False, "error": "empty_upload"}, status=400)
+                result = await asyncio.to_thread(gdrive_sync.activate_pro_from_bytes, raw)
+                return web.json_response(result)
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud pro-activate error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def cloud_pro_guide_handler(request):
+            """GET /api/bada/cloud/pro/guide?lang=ko|en — PRO 활성화 가이드 페이지 (self-contained HTML, 이미지 내장)."""
+            lang = request.query.get("lang", "ko")
+            if lang not in ("ko", "en"):
+                lang = "ko"
+            candidates = [os.path.join(PARENT_DIR, "docs", f"PRO_ACTIVATION_GUIDE_{lang}.html")]
+            if lang != "ko":
+                candidates.append(os.path.join(PARENT_DIR, "docs", "PRO_ACTIVATION_GUIDE_ko.html"))  # fallback
+
+            def _read(path):
+                with open(path, "rb") as f:
+                    return f.read()
+
+            for path in candidates:
+                try:
+                    content = await asyncio.to_thread(_read, path)
+                    return web.Response(body=content, content_type="text/html", charset="utf-8")
+                except Exception:
+                    continue
+            logger.warning(f"[ComfyUI-Bada-Utils] PRO guide not found (lang={lang})")
+            return web.json_response({"success": False, "error": "guide_not_found"}, status=404)
+
+        async def cloud_custom_folders_handler(request):
+            """GET /api/bada/cloud/custom-folders — 등록 커스텀 폴더 목록 + 마스터 ON/OFF."""
+            try:
+                settings = gdrive_sync.get_gdrive_settings()
+                cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
+                return web.json_response({
+                    "success": True,
+                    "enabled": bool(cs.get("enabled", False)),
+                    "folders": gdrive_sync.get_custom_folders(),
+                })
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud custom-folders error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def cloud_custom_folder_add_handler(request):
+            """POST /api/bada/cloud/custom-folder-add — 커스텀 폴더 등록 (JSON {path})."""
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+            path = data.get("path", "") if isinstance(data, dict) else ""
+            result = await asyncio.to_thread(gdrive_sync.add_custom_folder, path)
+            return web.json_response(result)
+
+        async def cloud_custom_folder_remove_handler(request):
+            """POST /api/bada/cloud/custom-folder-remove — 커스텀 폴더 제거 (JSON {name})."""
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+            name = data.get("name", "") if isinstance(data, dict) else ""
+            result = await asyncio.to_thread(gdrive_sync.remove_custom_folder, name)
+            return web.json_response(result)
+
+        async def cloud_custom_sync_toggle_handler(request):
+            """POST /api/bada/cloud/custom-sync-toggle — 커스텀 폴더 동기화 마스터 ON/OFF (JSON {enabled})."""
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+            enabled = bool(data.get("enabled", False)) if isinstance(data, dict) else False
+            result = await asyncio.to_thread(gdrive_sync.set_custom_sync_enabled, enabled)
+            return web.json_response(result)
+
         routes.post("/api/bada/cloud/sync")(cloud_sync_handler)
         routes.post("/api/bada/cloud/realtime_sync")(cloud_realtime_sync_handler)
         routes.get("/api/bada/cloud/status")(cloud_status_handler)
@@ -1922,6 +2012,13 @@ def register_cloud_routes():
         routes.post("/api/bada/cloud/open-drive")(cloud_open_drive_handler)
         routes.get("/api/bada/cloud/settings")(cloud_settings_get_handler)
         routes.post("/api/bada/cloud/settings")(cloud_settings_post_handler)
+        routes.get("/api/bada/cloud/pro/status")(cloud_pro_status_handler)
+        routes.post("/api/bada/cloud/pro/activate")(cloud_pro_activate_handler)
+        routes.get("/api/bada/cloud/pro/guide")(cloud_pro_guide_handler)
+        routes.get("/api/bada/cloud/custom-folders")(cloud_custom_folders_handler)
+        routes.post("/api/bada/cloud/custom-folder-add")(cloud_custom_folder_add_handler)
+        routes.post("/api/bada/cloud/custom-folder-remove")(cloud_custom_folder_remove_handler)
+        routes.post("/api/bada/cloud/custom-sync-toggle")(cloud_custom_sync_toggle_handler)
 
         logger.info("[ComfyUI-Bada-Utils] Cloud Sync (Google Drive) routes registered ☁️")
 

@@ -36,6 +36,7 @@
 
 
 import os
+import base64
 import io
 import json
 import time
@@ -90,9 +91,34 @@ MANIFEST_FILE_NAME = 'manifest.json'
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 
-CREDENTIALS_PATH = os.path.join(PARENT_DIR, 'credentials.json')
 TOKEN_PATH = os.path.join(PARENT_DIR, 'token.json')
 GDRIVE_SETTINGS_PATH = os.path.join(PARENT_DIR, '.gdrive_settings.json')
+
+# ── BASIC OAuth 클라이언트 설정 — 코드 내장 (Method A) ────────────────────────
+# node.zip 에 credentials.json 파일을 포함하지 않는다. 런타임에 base64 문자열을
+# 디코드해 dict 로 직접 전달(InstalledAppFlow.from_client_config)하므로 사용자
+# 수동 절차(다운로드·이름변경·복사)가 전혀 없다.
+_BASIC_CLIENT_CONFIG_B64 = "eyJpbnN0YWxsZWQiOnsiY2xpZW50X2lkIjoiOTM2OTQwMzA2OTc3LWgyc3RqbjVtZXI4dHZkbnZidXVpODVuaW8xcjVuNmtvLmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29tIiwicHJvamVjdF9pZCI6ImFic3RyYWN0LXN1bnNldC01MTA5MDYtYTAiLCJhdXRoX3VyaSI6Imh0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbS9vL29hdXRoMi9hdXRoIiwidG9rZW5fdXJpIjoiaHR0cHM6Ly9vYXV0aDIuZ29vZ2xlYXBpcy5jb20vdG9rZW4iLCJhdXRoX3Byb3ZpZGVyX3g1MDlfY2VydF91cmwiOiJodHRwczovL3d3dy5nb29nbGVhcGlzLmNvbS9vYXV0aDIvdjEvY2VydHMiLCJjbGllbnRfc2VjcmV0IjoiR09DU1BYLW02enV3eE50VnNxRWJ4X1hkY0sxa3QxWjE4U3IiLCJyZWRpcmVjdF91cmlzIjpbImh0dHA6Ly9sb2NhbGhvc3QiXX19"
+
+
+def _basic_client_config() -> dict:
+    """BASIC OAuth 클라이언트 설정 (임베드 문자열 디코드)."""
+    return json.loads(base64.b64decode(_BASIC_CLIENT_CONFIG_B64).decode('utf-8-sig'))
+
+
+def _basic_client_id() -> str:
+    """BASIC client_id — PRO same_as_basic 검증에 사용."""
+    try:
+        cfg = _basic_client_config()
+    except Exception:
+        return ""
+    if not isinstance(cfg, dict):
+        return ""
+    inst = cfg.get("installed") or {}
+    cid = inst.get("client_id") if isinstance(inst, dict) else None
+    if not cid:
+        cid = cfg.get("client_id", "")
+    return cid or ""
 
 # 동기화 대상 파일명 (커스텀 노드 루트 기준). 워크플로우 디렉터리와 무관하게 고정.
 # engines_registry.json 은 Gemini/Prompt Generator 의 사용자 시스템 프롬프트를 담는
@@ -274,13 +300,6 @@ def get_gdrive_status():
             "message": "google-api-python-client is required.",
         }
 
-    if not os.path.exists(CREDENTIALS_PATH) and not os.path.exists(TOKEN_PATH):
-        return {
-            "status": "missing_credentials",
-            "authorized": False,
-            "message": "credentials.json file is missing.",
-        }
-
     if os.path.exists(TOKEN_PATH):
         try:
             creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
@@ -327,10 +346,8 @@ def get_drive_service():
                 creds = None
 
         if not creds:
-            if not os.path.exists(CREDENTIALS_PATH):
-                return None, "credentials.json file is missing in the parent folder."
             try:
-                flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_PATH, SCOPES)
+                flow = InstalledAppFlow.from_client_config(_basic_client_config(), SCOPES)
                 creds = flow.run_local_server(port=0)
                 with open(TOKEN_PATH, 'w', encoding='utf-8') as token_file:
                     token_file.write(creds.to_json())
@@ -1955,6 +1972,37 @@ def get_remote_counts_snapshot(target: str = None):
             _apply_path_prefill([t])
             return {"success": True, "targets": [t]}
 
+        elif target.startswith("custom:"):
+            # 커스텀 폴더 — Drive 에는 <루트>/Custom/<폴더명>/ 으로 미러 (조회 전용).
+            folder_name = target.split(":", 1)[1].strip()
+            reg = _get_registered_custom_folder(folder_name)
+            if not reg or not os.path.isdir(reg["path"]):
+                return {"success": False, "error": f"Unknown custom target: {target}", "targets": []}
+
+            local_count = _count_local_files(reg["path"])
+            remote_exists = False
+            remote_count = None
+            try:
+                custom_root_id = _find_remote_folder_by_name(service, CUSTOM_REMOTE_ROOT, parent_id=root_id)
+                if custom_root_id:
+                    folder_id = _find_remote_folder_by_name(service, reg["name"], parent_id=custom_root_id)
+                    if folder_id:
+                        remote_exists = True
+                        remote_count = _count_remote_folder_tree(service, folder_id)
+            except Exception as e:  # noqa: BLE001 — 원격 확인 실패는 로컬 개수만 반환.
+                logger.warning(f"[GDrive] custom remote count failed ({folder_name}): {e}")
+
+            t = {
+                "name": target,
+                "local_path": reg["path"],
+                "remote_name": f"{CUSTOM_REMOTE_ROOT}/{reg['name']}/",
+                "local_count": local_count,
+                "remote_count": remote_count if remote_exists else None,
+                "remote_exists": remote_exists,
+                "kind": "custom",
+            }
+            return {"success": True, "targets": [t]}
+
     # -----------------------------------------------------------------
     # B. 전체 TARGET 요청 (기존 모드 호환 + mtime 최적화)
     # -----------------------------------------------------------------
@@ -2145,6 +2193,261 @@ def _bring_explorer_to_front(target_path):
         logger.debug(f"[GDrive] focus attempt failed (harmless): {e}")
 
 
+# =============================================================================
+# Bada PRO 활성화 + 커스텀 폴더 관리 (Phase 1)
+# -----------------------------------------------------------------------------
+# - PRO: credentials_pro.json 이 존재하고 그 client_id 가 번들 BASIC 과 다르면 활성.
+#   동기화 엔진 자체는 이 단계에서 변경 없음 — PRO 는 자격증명 슬롯이다.
+# - 커스텀 폴더: 사용자가 지정한 로컬 디렉터리(ComfyUI 루트 내부만)를 설정 필드
+#   custom_sync {enabled, folders:[{name,path}]} 에 등록하고, Drive 에는
+#   <루트>/Custom/<폴더명>/ 으로 미러한다. 이 단계는 관리+열기+개수 표시까지 —
+#   3-way 동기화 엔진 연동은 차세대 작업.
+# =============================================================================
+
+PRO_CREDENTIALS_PATH = os.path.join(PARENT_DIR, 'credentials_pro.json')
+CUSTOM_REMOTE_ROOT = "Custom"
+_CUSTOM_FOLDER_RESERVED_NAMES = {
+    "custom", "presets", "favorites", "geminichat", "systemprompts", "workflows",
+}
+_MAX_CUSTOM_FOLDERS = 10
+
+
+def _extract_oauth_client_id(cred_data) -> str:
+    """OAuth 자격증명 JSON 에서 client_id 추출 (installed/web 섹션 또는 최상위)."""
+    if not isinstance(cred_data, dict):
+        return ""
+    for key in ("installed", "web"):
+        section = cred_data.get(key)
+        if isinstance(section, dict) and isinstance(section.get("client_id"), str):
+            return section["client_id"]
+    if isinstance(cred_data.get("client_id"), str):
+        return cred_data["client_id"]
+    return ""
+
+
+def get_pro_status() -> dict:
+    """Bada PRO 활성화 상태 — credentials_pro.json 존재 + client_id 가 번들 BASIC 과 다름.
+
+    반환: {"active": bool, "reason": "no_file|invalid_json|no_client_id|same_as_basic|ok"}
+    """
+    if not os.path.exists(PRO_CREDENTIALS_PATH):
+        return {"active": False, "reason": "no_file"}
+    try:
+        with open(PRO_CREDENTIALS_PATH, 'r', encoding='utf-8-sig') as f:
+            pro = json.load(f)
+    except Exception:
+        return {"active": False, "reason": "invalid_json"}
+    pro_cid = _extract_oauth_client_id(pro)
+    if not pro_cid:
+        return {"active": False, "reason": "no_client_id"}
+    basic_cid = _basic_client_id()
+    if basic_cid and pro_cid == basic_cid:
+        return {"active": False, "reason": "same_as_basic"}
+    return {"active": True, "reason": "ok"}
+
+
+def activate_pro_from_bytes(raw) -> dict:
+    """업로드된 PRO 자격증명을 검증하고 credentials_pro.json 으로 저장 (덮어쓰기).
+
+    검증 순서: JSON 파싱 → 객체 타입 → client_id 존재 → 번들 BASIC 과 상이.
+    반환: {"success": bool, "error"?: "not_json|no_client_id|same_as_basic|save_failed"}
+    """
+    try:
+        data = json.loads(raw.decode('utf-8-sig'))
+    except Exception:
+        return {"success": False, "error": "not_json"}
+    if not isinstance(data, dict):
+        return {"success": False, "error": "not_json"}
+    cid = _extract_oauth_client_id(data)
+    if not cid:
+        return {"success": False, "error": "no_client_id"}
+    basic_cid = _basic_client_id()
+    if basic_cid and basic_cid == cid:
+        return {"success": False, "error": "same_as_basic"}
+    try:
+        with open(PRO_CREDENTIALS_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"[GDrive] PRO 자격증명 저장 실패: {e}")
+        return {"success": False, "error": "save_failed"}
+    logger.info("[GDrive] Bada PRO 활성화됨 (credentials_pro.json 저장)")
+    return {"success": True}
+
+
+# -----------------------------------------------------------------------------
+# 커스텀 폴더 관리 — 설정 필드 custom_sync {enabled, folders:[{name,path}]}
+# 보안: 클라이언트는 경로/이름만 보내고, 포함 검증은 서버가 realpath + commonpath 로 수행.
+# (open_local_target 의 화이트리스트 설계와 동일한 패턴)
+# -----------------------------------------------------------------------------
+
+def _resolve_comfyui_root() -> str:
+    """ComfyUI 루트 디렉터리 (user/ 한 단계 위). folder_paths 미사용 시 3단계 상위 폴백."""
+    try:
+        import folder_paths
+        return os.path.realpath(os.path.dirname(folder_paths.get_user_directory()))
+    except Exception:
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        return os.path.realpath(base_dir)
+
+
+def _is_within_comfyui_root(target_path: str) -> bool:
+    """target 이 ComfyUI 루트 내부인지 확인 (realpath + commonpath — .. 트래버설 차단)."""
+    root = _resolve_comfyui_root()
+    t = os.path.realpath(os.path.abspath(target_path))
+    if os.name == "nt":  # Windows 는 대소문자 무시 비교
+        r, t2 = root.lower(), t.lower()
+    else:
+        r, t2 = root, t
+    try:
+        return os.path.commonpath([r, t2]) == r and t2 != r
+    except ValueError:
+        return False  # 다른 드라이브 / 유효하지 않은 조합
+
+
+def _validate_custom_folder_name(name: str):
+    """폴더명 검증 — 문제 있으면 에러 메시지, 없으면 None."""
+    if not name or len(name) > 64:
+        return "폴더명은 1~64자여야 합니다"
+    if any(ch in name for ch in '\\/:*?"<>|') or name in (".", ".."):
+        return "잘못된 폴더명입니다"
+    if name.lower() in _CUSTOM_FOLDER_RESERVED_NAMES:
+        return f"'{name}' 은(는) 예약 이름입니다"
+    return None
+
+
+def get_custom_folders() -> list:
+    """등록된 커스텀 폴더 목록 — [{name, path, exists}]."""
+    settings = get_gdrive_settings()
+    cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
+    raw = cs.get("folders")
+    out = []
+    for item in (raw if isinstance(raw, list) else []):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        path = str(item.get("path", "")).strip()
+        if not name or not path:
+            continue
+        out.append({"name": name, "path": path, "exists": os.path.isdir(path)})
+    return out
+
+
+def _get_registered_custom_folder(name) -> dict:
+    """이름으로 등록된 커스텀 폴더 조회 (미등록이면 None)."""
+    for f in get_custom_folders():
+        if f["name"] == str(name or "").strip():
+            return f
+    return None
+
+
+def add_custom_folder(local_path) -> dict:
+    """커스텀 폴더 등록 — ComfyUI 루트 포함 + 디렉터리 존재 + 이름 검증.
+
+    반환: {"success": bool, "error"?: str, "name"?, "path"?}
+    """
+    p = str(local_path or "").strip().strip('"')
+    if not p:
+        return {"success": False, "error": "경로가 비어 있습니다"}
+    if not _is_within_comfyui_root(p):
+        return {"success": False, "error": "ComfyUI 루트 내부 경로만 가능합니다"}
+    target = os.path.realpath(os.path.abspath(p))
+    if not os.path.isdir(target):
+        return {"success": False, "error": "폴더가 아니거나 존재하지 않습니다"}
+    name = os.path.basename(target.rstrip("\\/"))
+    err = _validate_custom_folder_name(name)
+    if err:
+        return {"success": False, "error": err}
+    for f in get_custom_folders():
+        try:
+            same_path = os.path.realpath(f["path"]) == target
+        except Exception:
+            same_path = False
+        if f["name"] == name or same_path:
+            return {"success": False, "error": "이미 등록된 폴더입니다"}
+    settings = get_gdrive_settings()
+    cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
+    folders = [f for f in (cs.get("folders") or []) if isinstance(f, dict)]
+    if len(folders) >= _MAX_CUSTOM_FOLDERS:
+        return {"success": False, "error": f"커스텀 폴더는 최대 {_MAX_CUSTOM_FOLDERS}개까지 가능합니다"}
+    folders.append({"name": name, "path": target})
+    cs["folders"] = folders
+    set_gdrive_settings({"custom_sync": cs})
+    logger.info(f"[GDrive] 커스텀 폴더 등록: {name} → {target}")
+    return {"success": True, "name": name, "path": target}
+
+
+def remove_custom_folder(name) -> dict:
+    """커스텀 폴더 제거 (로컬 파일은 삭제하지 않음)."""
+    n = str(name or "").strip()
+    settings = get_gdrive_settings()
+    cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
+    folders_raw = cs.get("folders") or []
+    kept, removed = [], False
+    for f in folders_raw:
+        if isinstance(f, dict) and str(f.get("name", "")).strip() == n:
+            removed = True
+        else:
+            kept.append(f)
+    if not removed:
+        return {"success": False, "error": "등록된 폴더가 아닙니다"}
+    cs["folders"] = kept
+    set_gdrive_settings({"custom_sync": cs})
+    logger.info(f"[GDrive] 커스텀 폴더 해제: {n}")
+    return {"success": True}
+
+
+def set_custom_sync_enabled(enabled) -> dict:
+    """커스텀 폴더 동기화 마스터 ON/OFF (설정 영속)."""
+    settings = get_gdrive_settings()
+    cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
+    cs["enabled"] = bool(enabled)
+    set_gdrive_settings({"custom_sync": cs})
+    return {"success": True, "enabled": bool(enabled)}
+
+
+def _count_local_files(folder_path: str):
+    """로컬 폴더 재귀 파일 수 (동기화 상태 파일·__pycache__ 제외)."""
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(folder_path):
+        dirnames[:] = [d for d in dirnames if d not in WORKFLOW_EXCLUDE_DIRS]
+        total += len(filenames)
+    return total
+
+
+def _count_remote_folder_tree(service, folder_id: str) -> int:
+    """Drive 폴더 재귀 파일 수 (BFS — 안전 캡 100 폴더 / 32 레벨)."""
+    total = 0
+    current_level = [folder_id]
+    visited_folders = 0
+    for _ in range(32):
+        if not current_level:
+            break
+        next_level = []
+        for fid in current_level:
+            if visited_folders >= 100:
+                return total
+            visited_folders += 1
+            page_token = None
+            while True:
+                req = service.files().list(
+                    q=f"'{fid}' in parents and trashed = false",
+                    fields="nextPageToken, files(id, name, mimeType)"
+                )
+                if page_token:
+                    req["pageToken"] = page_token
+                res = req.execute()
+                for item in res.get("files", []):
+                    if item.get("mimeType") == "application/vnd.google-apps.folder":
+                        next_level.append(item["id"])
+                    else:
+                        total += 1
+                page_token = res.get("nextPageToken")
+                if not page_token:
+                    break
+        current_level = next_level
+    return total
+
+
 def open_local_target(target_name):
     """
     Web UI "로컬 열기" 액션 — 대상 이름에 해당하는 로컬 *폴더*를 탐색기로 연다 (파일 자체는 실행하지 않음).
@@ -2165,13 +2468,20 @@ def open_local_target(target_name):
             full_path = _resolve_workflows_root()
         elif name in SYNC_TARGET_FILES:
             full_path = _resolve_local_path(f".configs/{name}")
+        elif name.startswith("custom:"):
+            # 커스텀 폴더 — 등록 정보(설정)로만 해석, 임의 경로 불가.
+            folder_name = name.split(":", 1)[1].strip()
+            reg = _get_registered_custom_folder(folder_name)
+            if not reg or not os.path.isdir(reg["path"]):
+                return {"success": False, "error": f"Unknown custom target: {name}"}
+            full_path = reg["path"]
         else:
             return {"success": False, "error": f"Unknown target: {name}"}
     except ValueError as e:
         return {"success": False, "error": str(e)}
 
     if not os.path.exists(full_path):
-        kind = "folder" if name == "workflows" else "file"
+        kind = "folder" if (name == "workflows" or name.startswith("custom:")) else "file"
         return {
             "success": False,
             "path": full_path,
@@ -2230,7 +2540,8 @@ def open_drive_target(target_name):
     반환: {"success": bool, "url": str, "kind": "folder", "error": str}
     """
     name = str(target_name or "").strip()
-    if name != "workflows" and name not in SYNC_TARGET_FILES:
+    is_custom = name.startswith("custom:")
+    if not is_custom and name != "workflows" and name not in SYNC_TARGET_FILES:
         return {"success": False, "error": f"Unknown target: {name}"}
 
     try:
@@ -2242,6 +2553,22 @@ def open_drive_target(target_name):
         root_id = _find_remote_folder_by_name(service, FOLDER_NAME)
         if not root_id:
             return {"success": False, "error": "Drive 에 동기화 폴더가 없습니다 (먼저 동기화하세요)"}
+
+        if is_custom:
+            # 커스텀 폴더 — <루트>/Custom/<폴더명> 조회 전용 (없으면 실패, 생성하지 않음).
+            folder_name = name.split(":", 1)[1].strip()
+            reg = _get_registered_custom_folder(folder_name)
+            if not reg:
+                return {"success": False, "error": f"Unknown custom target: {name}"}
+            custom_root_id = _find_remote_folder_by_name(service, CUSTOM_REMOTE_ROOT, parent_id=root_id)
+            if not custom_root_id:
+                return {"success": False, "error": "'Custom' 폴더가 Drive 에 아직 없습니다 (동기화 후 이용하세요)"}
+            folder_id = _find_remote_folder_by_name(service, reg["name"], parent_id=custom_root_id)
+            if not folder_id:
+                return {"success": False, "error": f"'{reg['name']}' 폴더가 Drive 에 아직 없습니다 (동기화 후 이용하세요)"}
+            url = f"https://drive.google.com/drive/folders/{folder_id}"
+            logger.info(f"[GDrive] drive target resolved: {name} → {url}")
+            return {"success": True, "kind": "folder", "url": url}
 
         if name == "workflows":
             folder_id = _find_remote_folder_by_name(service, REMOTE_WORKFLOWS_FOLDER, parent_id=root_id)
