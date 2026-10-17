@@ -44,7 +44,17 @@ FAVORITES_FILE = os.path.join(PARENT_DIR, "favorites_data.json")
 def get_workflows_root_dir():
     """
     Returns the absolute real path to ComfyUI's user workflows directory (resolving NTFS junctions/symlinks).
+
+    Delegates to gdrive_sync._resolve_workflows_root() — single source of truth for the
+    candidate order. The inline fallback below only runs when that module is unavailable
+    (old distributions without Cloud Sync dependencies).
     """
+    try:
+        from .gdrive_sync import _resolve_workflows_root
+        return _resolve_workflows_root()
+    except Exception:
+        pass
+
     try:
         user_dir = folder_paths.get_user_directory()
     except Exception:

@@ -638,14 +638,6 @@ class BadaRegionalPrompt:
         return (full_output,)
 
 
-VisualGridPromptNode = BadaRegionalPrompt
-
-NODE_CLASS_MAPPINGS = {
-    "BadaRegionalPrompt": BadaRegionalPrompt,
-    "VisualGridPromptNode": VisualGridPromptNode
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "BadaRegionalPrompt": "⚓ Bada Visual Regional Prompt",
-    "VisualGridPromptNode": "📐 Visual Grid Regional Prompt (Legacy)"
-}
+# NOTE: node registration lives ONLY in nodes/__init__.py (package-root mappings —
+# what ComfyUI actually loads). The legacy `VisualGridPromptNode` alias is mapped there.
+# A module-level copy of the mappings used to exist here but was dead code.

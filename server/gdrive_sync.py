@@ -553,6 +553,39 @@ def _iter_workflow_rel_paths():
             yield f"{WORKFLOWS_NS}{rel}"
 
 
+def _cleanup_orphaned_backups():
+    """
+    _download_single_file() 가 남긴 고아 .bak 파일을 정리한다.
+
+    다운로드 경로는 덮어쓰기 직전에 <file>.json.bak 을 로컬 파일 옆에 쓴다 (사용자 내용 보호).
+    그 백업은 기반 파일이 존재하는 동안만 의미가 있다 — 워크플로우가 로컬에서 삭제되면
+    .bak 은 영구 디스크 클러터가 된다. 매 동기화 때 workflows 루트를 훑어 기반 파일이
+    더 이상 없는 *.bak 만 삭제한다. (살아있는 <file>.json.bak 은 그대로 유지.)
+    """
+    try:
+        root = _resolve_workflows_root()
+    except Exception:
+        return 0
+    removed = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in WORKFLOW_EXCLUDE_DIRS]
+        for name in filenames:
+            if not name.lower().endswith(".bak"):
+                continue
+            bak_path = os.path.join(dirpath, name)
+            base_path = bak_path[:-4]  # strip ".bak"
+            if os.path.exists(base_path):
+                continue  # live backup — that file's safety net, keep it.
+            try:
+                os.remove(bak_path)
+                removed += 1
+            except Exception as e:
+                logger.debug(f"[GDrive] orphan .bak cleanup failed {bak_path}: {e}")
+    if removed:
+        logger.info(f"[GDrive] Removed {removed} orphaned .bak backup(s) from the workflows folder.")
+    return removed
+
+
 def _iter_custom_rel_paths():
     """
     등록 커스텀 대상의 상대경로 (`custom/<name>[/<subpath>]`) 를 yield.
@@ -608,6 +641,7 @@ def build_local_manifest():
     SHA256 해시는 계산하지 않는다. 판단 기준은 modifiedTime(mtime) 뿐이므로
     349개 파일을 전부 읽어 해시를 만드는 비용이 사라져 로컬 스캔이 빨라진다.
     """
+    _cleanup_orphaned_backups()
     manifest = {}
 
     for rel_path in (get_target_rel_paths()
@@ -2121,62 +2155,68 @@ def _ensure_custom_watcher():
         logger.info("[GDrive] Custom target watcher started (5s poll).")
 
 
+def _parse_content_count_from_json(fname, data):
+    """
+    이미 로드된 개인 데이터 JSON의 '내용 갯수'를 센다 — 파일별 분기 단일 소스.
+    (로컬 파일과 원격 다운로드 양쪽이 이 함수를 공유한다.)
+
+    파일마다 구조가 다르므로 파일명으로 분기한다. 형태 미지/불일치 시 None.
+      - favorites_data.json      : 최상단 배열 → len / {"favorites":[...]} → len
+      - gemini_chat_history.json : {"chats":[...]} → len(chats)
+      - engines_registry.json    : user_prompts + gemini_prompts 배열 길이 합
+      - presets_data.json        : {노드타입:{프리셋명:{...}}} → 모든 리프 프리셋 합
+    """
+    if fname == "favorites_data.json":
+        if isinstance(data, list):
+            return len(data)
+        if isinstance(data, dict) and isinstance(data.get("favorites"), list):
+            return len(data["favorites"])
+        return None
+
+    if fname == "gemini_chat_history.json":
+        if isinstance(data, dict) and isinstance(data.get("chats"), list):
+            return len(data["chats"])
+        return None
+
+    if fname == "engines_registry.json":
+        if not isinstance(data, dict):
+            return None
+        up = data.get("user_prompts")
+        gp = data.get("gemini_prompts")
+        total = 0
+        if isinstance(up, list):
+            total += len(up)
+        if isinstance(gp, list):
+            total += len(gp)
+        return total
+
+    if fname == "presets_data.json":
+        # {노드타입: {프리셋명: {...}}} 또는 {노드타입: [프리셋...]}
+        if not isinstance(data, dict):
+            return None
+        total = 0
+        for node_val in data.values():
+            if isinstance(node_val, (dict, list)):
+                total += len(node_val)
+        return total
+    return None
+
+
 def _count_config_items(filename, full_path):
     """
     개인 데이터 파일의 '내용 갯수'를 센다. 설정창에서 "N개"로 보여주기 위함.
     실패/미존재 시 None (프론트에서 갯수 자리를 비운다).
-
-    파일마다 구조가 다르므로 파일명으로 분기한다.
-      - favorites_data.json      : 최상단 배열 → len
-      - gemini_chat_history.json : {"chats":[...]} → len(chats)
-      - engines_registry.json    : user_prompts + gemini_prompts 배열 길이 합
-      - presets_data.json        : {노드타입:{프리셋명:{...}}} → 모든 리프 프리셋 합
+    분기 로직은 _parse_content_count_from_json() 단일 소스 — 이 함수는 파일 로드만 담당한다.
     """
     try:
         with open(full_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
         return None
-
     try:
-        if filename == "favorites_data.json":
-            if isinstance(data, list):
-                return len(data)
-            if isinstance(data, dict) and isinstance(data.get("favorites"), list):
-                return len(data["favorites"])
-            return None
-
-        if filename == "gemini_chat_history.json":
-            if isinstance(data, dict) and isinstance(data.get("chats"), list):
-                return len(data["chats"])
-            return None
-
-        if filename == "engines_registry.json":
-            if not isinstance(data, dict):
-                return None
-            up = data.get("user_prompts")
-            gp = data.get("gemini_prompts")
-            total = 0
-            if isinstance(up, list):
-                total += len(up)
-            if isinstance(gp, list):
-                total += len(gp)
-            return total
-
-        if filename == "presets_data.json":
-            # {노드타입: {프리셋명: {...}}} 또는 {노드타입: [프리셋...]}
-            if not isinstance(data, dict):
-                return None
-            total = 0
-            for node_val in data.values():
-                if isinstance(node_val, dict):
-                    total += len(node_val)
-                elif isinstance(node_val, list):
-                    total += len(node_val)
-            return total
+        return _parse_content_count_from_json(filename, data)
     except Exception:
         return None
-    return None
 
 
 def get_sync_file_details():
@@ -2289,32 +2329,8 @@ def get_remote_counts_snapshot(target: str = None):
         logger.warning(f"[GDrive] get_remote_counts_snapshot folder error: {e}")
         return {"success": False, "error": str(e), "targets": []}
 
-    def _parse_content_count_from_json(fname, data):
-        if fname == "favorites_data.json":
-            if isinstance(data, list):
-                return len(data)
-            if isinstance(data, dict) and isinstance(data.get("favorites"), list):
-                return len(data["favorites"])
-            return None
-        if fname == "gemini_chat_history.json":
-            if isinstance(data, dict) and isinstance(data.get("chats"), list):
-                return len(data["chats"])
-            return None
-        if fname == "engines_registry.json":
-            if not isinstance(data, dict):
-                return None
-            up = data.get("user_prompts")
-            gp = data.get("gemini_prompts")
-            return (len(up) if isinstance(up, list) else 0) + (len(gp) if isinstance(gp, list) else 0)
-        if fname == "presets_data.json":
-            if not isinstance(data, dict):
-                return None
-            total = 0
-            for node_val in data.values():
-                if isinstance(node_val, (dict, list)):
-                    total += len(node_val)
-            return total
-        return None
+    # NOTE: content counting is single-sourced in the module-level
+    # _parse_content_count_from_json() (shared with local-file counting).
 
     def _count_remote_config_by_id(file_id, fname):
         try:
