@@ -26,6 +26,9 @@ credentials_pro.json
 .gdrive_sync_state.json
 .gdrive_settings.json
 .gdrive_snapshot.json
+# 커스텀 동기화 대상 레지스트리 — 설치 환경별 개인 등록 정보.
+# Drive 로 동기화되는 파일이라 git 에 커밋되면 타인의 등록 정보가 새어 나간다.
+custom_targets.json
 
 # 🔞 제미나이 채팅 기록 — 개인 데이터.
 # 사용자가 만든 프롬프트와 이미지가 base64로 들어 있으므로 저장소에 커밋되면

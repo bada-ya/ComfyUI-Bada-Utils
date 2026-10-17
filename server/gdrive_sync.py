@@ -9,8 +9,9 @@
 
   B. `workflows/*` (ComfyUI 사용자 워크플로우 폴더, .json 재귀)
 
-  C. `custom/<name>[/<subpath>]` (사용자 등록 로컬 폴더/파일 — ComfyUI 루트 외부 포함)
-     - 설정 필드 custom_sync {enabled, folders:[{name,path,is_file}]}
+  C. `custom/<name>[/<subpath>]` (사용자 등록 로컬 폴더/파일 — ComfyUI 루트 내부만 허용)
+     - 레지스트리 custom_targets.json (설정 5종과 동일하게 Drive 동기화 → 타 PC 자동 전파)
+       각 PC 는 자신의 ComfyUI 루트를 자동 감지해 상대경로(rel_path) 로 해석한다.
      - 원격 레이아웃 <루트>/Custom/<name>... · 마스터 OFF 시 양쪽 모두 제외(데이터 보존)
 
 설계 원칙
@@ -98,6 +99,10 @@ PARENT_DIR = os.path.dirname(CURRENT_DIR)
 TOKEN_PATH = os.path.join(PARENT_DIR, 'token.json')
 GDRIVE_SETTINGS_PATH = os.path.join(PARENT_DIR, '.gdrive_settings.json')
 
+# 커스텀 동기화 대상 레지스트리 — 설정 5종과 동일하게 Drive 로 동기화(SYNC_TARGET_FILES).
+# ComfyUI 루트 기준 상대경로(rel_path) 를 저장하므로 각 PC 가 자신의 ComfyUI 위치로 해석한다.
+CUSTOM_TARGETS_FILE = os.path.join(PARENT_DIR, 'custom_targets.json')
+
 # ── BASIC OAuth 클라이언트 설정 — 코드 내장 (Method A) ────────────────────────
 # node.zip 에 credentials.json 파일을 포함하지 않는다. 런타임에 base64 문자열을
 # 디코드해 dict 로 직접 전달(InstalledAppFlow.from_client_config)하므로 사용자
@@ -133,6 +138,8 @@ SYNC_TARGET_FILES = [
     'favorites_data.json',
     'gemini_chat_history.json',
     'engines_registry.json',
+    # 커스텀 동기화 대상 레지스트리 — 타 PC 에 등록 정보 자동 전파 (상대경로 기반).
+    'custom_targets.json',
 ]
 
 # 로컬 상대경로(rel_path) → Drive 하위폴더 이름 매핑표.
@@ -398,7 +405,7 @@ def get_drive_service():
 
 WORKFLOWS_NS = "workflows/"
 _CONFIG_NS = ".configs/"
-# 커스텀 동기화 대상 네임스페이스 — 사용자가 등록한 로컬 폴더/파일 (ComfyUI 루트 외부 포함).
+# 커스텀 동기화 대상 네임스페이스 — 사용자가 등록한 로컬 폴더/파일 (ComfyUI 루트 내부만 허용).
 # 원격 레이아웃: <루트>/Custom/<name> (파일) | <루트>/Custom/<name>/<subpath> (폴더).
 CUSTOM_NS = "custom/"
 
@@ -426,6 +433,32 @@ def _resolve_workflows_root():
 
     os.makedirs(candidate1, exist_ok=True)
     return os.path.realpath(candidate1)
+
+
+def _resolve_comfyui_root():
+    """
+    ComfyUI 루트 절대경로 — 자동 감지 (워크플로우 루트와 동일한 후보 순서).
+
+      - 1순위: folder_paths.get_user_directory() → dirname (user 디렉터리는 <ComfyUI>/user).
+      - 폴백 : 표준 설치 구조 <ComfyUI>/custom_nodes/<pack> 가정 (패키지 루트의 조상).
+    커스텀 동기화 대상은 이 루트 기준 상대경로(rel_path) 로 저장되므로, 각 PC 는
+    자신의 ComfyUI 위치로 해석해 타 PC 재등록 없이 동작한다.
+
+    주의: junction/symlink 를 **풀지 않은 논리 경로**를 반환한다 (normpath 만).
+    StabilityMatrix 등 패키지 매니저는 하위 폴더에 junction 을 쓰는 경우가 많은데,
+    realpath 로 풀면 루트 자체가 다른 위치로 해석되어 내부 경로를 외부로 오인하게 된다.
+    """
+    try:
+        import folder_paths
+        user_dir = os.path.normpath(os.path.abspath(folder_paths.get_user_directory()))
+        candidate = os.path.dirname(user_dir)
+        if os.path.isdir(candidate):
+            return candidate
+    except Exception:
+        pass
+    # 폴백: <ComfyUI>/custom_nodes/<pack> 설치 구조 가정 (패키지 루트의 조상).
+    fallback = os.path.dirname(os.path.dirname(PARENT_DIR))
+    return os.path.normpath(fallback)
 
 
 def _resolve_local_path(rel_path):
@@ -457,7 +490,7 @@ def _resolve_local_path(rel_path):
         return target
 
     if clean_rel.startswith(CUSTOM_NS):
-        # custom/<name>[/<subpath>] — 등록 정보(설정)로만 해석, 임의 경로는 불가.
+        # custom/<name>[/<subpath>] — 등록 레지스트리(custom_targets.json) 로만 해석, 임의 경로는 불가.
         return _resolve_custom_local_path(clean_rel[len(CUSTOM_NS):])
 
     raise ValueError(f"허용되지 않은 동기화 경로: {rel_path}")
@@ -2589,10 +2622,9 @@ def _bring_explorer_to_front(target_path):
 # -----------------------------------------------------------------------------
 # - PRO: credentials_pro.json 이 존재하고 그 client_id 가 번들 BASIC 과 다르면 활성.
 #   동기화 엔진 자체는 이 단계에서 변경 없음 — PRO 는 자격증명 슬롯이다.
-# - 커스텀 대상: 사용자가 지정한 로컬 폴더 또는 파일(ComfyUI 루트 외부 포함)을 설정 필드
-#   custom_sync {enabled, folders:[{name,path,is_file}]} 에 등록하고, Drive 에는
-#   <루트>/Custom/<이름> 으로 미러한다. 이 단계는 관리+열기+개수 표시까지 —
-#   3-way 동기화 엔진 연동은 차세대 작업.
+# - 커스텀 대상: 사용자가 지정한 로컬 폴더 또는 파일(**ComfyUI 루트 내부만** 허용)을
+#   공유 레지스트리 custom_targets.json (설정 5종과 동일하게 Drive 동기화 → 타 PC 자동 전파)
+#   에 ComfyUI 루트 기준 상대경로로 등록하고, Drive 에는 <루트>/Custom/<이름> 으로 미러한다.
 # =============================================================================
 
 PRO_CREDENTIALS_PATH = os.path.join(PARENT_DIR, 'credentials_pro.json')
@@ -2666,10 +2698,48 @@ def activate_pro_from_bytes(raw) -> dict:
 
 
 # -----------------------------------------------------------------------------
-# 커스텀 동기화 대상 관리 — 설정 필드 custom_sync {enabled, folders:[{name,path,is_file}]}
-# 폴더 또는 파일 모두 허용 (ComfyUI 루트 외부 포함). 클라이언트는 경로/이름만 보내고,
-# 서버가 realpath 로 정규화한다. (open_local_target 의 화이트리스트 설계와 동일한 패턴)
+# 커스텀 동기화 대상 관리 — 공유 레지스트리 custom_targets.json (설정 5종과 동일하게 Drive 동기화)
+# ComfyUI 루트 내부 폴더/파일만 허용. ComfyUI 루트 기준 상대경로(rel_path) 를 저장하고,
+# 각 PC 는 자신의 자동 감지된 ComfyUI 위치(_resolve_comfyui_root) 로 해석한다.
+# 클라이언트는 경로/이름만 보내고, 서버가 realpath + 포함 검사로 정규화한다.
+# (open_local_target 의 화이트리스트 설계와 동일한 패턴)
 # -----------------------------------------------------------------------------
+
+
+def _load_custom_targets_registry() -> list:
+    """공유 레지스트리(custom_targets.json) 로드 — 없거나 손상되면 빈 목록."""
+    try:
+        if os.path.exists(CUSTOM_TARGETS_FILE):
+            with open(CUSTOM_TARGETS_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            targets = data.get("targets") if isinstance(data, dict) else data
+            if isinstance(targets, list):
+                return [t for t in targets if isinstance(t, dict)]
+    except Exception as e:
+        logger.warning(f"[GDrive] custom_targets.json 로드 실패 — 빈 목록으로 처리: {e}")
+    return []
+
+
+def _save_custom_targets_registry(targets) -> None:
+    """레지스트리 저장 (tmp 로 쓴 뒤 교체 — 중단 시 파일 손상 방지)."""
+    tmp = CUSTOM_TARGETS_FILE + ".tmp"
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump({"targets": targets}, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, CUSTOM_TARGETS_FILE)
+
+
+def _is_inside_comfyui_root(path: str, root: str) -> bool:
+    """path 가 ComfyUI 루트 내부인지 — **사전적(lexical)** 검사 (Windows 는 대소문자 무시).
+
+    normpath+normcase 로만 비교하고 junction/symlink 를 **풀지 않는다**.
+      - 대상 하위 폴더가 외부로 향하는 junction 이여도 경로 자체는 ComfyUI 내부이므로
+        '내부' 로 판정한다 (realpath 로 풀면 junction 이 해석되어 오거절되는 문제 방지).
+      - `..` 탈출은 normpath 가 사전적으로 제거(collapse)하므로 검사 전에 무력화된다.
+      - 다른 드라이브 문자 → 접두어 불일치로 자연스럽게 외부 처리.
+    """
+    p = os.path.normcase(os.path.normpath(path))
+    r = os.path.normcase(os.path.normpath(root)).rstrip(os.sep)
+    return p == r or p.startswith(r + os.sep)
 
 
 def _validate_custom_target_name(name: str):
@@ -2687,21 +2757,31 @@ def _validate_custom_target_name(name: str):
 
 
 def get_custom_folders() -> list:
-    """등록된 커스텀 동기화 대상 목록 — [{name, path, exists, is_file}]."""
-    settings = get_gdrive_settings()
-    cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
-    raw = cs.get("folders")
+    """등록된 커스텀 동기화 대상 목록 — [{name, path, rel_path, exists, is_file}].
+
+    - 레지스트리(custom_targets.json) 는 ComfyUI 루트 기준 상대경로(rel_path) 를 저장하고,
+      각 PC 는 자신의 자동 감지된 ComfyUI 위치(_resolve_comfyui_root) 로 해석해
+      절대경로(path) 를 만든다 → 타 PC 재등록 없이 동일 대상이 동작한다.
+    - path 는 junction 을 풀지 않은 논리 경로 (대상 하위 폴더가 외부 junction 이여도 정상 동작).
+    - 루트 밖으로 해석되는 항목(수동 편집: .. 탈출·절대경로 등) 은 경고 로그와 함께 무시 —
+      동기화·삭제 대상이 될 수 없다 (데이터 안전).
+    """
+    root = _resolve_comfyui_root()
     out = []
-    for item in (raw if isinstance(raw, list) else []):
-        if not isinstance(item, dict):
-            continue
+    for item in _load_custom_targets_registry():
         name = str(item.get("name", "")).strip()
-        path = str(item.get("path", "")).strip()
-        if not name or not path:
+        rel_path = str(item.get("rel_path", "")).strip().replace("\\", "/").lstrip("/")
+        if not name or not rel_path:
             continue
+        parts = [pt for pt in rel_path.split("/") if pt]
         is_file = bool(item.get("is_file", False))
-        exists = os.path.isfile(path) if is_file else os.path.isdir(path)
-        out.append({"name": name, "path": path, "exists": exists, "is_file": is_file})
+        full = os.path.normpath(os.path.join(root, *parts)) if parts else root
+        if not _is_inside_comfyui_root(full, root):
+            logger.warning(f"[GDrive] 커스텀 대상 '{name}' 이 ComfyUI 루트 외부로 해석됨 — 무시합니다")
+            continue
+        exists = os.path.isfile(full) if is_file else os.path.isdir(full)
+        out.append({"name": name, "path": full, "rel_path": rel_path,
+                    "exists": exists, "is_file": is_file})
     return out
 
 
@@ -2714,43 +2794,57 @@ def _get_registered_custom_folder(name) -> dict:
 
 
 def add_custom_folder(local_path, drive_name=None) -> dict:
-    """커스텀 동기화 대상(폴더 또는 파일) 등록 — ComfyUI 루트 외부 포함.
+    """커스텀 동기화 대상(폴더 또는 파일) 등록 — **ComfyUI 폴더 내부만** 허용.
 
-    - local_path: 로컬 폴더/파일 경로 (따옴표·공백 자동 제거).
+    - local_path: ComfyUI 루트 내부의 로컬 폴더/파일 경로 (따옴표·공백 자동 제거).
+      루트 밖 경로는 거절된다 — 다른 PC 에서 해석할 수 없으므로.
     - drive_name: 선택 — Drive 에 올릴 이름. 비워두면 로컬 basename(파일은 확장자 포함) 사용.
 
-    반환: {"success": bool, "error"?: str, "name"?, "path"?, "is_file"?}
+    등록 정보는 공유 레지스트리(custom_targets.json) 에 ComfyUI 루트 기준 상대경로로
+    저장되어 설정 5종과 동일하게 Drive 동기화 → 다른 PC 에도 자동 전파된다 (재등록 불필요).
+
+    반환: {"success": bool, "error"?: str, "name"?, "path"?, "rel_path"?, "is_file"?}
     """
     p = str(local_path or "").strip().strip('"').strip()
     if not p:
         return {"success": False, "error": "경로가 비어 있습니다"}
-    target = os.path.realpath(os.path.abspath(p))
+    # junction 을 풀지 않은 논리 경로로 정규화 — 하위 폴더가 외부 junction 이여도
+    # 'ComfyUI 내부' 로 판정해야 하므로 (realpath 는 junction 해석으로 오거절 유발).
+    target = os.path.normpath(os.path.abspath(p))
     is_file = os.path.isfile(target)
     if not (is_file or os.path.isdir(target)):
         return {"success": False, "error": "존재하지 않는 경로입니다 (파일 또는 폴더)"}
+
+    root = _resolve_comfyui_root()
+    if not _is_inside_comfyui_root(target, root):
+        return {"success": False,
+                "error": f"ComfyUI 폴더({root}) 내부 경로만 등록할 수 있습니다"}
+    rel_path = os.path.relpath(target, root).replace("\\", "/")
+    if rel_path == ".":
+        return {"success": False,
+                "error": "ComfyUI 루트 폴더 자체는 등록할 수 없습니다 — 그 안의 하위 폴더/파일을 지정하세요"}
+
     dn = str(drive_name or "").strip().strip('"').strip()
     name = dn if dn else os.path.basename(target.rstrip("\\/"))
     err = _validate_custom_target_name(name)
     if err:
         return {"success": False, "error": err}
     for f in get_custom_folders():
-        try:
-            same_path = os.path.realpath(f["path"]) == target
-        except Exception:
-            same_path = False
+        # junction 을 풀지 않은 논리 경로끼리 대소문자 무시 비교 (양쪽 모두 normpath 기준).
+        same_path = os.path.normcase(f["path"]) == os.path.normcase(target)
         if same_path:
             return {"success": False, "error": "이미 등록된 대상입니다"}
         if f["name"] == name:
             return {"success": False, "error": f"'{name}' 이름은 이미 사용 중입니다 — Drive 이름 칸에서 다른 이름을 지정하세요"}
-    settings = get_gdrive_settings()
-    cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
-    folders = [f for f in (cs.get("folders") or []) if isinstance(f, dict)]
-    if len(folders) >= _MAX_CUSTOM_FOLDERS:
+    targets = _load_custom_targets_registry()
+    if len(targets) >= _MAX_CUSTOM_FOLDERS:
         return {"success": False, "error": f"동기화 대상은 최대 {_MAX_CUSTOM_FOLDERS}개까지 가능합니다"}
-    folders.append({"name": name, "path": target, "is_file": is_file})
-    cs["folders"] = folders
-    set_gdrive_settings({"custom_sync": cs})
-    logger.info(f"[GDrive] 커스텀 대상 등록: {name} → {target} ({'파일' if is_file else '폴더'})")
+    targets.append({"name": name, "rel_path": rel_path, "is_file": is_file})
+    try:
+        _save_custom_targets_registry(targets)
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "error": f"레지스트리 저장 실패: {e}"}
+    logger.info(f"[GDrive] 커스텀 대상 등록: {name} → {rel_path} ({'파일' if is_file else '폴더'})")
     # 워커 확보 + 즉시 1회 동기화 시도 — 등록한 대상을 Drive Custom/ 에 바로 반영.
     # (게이트가 OFF 이면 trigger_realtime_sync 가 조용히 disabled 로 반환)
     _ensure_custom_watcher()
@@ -2758,27 +2852,32 @@ def add_custom_folder(local_path, drive_name=None) -> dict:
         trigger_realtime_sync(None)
     except Exception as e:  # noqa: BLE001 — 등록 자체는 성공, 트리거 실패는 워커가 다음 사이클에 재시도.
         logger.debug(f"[GDrive] post-register sync trigger failed (watcher will retry): {e}")
-    return {"success": True, "name": name, "path": target, "is_file": is_file}
+    return {"success": True, "name": name, "path": target, "rel_path": rel_path, "is_file": is_file}
 
 
 def remove_custom_folder(name) -> dict:
-    """커스텀 동기화 대상 제거 (로컬 파일/폴더는 삭제하지 않음)."""
+    """커스텀 동기화 대상 제거 — 로컬 파일/폴더와 Drive 복사본은 삭제하지 않음.
+
+    공유 레지스트리에서 항목만 제거한다 (Drive 동기화로 타 PC 에도 전파).
+    미등록 이름의 원격 파일은 설계상 절대 자동 삭제되지 않으므로 양쪽 데이터가 보존된다.
+    """
     n = str(name or "").strip()
-    settings = get_gdrive_settings()
-    cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
-    folders_raw = cs.get("folders") or []
+    targets = _load_custom_targets_registry()
     kept, removed = [], False
-    for f in folders_raw:
-        if isinstance(f, dict) and str(f.get("name", "")).strip() == n:
+    for t in targets:
+        if isinstance(t, dict) and str(t.get("name", "")).strip() == n:
             removed = True
         else:
-            kept.append(f)
+            kept.append(t)
     if not removed:
         return {"success": False, "error": "등록된 대상이 아닙니다"}
-    cs["folders"] = kept
-    set_gdrive_settings({"custom_sync": cs})
-    logger.info(f"[GDrive] 커스텀 대상 해제: {n}")
-    return {"success": True}
+    try:
+        _save_custom_targets_registry(kept)
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "error": f"레지스트리 저장 실패: {e}"}
+    logger.info(f"[GDrive] 커스텀 대상 해제: {n} (로컬·Drive 데이터 보존)")
+    # 워커 시그니처는 다음 사이클에 갱신 — 제외된 대상의 로컬 변경은 더 이상 트리거하지 않는다.
+    return {"success": True, "name": n}
 
 
 def set_custom_sync_enabled(enabled) -> dict:
@@ -2864,7 +2963,7 @@ def open_local_target(target_name):
         elif name in SYNC_TARGET_FILES:
             full_path = _resolve_local_path(f".configs/{name}")
         elif name.startswith("custom:"):
-            # 커스텀 동기화 대상 — 등록 정보(설정)로만 해석, 임의 경로 불가.
+            # 커스텀 동기화 대상 — 등록 레지스트리(custom_targets.json) 로만 해석, 임의 경로 불가.
             folder_name = name.split(":", 1)[1].strip()
             reg = _get_registered_custom_folder(folder_name)
             if not reg or not reg.get("exists", False):

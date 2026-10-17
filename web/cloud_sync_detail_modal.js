@@ -17,7 +17,7 @@ let detailRemoteError = "";
 // expand state (name -> false means collapsed). Default expanded; paths prefilled from status.
 let detailExpanded = {};
 // ── 커스텀 폴더 섹션 상태 — 팝업 열 때 1회 조회 + 추가/제거 후 갱신 (1초 폴링과 분리). ──
-let customFolders = [];        // [{name, path, exists}]
+let customFolders = [];        // [{name, path, rel_path, exists, is_file}] — path 는 이 PC 의 ComfyUI 위치로 해석된 절대경로
 let customSyncEnabled = false; // 마스터 ON/OFF (custom_sync.enabled)
 let customCounts = {};         // name -> remote-counts target ({local_count, remote_count, remote_exists, local_path, remote_name})
 let customAddOpen = false;     // 인라인 추가 폼 표시 여부
@@ -411,7 +411,7 @@ function paintCustomSection(body, isKo) {
         input.type = "text";
         input.dataset.field = "customPath"; // 재렌더 시 포커스 복원용 식별자
         input.value = customAddDraft;
-        input.placeholder = isKo ? '로컬 폴더 또는 파일 경로 (탐색기 마우스 오른쪽 → "경로로 복사" 후 붙여넣기)' : 'Local folder or file path (Explorer right-click → "Copy as path", then paste)';
+        input.placeholder = isKo ? 'ComfyUI 폴더 내부 경로만 가능 (탐색기 마우스 오른쪽 → "경로로 복사" 후 붙여넣기)' : 'Path inside the ComfyUI folder only (Explorer right-click → "Copy as path", then paste)';
         input.style.cssText = "flex:1; min-width:0; background:rgba(30,41,59,0.6); border:1px solid rgba(148,163,184,0.35); color:#e2e8f0; border-radius:6px; padding:5px 10px; font-size:12px;";
         input.addEventListener("input", () => { customAddDraft = input.value; });
 
@@ -558,7 +558,8 @@ function paintCustomSection(body, isKo) {
         l1.style.cssText = "display:flex; align-items:center; gap:8px; padding-left:22px; font-size:11px; color:#64748b; line-height:1.7; word-break:break-all;";
         const p1 = document.createElement("span");
         p1.textContent = `${typeIcon} ${f.path}`;
-        p1.title = f.path;
+        // rel_path 는 Drive 로 공유되는 ComfyUI 루트 기준 상대경로 — 타 PC 에서도 동일 대상이 해석됨.
+        p1.title = f.rel_path ? `${f.path}\n(Drive 공유 상대경로: ${f.rel_path})` : f.path;
         l1.appendChild(p1);
         if (f.exists) {
             const openBtn = document.createElement("button");
@@ -577,6 +578,11 @@ function paintCustomSection(body, isKo) {
         rmBtn.addEventListener("click", async (e) => {
             e.stopPropagation();
             if (rmBtn.disabled) return;
+            // 제거는 데이터 삭제가 아님(로컬·Drive 보존, 타 PC 전파) — 오클릭 방지용 확인 절차.
+            const msg = isKo
+                ? `'${f.name}' 대상을 동기화에서 제거할까요?\n\n로컬 파일과 Drive 복사본은 삭제되지 않고, 모든 PC의 동기화 범위에서만 제외됩니다.`
+                : `Remove '${f.name}' from sync targets?\n\nLocal files and the Drive copy are NOT deleted — it is only excluded from sync on all PCs.`;
+            if (!confirm(msg)) return;
             rmBtn.disabled = true;
             try {
                 const r = await fetch("/api/bada/cloud/custom-folder-remove", {

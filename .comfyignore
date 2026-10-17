@@ -36,6 +36,8 @@ config.json
 credentials.json
 credentials_pro.json
 token.json
+# 커스텀 동기화 대상 레지스트리 — 설치 환경별 개인 등록 정보 (Drive 동기화 파일)
+custom_targets.json
 
 # 테스트/임시
 test/
