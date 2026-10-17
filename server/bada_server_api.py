@@ -1937,6 +1937,10 @@ def register_cloud_routes():
 
         async def cloud_custom_folder_add_handler(request):
             """POST /api/bada/cloud/custom-folder-add — 커스텀 동기화 대상 등록 (JSON {path, name?})."""
+            # Bada PRO 게이트 — 미발급 시 등록 거부 (방어적 이중 차단; UI 도 비활성화).
+            if not gdrive_sync.get_pro_status().get("active"):
+                return web.json_response({"success": False,
+                                          "error": "Bada PRO 미발급 — 커스텀 동기화 대상 등록은 PRO 발급 후 가능합니다"})
             try:
                 data = await request.json()
             except Exception:
@@ -1963,6 +1967,10 @@ def register_cloud_routes():
             except Exception:
                 data = {}
             enabled = bool(data.get("enabled", False)) if isinstance(data, dict) else False
+            # Bada PRO 게이트 — ON 전환은 미발급 시 거부 (OFF 전환은 항상 허용 — 정리용).
+            if enabled and not gdrive_sync.get_pro_status().get("active"):
+                return web.json_response({"success": False,
+                                          "error": "Bada PRO 미발급 — 커스텀 동기화 ON 전환은 PRO 발급 후 가능합니다"})
             result = await asyncio.to_thread(gdrive_sync.set_custom_sync_enabled, enabled)
             return web.json_response(result)
 

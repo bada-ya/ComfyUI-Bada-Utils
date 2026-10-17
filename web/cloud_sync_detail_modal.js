@@ -19,6 +19,7 @@ let detailExpanded = {};
 // ── 커스텀 폴더 섹션 상태 — 팝업 열 때 1회 조회 + 추가/제거 후 갱신 (1초 폴링과 분리). ──
 let customFolders = [];        // [{name, path, rel_path, exists, is_file}] — path 는 이 PC 의 ComfyUI 위치로 해석된 절대경로
 let customSyncEnabled = false; // 마스터 ON/OFF (custom_sync.enabled)
+let customProActive = false;   // Bada PRO 활성화 상태 — 미발급이면 토글·추가 비활성화 + 발급 안내 표시
 let customCounts = {};         // name -> remote-counts target ({local_count, remote_count, remote_exists, local_path, remote_name})
 let customAddOpen = false;     // 인라인 추가 폼 표시 여부
 let customAddError = "";       // 인라인 검증 에러 (빨간 글씨)
@@ -64,6 +65,7 @@ export function openCloudDetailModal(files, lastSync) {
     detailExpanded = {};
     customFolders = [];
     customSyncEnabled = false;
+    customProActive = false; // 미발급으로 시작 — 조회 완료 시 갱신 (안전측).
     customCounts = {};
     customAddOpen = false;
     customAddError = "";
@@ -82,6 +84,16 @@ export function openCloudDetailModal(files, lastSync) {
     fetchRemoteSnapshot();
     // 커스텀 폴더 목록 + 폴더별 개수도 동일하게 열 때 1회.
     fetchCustomFolders();
+    // Bada PRO 상태 — 미발급이면 커스텀 동기화 섹션(토글·추가) 비활성화 + 발급 안내.
+    // 조회 실패 시 미발급 상태로 유지 (안전측). 상태 변경 시에만 재렌더.
+    fetch("/api/bada/cloud/pro/status").then((r) => r.json()).then((s) => {
+        if (!isCloudDetailModalOpen() || !s.success) return;
+        const next = !!s.active;
+        if (next !== customProActive) {
+            customProActive = next;
+            paintDetailFiles();
+        }
+    }).catch(() => {});
     const onKeyDown = (e) => {
         if (e.key === "Escape") {
             e.stopPropagation();
@@ -362,49 +374,73 @@ function paintCustomSection(body, isKo) {
     rightCtl.style.cssText = "display:flex; align-items:center; gap:10px; flex-shrink:0;";
 
     // 마스터 토글 — .bada-cloud-switch/.bada-cloud-slider 재사용 (bada_core.js 전역 CSS).
+    // Bada PRO 미발급이면 disabled + 회색 (클릭 무반응) — 발급 안내 툴팁.
     const swLabel = document.createElement("label");
     swLabel.className = "bada-cloud-switch";
-    swLabel.style.cssText = "margin:0; flex-shrink:0; cursor:pointer;";
+    swLabel.style.cssText = "margin:0; flex-shrink:0;" + (customProActive ? " cursor:pointer;" : " cursor:not-allowed; opacity:0.45;");
     const swInput = document.createElement("input");
     swInput.type = "checkbox";
     swInput.checked = customSyncEnabled;
-    swInput.title = isKo ? "커스텀 동기화 ON/OFF (폴더·파일)" : "Custom sync ON/OFF (folders & files)";
+    if (!customProActive) {
+        swInput.disabled = true;
+        swInput.title = isKo ? "Bada PRO 미발급 — 발급 후 사용 가능" : "Bada PRO required — activate to use";
+    } else {
+        swInput.title = isKo ? "커스텀 동기화 ON/OFF (폴더·파일)" : "Custom sync ON/OFF (folders & files)";
+    }
     const swSpan = document.createElement("span");
     swSpan.className = "bada-cloud-slider";
     swLabel.appendChild(swInput);
     swLabel.appendChild(swSpan);
-    // 마스터 토글 — 서버 영속화 (custom_sync.enabled), 실패 시 체크박스 되돌림.
-    swInput.addEventListener("change", async () => {
-        const next = swInput.checked;
-        try {
-            const r = await fetch("/api/bada/cloud/custom-sync-toggle", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ enabled: next }),
-            });
-            const s = await r.json();
-            if (s.success) {
-                customSyncEnabled = next;
-            } else {
-                swInput.checked = customSyncEnabled; // 실패 시 되돌림
+    // 마스터 토글 — 서버 영속화 (custom_sync.enabled), 실패 시 체크박스 되돌림. 미발급이면 리스너 미부착.
+    if (customProActive) {
+        swInput.addEventListener("change", async () => {
+            const next = swInput.checked;
+            try {
+                const r = await fetch("/api/bada/cloud/custom-sync-toggle", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ enabled: next }),
+                });
+                const s = await r.json();
+                if (s.success) {
+                    customSyncEnabled = next;
+                } else {
+                    swInput.checked = customSyncEnabled; // 실패 시 되돌림
+                }
+            } catch (_) {
+                swInput.checked = customSyncEnabled;
             }
-        } catch (_) {
-            swInput.checked = customSyncEnabled;
-        }
-    });
+        });
+    }
     rightCtl.appendChild(swLabel);
 
     const addBtn = document.createElement("button");
     addBtn.type = "button";
-    addBtn.style.cssText = "background:rgba(14,165,233,0.2); border:1px solid rgba(14,165,233,0.4); color:#e0f2fe; border-radius:6px; padding:3px 12px; font-size:12px; font-weight:700; cursor:pointer;";
+    if (customProActive) {
+        addBtn.style.cssText = "background:rgba(14,165,233,0.2); border:1px solid rgba(14,165,233,0.4); color:#e0f2fe; border-radius:6px; padding:3px 12px; font-size:12px; font-weight:700; cursor:pointer;";
+    } else {
+        addBtn.disabled = true;
+        addBtn.style.cssText = "background:rgba(148,163,184,0.1); border:1px solid rgba(148,163,184,0.25); color:#64748b; border-radius:6px; padding:3px 12px; font-size:12px; font-weight:700; cursor:not-allowed;";
+        addBtn.title = isKo ? "Bada PRO 미발급 — 발급 후 사용 가능" : "Bada PRO required — activate to use";
+    }
     addBtn.textContent = isKo ? "+ 추가" : "+ Add";
     rightCtl.appendChild(addBtn);
 
     header.appendChild(rightCtl);
     sec.appendChild(header);
 
-    // 인라인 추가 폼 — [경로 입력][확인][✕] + 빨간 검증 에러 (팝업 없음).
-    if (customAddOpen) {
+    // Bada PRO 미발급 + 등록 대상 존재 — 동기화 중단 안내 (목록은 표시만, 파일 동기화는 안 됨).
+    if (!customProActive && customFolders.length) {
+        const notice = document.createElement("div");
+        notice.style.cssText = "margin-top:8px; padding:6px 10px; border-radius:6px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); font-size:11px; color:#fbbf24;";
+        notice.textContent = isKo
+            ? "⚠️ Bada PRO 미발급 — 커스텀 동기화 일시 중단 (목록은 표시만 되고 파일 동기화는 안 됨)"
+            : "⚠️ Bada PRO not activated — custom sync paused (list shown, files are NOT synced)";
+        sec.appendChild(notice);
+    }
+
+    // 인라인 추가 폼 — [경로 입력][확인][✕] + 빨간 검증 에러 (팝업 없음). 미발급이면 폼 자체가 열리지 않음.
+    if (customAddOpen && customProActive) {
         const form = document.createElement("div");
         form.style.cssText = "display:flex; align-items:center; gap:8px; padding:6px 0 2px 4px;";
         const input = document.createElement("input");
@@ -499,16 +535,24 @@ function paintCustomSection(body, isKo) {
             errEl.textContent = `⚠️ ${customAddError}`;
             sec.appendChild(errEl);
         }
-    } else {
+    } else if (customProActive) {
         addBtn.addEventListener("click", () => { customAddOpen = true; paintDetailFiles(); });
     }
 
-    // 폴더가 없으면 점선 플레이스홀더 (클릭 = 추가 폼 표시).
+    // 폴더가 없으면 점선 플레이스홀더 — PRO 활성: 클릭=추가 폼 / 미발급: 발급 안내(무반응).
     if (!customFolders.length) {
         const empty = document.createElement("div");
-        empty.style.cssText = "border:1px dashed rgba(148,163,184,0.35); border-radius:8px; padding:12px 14px; margin-top:8px; font-size:12px; color:#94a3b8; text-align:center; cursor:pointer;";
-        empty.textContent = isKo ? "아직 동기화 대상이 없습니다 — 클릭하여 폴더 또는 파일 추가" : "No sync targets yet — click to add a folder or file";
-        empty.addEventListener("click", () => { customAddOpen = true; paintDetailFiles(); });
+        if (customProActive) {
+            empty.style.cssText = "border:1px dashed rgba(148,163,184,0.35); border-radius:8px; padding:12px 14px; margin-top:8px; font-size:12px; color:#94a3b8; text-align:center; cursor:pointer;";
+            empty.textContent = isKo ? "아직 동기화 대상이 없습니다 — 클릭하여 폴더 또는 파일 추가" : "No sync targets yet — click to add a folder or file";
+            empty.addEventListener("click", () => { customAddOpen = true; paintDetailFiles(); });
+        } else {
+            // Bada PRO 미발급 — 발급 안내 (클릭 무반응).
+            empty.style.cssText = "border:1px dashed rgba(245,158,11,0.4); border-radius:8px; padding:12px 14px; margin-top:8px; font-size:12px; color:#fbbf24; text-align:center; cursor:not-allowed;";
+            empty.textContent = isKo
+                ? "👑 Bada PRO 미발급 — 설정 > 클라우드 동기화에서 발급받은 JSON 자격증명 파일을 드래그&드롭하세요"
+                : "👑 Bada PRO not activated — drag & drop your issued JSON credential file in Settings > Cloud Sync";
+        }
         sec.appendChild(empty);
     }
 

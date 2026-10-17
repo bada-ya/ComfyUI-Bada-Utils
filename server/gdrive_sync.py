@@ -599,7 +599,8 @@ def _iter_custom_rel_paths():
     """
     settings = get_gdrive_settings()
     cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
-    if not cs.get("enabled"):
+    # Bada PRO 게이트 — 미발급이면 커스텀 대상 전체 스킵 (OFF 와 동일 의미, 데이터 보존).
+    if not cs.get("enabled") or not _custom_pro_gate_open():
         return
     for f in get_custom_folders():
         name, path = f["name"], f["path"]
@@ -1239,11 +1240,29 @@ def _move_flat_workflow_file(service, file_id, new_name, target_folder_id, old_f
     ).execute()
 
 
+def _custom_pro_gate_open() -> bool:
+    """Bada PRO 게이트 — 커스텀 동기화 실행은 PRO 활성화(credentials_pro.json + client_id ≠ BASIC) 필수.
+
+    미발급이면 마스터 ON/OFF 와 무관하게 False 를 반환 → 로컬 매니페스트·원격 열거·워커가
+    커스텀 대상을 전부 스킵한다 (OFF 와 동일 의미 — 절대 데이터를 삭제하지 않는다).
+    게이트 판정 자체의 실패는 안전측(닫힘)으로 처리해 미발급 상태와 동일하게 동작한다.
+    """
+    try:
+        return bool(get_pro_status().get("active"))
+    except Exception as e:  # noqa: BLE001 — 게이트 판정 실패 = 닫힘 (안전측).
+        logger.warning(f"[GDrive] PRO status check failed — custom sync gated: {e}")
+        return False
+
+
 def _custom_sync_state():
-    """(마스터 ON/OFF, 등록 대상 목록) — 엔진 연동용 (매니페스트·원격 열거·워커 공용)."""
+    """(마스터 ON/OFF, 등록 대상 목록) — 엔진 연동용 (매니페스트·원격 열거·워커 공용).
+
+    Bada PRO 미발급이면 마스터 상태와 무관하게 (False, []) 를 반환 → 커스텀 대상 전체 스킵.
+    """
     settings = get_gdrive_settings()
     cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
-    return bool(cs.get("enabled")), get_custom_folders()
+    enabled = bool(cs.get("enabled")) and _custom_pro_gate_open()
+    return enabled, (get_custom_folders() if enabled else [])
 
 
 def _perform_sync_blocking():
@@ -2057,6 +2076,9 @@ def _custom_targets_signature():
     트리거가 반복된다. 초 단위로 버리면 pinning(정초)과 정렬이 되어 안정화된다.
     """
     sig = {}
+    # Bada PRO 게이트 — 미발급이면 빈 시그니처 (워커 트리거 없음; 활성화 시 다음 전체 동기화가 반영).
+    if not _custom_pro_gate_open():
+        return sig
     for f in get_custom_folders():
         if not f["exists"] or "___" in f["name"]:
             continue
