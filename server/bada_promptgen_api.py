@@ -121,7 +121,15 @@ def register_promptgen_api_routes():
         from aiohttp import web
 
         if getattr(server, "PromptServer", None) is None or server.PromptServer.instance is None:
-            logger.info("[BadaPromptGen] PromptServer not ready; routes deferred.")
+            # Instance not created yet (version-dependent startup order). Retry in a
+            # bounded background poller instead of deferring forever — the old code
+            # logged "routes deferred" but nothing ever re-ran this.
+            from .route_registration import register_when_ready
+
+            def _retry_register():
+                register_promptgen_api_routes()  # instance exists by then → full registration below
+
+            register_when_ready(_retry_register, label="PromptGen API routes")
             return
         routes = server.PromptServer.instance.routes
     except Exception as exc:  # noqa: BLE001

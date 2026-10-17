@@ -326,6 +326,47 @@ def _post_generate_content(model: str, api_key: str, payload: dict, timeout: int
         return 0, str(exc)
 
 
+def _http_failure_detail(status: int, body) -> str:
+    """Short diagnostic snippet for a failed generateContent call.
+
+    ``status`` 0 means a network-level failure (body is the exception text);
+    otherwise body is Gemini's error JSON (dict) or raw HTTPError text (str).
+    """
+    if status == 0:
+        return "network error — " + str(body)[:120]
+    message = ""
+    if isinstance(body, dict):
+        err = body.get("error") or {}
+        if isinstance(err, dict):
+            message = str(err.get("message") or "").strip()
+    elif isinstance(body, str):
+        stripped = body.strip()
+        try:
+            data = json.loads(stripped)
+            err = data.get("error") if isinstance(data, dict) else None
+            if isinstance(err, dict):
+                message = str(err.get("message") or "").strip()
+        except (TypeError, ValueError):
+            pass
+        if not message:
+            message = stripped
+    snippet = " ".join(message.split())[:160]
+    return f"HTTP {status}" + (f": {snippet}" if snippet else "")
+
+
+def _summarize_http_failures(failures) -> str:
+    """Compact, de-duplicated summary of `(model, detail)` failure pairs."""
+    seen = []
+    for model, detail in failures:
+        entry = f"{model} {detail}"
+        if entry not in seen:
+            seen.append(entry)
+    summary = "; ".join(seen[:3])
+    if len(seen) > 3:
+        summary += f" (+{len(seen) - 3} more)"
+    return summary
+
+
 def _extract_candidate_text(body) -> tuple:
     """Return `(text, finish_reason)` from a generateContent response body."""
     if not isinstance(body, dict):
@@ -668,6 +709,11 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
         }
 
     result_text, model_used, pass_used = "", "", 1
+    # Failure diagnostics: distinguish "every model failed at the HTTP level"
+    # (bad key / quota / network) from "a model answered but refused", so the
+    # final error message points at the real cause instead of a red herring.
+    http_failures = []   # [(model, detail)] — non-200 responses across all passes
+    api_reached = False  # at least one model answered with HTTP 200 (refusal or empty)
 
     # ---- PASS 1: direct master compilation -------------------------------------
     for model_index, model in enumerate(models):
@@ -677,7 +723,9 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
         )
         if status != 200:
             logger.warning("[BadaPromptGen][Pass 1] %s -> HTTP %s", model, status)
+            http_failures.append((model, _http_failure_detail(status, body)))
             continue
+        api_reached = True
         text, finish = _extract_candidate_text(body)
         if finish == "SAFETY":
             logger.warning("[BadaPromptGen][Pass 1] %s hit finishReason=SAFETY -> Pass 2", model)
@@ -701,7 +749,9 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
                 timeout=FALLBACK_MODEL_TIMEOUT,
             )
             if status != 200:
+                http_failures.append((model, _http_failure_detail(status, body)))
                 continue
+            api_reached = True
             text, _finish = _extract_candidate_text(body)
             if text and not is_refusal_response(text):
                 result_text, model_used = text, model
@@ -719,13 +769,26 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
                 timeout=FALLBACK_MODEL_TIMEOUT,
             )
             if status != 200:
+                http_failures.append((model, _http_failure_detail(status, body)))
                 continue
+            api_reached = True
             text, _finish = _extract_candidate_text(body)
             if text and not is_refusal_response(text):
                 result_text, model_used = text, model
                 break
 
     if not result_text:
+        # Every model failed at the HTTP level (bad key / quota / network) — telling
+        # the user to flip the uncensored toggle would be a red herring, so surface
+        # the real cause with per-model diagnostics instead.
+        if http_failures and not api_reached:
+            raise RuntimeError(
+                _ui_text(ui_language,
+                         f"All Gemini models failed with HTTP errors ({_summarize_http_failures(http_failures)}). "
+                         "This is a network/authentication/quota problem, NOT a content refusal — check the API key and connection. Enabling '🔓 Uncensored' will not help.",
+                         f"모든 Gemini 모델이 HTTP 오류로 실패했습니다 ({_summarize_http_failures(http_failures)}). "
+                         "콘텐츠 거부 문제가 아니라 네트워크/인증/쿼터 문제입니다 — API 키와 연결을 확인해 주세요. '🔓 무검열' 토글은 도움이 되지 않습니다.")
+            )
         if uncensored:
             raise RuntimeError(
                 _ui_text(ui_language,

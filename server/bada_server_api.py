@@ -436,6 +436,21 @@ def build_workflow_tree(root_dir):
     return scan_dir(root_dir)
 
 
+def collect_workflow_folders(root_dir):
+    """
+    Synchronous recursive folder scan of the workflows directory (sorted, "/"-prefixed).
+    NOTE: blocking os.walk — never call directly from an async handler;
+    use it through asyncio.to_thread() (see list_folders_handler).
+    """
+    folders = ["/"]
+    for root, dirs, files in os.walk(root_dir):
+        rel = os.path.relpath(root, root_dir).replace("\\", "/")
+        if rel != "." and is_safe_path(root_dir, root):
+            folders.append("/" + rel)
+    folders.sort()
+    return folders
+
+
 # =========================================================================
 # 2. Local Models & LoRAs Discovery Engine
 # =========================================================================
@@ -966,6 +981,17 @@ def register_bada_api_routes():
     """
     Register all Bada API endpoints onto ComfyUI PromptServer instance.
     """
+    if PromptServer.instance is None:
+        # Instance not created yet (version-dependent startup order). Retry in a
+        # bounded background poller instead of raising AttributeError and losing
+        # every route — which used to skip the other register_* calls as well.
+        from .route_registration import register_when_ready
+
+        def _retry_register():
+            register_bada_api_routes()  # instance exists by then → full registration below
+
+        register_when_ready(_retry_register, label="Bada API routes")
+        return
     try:
         routes = PromptServer.instance.routes
 
@@ -1232,12 +1258,9 @@ def register_bada_api_routes():
         async def list_folders_handler(request):
             try:
                 root_dir = get_workflows_root_dir()
-                folders = ["/"]
-                for root, dirs, files in os.walk(root_dir):
-                    rel = os.path.relpath(root, root_dir).replace("\\", "/")
-                    if rel != "." and is_safe_path(root_dir, root):
-                        folders.append("/" + rel)
-                folders.sort()
+                # Same reasoning as the tree handler: os.walk is a synchronous recursive
+                # filesystem scan, so keep it off the event loop.
+                folders = await asyncio.to_thread(collect_workflow_folders, root_dir)
                 return web.json_response({"success": True, "folders": folders, "root_dir": root_dir})
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=500)
@@ -1802,6 +1825,16 @@ def register_cloud_routes():
         from . import gdrive_sync
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"[ComfyUI-Bada-Utils] Cloud Sync module load failed (feature disabled): {exc}")
+        return
+
+    if PromptServer.instance is None:
+        # Same bounded retry as register_bada_api_routes() — see route_registration.
+        from .route_registration import register_when_ready
+
+        def _retry_register():
+            register_cloud_routes()  # instance exists by then → full registration below
+
+        register_when_ready(_retry_register, label="Cloud Sync routes")
         return
 
     try:

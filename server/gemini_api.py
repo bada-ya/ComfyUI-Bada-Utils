@@ -473,11 +473,35 @@ def parse_user_system_output(raw_text):
     ratio = str(data.get("wh_ratio") or data.get("ratio_follow") or "").strip()
     return (prompt, ratio) if prompt else None
 
+def _int_field(body: dict, key: str, default: int) -> int:
+    """Read an integer field from user-supplied JSON without a bare ValueError 500.
+
+    Accepts numbers and numeric strings (``10``, ``"10"``, ``9.5`` → 9). Anything
+    else raises ``ValueError`` with a clear message so handlers can answer a clean
+    400 instead of the generic server-error 500 that a raw ``int()`` would produce.
+    """
+    raw = body.get(key, default)
+    if isinstance(raw, bool):  # JSON true/false is an int subclass — reject explicitly
+        raise ValueError(f"'{key}' must be a number")
+    try:
+        return int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        raise ValueError(f"'{key}' must be a number") from None
+
+
 def register_gemini_api_routes():
     try:
         import server
         if not hasattr(server, "PromptServer") or not hasattr(server.PromptServer, "instance") or server.PromptServer.instance is None:
-            logger.info("[ComfyUI-bada-AsyncGemini] PromptServer instance not ready yet, routes will be registered on server start.")
+            # Instance not created yet (version-dependent startup order). Retry in a
+            # bounded background poller instead of giving up — the old code logged
+            # "will be registered on server start" but nothing ever re-ran this.
+            from .route_registration import register_when_ready
+
+            def _retry_register():
+                register_gemini_api_routes()  # instance exists by then → full registration below
+
+            register_when_ready(_retry_register, label="Gemini API routes")
             return
 
         routes = server.PromptServer.instance.routes
@@ -587,10 +611,13 @@ def register_gemini_api_routes():
                 submode = body.get("submode", "")
                 system_prompt_id = str(body.get("system_prompt_id") or "").strip()
                 style = body.get("style", "")
-                duration = int(body.get("duration", 10))
+                try:
+                    duration = _int_field(body, "duration", 10)
+                    cut_count = _int_field(body, "cut_count", 4)
+                except ValueError as exc:
+                    return web.json_response({"success": False, "error": str(exc)}, status=400)
                 is_nsfw = body.get("is_nsfw", True)
                 translate_korean = body.get("translate_korean", True)
-                cut_count = int(body.get("cut_count", 4))
                 aspect_ratio = str(body.get("aspect_ratio") or "").strip()
                 if aspect_ratio and aspect_ratio not in ASPECT_RATIO_CHOICES:
                     return web.json_response({
