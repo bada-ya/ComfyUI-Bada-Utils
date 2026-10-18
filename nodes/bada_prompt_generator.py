@@ -89,6 +89,7 @@ MAX_IMAGES_PER_RUN = 6
 # the model decides, which is what keeps workflows saved before this widget existed
 # behaving exactly as before.
 NODE_ASPECT_RATIOS = (
+    "",           # 자동 (기본값) — 모델이 알아서 결정
     "1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "9:21", "21:9",
 )
 
