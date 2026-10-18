@@ -51,6 +51,7 @@ import threading
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+import contextlib
 
 logger = logging.getLogger("ComfyUI-Bada-Utils.GDrive")
 
@@ -388,9 +389,12 @@ def get_drive_service():
         if not creds:
             try:
                 flow = InstalledAppFlow.from_client_config(_basic_client_config(), SCOPES)
-                creds = flow.run_local_server(port=0)
+                # 라이브러리의 인증 URL print 출력을 억제 (브라우저가 자동으로 열림 → 로그 중복 방지)
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    creds = flow.run_local_server(port=0)
                 with open(TOKEN_PATH, 'w', encoding='utf-8') as token_file:
                     token_file.write(creds.to_json())
+                logger.info("[GDrive] OAuth 인증 완료 — 토큰이 저장되었습니다.")
             except Exception as e:
                 logger.error(f"[GDrive] OAuth flow failed: {e}")
                 return None, f"OAuth authentication failed: {str(e)}"
