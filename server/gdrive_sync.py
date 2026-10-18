@@ -368,6 +368,7 @@ def get_drive_service():
     인증 후 Google Drive API 서비스 객체를 반환.
     라이브러리 미설치/인증 실패 시 (None, 사유) 를 반환해 호출측이 안전하게 처리.
     """
+    global _OAUTH_AUTHORIZED
     if not GDRIVE_LIBS_AVAILABLE:
         return None, "google-api-python-client is not installed."
 
