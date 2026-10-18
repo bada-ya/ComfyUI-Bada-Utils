@@ -67,6 +67,9 @@ _CANCEL_EVENT = threading.Event()
 # 기동 자동 동기화는 프로세스당 1회만 예약한다.
 _AUTOSYNC_SCHEDULED = False
 
+# OAuth 인증 완료 플래그. 이미 인증이 완료된 상태면 중복 인증 시도를 방지한다.
+_OAUTH_AUTHORIZED = False
+
 # 진행 중 동기화의 분모/분자 기억장치 (WS를 놓친 늦은 설정창용 폴링 백업).
 # _notify_sync_state 가 WS 푸시를 쏠 때마다 최신값을 덮어써 둔다.
 # /api/bada/cloud/status 가 이 값을 함께 내려주면 설정창은
@@ -386,7 +389,7 @@ def get_drive_service():
                 logger.warning(f"[GDrive] token refresh failed: {e}")
                 creds = None
 
-        if not creds:
+        if not creds and not _OAUTH_AUTHORIZED:
             try:
                 flow = InstalledAppFlow.from_client_config(_basic_client_config(), SCOPES)
                 # 라이브러리의 인증 URL print 출력을 억제 (브라우저가 자동으로 열림 → 로그 중복 방지)
@@ -395,6 +398,7 @@ def get_drive_service():
                 with open(TOKEN_PATH, 'w', encoding='utf-8') as token_file:
                     token_file.write(creds.to_json())
                 logger.info("[GDrive] OAuth 인증 완료 — 토큰이 저장되었습니다.")
+                _OAUTH_AUTHORIZED = True
             except Exception as e:
                 logger.error(f"[GDrive] OAuth flow failed: {e}")
                 return None, f"OAuth authentication failed: {str(e)}"
