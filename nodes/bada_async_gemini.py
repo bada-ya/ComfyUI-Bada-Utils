@@ -61,5 +61,5 @@ class BadaAsyncGeminiStudio:
         UI-only node: it is never wired to downstream nodes, so the queued run is a no-op
         that simply keeps the generated text stored in its (hidden) widget.
         """
-        return {}
+        return ()
 

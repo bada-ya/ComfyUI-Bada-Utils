@@ -28,7 +28,7 @@
 
 ## 3. [우선순위 3] ComfyUI 커스텀 노드 개발 규격
 1. **IMAGE 텐서**: `[Batch, Height, Width, Channels]` (`[B, H, W, C]`), 값 범위 `[0.0, 1.0]` (PyTorch Tensor)
-2. **FUNCTION 리턴값**: 단일 출력이라도 무조건 원소 1개짜리 튜플 `(result,)` 형태로 반환
+2. **FUNCTION 리턴값**: 단일 출력이라도 무조건 원소 1개짜리 튜플 `(result,)` 형태로 반환 (출력이 없는 노드는 빈 튜플 `return ()`, UI 이벤트 전송 노드는 ComfyUI 공식 규격인 `{"ui": {...}, "result": 튜플}` 형태 허용)
 3. **LATENT 구조**: `{"samples": tensor}` 형태의 딕셔너리 구조 유지
 
 ---
