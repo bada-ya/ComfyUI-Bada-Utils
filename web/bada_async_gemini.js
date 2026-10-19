@@ -38,14 +38,16 @@ const EXACT_MODELS = [
     { id: "gemini-3.8-flash", name: "🌟 Gemini 3.8 Flash", name_en: "🌟 Gemini 3.8 Flash", desc: "1,500회/일 • 최신 고성능 Flash", desc_en: "1,500 RPD • High Performance Flash" },
 ];
 
-// 6 Engine Tabs Specification (left → right order)
+// 8 Engine Tabs Specification (2-row layout: row1 KREA/QWEN/MiniMax/LTX/FLUX3/MOSS, row2 system/uncensored)
 const ENGINES = [
-    { id: "krea", name: "KREA 2", name_en: "KREA 2", tag: "Photorealism", tag_en: "Photorealism", color: "#10b981" },
-    { id: "qwen21", name: "QWEN2.1", name_en: "QWEN2.1", tag: "Image Prompt Enhancer", tag_en: "Image Prompt Enhancer", color: "#f59e0b" },
-    { id: "minimax", name: "MiniMax H3", name_en: "MiniMax H3", tag: "Omni-Modal Video", tag_en: "Omni-Modal Video", color: "#6366f1" },
-    { id: "ltx", name: "LTX-Video", name_en: "LTX-Video", tag: "6-Element DiT", tag_en: "6-Element DiT", color: "#06b6d4" },
-    { id: "system_prompt", name: "📜 시스템", name_en: "📜 System", tag: "사용자 시스템 프롬프트", tag_en: "Custom System Prompt", color: "#38bdf8" },
-    { id: "uncensored", name: "🔞 제미나이", name_en: "🔞 Gemini", tag: "Zero-Refusal Uncensored Chat", tag_en: "Zero-Refusal Uncensored Chat", color: "#a855f7" },
+    { id: "krea", name: "KREA 2", name_en: "KREA 2", tag: "Photorealism", tag_en: "Photorealism", color: "#10b981", row: 1 },
+    { id: "qwen21", name: "QWEN2.1", name_en: "QWEN2.1", tag: "Image Prompt Enhancer", tag_en: "Image Prompt Enhancer", color: "#f59e0b", row: 1 },
+    { id: "minimax", name: "MiniMax H3", name_en: "MiniMax H3", tag: "Omni-Modal Video", tag_en: "Omni-Modal Video", color: "#6366f1", row: 1 },
+    { id: "ltx", name: "LTX-Video", name_en: "LTX-Video", tag: "6-Element DiT", tag_en: "6-Element DiT", color: "#06b6d4", row: 1 },
+    { id: "flux3", name: "FLUX3", name_en: "FLUX3", tag: "FLUX3 Klein", tag_en: "FLUX3 Klein", color: "#f472b6", row: 1 },
+    { id: "moss", name: "MOSS", name_en: "MOSS", tag: "MOSS-Image-SFT", tag_en: "MOSS-Image-SFT", color: "#a3e635", row: 1 },
+    { id: "system_prompt", name: "📜 시스템", name_en: "📜 System", tag: "사용자 시스템 프롬프트", tag_en: "Custom System Prompt", color: "#38bdf8", row: 2 },
+    { id: "uncensored", name: "🔞 제미나이", name_en: "🔞 Gemini", tag: "Zero-Refusal Uncensored Chat", tag_en: "Zero-Refusal Uncensored Chat", color: "#a855f7", row: 2 },
 ];
 
 // Output frame (aspect ratio) choices — "" means "let the AI decide".
@@ -98,6 +100,18 @@ const QWEN_SUBMODES = [
     { id: "i2i", name: "🪄 I2I (편집)", name_en: "🪄 I2I (Edit)", desc: "참조 이미지를 바탕으로 편집 프롬프트 생성", desc_en: "Image-edit prompt from reference images" },
 ];
 
+// FLUX3 Submodes — engines_registry.json targets[flux3].submenus 와 1:1 대응 (t2i / i2i).
+const FLUX3_SUBMODES = [
+    { id: "t2i", name: "🖼️ T2I · 이미지 분석", name_en: "🖼️ T2I · Image Analysis", desc: "FLUX3 Klein 상세 묘사 확장", desc_en: "FLUX3 Klein detailed prompt expansion" },
+    { id: "i2i", name: "🪄 I2I (편집)", name_en: "🪄 I2I (Edit)", desc: "참조 이미지 기반 정밀 편집 프롬프트", desc_en: "Precise edit prompt from reference images" },
+];
+
+// MOSS Submodes — engines_registry.json targets[moss].submenus 와 1:1 대응 (t2i / i2i).
+const MOSS_SUBMODES = [
+    { id: "t2i", name: "🖼️ T2I · 이미지 분석", name_en: "🖼️ T2I · Image Analysis", desc: "MOSS 서사형 장면 묘사 확장", desc_en: "MOSS narrative scene expansion" },
+    { id: "i2i", name: "🪄 I2I (편집)", name_en: "🪄 I2I (Edit)", desc: "참조 이미지 기반 구조화 편집 프롬프트", desc_en: "Structured edit prompt from reference images" },
+];
+
 // Gem Personas for Uncensored Gemini Chat
 const GEM_PERSONAS_LIST = [
     { id: "universal", name: "⚡ 만능 무검열 제미나이", name_en: "⚡ All-Round Uncensored Gemini" },
@@ -146,6 +160,8 @@ function downscaleImageForGemini(dataUrl, maxEdge = IMAGE_ANALYSIS_MAX_EDGE) {
 /** How many images the active engine/submode accepts. */
 function currentImageLimit(engine, qwenSubMode) {
     if (engine === "qwen21") return qwenSubMode === "i2i" ? MAX_IMAGES_I2I : MAX_IMAGES_T2I;
+    if (engine === "flux3") return flux3Sub === "i2i" ? MAX_IMAGES_I2I : MAX_IMAGES_T2I;
+    if (engine === "moss") return mossSub === "i2i" ? MAX_IMAGES_I2I : MAX_IMAGES_T2I;
     if (engine === "uncensored") return Infinity;   // chat tab has its own picker
     return MAX_IMAGES_T2I;                        // krea / minimax / ltx / system
 }
@@ -241,6 +257,11 @@ app.registerExtension({
             let kreaSub = localStorage.getItem("bada_krea_sub") || "general";
             if (!KREA_SUBMODES.some(submode => submode.id === kreaSub)) kreaSub = "general";
             let qwenSub = localStorage.getItem("bada_qwen_sub") || "t2i";
+            if (!QWEN_SUBMODES.some(submode => submode.id === qwenSub)) qwenSub = "t2i";
+            let flux3Sub = localStorage.getItem("bada_flux3_sub") || "t2i";
+            if (!FLUX3_SUBMODES.some(submode => submode.id === flux3Sub)) flux3Sub = "t2i";
+            let mossSub = localStorage.getItem("bada_moss_sub") || "t2i";
+            if (!MOSS_SUBMODES.some(submode => submode.id === mossSub)) mossSub = "t2i";
             let userSystemPrompts = [];
             // 📜 시스템 탭의 상태 안내문구 (예전 promptInfo 박스의 내용을 placeholder 로 이관)
             let systemHintText = "";
@@ -1857,6 +1878,48 @@ function updateBellBadge() {
                         grid.appendChild(card);
                     });
                     submodePanel.appendChild(grid);
+                } else if (activeEngine === "flux3") {
+                    const headerRow = document.createElement("div");
+                    headerRow.className = "bada-submode-header";
+                    headerRow.innerHTML = `\n                        <div class="bada-submode-title"><span>🟣</span><span>${isKo ? "FLUX3 세부 모드 선택" : "FLUX3 Submodes"}</span></div>\n                        <span class="bada-engine-tag">FLUX3 Klein T2I / I2I</span>\n                    `;
+                    submodePanel.appendChild(headerRow);
+
+                    const grid = document.createElement("div");
+                    grid.className = "bada-submode-grid cols-2";
+                    FLUX3_SUBMODES.forEach(sub => {
+                        const card = document.createElement("div");
+                        card.className = `bada-sub-card flux3-card ${flux3Sub === sub.id ? "active" : ""}`;
+                        card.innerHTML = `<span class="bada-sub-name">${isKo ? sub.name : sub.name_en}</span><span class="bada-sub-tag">${isKo ? sub.desc : sub.desc_en}</span>`;
+                        card.onclick = () => {
+                            flux3Sub = sub.id;
+                            localStorage.setItem("bada_flux3_sub", flux3Sub);
+                            renderSubmodePanel();
+                            updateInputPlaceholders();
+                        };
+                        grid.appendChild(card);
+                    });
+                    submodePanel.appendChild(grid);
+                } else if (activeEngine === "moss") {
+                    const headerRow = document.createElement("div");
+                    headerRow.className = "bada-submode-header";
+                    headerRow.innerHTML = `\n                        <div class="bada-submode-title"><span>🟢</span><span>${isKo ? "MOSS 세부 모드 선택" : "MOSS Submodes"}</span></div>\n                        <span class="bada-engine-tag">MOSS-Image-SFT T2I / I2I</span>\n                    `;
+                    submodePanel.appendChild(headerRow);
+
+                    const grid = document.createElement("div");
+                    grid.className = "bada-submode-grid cols-2";
+                    MOSS_SUBMODES.forEach(sub => {
+                        const card = document.createElement("div");
+                        card.className = `bada-sub-card moss-card ${mossSub === sub.id ? "active" : ""}`;
+                        card.innerHTML = `<span class="bada-sub-name">${isKo ? sub.name : sub.name_en}</span><span class="bada-sub-tag">${isKo ? sub.desc : sub.desc_en}</span>`;
+                        card.onclick = () => {
+                            mossSub = sub.id;
+                            localStorage.setItem("bada_moss_sub", mossSub);
+                            renderSubmodePanel();
+                            updateInputPlaceholders();
+                        };
+                        grid.appendChild(card);
+                    });
+                    submodePanel.appendChild(grid);
                 } else if (activeEngine === "system_prompt") {
                     const headerRow = document.createElement("div");
                     headerRow.className = "bada-submode-header";
@@ -2072,6 +2135,40 @@ function updateBellBadge() {
                     generateBtn.className = "bada-btn-generate qwen";
                     // 버튼 라벨에서 모드 접미사는 뺀다 (세부분등 카드에서 이미 T2I/I2I 가 표시됨)
                     generateBtn.innerHTML = `<span>🖼️</span> <span>${isKo ? "QWEN2.1 프롬프트 생성 🚀" : "Generate QWEN2.1 Prompt 🚀"}</span>`;
+                } else if (activeEngine === "flux3") {
+                    const modeName = flux3Sub === "i2i" ? "I2I" : "T2I";
+                    label.textContent = isKo ? `✍️ FLUX3 ${modeName} 프롬프트 요청` : `✍️ FLUX3 ${modeName} Prompt Request`;
+                    instructionTextarea.placeholder = flux3Sub === "i2i"
+                        ? composePlaceholder([
+                            isKo ? "ℹ️ FLUX3 Klein 편집 지침을 적용합니다." : "ℹ️ Applies FLUX3 Klein edit instructions.",
+                            isKo ? "참조 이미지를 첨부하고 원하는 편집 내용을 입력하세요." : "Attach reference images and describe the desired edit.",
+                            ...multiImageHint(isKo),
+                        ])
+                        : composePlaceholder([
+                            isKo ? "ℹ️ FLUX3 Klein 상세 묘사 프롬프트 지침을 적용합니다." : "ℹ️ Applies FLUX3 Klein detailed description instructions.",
+                            isKo ? "FLUX3로 생성할 씬의 아이디어나 스토리텔링을 자유롭게 입력하세요." : "Enter the idea or storyline you want to generate with FLUX3.",
+                            isKo ? "예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감" : "e.g. Cyberpunk city with wet asphalt reflecting neon lights, photorealistic texture",
+                            ...imageAnalysisHint(isKo),
+                        ]);
+                    generateBtn.className = "bada-btn-generate flux3";
+                    generateBtn.innerHTML = `<span>🟣</span> <span>${isKo ? "FLUX3 프롬프트 생성 🚀" : "Generate FLUX3 Prompt 🚀"}</span>`;
+                } else if (activeEngine === "moss") {
+                    const modeName = mossSub === "i2i" ? "I2I" : "T2I";
+                    label.textContent = isKo ? `✍️ MOSS ${modeName} 프롬프트 요청` : `✍️ MOSS ${modeName} Prompt Request`;
+                    instructionTextarea.placeholder = mossSub === "i2i"
+                        ? composePlaceholder([
+                            isKo ? "ℹ️ MOSS-Image-SFT 서사형 편집 지침을 적용합니다." : "ℹ️ Applies MOSS-Image-SFT narrative edit instructions.",
+                            isKo ? "참조 이미지를 첨부하고 원하는 편집 내용을 입력하세요." : "Attach reference images and describe the desired edit.",
+                            ...multiImageHint(isKo),
+                        ])
+                        : composePlaceholder([
+                            isKo ? "ℹ️ MOSS-Image-SFT 서사적 장면 묘사 지침을 적용합니다." : "ℹ️ Applies MOSS-Image-SFT narrative scene expansion instructions.",
+                            isKo ? "MOSS로 생성할 씬의 아이디어나 스토리텔링을 자유롭게 입력하세요." : "Enter the idea or storyline you want to generate with MOSS.",
+                            isKo ? "예: 신비로운 숲속에서 빛나는 유물을 발견한 모험가의 클로즈업, 영화적 조명" : "e.g. Close-up of an adventurer discovering a glowing artifact in a mystical forest, cinematic lighting",
+                            ...imageAnalysisHint(isKo),
+                        ]);
+                    generateBtn.className = "bada-btn-generate moss";
+                    generateBtn.innerHTML = `<span>🟢</span> <span>${isKo ? "MOSS 프롬프트 생성 🚀" : "Generate MOSS Prompt 🚀"}</span>`;
                 } else if (activeEngine === "system_prompt") {
                     const selected = userSystemPrompts.find(prompt =>
                         String(prompt.id || prompt.name) === selectedSystemPromptId
@@ -2173,7 +2270,7 @@ function updateBellBadge() {
                             engine_mode: activeEngine,
                             submode: activeEngine === "minimax"
                                 ? minimaxSub
-                                : (activeEngine === "ltx" ? ltxSub : (activeEngine === "qwen21" ? qwenSub : kreaSub)),
+                                : (activeEngine === "ltx" ? ltxSub : (activeEngine === "qwen21" ? qwenSub : (activeEngine === "flux3" ? flux3Sub : (activeEngine === "moss" ? mossSub : kreaSub)))),
                             duration: durationSec,
                             cut_count: storyboardCutCount,
                             is_nsfw: isNSFW,

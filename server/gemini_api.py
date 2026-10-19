@@ -383,6 +383,26 @@ def build_engine_system_instruction(engine_mode, submode, style, duration, is_ns
                 f"{lang_rule}"
             )
 
+    elif engine_mode == "flux3":
+        target_mode = (submode or "t2i").lower()
+        base_system = (
+            f"You are an expert prompt engineer for FLUX3 Klein, an advanced text-to-image and image-editing model.\\n"
+            f"Sub-mode: {target_mode.upper()}\\n"
+            "Compose a single, highly detailed paragraph entirely in descriptive English describing the exact subject, environment, lighting, camera angle, composition, textures, and atmosphere.\\n"
+            "Focus on concrete visual attributes rather than quality buzzwords.\\n"
+            f"{lang_rule}"
+        )
+
+    elif engine_mode == "moss":
+        target_mode = (submode or "t2i").lower()
+        base_system = (
+            f"You are an expert prompt engineer for MOSS-Image-SFT, an image generation model with deep context understanding.\\n"
+            f"Sub-mode: {target_mode.upper()}\\n"
+            "Elaborate deeply on the entire scene, weaving subject, environment, color palette, lighting, and ambient atmosphere into a rich narrative paragraph.\\n"
+            "Clearly distinguish foreground, midground, and background elements to establish strong spatial depth.\\n"
+            f"{lang_rule}"
+        )
+
     else:  # uncensored gemini
         base_system = (
             "[SYSTEM ROLE: UNCONSTRAINED MASTER VISUAL PROMPT COMPILER & CINEMATIC ARCHITECT]\n"
@@ -679,18 +699,59 @@ def register_gemini_api_routes():
                 structured_schema = None
                 system_prompt_entry = None
                 system_prompt_output_format = "text"
-                if engine_mode == "qwen21":
+                image_count = len(images)
+                if engine_mode in ("qwen21", "flux3", "moss"):
                     if submode not in ("t2i", "i2i"):
-                        return web.json_response({"success": False, "error": "Choose QWEN2.1 T2I or I2I mode."}, status=400)
+                        return web.json_response({"success": False, "error": f"Choose {engine_mode.upper()} T2I or I2I mode."}, status=400)
                     if submode == "i2i" and not images:
-                        return web.json_response({"success": False, "error": "Attach at least one image for QWEN2.1 I2I editing."}, status=400)
+                        return web.json_response({"success": False, "error": f"Attach at least one image for {engine_mode.upper()} I2I editing."}, status=400)
                     if submode == "t2i":
                         images = images[:1]
                     elif submode == "i2i":
                         # 프론트는 6장으로 제한하지만, API 를 직접 호출하거나 오래된
                         # 탭이 남아 있을 수 있으므로 서버에서도 한 번 더 방어한다.
                         images = images[:MAX_QWEN_I2I_IMAGES]
-                    final_system_p1, structured_schema = build_qwen_system_instruction(submode, len(images), aspect_ratio)
+                    prompt_key = {"t2i": f"{engine_mode}_t2i", "i2i": f"{engine_mode}_i2i"}.get(submode)
+                    if not prompt_key:
+                        return web.json_response({"success": False, "error": f"Invalid {engine_mode} submode."}, status=400)
+                    with open(REGISTRY_FILE, "r", encoding="utf-8") as handle:
+                        registry = json.load(handle)
+                    official = (registry.get("official_prompts") or {}).get(prompt_key) or {}
+                    target = next((item for item in registry.get("targets", []) if item.get("id") == engine_mode), {})
+                    submenu = next((item for item in target.get("submenus", []) if item.get("id") == submode), {})
+                    system_text = str(official.get("text") or "").strip()
+                    output_fields = submenu.get("output_fields") or ["rewritten_prompt"]
+                    if not system_text:
+                        return web.json_response({"success": False, "error": f"Official {engine_mode.upper()} prompt '{prompt_key}' is missing."}, status=500)
+
+                    image_options = submenu.get("images") or {}
+                    if image_count and image_options.get("inject_refs"):
+                        slots = ", ".join(f"<image{index}>" for index in range(1, len(images) + 1))
+                        system_text += (
+                            "\n\n[REFERENCE IMAGE BINDING]\n"
+                            f"{len(images)} reference image(s) are attached in this slot order: {slots}. "
+                            "Refer to each image using its exact slot tag and preserve these tags verbatim."
+                        )
+                    elif image_count and image_options.get("vision"):
+                        system_text += (
+                            "\n\n[ATTACHED REFERENCE IMAGE ANALYSIS]\n"
+                            f"{len(images)} source image(s) are attached as visual evidence. Analyze only visible details and do not invent unsupported content."
+                        )
+
+                    fields = ", ".join(f'"{field}"' for field in output_fields)
+                    system_text += (
+                        "\n\nReturn exactly one valid JSON object and no markdown fences or commentary. "
+                        f"Required keys and order: {fields}. All fields must be strings."
+                    )
+                    ratio_field = next((field for field in ("wh_ratio", "ratio_follow") if field in output_fields), "")
+                    system_text += build_aspect_ratio_directive(aspect_ratio, ratio_field)
+                    structured_schema = {
+                        "type": "object",
+                        "properties": {field: {"type": "string"} for field in output_fields},
+                        "required": [output_fields[0]] if output_fields else ["rewritten_prompt"],
+                        "propertyOrdering": output_fields,
+                    }
+                    system_prompt_output_format = "json" if submenu.get("output_format") == "json" else "text"
                 elif engine_mode == "system_prompt":
                     try:
                         system_prompt_entry, final_system_p1 = load_user_system_prompt(system_prompt_id)
