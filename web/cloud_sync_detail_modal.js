@@ -871,10 +871,11 @@ function paintDetailFiles() {
     const isKo = (BadaI18n.lang === "ko");
     const body = detailModalEl.querySelector("#bada-detail-files-body");
     if (!body) return;
-    // 동일 스냅샷+상태면 재렌더 생략 — 파일·원격·커스텀·PRO 상태를 함께 비교
-    // (파일만 비교하면 PRO 전환 시 잠금이 안 풀리는 버그 발생).
+    // 동일 스냅샷+상태면 재렌더 생략 — 파일·원격·커스텀·PRO·트리 상태를 함께 비교
+    // (파일만 비교하면 PRO 전환 시 잠금이 안 풀리고, 트리 상태를 빼면
+    //  browse-tree 응답 후에도 "불러오는 중…"에서 멈추는 버그 발생).
     try {
-        const sig = JSON.stringify([detailFilesSnapshot, detailRemoteSnapshot, customFolders, customSyncEnabled, customProActive, customCounts, customAddOpen, customAddError, customBrowseOpen, customBrowseRel]);
+        const sig = JSON.stringify([detailFilesSnapshot, detailRemoteSnapshot, customFolders, customSyncEnabled, customProActive, customCounts, customAddOpen, customAddError, customBrowseOpen, customBrowseRel, customBrowseLoading, customBrowseError, customBrowseCache]);
         if (sig === detailFilesLastSig) return;
         detailFilesLastSig = sig;
     } catch (_) { /* 시그니처 실패 시 그냥 렌더 */ }
