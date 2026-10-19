@@ -462,26 +462,32 @@ function paintCustomBrowseRows(box, isKo, snap) {
     const mkRow = (icon, label, sub, absPath, enterRel) => {
         const selected = !!(cleanDraft && absPath && normAbs(cleanDraft) === normAbs(absPath));
         const row = document.createElement("div");
-        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 6px;border-radius:6px;cursor:pointer;" + (selected ? "background:rgba(34,197,94,0.15);outline:1px solid rgba(34,197,94,0.5);" : "");
+        row.style.cssText = "display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:6px;" + (selected ? "background:rgba(34,197,94,0.15);outline:1px solid rgba(34,197,94,0.5);" : "");
         row.title = absPath || "";
+        // 좌측 체크박스 — 폴더/파일 공통. 체크하면 입력창에 경로 지정 (=선택).
+        // 진입과 완전히 분리: 체크박스 클릭은 버블링 차단, 행 클릭은 진입(폴더)/지정(파일).
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = selected;
+        cb.title = absPath || "";
+        cb.style.cssText = "flex-shrink:0;width:15px;height:15px;accent-color:#22c55e;cursor:pointer;margin:0;";
+        cb.addEventListener("click", (e) => {
+            e.stopPropagation();
+            customAddDraft = absPath || "";
+            paintDetailFiles();
+        });
+        row.appendChild(cb);
         const left = document.createElement("span");
-        left.style.cssText = "color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        left.style.cssText = "color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;cursor:pointer;";
         left.textContent = icon + " " + label + (sub ? "  (" + sub + ")" : "") + (selected ? " ✅" : "");
-        row.appendChild(left);
-        row.addEventListener("click", () => {
+        left.title = (enterRel ? (isKo ? "클릭: 폴더 안으로 진입" : "Click: enter folder") + " · " : "") + (absPath || "");
+        left.addEventListener("click", (e) => {
+            e.stopPropagation();
             if (enterRel) { customBrowseRel = enterRel; fetchCustomBrowse(enterRel); }
             else { customAddDraft = absPath || ""; }
             paintDetailFiles();
         });
-        if (enterRel) {
-            const pick = document.createElement("button");
-            pick.type = "button";
-            pick.textContent = isKo ? "선택" : "Pick";
-            pick.title = absPath || "";
-            pick.style.cssText = "flex-shrink:0;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:#bbf7d0;border-radius:6px;padding:1px 8px;font-size:11px;cursor:pointer;";
-            pick.addEventListener("click", (e) => { e.stopPropagation(); customAddDraft = absPath || ""; paintDetailFiles(); });
-            row.appendChild(pick);
-        }
+        row.appendChild(left);
         box.appendChild(row);
     };
     const folders = (snap && snap.folders) || [];
@@ -649,6 +655,19 @@ function paintCustomSection(body, isKo) {
             customBrowseOpen = !customBrowseOpen;
             if (customBrowseOpen) fetchCustomBrowse(customBrowseRel);
             paintDetailFiles();
+            // 목록을 열면 트리 박스 위치로 모달 스크롤 이동 (하단 잘림 방지).
+            if (customBrowseOpen) {
+                requestAnimationFrame(() => {
+                    try {
+                        const scrollEl = detailModalEl && detailModalEl.querySelector("#bada-detail-scroll");
+                        const box = detailModalEl && detailModalEl.querySelector("#bada-custom-browse-box");
+                        if (scrollEl && box) {
+                            const target = box.offsetTop - scrollEl.offsetTop - 12;
+                            if (target > scrollEl.scrollTop) scrollEl.scrollTo({ top: target, behavior: "smooth" });
+                        }
+                    } catch (_) {}
+                });
+            }
         });
 
         const submitAdd = async () => {
@@ -875,7 +894,7 @@ function paintDetailFiles() {
     // (파일만 비교하면 PRO 전환 시 잠금이 안 풀리고, 트리 상태를 빼면
     //  browse-tree 응답 후에도 "불러오는 중…"에서 멈추는 버그 발생).
     try {
-        const sig = JSON.stringify([detailFilesSnapshot, detailRemoteSnapshot, customFolders, customSyncEnabled, customProActive, customCounts, customAddOpen, customAddError, customBrowseOpen, customBrowseRel, customBrowseLoading, customBrowseError, customBrowseCache]);
+        const sig = JSON.stringify([detailFilesSnapshot, detailRemoteSnapshot, customFolders, customSyncEnabled, customProActive, customCounts, customAddOpen, customAddDraft, customAddName, customAddError, customBrowseOpen, customBrowseRel, customBrowseLoading, customBrowseError, customBrowseCache]);
         if (sig === detailFilesLastSig) return;
         detailFilesLastSig = sig;
     } catch (_) { /* 시그니처 실패 시 그냥 렌더 */ }
