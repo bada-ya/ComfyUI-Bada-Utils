@@ -10,7 +10,7 @@ import { BadaI18n } from "./bada_i18n.js";
 let detailModalEl = null;
 let detailPollTimer = null;
 let detailFilesSnapshot = [];
-let detailFilesSnapshotPrev = null; // 변경 감지용 이전 스냅샷
+let detailFilesLastSig = null; // 동일 스냅샷+상태면 재렌더 생략 (PRO 전환은 별도 시그니처)
 let detailLastSyncSnapshot = null;
 // 원격 개수+경로 스냅샷 (팝업 열 때 1회 조회, 1초 폴링과 분리).
 let detailRemoteSnapshot = null;
@@ -99,11 +99,11 @@ export function openCloudDetailModal(files, lastSync) {
     // Bada PRO 상태 — 미발급이면 커스텀 동기화 섹션(토글·추가) 비활성화 + 발급 안내.
     // 조회 실패 시 미발급 상태로 유지 (안전측). 상태 변경 시에만 재렌더.
     fetch("/api/bada/cloud/pro/status").then((r) => r.json()).then((s) => {
-        if (!isCloudDetailModalOpen() || !s.success) return;
+        if (!s || !s.success) return;
         const next = !!s.active;
         if (next !== customProActive) {
             customProActive = next;
-            paintDetailFiles();
+            if (isCloudDetailModalOpen()) paintDetailFiles();
         }
     }).catch(() => {});
     const onKeyDown = (e) => {
@@ -866,18 +866,18 @@ function paintCustomSection(body, isKo) {
     body.appendChild(sec);
 }
 
-let detailFilesLastSig = null;
-
 function paintDetailFiles() {
     if (!detailModalEl) return;
     const isKo = (BadaI18n.lang === "ko");
     const body = detailModalEl.querySelector("#bada-detail-files-body");
     if (!body) return;
-    // 급속 재진입 차단: fetchRemoteSnapshot 내부에서 설정 항목 각각 호출 시
-    // 스냅샷이 동일하면 중복 렌더링 생략 (DOM 파괴·재생성 비용 제거).
-    const sig = JSON.stringify(detailFilesSnapshot);
-    if (sig === detailFilesLastSig) return;
-    detailFilesLastSig = sig;
+    // 동일 스냅샷+상태면 재렌더 생략 — 파일·원격·커스텀·PRO 상태를 함께 비교
+    // (파일만 비교하면 PRO 전환 시 잠금이 안 풀리는 버그 발생).
+    try {
+        const sig = JSON.stringify([detailFilesSnapshot, detailRemoteSnapshot, customFolders, customSyncEnabled, customProActive, customCounts, customAddOpen, customAddError, customBrowseOpen, customBrowseRel]);
+        if (sig === detailFilesLastSig) return;
+        detailFilesLastSig = sig;
+    } catch (_) { /* 시그니처 실패 시 그냥 렌더 */ }
     // 1초 폴링 재렌더 시 포커스 유지 — 커스텀 추가 폼 입력 중 DOM 재생성으로 포커스가
     // 날아가 타이핑이 끊기는 문제 방지. (값은 customAddDraft/customAddName 이 보존)
     let restoreField = null, selStart = 0, selEnd = 0;
