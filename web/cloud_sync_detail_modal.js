@@ -25,6 +25,11 @@ let customAddOpen = false;     // 인라인 추가 폼 표시 여부
 let customAddError = "";       // 인라인 검증 에러 (빨간 글씨)
 let customAddDraft = "";       // 입력 중 내용 보존 (재렌더링 시 복원)
 let customAddName = "";        // Drive 이름(선택) 입력 중 내용 보존 — 비워두면 로컬 basename 사용
+let customBrowseOpen = false;  // 미니 트리 표시 여부 (추가 폼이 열려 있을 때만)
+let customBrowseRel = "";      // 탐색 중인 ComfyUI 기준 상대경로 ("" = 루트)
+let customBrowseCache = {};    // rel -> browse-tree 스냅샷
+let customBrowseLoading = null;  // 로딩 중인 rel (null = 유휴)
+let customBrowseError = "";    // 트리 조회 에러
 
 const MAX_NAME_LEN = 40;
 const truncName = (s) => {
@@ -71,6 +76,11 @@ export function openCloudDetailModal(files, lastSync) {
     customAddError = "";
     customAddDraft = "";
     customAddName = "";
+    customBrowseOpen = false;
+    customBrowseRel = "";
+    customBrowseCache = {};
+    customBrowseLoading = null;
+    customBrowseError = "";
     if (!detailModalEl) {
         detailModalEl = document.createElement("div");
         detailModalEl.id = "bada-cloud-detail-modal";
@@ -141,9 +151,10 @@ function stopDetailPoll() {
 }
 // 원격 개수+경로 점진적(Progressive) 조회 — 가벼운 설정부터 즉시 표시하고 워크플로우를 뒤이어 갱신.
 function isRemoteChecking() {
-    if (!Array.isArray(detailFilesSnapshot) || !detailFilesSnapshot.length) return false;
+    const visible = Array.isArray(detailFilesSnapshot) ? detailFilesSnapshot.filter(f => f && f.name !== "custom_targets.json") : [];
+    if (!visible.length) return false;
     if (!Array.isArray(detailRemoteSnapshot)) return true;
-    return detailFilesSnapshot.some(f => !detailRemoteSnapshot.find(t => t.name === f.name));
+    return visible.some(f => !detailRemoteSnapshot.find(t => t.name === f.name));
 }
 
 async function fetchRemoteSnapshot() {
@@ -152,7 +163,7 @@ async function fetchRemoteSnapshot() {
     }
     detailRemoteError = "";
 
-    const items = Array.isArray(detailFilesSnapshot) ? detailFilesSnapshot : [];
+    const items = Array.isArray(detailFilesSnapshot) ? detailFilesSnapshot.filter(f => f.name !== "custom_targets.json") : [];
     const configItems = items.filter(f => f.name !== "workflows");
     const hasWorkflows = items.some(f => f.name === "workflows");
 
@@ -357,6 +368,162 @@ async function fetchCustomCounts(name) {
     } catch (_) {}
 }
 
+// 미니 트리 박스 ① — 헤더(breadcrumb + 현재 폴더 선택 버튼).
+function paintCustomBrowseTree(sec, isKo) {
+    if (!customBrowseOpen) return;
+    const box = document.createElement("div");
+    // 1초 폴링 재렌더 시 스크롤 유지용 식별자 — paintDetailFiles 가 복원한다.
+    box.id = "bada-custom-browse-box";
+    box.style.cssText = "margin:6px 0 2px 4px;border:1px solid rgba(148,163,184,0.3);border-radius:8px;background:rgba(15,23,42,0.5);padding:8px 10px;font-size:12px;max-height:240px;overflow-y:auto;";
+    const key = customBrowseRel || "";
+    const snap = customBrowseCache[key];
+    const head = document.createElement("div");
+    head.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;";
+    const crumb = document.createElement("div");
+    crumb.style.cssText = "display:flex;align-items:center;flex-wrap:wrap;gap:2px;color:#94a3b8;min-width:0;";
+    const mkCrumb = (label, rel, isLast) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = label;
+        b.style.cssText = isLast ? "background:none;border:none;color:#e2e8f0;font-size:12px;font-weight:700;padding:1px 3px;" : "background:none;border:none;color:#7dd3fc;font-size:12px;cursor:pointer;padding:1px 3px;text-decoration:underline;";
+        if (!isLast) b.addEventListener("click", () => { customBrowseRel = rel; fetchCustomBrowse(rel); paintDetailFiles(); });
+        return b;
+    };
+    crumb.appendChild(mkCrumb("ComfyUI", "", key === ""));
+    if (key) {
+        const parts = key.split("/");
+        let acc = "";
+        parts.forEach((pt, i) => {
+            const sep = document.createElement("span");
+            sep.textContent = " › ";
+            crumb.appendChild(sep);
+            acc = acc ? (acc + "/" + pt) : pt;
+            crumb.appendChild(mkCrumb(pt, acc, i === parts.length - 1));
+        });
+    }
+    head.appendChild(crumb);
+    const hereBtn = document.createElement("button");
+    hereBtn.type = "button";
+    hereBtn.textContent = isKo ? "현재 폴더 선택" : "Select folder";
+    if (!key || !snap) {
+        hereBtn.disabled = true;
+        hereBtn.title = isKo ? "하위 폴더로 이동한 뒤 선택" : "Enter a subfolder first";
+        hereBtn.style.cssText = "flex-shrink:0;background:rgba(148,163,184,0.1);border:1px solid rgba(148,163,184,0.25);color:#64748b;border-radius:6px;padding:3px 10px;font-size:11px;cursor:not-allowed;";
+    } else {
+        hereBtn.title = snap.path || "";
+        hereBtn.style.cssText = "flex-shrink:0;background:rgba(14,165,233,0.2);border:1px solid rgba(14,165,233,0.4);color:#e0f2fe;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:700;cursor:pointer;";
+        hereBtn.addEventListener("click", () => { customAddDraft = snap.path || ""; paintDetailFiles(); });
+    }
+    head.appendChild(hereBtn);
+    box.appendChild(head);
+    paintCustomBrowseTreeBody(box, isKo, key, snap);
+    sec.appendChild(box);
+}
+
+// 미니 트리 박스 2 — 로딩/에러 분기 후 목록으로 위임.
+function paintCustomBrowseTreeBody(box, isKo, key, snap) {
+    if (customBrowseLoading === key) {
+        const ld = document.createElement("div");
+        ld.style.cssText = "padding:8px 4px;color:#94a3b8;";
+        ld.textContent = isKo ? "불러오는 중…" : "Loading…";
+        box.appendChild(ld);
+        return;
+    }
+    if (customBrowseError || !snap) {
+        const er = document.createElement("div");
+        er.style.cssText = "padding:6px 4px;color:#fca5a5;";
+        er.textContent = "⚠️ " + (customBrowseError || (isKo ? "목록 없음" : "No data"));
+        box.appendChild(er);
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.textContent = isKo ? "다시 시도" : "Retry";
+        retry.style.cssText = "background:none;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;border-radius:6px;padding:2px 10px;font-size:11px;cursor:pointer;margin:2px 0 4px 4px;";
+        retry.addEventListener("click", () => { delete customBrowseCache[key]; fetchCustomBrowse(key); });
+        box.appendChild(retry);
+        return;
+    }
+    paintCustomBrowseRows(box, isKo, snap);
+}
+
+// 미니 트리 박스 ③ — 폴더/파일 행 목록.
+function paintCustomBrowseRows(box, isKo, snap) {
+    const key = customBrowseRel || "";
+    const normAbs = (p) => String(p || "").replace(/\\/g, "/").toLowerCase();
+    const cleanDraft = customAddDraft.trim().replace(/^"+|"+$/g, "").trim();
+    if (key) {
+        const up = document.createElement("div");
+        up.style.cssText = "padding:3px 6px;border-radius:6px;cursor:pointer;color:#7dd3fc;";
+        up.textContent = "⬆ ..";
+        up.addEventListener("click", () => { customBrowseRel = snap.parent_rel || ""; fetchCustomBrowse(customBrowseRel); paintDetailFiles(); });
+        box.appendChild(up);
+    }
+    const mkRow = (icon, label, sub, absPath, enterRel) => {
+        const selected = !!(cleanDraft && absPath && normAbs(cleanDraft) === normAbs(absPath));
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 6px;border-radius:6px;cursor:pointer;" + (selected ? "background:rgba(34,197,94,0.15);outline:1px solid rgba(34,197,94,0.5);" : "");
+        row.title = absPath || "";
+        const left = document.createElement("span");
+        left.style.cssText = "color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        left.textContent = icon + " " + label + (sub ? "  (" + sub + ")" : "") + (selected ? " ✅" : "");
+        row.appendChild(left);
+        row.addEventListener("click", () => {
+            if (enterRel) { customBrowseRel = enterRel; fetchCustomBrowse(enterRel); }
+            else { customAddDraft = absPath || ""; }
+            paintDetailFiles();
+        });
+        if (enterRel) {
+            const pick = document.createElement("button");
+            pick.type = "button";
+            pick.textContent = isKo ? "선택" : "Pick";
+            pick.title = absPath || "";
+            pick.style.cssText = "flex-shrink:0;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.4);color:#bbf7d0;border-radius:6px;padding:1px 8px;font-size:11px;cursor:pointer;";
+            pick.addEventListener("click", (e) => { e.stopPropagation(); customAddDraft = absPath || ""; paintDetailFiles(); });
+            row.appendChild(pick);
+        }
+        box.appendChild(row);
+    };
+    const folders = (snap && snap.folders) || [];
+    const files = (snap && snap.files) || [];
+    for (const d of folders) mkRow("📁", d.name, "", d.path, d.rel_path);
+    for (const fl of files) mkRow("📄", fl.name, fmtSize(fl.size), fl.path, null);
+    if (!folders.length && !files.length) {
+        const em = document.createElement("div");
+        em.style.cssText = "padding:8px 4px;color:#64748b;";
+        em.textContent = isKo ? "빈 폴더입니다" : "Empty folder";
+        box.appendChild(em);
+    }
+    if ((snap && snap.truncated_dirs) || (snap && snap.truncated_files)) {
+        const tr = document.createElement("div");
+        tr.style.cssText = "padding:4px 6px;font-size:11px;color:#fbbf24;";
+        tr.textContent = isKo ? "⚠️ 항목이 많아 일부만 표시 — 하위 폴더로 이동" : "⚠️ Showing first 300 — enter a subfolder";
+        box.appendChild(tr);
+    }
+}
+
+// 미니 트리 조회 — rel 1단계 목록을 캐시에 저장 (중복 요청 방지).
+async function fetchCustomBrowse(rel) {
+    const key = rel || "";
+    if (customBrowseCache[key] || customBrowseLoading === key) return;
+    customBrowseLoading = key;
+    customBrowseError = "";
+    paintDetailFiles();
+    const isKo = (BadaI18n.lang === "ko");
+    try {
+        const r = await fetch(`/api/bada/cloud/browse-tree?path=${encodeURIComponent(key)}`);
+        const s = await r.json();
+        if (s.success) {
+            customBrowseCache[key] = s;
+            customBrowseError = "";
+        } else {
+            customBrowseError = s.error || (isKo ? "목록을 불러오지 못했습니다" : "Failed to load");
+        }
+    } catch (_) {
+        customBrowseError = isKo ? "서버 오류 — 다시 시도하세요 (ComfyUI 재시작 필요 가능)" : "Server error — retry (may need ComfyUI restart)";
+    }
+    customBrowseLoading = null;
+    paintDetailFiles();
+}
+
 // 커스텀 폴더 섹션 렌더 — 내장 5개 섹션 아래에 추가 (동일 스타일 재사용).
 function paintCustomSection(body, isKo) {
     const sec = document.createElement("div");
@@ -447,7 +614,7 @@ function paintCustomSection(body, isKo) {
         input.type = "text";
         input.dataset.field = "customPath"; // 재렌더 시 포커스 복원용 식별자
         input.value = customAddDraft;
-        input.placeholder = isKo ? 'ComfyUI 폴더 내부 경로만 가능 (탐색기 마우스 오른쪽 → "경로로 복사" 후 붙여넣기)' : 'Path inside the ComfyUI folder only (Explorer right-click → "Copy as path", then paste)';
+        input.placeholder = isKo ? '직접 입력/붙여넣기 또는 아래 목록에서 선택' : 'Type/paste a path or pick from the list below';
         input.style.cssText = "flex:1; min-width:0; background:rgba(30,41,59,0.6); border:1px solid rgba(148,163,184,0.35); color:#e2e8f0; border-radius:6px; padding:5px 10px; font-size:12px;";
         input.addEventListener("input", () => { customAddDraft = input.value; });
 
@@ -469,6 +636,18 @@ function paintCustomSection(body, isKo) {
         cancelBtn.type = "button";
         cancelBtn.style.cssText = "flex-shrink:0; background:none; border:1px solid rgba(148,163,184,0.35); color:#94a3b8; border-radius:6px; padding:5px 10px; font-size:12px; cursor:pointer;";
         cancelBtn.textContent = "✕";
+
+        // 미니 트리 토글 — ComfyUI 내부 목록에서 클릭 선택 (붙여넣기 대체).
+        const browseBtn = document.createElement("button");
+        browseBtn.type = "button";
+        browseBtn.textContent = customBrowseOpen ? (isKo ? "📁 목록 닫기" : "📁 Hide list") : (isKo ? "📁 목록에서 선택" : "📁 Browse");
+        browseBtn.title = isKo ? "ComfyUI 폴더 목록에서 폴더/파일 선택" : "Pick a folder/file from the ComfyUI folder list";
+        browseBtn.style.cssText = "flex-shrink:0; background:rgba(14,165,233,0.15); border:1px solid rgba(14,165,233,0.4); color:#bae6fd; border-radius:6px; padding:5px 10px; font-size:12px; cursor:pointer;";
+        browseBtn.addEventListener("click", () => {
+            customBrowseOpen = !customBrowseOpen;
+            if (customBrowseOpen) fetchCustomBrowse(customBrowseRel);
+            paintDetailFiles();
+        });
 
         const submitAdd = async () => {
             if (okBtn.disabled) return;
@@ -501,6 +680,11 @@ function paintCustomSection(body, isKo) {
                     customAddError = "";
                     customAddDraft = "";
                     customAddName = "";
+                    customBrowseOpen = false;
+                    customBrowseRel = "";
+                    customBrowseCache = {};
+                    customBrowseLoading = null;
+                    customBrowseError = "";
                     fetchCustomFolders(); // 목록 + 개수 갱신
                 } else {
                     customAddError = s.error || (isKo ? "등록 실패" : "Failed to add");
@@ -520,14 +704,18 @@ function paintCustomSection(body, isKo) {
             customAddError = "";
             customAddDraft = "";
             customAddName = "";
+            customBrowseOpen = false;
+            customBrowseRel = "";
             paintDetailFiles();
         });
 
         form.appendChild(input);
         form.appendChild(nameInput);
         form.appendChild(okBtn);
+        form.appendChild(browseBtn);
         form.appendChild(cancelBtn);
         sec.appendChild(form);
+        paintCustomBrowseTree(sec, isKo);
 
         if (customAddError) {
             const errEl = document.createElement("div");
@@ -689,8 +877,19 @@ function paintDetailFiles() {
         restoreField = activeEl.dataset.field;
         try { selStart = activeEl.selectionStart ?? 0; selEnd = activeEl.selectionEnd ?? 0; } catch (_) {}
     }
+    // 미니 트리 스크롤 유지 — 1초 폴링 재렌더(body.textContent="") 로 박스가 재생성되면
+    // 스크롤이 맨 위로 점프하므로, 재생성 전 scrollTop 을 저장했다가 트리 렌더 후 복원한다.
+    // 박스 내부 스크롤 + 모달 전체 스크롤 둘 다 저장 (둘 중 어느 쪽이 움직여도 점프처럼 보인다).
+    let browseScrollTop = 0;
+    const prevBrowseBox = body.querySelector("#bada-custom-browse-box");
+    if (prevBrowseBox) { try { browseScrollTop = prevBrowseBox.scrollTop || 0; } catch (_) {} }
+    let modalScrollTop = 0;
+    const modalScrollEl = detailModalEl.querySelector("#bada-detail-scroll");
+    if (modalScrollEl) { try { modalScrollTop = modalScrollEl.scrollTop || 0; } catch (_) {} }
     body.textContent = "";
-    for (const f of detailFilesSnapshot) {
+    // 내부 관리용 레지스트리는 상세 목록에 노출하지 않는다 (동기화는 유지).
+    const visibleFiles = detailFilesSnapshot.filter(f => f && f.name !== "custom_targets.json");
+    for (const f of visibleFiles) {
         const lbl = FILE_LABELS[f.name] || { ko: f.name, en: f.name };
         const label = isKo ? lbl.ko : lbl.en;
         const mark = f.exists ? "✅" : "➖";
@@ -815,6 +1014,16 @@ function paintDetailFiles() {
     }
     // 커스텀 폴더 섹션 — 내장 5개 섹션 아래에 추가 (동일 스타일 재사용).
     paintCustomSection(body, isKo);
+    // 미니 트리 스크롤 복원 — paintCustomSection 이 박스를 재생성한 뒤 저장값으로 되돌린다.
+    if (browseScrollTop > 0) {
+        const nextBrowseBox = body.querySelector("#bada-custom-browse-box");
+        if (nextBrowseBox) { try { nextBrowseBox.scrollTop = browseScrollTop; } catch (_) {} }
+    }
+    // 모달 전체 스크롤 복원 — 트리 박스 밖(모달 컨테이너)이 스크롤된 경우 점프 방지.
+    if (modalScrollTop > 0) {
+        const nextScrollEl = detailModalEl.querySelector("#bada-detail-scroll");
+        if (nextScrollEl) { try { nextScrollEl.scrollTop = modalScrollTop; } catch (_) {} }
+    }
     // 재렌더 후 포커스·커서 복원 — 입력 중이던 입력란으로 되돌린다.
     if (restoreField) {
         const el = body.querySelector(`[data-field="${restoreField}"]`);
@@ -841,7 +1050,7 @@ function renderDetailModal() {
                 </div>
                 <button class="usp-close-btn" id="bada-detail-close-x" style="background:none; border:none; font-size:22px; color:#94a3b8; cursor:pointer; padding:6px 12px; border-radius:8px;">✕</button>
             </div>
-            <div style="padding:18px 24px; overflow-y:auto;">
+            <div id="bada-detail-scroll" style="padding:18px 24px; overflow-y:auto;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
                     <span id="bada-detail-progress-frac" style="font-size:14px; font-weight:700; color:#e2e8f0;">${isKo ? "\ud655\uc778 \uc911\u2026" : "Checking..."}</span>
                     <button id="bada-detail-sync-btn" data-mode="sync" style="background:rgba(14,165,233,0.2); border:1px solid rgba(14,165,233,0.4); color:#e0f2fe; border-radius:6px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer;">${isKo ? "☁️ 지금 동기화" : "☁️ Sync now"}</button>

@@ -1935,6 +1935,21 @@ def register_cloud_routes():
                 logger.error(f"[ComfyUI-Bada-Utils] Cloud custom-folders error: {e}")
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
+        async def cloud_browse_tree_handler(request):
+            """GET /api/bada/cloud/browse-tree — 미니 트리 선택기용 1단계 목록 (읽기 전용).
+
+            쿼리: ?path=<ComfyUI 루트 기준 상대경로, ""=루트>.
+            PRO 게이트 없음 — 목록 조회만 하며 등록(add)은 기존 PRO 게이트 그대로.
+            스캔은 os.scandir 1단계라 워커 스레드에서 실행 (이벤트 루프 블로킹 방지).
+            """
+            try:
+                rel = request.rel_url.query.get("path", "")
+                snap = await asyncio.to_thread(gdrive_sync.browse_comfyui_dir, rel)
+                return web.json_response({"success": snap.get("success", False), **snap})
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud browse-tree error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
         async def cloud_custom_folder_add_handler(request):
             """POST /api/bada/cloud/custom-folder-add — 커스텀 동기화 대상 등록 (JSON {path, name?})."""
             # Bada PRO 게이트 — 미발급 시 등록 거부 (방어적 이중 차단; UI 도 비활성화).
@@ -1987,6 +2002,7 @@ def register_cloud_routes():
         routes.post("/api/bada/cloud/pro/activate")(cloud_pro_activate_handler)
         routes.get("/api/bada/cloud/pro/guide")(cloud_pro_guide_handler)
         routes.get("/api/bada/cloud/custom-folders")(cloud_custom_folders_handler)
+        routes.get("/api/bada/cloud/browse-tree")(cloud_browse_tree_handler)
         routes.post("/api/bada/cloud/custom-folder-add")(cloud_custom_folder_add_handler)
         routes.post("/api/bada/cloud/custom-folder-remove")(cloud_custom_folder_remove_handler)
         routes.post("/api/bada/cloud/custom-sync-toggle")(cloud_custom_sync_toggle_handler)

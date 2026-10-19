@@ -143,6 +143,7 @@ SYNC_TARGET_FILES = [
     'gemini_chat_history.json',
     'engines_registry.json',
     # 커스텀 동기화 대상 레지스트리 — 타 PC 에 등록 정보 자동 전파 (상대경로 기반).
+    # 동기화는 유지하되 상세 목록에는 표시하지 않는다 (내부 관리용 — UI 노출 제외).
     'custom_targets.json',
 ]
 
@@ -2259,11 +2260,14 @@ def get_sync_file_details():
     """
     details = []
     for rel_path in get_target_rel_paths():
+        name = os.path.basename(rel_path)
+        # 내부 관리용 레지스트리는 동기화는 유지하되 상세 목록에는 노출하지 않는다.
+        if name == 'custom_targets.json':
+            continue
         try:
             full_path = _resolve_local_path(rel_path)
         except ValueError:
             continue
-        name = os.path.basename(rel_path)
         if os.path.isfile(full_path):
             entry = {
                 "name": name,
@@ -2499,6 +2503,9 @@ def get_remote_counts_snapshot(target: str = None):
         wf_root = ""
     for rel_path in get_target_rel_paths():
         name = os.path.basename(rel_path)
+        # 내부 관리용 레지스트리는 상세 목록에 노출하지 않는다 (동기화는 유지).
+        if name == 'custom_targets.json':
+            continue
         try:
             local_path = _resolve_local_path(rel_path)
         except Exception:
@@ -2845,6 +2852,86 @@ def get_custom_folders() -> list:
         out.append({"name": name, "path": full, "rel_path": rel_path,
                     "exists": exists, "is_file": is_file})
     return out
+
+
+_BROWSE_MAX_DIRS = 300
+_BROWSE_MAX_FILES = 300
+_BROWSE_SKIP_DIR_NAMES = {"__pycache__", ".git", "node_modules", ".venv", "venv"}
+
+
+def browse_comfyui_dir(rel_path="") -> dict:
+    """ComfyUI 루트 하위 1단계 목록 — 커스텀 등록용 미니 트리 선택기 (읽기 전용).
+
+    - rel_path: ComfyUI 루트 기준 상대경로 ("" = 루트). `..` 탈출·루트 밖은 거절.
+    - junction/symlink 는 따라가서 분류한다 (StabilityMatrix 패키지 구조에서
+      하위 폴더가 외부 junction 이어도 목록에 보여야 하므로). 포함 검사는
+      사전적(lexical) 경로로만 수행 — 등록 시 add_custom_folder 와 동일한 판정.
+    - 대용량 폴더(models 등) 대비: 폴더/파일 각 300개 캡 + truncated 플래그.
+    - 숨김(`.` 시작) 항목과 개발용 폴더(__pycache__ 등)는 목록에서 제외.
+
+    반환: {"success", "root_name", "rel_path", "parent_rel", "path"(현재 폴더 절대경로),
+            "folders": [{name, rel_path, path}], "files": [{name, rel_path, path, size}],
+            "truncated_dirs", "truncated_files"} — path 는 등록용 절대경로 그대로.
+    """
+    root = _resolve_comfyui_root()
+    clean = str(rel_path or "").strip().replace("\\", "/").lstrip("/")
+    parts = [pt for pt in clean.split("/") if pt and pt != "."]
+    if any(pt == ".." for pt in parts):
+        return {"success": False, "error": "상위 경로(..)는 사용할 수 없습니다"}
+    target = os.path.normpath(os.path.join(root, *parts)) if parts else os.path.normpath(root)
+    if not _is_inside_comfyui_root(target, root):
+        return {"success": False, "error": "ComfyUI 폴더 내부만 볼 수 있습니다"}
+    if not os.path.isdir(target):
+        return {"success": False, "error": "폴더가 아닙니다"}
+    rel = "/".join(parts)
+    parent_rel = "/".join(parts[:-1])
+    folders = []
+    files = []
+    truncated_dirs = False
+    truncated_files = False
+    try:
+        with os.scandir(target) as it:
+            entries = sorted(it, key=lambda e: e.name.lower())
+    except Exception as e:  # noqa: BLE001
+        return {"success": False, "error": f"폴더를 읽을 수 없습니다: {e}"}
+    for entry in entries:
+        try:
+            name = entry.name
+        except Exception:  # noqa: BLE001
+            continue
+        if not name or name.startswith("."):
+            continue
+        try:
+            is_dir = entry.is_dir(follow_symlinks=True)
+        except Exception:  # noqa: BLE001 — 끊어진 링크 등은 건너뜀
+            continue
+        e_rel = f"{rel}/{name}" if rel else name
+        e_abs = os.path.normpath(os.path.join(root, *e_rel.split("/")))
+        if is_dir:
+            if name in _BROWSE_SKIP_DIR_NAMES:
+                continue
+            if len(folders) >= _BROWSE_MAX_DIRS:
+                truncated_dirs = True
+                continue
+            folders.append({"name": name, "rel_path": e_rel, "path": e_abs})
+        else:
+            try:
+                if not entry.is_file(follow_symlinks=True):
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            if len(files) >= _BROWSE_MAX_FILES:
+                truncated_files = True
+                continue
+            try:
+                size = entry.stat(follow_symlinks=True).st_size
+            except Exception:  # noqa: BLE001
+                size = 0
+            files.append({"name": name, "rel_path": e_rel, "path": e_abs, "size": size})
+    return {"success": True, "root_name": os.path.basename(root), "rel_path": rel,
+            "parent_rel": parent_rel, "path": target,
+            "folders": folders, "files": files,
+            "truncated_dirs": truncated_dirs, "truncated_files": truncated_files}
 
 
 def _get_registered_custom_folder(name) -> dict:
