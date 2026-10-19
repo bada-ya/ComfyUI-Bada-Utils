@@ -745,7 +745,22 @@ function paintCustomSection(body, isKo) {
             sec.appendChild(errEl);
         }
     } else if (customProActive) {
-        addBtn.addEventListener("click", () => { customAddOpen = true; paintDetailFiles(); });
+        addBtn.addEventListener("click", () => {
+            customAddOpen = true;
+            customBrowseOpen = true; // +추가 누르면 트리도 바로 표시 (목록 버튼 2단계 제거)
+            fetchCustomBrowse(customBrowseRel);
+            paintDetailFiles();
+            requestAnimationFrame(() => {
+                try {
+                    const scrollEl = detailModalEl && detailModalEl.querySelector("#bada-detail-scroll");
+                    const box = detailModalEl && detailModalEl.querySelector("#bada-custom-browse-box");
+                    if (scrollEl && box) {
+                        const target = box.offsetTop - scrollEl.offsetTop - 12;
+                        if (target > scrollEl.scrollTop) scrollEl.scrollTo({ top: target, behavior: "smooth" });
+                    }
+                } catch (_) {}
+            });
+        });
     }
 
     // 폴더가 없으면 점선 플레이스홀더 — PRO 활성: 클릭=추가 폼 / 미발급: 발급 안내(무반응).
@@ -754,7 +769,12 @@ function paintCustomSection(body, isKo) {
         if (customProActive) {
             empty.style.cssText = "border:1px dashed rgba(148,163,184,0.35); border-radius:8px; padding:12px 14px; margin-top:8px; font-size:12px; color:#94a3b8; text-align:center; cursor:pointer;";
             empty.textContent = isKo ? "아직 동기화 대상이 없습니다 — 클릭하여 폴더 또는 파일 추가" : "No sync targets yet — click to add a folder or file";
-            empty.addEventListener("click", () => { customAddOpen = true; paintDetailFiles(); });
+            empty.addEventListener("click", () => {
+                customAddOpen = true;
+                customBrowseOpen = true;
+                fetchCustomBrowse(customBrowseRel);
+                paintDetailFiles();
+            });
         } else {
             // Bada PRO 미발급 — 발급 안내 (클릭 무반응).
             empty.style.cssText = "border:1px dashed rgba(245,158,11,0.4); border-radius:8px; padding:12px 14px; margin-top:8px; font-size:12px; color:#fbbf24; text-align:center; cursor:not-allowed;";
