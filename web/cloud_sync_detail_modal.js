@@ -10,6 +10,7 @@ import { BadaI18n } from "./bada_i18n.js";
 let detailModalEl = null;
 let detailPollTimer = null;
 let detailFilesSnapshot = [];
+let detailFilesSnapshotPrev = null; // 변경 감지용 이전 스냅샷
 let detailLastSyncSnapshot = null;
 // 원격 개수+경로 스냅샷 (팝업 열 때 1회 조회, 1초 폴링과 분리).
 let detailRemoteSnapshot = null;
@@ -64,6 +65,7 @@ export function isCloudDetailModalOpen() {
 
 export function openCloudDetailModal(files, lastSync) {
     detailFilesSnapshot = Array.isArray(files) ? files : [];
+    detailFilesLastSig = null; // 모달 재오픈 시 렌더 가드 초기화
     detailLastSyncSnapshot = lastSync || null;
     detailRemoteSnapshot = null;
     detailRemoteError = "";
@@ -144,7 +146,7 @@ function startDetailPoll() {
         } catch (_) { /* next tick */ }
     };
     tick();
-    detailPollTimer = setInterval(tick, 1000);
+    detailPollTimer = setInterval(tick, 3000);
 }
 function stopDetailPoll() {
     if (detailPollTimer) { clearInterval(detailPollTimer); detailPollTimer = null; }
@@ -864,11 +866,18 @@ function paintCustomSection(body, isKo) {
     body.appendChild(sec);
 }
 
+let detailFilesLastSig = null;
+
 function paintDetailFiles() {
     if (!detailModalEl) return;
     const isKo = (BadaI18n.lang === "ko");
     const body = detailModalEl.querySelector("#bada-detail-files-body");
     if (!body) return;
+    // 급속 재진입 차단: fetchRemoteSnapshot 내부에서 설정 항목 각각 호출 시
+    // 스냅샷이 동일하면 중복 렌더링 생략 (DOM 파괴·재생성 비용 제거).
+    const sig = JSON.stringify(detailFilesSnapshot);
+    if (sig === detailFilesLastSig) return;
+    detailFilesLastSig = sig;
     // 1초 폴링 재렌더 시 포커스 유지 — 커스텀 추가 폼 입력 중 DOM 재생성으로 포커스가
     // 날아가 타이핑이 끊기는 문제 방지. (값은 customAddDraft/customAddName 이 보존)
     let restoreField = null, selStart = 0, selEnd = 0;
