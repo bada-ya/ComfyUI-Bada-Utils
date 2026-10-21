@@ -197,6 +197,7 @@ REMOTE_FOLDER_BY_REL = {
     '.configs/favorites_data.json':      'Favorites',
     '.configs/gemini_chat_history.json': 'GeminiChat',
     '.configs/engines_registry.json':    'SystemPrompts',
+    '.configs/custom_targets.json':      'CustomTargets',
 }
 REMOTE_WORKFLOWS_FOLDER = 'Workflows'
 
@@ -1372,6 +1373,145 @@ def _custom_sync_state():
     return enabled, (get_custom_folders() if enabled else [])
 
 
+def _download_remote_json(service, file_id) -> dict:
+    """원격 JSON 파일 다운로드 및 파싱."""
+    request = service.files().get_media(fileId=file_id)
+    fh = io.BytesIO()
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    fh.seek(0)
+    return json.loads(fh.read().decode('utf-8'))
+
+
+def _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files) -> tuple:
+    """custom_targets.json 전용 스마트 동기화 및 분기 병합.
+    - Drive 'CustomTargets' 하위폴더 사용
+    - 분기/단절된 양쪽 PC의 등록 목록을 유실 없이 합집합(Union) 병합
+    - 삭제/추가 의도를 mtime 및 포함관계로 정확히 판정
+    반환: (uploaded: bool, downloaded: bool)
+    """
+    rel_path = f"{_CONFIG_NS}custom_targets.json"
+    remote_key = rel_path.replace("/", "___")
+    target_folder_id = subfolder_ids.get("CustomTargets")
+    if not target_folder_id:
+        target_folder_id = _get_or_create_remote_folder(service, "CustomTargets", parent_id=root_id)
+        subfolder_ids["CustomTargets"] = target_folder_id
+
+    remote_meta = remote_files.get(remote_key)
+    local_path = CUSTOM_TARGETS_FILE
+    local_exists = os.path.exists(local_path)
+    local_targets = _load_custom_targets_registry() if local_exists else []
+    local_mtime = os.path.getmtime(local_path) if local_exists else 0.0
+
+    uploaded = False
+    downloaded = False
+
+    # 1. 원격 파일이 아직 없는 경우
+    if not remote_meta:
+        if local_targets:
+            local_meta = {
+                "mtime": int(local_mtime),
+                "size": os.path.getsize(local_path),
+            }
+            _upload_single_file(service, target_folder_id, rel_path, local_meta)
+            remote_id = _find_remote_file_in_folder(service, target_folder_id, "custom_targets.json")
+            remote_files[remote_key] = {
+                "id": remote_id,
+                "name": "custom_targets.json",
+                "modifiedTime": os.path.getmtime(local_path),
+                "size": os.path.getsize(local_path),
+                "folder_id": target_folder_id,
+            }
+            logger.info(f"[GDrive] custom_targets.json 초기 업로드 완료 ({len(local_targets)}개 대상)")
+            uploaded = True
+        return uploaded, downloaded
+
+    # 2. 원격 파일이 존재하는 경우
+    try:
+        remote_data = _download_remote_json(service, remote_meta["id"])
+        if isinstance(remote_data, dict):
+            remote_targets = remote_data.get("targets", [])
+        elif isinstance(remote_data, list):
+            remote_targets = remote_data
+        else:
+            remote_targets = []
+    except Exception as e:
+        logger.warning(f"[GDrive] 원격 custom_targets.json 파싱 실패: {e}")
+        return uploaded, downloaded
+
+    remote_mtime = _parse_drive_time(remote_meta.get("modifiedTime"))
+
+    local_by_name = {str(t.get("name", "")).strip(): t for t in local_targets if isinstance(t, dict) and t.get("name")}
+    remote_by_name = {str(t.get("name", "")).strip(): t for t in remote_targets if isinstance(t, dict) and t.get("name")}
+    local_keys = set(local_by_name.keys())
+    remote_keys = set(remote_by_name.keys())
+
+    merged_targets = None
+    need_local_save = False
+    need_remote_upload = False
+
+    if not local_keys and remote_keys:
+        merged_targets = remote_targets
+        need_local_save = True
+    elif local_keys and not remote_keys:
+        merged_targets = local_targets
+        need_remote_upload = True
+    elif local_keys == remote_keys:
+        if local_mtime >= remote_mtime:
+            merged_targets = local_targets
+            if local_targets != remote_targets:
+                need_remote_upload = True
+        else:
+            merged_targets = remote_targets
+            if local_targets != remote_targets:
+                need_local_save = True
+    elif (local_keys - remote_keys) and (remote_keys - local_keys):
+        # 분기(Split-brain / Diverged): 양쪽 모두 고유 대상을 등록한 상태 -> 합집합 병합!
+        merged_targets = list(local_targets)
+        for name, r_item in remote_by_name.items():
+            if name not in local_by_name:
+                merged_targets.append(r_item)
+        need_local_save = True
+        need_remote_upload = True
+        logger.info(f"[GDrive] custom_targets.json 분기 감지: 양쪽 대상 합집합 병합 ({len(local_keys)}개 + {len(remote_keys)}개 -> {len(merged_targets)}개)")
+    elif local_keys > remote_keys:
+        merged_targets = local_targets
+        need_remote_upload = True
+    elif remote_keys > local_keys:
+        if local_mtime > remote_mtime + 1:
+            merged_targets = local_targets
+            need_remote_upload = True
+        else:
+            merged_targets = remote_targets
+            need_local_save = True
+
+    if need_local_save and merged_targets is not None:
+        _save_custom_targets_registry(merged_targets)
+        if not need_remote_upload:
+            _pin_local_mtime(local_path, remote_meta.get("modifiedTime"))
+        logger.info(f"[GDrive] custom_targets.json 로컬 갱신 완료 ({len(merged_targets)}개 대상)")
+        downloaded = True
+
+    if need_remote_upload and merged_targets is not None:
+        local_meta = {
+            "mtime": int(os.path.getmtime(local_path)),
+            "size": os.path.getsize(local_path),
+        }
+        _upload_single_file(service, target_folder_id, rel_path, local_meta,
+                            existing_id=remote_meta["id"], existing_meta=remote_meta)
+        remote_files[remote_key]["modifiedTime"] = os.path.getmtime(local_path)
+        remote_files[remote_key]["size"] = os.path.getsize(local_path)
+        logger.info(f"[GDrive] custom_targets.json 원격 업로드 완료 ({len(merged_targets)}개 대상)")
+        uploaded = True
+    elif not need_local_save and not need_remote_upload:
+        if abs(local_mtime - remote_mtime) > 1.0:
+            _pin_local_mtime(local_path, remote_meta.get("modifiedTime"))
+
+    return uploaded, downloaded
+
+
 def _perform_sync_blocking():
     """
     실제 동기화(차단) 작업.
@@ -1400,8 +1540,12 @@ def _perform_sync_blocking():
         # 루트 폴더 → 그 안의 하위폴더 5종 ID 조회/생성 (이미 있으면 재사용).
         root_id = _get_or_create_remote_folder(service, FOLDER_NAME)
         subfolder_ids = _get_subfolder_ids(service, root_id)
-        local_manifest = build_local_manifest()
         remote_files, legacy_workflows = _list_remote_files(service, subfolder_ids)
+
+        # custom_targets.json 스마트 동기화 및 분기 병합 (Custom/ 파일 스캔 전에 선행 완료)
+        ct_up, ct_down = _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files)
+
+        local_manifest = build_local_manifest()
         # 중첩 폴더 캐시는 이번 동기화 기준으로 초기화 (이전 세션의 stale 폴더 ID 방지).
         _WORKFLOW_FOLDER_CACHE.clear()
         _CUSTOM_FOLDER_CACHE.clear()
@@ -1414,8 +1558,8 @@ def _perform_sync_blocking():
             custom_root_id = _get_or_create_custom_root(service, root_id)
             remote_files.update(_list_custom_remote_files(service, custom_root_id))
 
-        uploaded_count = 0
-        downloaded_count = 0
+        uploaded_count = 1 if ct_up else 0
+        downloaded_count = 1 if ct_down else 0
         trashed_local_count = 0
         trashed_remote_count = 0
 
@@ -1442,6 +1586,8 @@ def _perform_sync_blocking():
             all_keys |= set(base_snapshot.keys())
 
         for rel_path in all_keys:
+            if rel_path == f"{_CONFIG_NS}custom_targets.json":
+                continue
             is_workflow = rel_path.startswith(WORKFLOWS_NS)
             is_custom = rel_path.startswith(CUSTOM_NS)
             in_local = rel_path in local_manifest
@@ -3180,6 +3326,10 @@ def remove_custom_folder(name) -> dict:
         return {"success": False, "error": f"레지스트리 저장 실패: {e}"}
     logger.info(f"[GDrive] 커스텀 대상 해제: {n} (로컬·Drive 데이터 보존)")
     # 워커 시그니처는 다음 사이클에 갱신 — 제외된 대상의 로컬 변경은 더 이상 트리거하지 않는다.
+    try:
+        trigger_realtime_sync(None)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"[GDrive] post-remove sync trigger failed: {e}")
     return {"success": True, "name": n}
 
 
