@@ -30,9 +30,6 @@ const API = {
     importUrl: "/api/bada/gemini/chats/import",
 };
 
-// How an attachment is remembered when the user picked 「저장 안 함」: no bytes, just the
-// fact that there WAS an image. Rendered as a grey placeholder in the restored thread.
-export const IMAGE_OMITTED_MARK = "__omitted__";
 
 const T = () => (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
 

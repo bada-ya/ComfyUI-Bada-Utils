@@ -1450,7 +1450,6 @@ def _perform_sync_blocking():
 
             l_meta = local_manifest.get(rel_path)
             r_meta = remote_by_rel.get(rel_path)
-            b_meta = base_snapshot.get(rel_path) if base_snapshot else None
 
             # [CASE 1: 양쪽 모두 존재]
             if in_local and in_remote:
@@ -1484,7 +1483,6 @@ def _perform_sync_blocking():
             # [CASE 4: 양쪽 다 없음 (Base에만 잔재)]
             # 둘 다 이미 삭제된 상태 -> Base에서 자연 소멸 (아무 조치 불필요)
 
-        total_actions = len(to_upload) + len(to_download) + len(to_trash_local) + len(to_trash_remote)
         logger.info(
             f"[GDrive Smart Sync Plan] Upload: {len(to_upload)}, Download: {len(to_download)}, "
             f"Trash Local: {len(to_trash_local)}, Trash Remote: {len(to_trash_remote)}"
@@ -2264,8 +2262,7 @@ def _custom_watcher_loop():
                     _custom_watcher_pending = True
                     continue
                 logger.info("[GDrive] Custom target change detected → realtime sync (full fallback)")
-                result = trigger_realtime_sync(None)
-                status = result.get("status") if isinstance(result, dict) else ""
+                trigger_realtime_sync(None)
                 # queued/disabled 모두 동일 처리: 진행 중인 실행(있다면) 끝나고
                 # '동기화 이후 상태'로 재베이스라인. mtime pinning(정초)으로 시그니처가
                 # 안정화되므로 {} 로 초기화하면 다음 사이클에 무조건 한 번 더 트리거되는
@@ -2361,26 +2358,6 @@ def _count_config_items(filename, full_path):
         return None
 
 
-def get_sync_file_details():
-    """
-    설정창 현황 표시용.
-
-    `.configs/*` 개인 데이터는 파일별로 존재/용량/내용갯수를 낱개로 반환하고,
-    워크플로우는 개수가 많을 수 있어 **한 줄 요약**(존재 개수 + 총 용량)으로만 반환한다.
-
-    비용 통제 (2026-10-21 감사):
-      이 함수는 워크플로우 루트를 재귀 os.walk 하므로 워크플로우가 N개면
-      O(N) 디스크 스캔이 발생한다. 그런데 /api/bada/cloud/status 가 이를
-      **aiohttp 이벤트 루프 위에서, 3초마다** 호출하고 있었다 — 워크플로우
-      3,000개 기준 1회당 ~700ms 를 이벤트 루프가 정지했다(측정치). UI·큐·
-      웹소켓 전체가 그만큼 멈췄다.
-
-      두 겹의 방어를 둔다:
-        1) 짧은 TTL 캐시 — 3초 폴링에서는 첫 호출 이후 캐시를 쓰므로
-           스캔은 "설정 창이 열려 있는 동안" 드물게만 일어난다.
-        2) TTL 내이라도 호출자가 캐시 빌더를 직접 돌리지 않도록,
-           스캔 자체는 별도 스레드에서 수행하도록 만들 수 있다(아래 사용처).
-    """
 def _build_sync_file_details() -> list:
     """실제 스캔 — get_sync_file_details()의 캐시 미스 경로에서만 호출된다."""
     details = []

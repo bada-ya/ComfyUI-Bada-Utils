@@ -40,7 +40,7 @@ export function showToast(message, type = "success", duration = 2500) {
 
     const toast = document.createElement("div");
     toast.className = `usp-toast ${type}`;
-    toast.innerHTML = message;
+    toast.textContent = message;
     container.appendChild(toast);
 
     requestAnimationFrame(() => {
