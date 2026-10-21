@@ -1582,16 +1582,25 @@ def register_bada_api_routes():
 
                     im = Image.open(io.BytesIO(image_bytes))
                     max_dim = 640
-                    if im.width > max_dim or im.height > max_dim:
-                        im.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
-                    out_buf = io.BytesIO()
-                    has_alpha = im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info)
-                    if has_alpha:
-                        im.save(out_buf, format="PNG", optimize=True)
-                    else:
-                        im.convert("RGB").save(out_buf, format="PNG", optimize=True)
-                    thumbnail_bytes = out_buf.getvalue()
-                    im.close()
+                    try:
+                        if im.width > max_dim or im.height > max_dim:
+                            im.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+                        out_buf = io.BytesIO()
+                        has_alpha = im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info)
+                        if has_alpha:
+                            im.save(out_buf, format="PNG", optimize=True)
+                        else:
+                            # convert() returns a NEW image — it must be closed
+                            # explicitly, otherwise its pixel buffer stays alive
+                            # until the GC runs (2026-10-21 audit).
+                            rgb = im.convert("RGB")
+                            try:
+                                rgb.save(out_buf, format="PNG", optimize=True)
+                            finally:
+                                rgb.close()
+                        thumbnail_bytes = out_buf.getvalue()
+                    finally:
+                        im.close()
                     if not thumbnail_bytes:
                         raise ValueError("Thumbnail conversion produced no data")
                 except UnidentifiedImageError as opt_err:
@@ -1777,11 +1786,20 @@ def register_cloud_routes():
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
         async def cloud_status_handler(request):
-            """GET /api/bada/cloud/status — 연동 상태·대상 파일 요약."""
+            """GET /api/bada/cloud/status — 연동 상태·대상 파일 요약.
+
+            이벤트 루프 블로킹 금지 (2026-10-21 감사):
+              get_sync_file_details() 는 워크플로우 루트를 재귀 os.walk 하므로
+              워크플로우 수에 비례해 느려진다(3,000개 기준 ~700ms). 이 핸들러는
+              설정창이 열려 있는 동안 3초마다 호출되므로, 여기서 동기적으로
+              돌리면 aiohttp 이벤트 루프가 그만큼 정지해 UI·큐·웹소켓이 함께
+              멈춘다. 그래서 디스크 스캔이 일어나는 부분은 워커 스레드로 옮긴다.
+            """
             try:
                 status = gdrive_sync.get_gdrive_status()
                 status["libs_available"] = gdrive_sync.check_gdrive_libs()
-                status["files"] = gdrive_sync.get_sync_file_details()
+                # 디스크 스캔 포함 → 워커 스레드에서 실행 (이벤트 루프 정지 방지).
+                status["files"] = await asyncio.to_thread(gdrive_sync.get_sync_file_details)
                 # 마지막 동기화 결과(시각/업·다운로드) 병합 — 새로고침 후에도 유지.
                 status["last_sync"] = gdrive_sync.get_last_sync_state()
                 # 현재 동기화 진행 여부 (폴링 없이 열 때 1회 질의).

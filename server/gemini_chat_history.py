@@ -406,7 +406,6 @@ def _make_thumbnail(data_url: str, size: int) -> str:
             )
         return ""
     try:
-
         match = re.match(r"^data:image/[a-zA-Z0-9.+-]+;base64,(.+)$", data_url.strip(), re.S)
         if not match:
             return ""
@@ -414,27 +413,55 @@ def _make_thumbnail(data_url: str, size: int) -> str:
         if not raw:
             return ""
 
-        with Image.open(io.BytesIO(raw)) as image:
+        # Resource hygiene (2026-10-21 audit):
+        #   The original code did `with Image.open(...) as image:` and then REBOUND
+        #   `image` to a converted copy. The `with` statement only closes the object
+        #   it opened — the intermediate images produced by convert()/Image.new()
+        #   were never closed, so every thumbnail left a full-size pixel buffer
+        #   alive until the GC got round to it. With a 40 MP source that is a
+        #   multi-hundred-MB spike, and the chat list renders dozens of rows.
+        #   Now every intermediate image is closed explicitly, in order.
+        source = Image.open(io.BytesIO(raw))
+        try:
             # Animated GIFs / APNGs would otherwise decode frame-by-frame for no benefit.
             try:
-                image.seek(0)
+                source.seek(0)
             except Exception:  # noqa: BLE001
                 pass
+
             # Paletted + transparency modes must go through RGB or JPEG encoding raises.
-            if image.mode not in ("RGB", "L"):
-                image = image.convert("RGBA")
-                # Flatten onto dark grey so transparent PNGs don't become black squares.
-                backdrop = Image.new("RGB", image.size, (32, 32, 36))
-                backdrop.paste(image, mask=image.split()[-1])
-                image = backdrop
-            elif image.mode == "L":
-                image = image.convert("RGB")
-            # thumbnail() only ever SHRINKS, so a small source keeps its own size — which is
-            # what we want; upscaling a 40px image to 28px would just blur it.
-            image.thumbnail((size, size), Image.LANCZOS)
-            buffer = io.BytesIO()
-            # quality=60 at 28px is visually indistinguishable from q=90 and ~1/4 the bytes.
-            image.save(buffer, format="JPEG", quality=60, optimize=True)
+            if source.mode not in ("RGB", "L"):
+                rgba = source.convert("RGBA")
+                try:
+                    # Flatten onto dark grey so transparent PNGs don't become black squares.
+                    backdrop = Image.new("RGB", rgba.size, (32, 32, 36))
+                    try:
+                        backdrop.paste(rgba, mask=rgba.split()[-1])
+                        work = backdrop
+                    except Exception:
+                        backdrop.close()
+                        raise
+                finally:
+                    rgba.close()
+            elif source.mode == "L":
+                work = source.convert("RGB")
+            else:
+                work = source
+
+            try:
+                # thumbnail() only ever SHRINKS, so a small source keeps its own size
+                # — which is what we want; upscaling a 40px image to 28px would blur it.
+                work.thumbnail((size, size), Image.LANCZOS)
+                buffer = io.BytesIO()
+                # quality=60 at 28px is visually indistinguishable from q=90 and ~1/4 the bytes.
+                work.save(buffer, format="JPEG", quality=60, optimize=True)
+            finally:
+                # Only close the copy — `work` may BE `source` (the RGB path).
+                if work is not source:
+                    work.close()
+        finally:
+            source.close()
+
         return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
     except Exception as exc:  # noqa: BLE001
         # Deliberately NOT interpolated with `chat_id`: this function has no such parameter,

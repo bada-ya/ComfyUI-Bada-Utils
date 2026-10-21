@@ -70,6 +70,15 @@ _AUTOSYNC_SCHEDULED = False
 # OAuth 인증 완료 플래그. 이미 인증이 완료된 상태면 중복 인증 시도를 방지한다.
 _OAUTH_AUTHORIZED = False
 
+# --- Drive 서비스 캐시 (2026-10-21 감사) ---------------------------------------
+# get_drive_service() 가 호출될 때마다 build('drive','v3') 로 HTTP 클라이언트를
+# 새로 만들면 AuthorizedSession(TCP/TLS) 이 계속 새로 열리고, 이전 세션은 GC에
+# 맡겨진다. 설정창이 열려 있는 동안 /api/bada/cloud/remote-counts 가 항목마다
+# 1회씩 호출하므로 세션이 수십 개 열렸다. 인증이 유효한 동안 재사용한다.
+_DRIVE_SERVICE_CACHE = None
+_DRIVE_SERVICE_AT = 0.0
+_DRIVE_SERVICE_LOCK = threading.Lock()
+
 # 진행 중 동기화의 분모/분자 기억장치 (WS를 놓친 늦은 설정창용 폴링 백업).
 # _notify_sync_state 가 WS 푸시를 쏠 때마다 최신값을 덮어써 둔다.
 # /api/bada/cloud/status 가 이 값을 함께 내려주면 설정창은
@@ -77,6 +86,24 @@ _OAUTH_AUTHORIZED = False
 # 키: phase/uploaded/downloaded/done/total/current/syncing/updated_at
 _LAST_PROGRESS = {}
 _PROGRESS_LOCK = threading.Lock()
+
+# --- 파일 목록 스캔 캐시 (2026-10-21 감사) -----------------------------------
+# get_sync_file_details() 는 워크플로우 루트를 재귀 os.walk 하므로 O(N) 디스크
+# 스캔이다. /api/bada/cloud/status 가 3초마다 이 함수를 호출하고 있었고, 그
+# 호출이 aiohttp 이벤트 루프 위에서 일어났다 — 워크플로우 3,000개 기준 1회당
+# ~700ms 를 이벤트 루프가 정지했다(측정치). UI·큐·웹소켓이 그만큼 멈췄다.
+#
+# 두 겹의 방어:
+#   1) 아래 TTL 캐시 — 3초 폴링은 첫 호출 이후 캐시만 읽는다.
+#   2) 캐시 미스(스캔) 경로도 asyncio.to_thread 로 빠져나가도록 호출자가
+#      to_thread 로 감싼다 (server/bada_server_api.py 의 cloud_status_handler).
+#
+# TTL은 폴링 주기(3초)보다 충분히 크되 "화면이 오래 열린 사이"의 값이
+# 너무 오래 굳지 않도록 10초로 잡았다.
+SYNC_FILE_DETAILS_TTL_SECONDS = 10.0
+_SYNC_FILE_DETAILS_CACHE = None
+_SYNC_FILE_DETAILS_AT = 0.0
+_SYNC_FILE_DETAILS_LOCK = threading.Lock()
 
 # --- Google API client imports with safety fallback -------------------------
 try:
@@ -368,10 +395,30 @@ def get_drive_service():
     """
     인증 후 Google Drive API 서비스 객체를 반환.
     라이브러리 미설치/인증 실패 시 (None, 사유) 를 반환해 호출측이 안전하게 처리.
+
+    서비스 캐시 (2026-10-21 감사):
+      이 함수가 호출될 때마다 (a) token.json 을 파싱하고 (b) build('drive','v3')
+      로 HTTP 클라이언트를 새로 만들었다. 클라이언트는 내부적으로 AuthorizedSession
+      을 만들어 TCP/TLS 연결을 보유하므로, 호출이 반복되면 세션이 계속 새로 열리고
+      예전 세션은 GC에 맡겨져 ConnectionError/RemoteDisconnected가 간헐적으로
+      발생했다. 게다가 /api/bada/cloud/remote-counts 는 설정창이 열려 있는
+      동안 항목마다 1회씩 이 함수를 부른다(원격 개수 조회).
+
+      그래서 인증이 유효한 동안 서비스 객체를 재사용한다. 인증 상태가 바뀌면
+      (refresh 실패·토큰 삭제) 캐시를 비워 다음 호출이 새 인증을 시도한다.
     """
-    global _OAUTH_AUTHORIZED
+    global _OAUTH_AUTHORIZED, _DRIVE_SERVICE_CACHE, _DRIVE_SERVICE_AT
+
     if not GDRIVE_LIBS_AVAILABLE:
         return None, "google-api-python-client is not installed."
+
+    # 캐시 히트 — 토큰 파일이 아직 존재하고 만료되지 않았을 때만 재사용한다.
+    # (사용자가 수동으로 연동을 해제하면 파일이 사라지므로 즉시 무효화된다.)
+    with _DRIVE_SERVICE_LOCK:
+        cached = _DRIVE_SERVICE_CACHE
+        if cached is not None and os.path.exists(TOKEN_PATH):
+            return cached, "OK"
+        _DRIVE_SERVICE_CACHE = None
 
     creds = None
     if os.path.exists(TOKEN_PATH):
@@ -407,10 +454,22 @@ def get_drive_service():
 
     try:
         service = build('drive', 'v3', credentials=creds, cache_discovery=False)
-        return service, "OK"
     except Exception as e:
         logger.error(f"[GDrive] Drive service build failed: {e}")
         return None, f"Drive service creation failed: {str(e)}"
+
+    with _DRIVE_SERVICE_LOCK:
+        _DRIVE_SERVICE_CACHE = service
+        _DRIVE_SERVICE_AT = time.monotonic()
+    return service, "OK"
+
+
+def invalidate_drive_service_cache() -> None:
+    """인증 상태가 바뀌었을 때(로그아웃·토큰 삭제) 캐시된 Drive 서비스를 버린다."""
+    global _DRIVE_SERVICE_CACHE, _DRIVE_SERVICE_AT
+    with _DRIVE_SERVICE_LOCK:
+        _DRIVE_SERVICE_CACHE = None
+        _DRIVE_SERVICE_AT = 0.0
 
 
 WORKFLOWS_NS = "workflows/"
@@ -726,6 +785,25 @@ def _get_subfolder_ids(service, root_id):
     for name in all_names:
         ids[name] = _get_or_create_remote_folder(service, name, parent_id=root_id)
     _SESSION_SUBFOLDER_CACHE = ids
+    return ids
+
+
+def _get_subfolder_ids_readonly(service, root_id):
+    """
+    _get_subfolder_ids 의 **조회 전용** 버전 — 없는 폴더는 만들지 않고 None 을 넣는다.
+
+    조회 경로(원격 개수 스냅샷 등)가 Drive 를 오염시키지 않도록 존재한다.
+    2026-10-21 감사에서 "설정창 상세를 열기만 했는데 Drive 에 폴더가 생기는"
+    문제가 이 차이 때문에 발생했다.
+    """
+    all_names = list(REMOTE_FOLDER_BY_REL.values()) + [REMOTE_WORKFLOWS_FOLDER]
+    ids = {}
+    for name in all_names:
+        try:
+            ids[name] = _find_remote_folder_by_name(service, name, parent_id=root_id)
+        except Exception as e:
+            logger.debug(f"[GDrive] readonly folder lookup failed ({name}): {e}")
+            ids[name] = None
     return ids
 
 
@@ -1569,6 +1647,9 @@ def _perform_sync_blocking():
         # 프론트에 "동기화 끝"을 알려 구름 아이콘/버튼 스핀을 멈추게 한다.
         _notify_sync_state(False)
         _SYNC_GUARD.release()
+        # 동기화가 실제로 파일을 추가/삭제/덮어썼으므로 파일 목록 캐시를
+        # 즉시 무효화한다 — 다음 /cloud/status 가 옛 목록을 보여주지 않게.
+        invalidate_sync_file_details_cache()
 
 
 def _notify_sync_state(syncing, uploaded=0, downloaded=0,
@@ -1678,13 +1759,21 @@ def get_gdrive_settings() -> dict:
 def set_gdrive_settings(new_settings: dict) -> dict:
     """
     Cloud Sync 전용 설정을 갱신 및 파일에 저장한다.
+
+    Crash-safe (2026-10-21 감사):
+      예전에는 평범한 open(path, "w") 로 썼다. 그 방식은 파일을 먼저 truncate
+      하고 나중에 내용을 쓰기 때문에, 그 사이에 전원 차단·디스크 풀이·프로세스
+      종료가 끼면 설정 파일이 비어버린다. 이 파일은 cloud_sync_enabled /
+      startup_autosync / realtime_autosync 를 담고 있어 비면 사용자가 조용히
+      "동기화가 꺼졌다"를 경험한다. 같은 이유로 이 저장소의 다른 JSON 쓰기
+      (프리셋·즐겨찾기·API 키)는 이미 atomic_json 을 쓴다.
     """
     current = get_gdrive_settings()
     if isinstance(new_settings, dict):
         current.update(new_settings)
     try:
-        with open(GDRIVE_SETTINGS_PATH, "w", encoding="utf-8") as f:
-            json.dump(current, f, indent=2, ensure_ascii=False)
+        from .atomic_json import write_json_atomic
+        write_json_atomic(GDRIVE_SETTINGS_PATH, current)
     except Exception as e:
         logger.error(f"[GDrive] Failed to save {GDRIVE_SETTINGS_PATH}: {e}")
     return current
@@ -1957,6 +2046,8 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
     finally:
         _SYNC_GUARD.release()
         _notify_sync_state(False)
+        # pinpoint 동기화도 파일을 추가/삭제/이동시킬 수 있으므로 목록 캐시 무효화.
+        invalidate_sync_file_details_cache()
 
 
 def trigger_realtime_sync(details: dict = None) -> dict:
@@ -2257,7 +2348,22 @@ def get_sync_file_details():
 
     `.configs/*` 개인 데이터는 파일별로 존재/용량/내용갯수를 낱개로 반환하고,
     워크플로우는 개수가 많을 수 있어 **한 줄 요약**(존재 개수 + 총 용량)으로만 반환한다.
+
+    비용 통제 (2026-10-21 감사):
+      이 함수는 워크플로우 루트를 재귀 os.walk 하므로 워크플로우가 N개면
+      O(N) 디스크 스캔이 발생한다. 그런데 /api/bada/cloud/status 가 이를
+      **aiohttp 이벤트 루프 위에서, 3초마다** 호출하고 있었다 — 워크플로우
+      3,000개 기준 1회당 ~700ms 를 이벤트 루프가 정지했다(측정치). UI·큐·
+      웹소켓 전체가 그만큼 멈췄다.
+
+      두 겹의 방어를 둔다:
+        1) 짧은 TTL 캐시 — 3초 폴링에서는 첫 호출 이후 캐시를 쓰므로
+           스캔은 "설정 창이 열려 있는 동안" 드물게만 일어난다.
+        2) TTL 내이라도 호출자가 캐시 빌더를 직접 돌리지 않도록,
+           스캔 자체는 별도 스레드에서 수행하도록 만들 수 있다(아래 사용처).
     """
+def _build_sync_file_details() -> list:
+    """실제 스캔 — get_sync_file_details()의 캐시 미스 경로에서만 호출된다."""
     details = []
     for rel_path in get_target_rel_paths():
         name = os.path.basename(rel_path)
@@ -2305,6 +2411,50 @@ def get_sync_file_details():
     _apply_path_prefill(details)
     return details
 
+
+def get_sync_file_details() -> list:
+    """
+    설정창 현황 표시용 (TTL 캐시 적용).
+
+    `.configs/*` 개인 데이터는 파일별로 존재/용량/내용갯수를 낱개로 반환하고,
+    워크플로우는 개수가 많을 수 있어 **한 줄 요약**(존재 개수 + 총 용량)으로만 반환한다.
+
+    비용 통제 (2026-10-21 감사):
+      이 함수는 워크플로우 루트를 재귀 os.walk 하므로 워크플로우가 N개면
+      O(N) 디스크 스캔이 발생한다. 그런데 /api/bada/cloud/status 가 이를
+      **aiohttp 이벤트 루프 위에서, 3초마다** 호출하고 있었다 — 워크플로우
+      3,000개 기준 1회당 ~700ms 를 이벤트 루프가 정지했다(측정치). UI·큐·
+      웹소켓 전체가 그만큼 멈췄다.
+
+      그래서 스캔 결과를 짧은 TTL로 캐시한다. 3초 폴링은 첫 호출 이후 캐시를
+      읽기만 하므로 실제 디스크 스캔은 "설정 창이 열려 있는 동안" 몇 초에
+      한 번만 일어난다. 캐시는 호출자에게 **복사본**을 넘긴다 — 호출자가
+      원본을 변형해도 캐시가 오염되지 않는다.
+
+    TTL을 넘는(스캔이 필요한) 경로에서도 호출자가 이벤트 루프에 있지 않도록,
+    expensive 경로는 asyncio.to_thread 로 빠져나가도록 호출자에게 맡긴다.
+    """
+    global _SYNC_FILE_DETAILS_CACHE, _SYNC_FILE_DETAILS_AT
+
+    now = time.monotonic()
+    with _SYNC_FILE_DETAILS_LOCK:
+        cached = _SYNC_FILE_DETAILS_CACHE
+        if cached is not None and (now - _SYNC_FILE_DETAILS_AT) < SYNC_FILE_DETAILS_TTL_SECONDS:
+            return [dict(entry) for entry in cached]
+
+    fresh = _build_sync_file_details()
+    with _SYNC_FILE_DETAILS_LOCK:
+        _SYNC_FILE_DETAILS_CACHE = fresh
+        _SYNC_FILE_DETAILS_AT = time.monotonic()
+    return [dict(entry) for entry in fresh]
+
+
+def invalidate_sync_file_details_cache() -> None:
+    """동기화처럼 파일 목록이 실제로 바뀐 뒤 캐시를 즉시 무효화한다."""
+    global _SYNC_FILE_DETAILS_CACHE, _SYNC_FILE_DETAILS_AT
+    with _SYNC_FILE_DETAILS_LOCK:
+        _SYNC_FILE_DETAILS_CACHE = None
+        _SYNC_FILE_DETAILS_AT = 0.0
 
 
 def _resolve_workflows_root_safe():
@@ -2357,9 +2507,17 @@ def get_remote_counts_snapshot(target: str = None):
     if service is None:
         return {"success": False, "error": msg, "targets": []}
 
+    # 조회 전용 (2026-10-21 감사):
+    #   예전에는 여기서 _get_or_create_remote_folder() 를 썼다 — "없으면 생성"하는
+    #   함수다. 즉 사용자가 설정창의 [상세] 를 merely 열었는데 Drive 에 폴더가
+    #   없으면 그 폴더를 새로 만들어 버렸다. 폴링 경로(3초마다)에서 호출되므로
+    #   원격에 원치 않는 폴더가 생기고 Drive API 쿼터도 불필요하게 쓴다.
+    #   이 경로는 순수 조회여야 하므로 조회 전용 헬퍼를 쓴다.
     try:
-        root_id = _get_or_create_remote_folder(service, FOLDER_NAME)
-        subfolder_ids = _get_subfolder_ids(service, root_id)
+        root_id = _find_remote_folder_by_name(service, FOLDER_NAME)
+        if not root_id:
+            return {"success": False, "error": "Drive 에 동기화 폴더가 없습니다 (먼저 동기화하세요)", "targets": []}
+        subfolder_ids = _get_subfolder_ids_readonly(service, root_id)
     except Exception as e:
         logger.warning(f"[GDrive] get_remote_counts_snapshot folder error: {e}")
         return {"success": False, "error": str(e), "targets": []}
