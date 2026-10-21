@@ -70,14 +70,19 @@ _AUTOSYNC_SCHEDULED = False
 # OAuth 인증 완료 플래그. 이미 인증이 완료된 상태면 중복 인증 시도를 방지한다.
 _OAUTH_AUTHORIZED = False
 
-# --- Drive 서비스 캐시 (2026-10-21 감사) ---------------------------------------
-# get_drive_service() 가 호출될 때마다 build('drive','v3') 로 HTTP 클라이언트를
-# 새로 만들면 AuthorizedSession(TCP/TLS) 이 계속 새로 열리고, 이전 세션은 GC에
-# 맡겨진다. 설정창이 열려 있는 동안 /api/bada/cloud/remote-counts 가 항목마다
-# 1회씩 호출하므로 세션이 수십 개 열렸다. 인증이 유효한 동안 재사용한다.
-_DRIVE_SERVICE_CACHE = None
-_DRIVE_SERVICE_AT = 0.0
-_DRIVE_SERVICE_LOCK = threading.Lock()
+# --- Drive 서비스 (2026-10-21 SSL 수정) -------------------------------------
+# get_drive_service() 가 만든 Drive 서비스는 내부적으로 AuthorizedSession(TLS
+# 소켓 하나) 을 보유한다. 이전 구현은 전역 캐시로 이 서비스를 스레드 간에 공유했다.
+# [동기화 상세 보기] 팝업이 열리면 remote-counts 요청이 asyncio.to_thread 로 여러
+# 개 동시에 실행되고(항목당 1회 + 폴링) 모두 같은 세션을 사용했다. 한 TLS 소켓을
+# 여러 스레드가 동시에 읽고 쓰면 TLS 레코드가 서로 얽혀
+# "[SSL] record layer failure (_ssl.c:2580)" 가 발생한다.
+# 해결: 스레드별 독립 세션(threading.local). TTL 이 지난 것만 새로 만들고, 인증
+# 상태가 바뀌면 generation 을 올려 모든 스레드의 캐시를 한 번에 무효화한다.
+_DRIVE_SERVICE_TTL_SECONDS = 900.0
+_DRIVE_TLS = threading.local()
+_DRIVE_GENERATION = 0
+_DRIVE_BUILD_LOCK = threading.Lock()
 
 # 진행 중 동기화의 분모/분자 기억장치 (WS를 놓친 늦은 설정창용 폴링 백업).
 # _notify_sync_state 가 WS 푸시를 쏠 때마다 최신값을 덮어써 둔다.
@@ -393,83 +398,97 @@ def get_gdrive_status():
 
 def get_drive_service():
     """
-    인증 후 Google Drive API 서비스 객체를 반환.
-    라이브러리 미설치/인증 실패 시 (None, 사유) 를 반환해 호출측이 안전하게 처리.
+    인증 후 Google Drive API 서비스 객체를 반환한다.
+    라이브러리 미설치/인증 실패 시 (None, 사유) 를 반환해 호출측이 안전하게 처리한다.
 
-    서비스 캐시 (2026-10-21 감사):
-      이 함수가 호출될 때마다 (a) token.json 을 파싱하고 (b) build('drive','v3')
-      로 HTTP 클라이언트를 새로 만들었다. 클라이언트는 내부적으로 AuthorizedSession
-      을 만들어 TCP/TLS 연결을 보유하므로, 호출이 반복되면 세션이 계속 새로 열리고
-      예전 세션은 GC에 맡겨져 ConnectionError/RemoteDisconnected가 간헐적으로
-      발생했다. 게다가 /api/bada/cloud/remote-counts 는 설정창이 열려 있는
-      동안 항목마다 1회씩 이 함수를 부른다(원격 개수 조회).
-
-      그래서 인증이 유효한 동안 서비스 객체를 재사용한다. 인증 상태가 바뀌면
-      (refresh 실패·토큰 삭제) 캐시를 비워 다음 호출이 새 인증을 시도한다.
+    스레드별 세션 격리 (2026-10-21 SSL 수정):
+      이 함수가 만든 서비스는 내부적으로 AuthorizedSession(TLS 소켓 하나) 을 보유한다.
+      예전처럼 전역 캐시로 여러 스레드가 공유하면 — [동기화 상세 보기] 팝업이
+      remote-counts 를 asyncio.to_thread 에게 동시에 시킬 때 — 같은 TLS 소켓을 여러
+      스레드가 동시에 읽고 써서 TLS 레코드가 얽히고 "[SSL] record layer failure
+      (_ssl.c:2580)" 가 발생했다. 그래서 각 스레드가 자신의 세션을 갖는다
+      (threading.local). TTL 이 지난 것만 다시 만들고, 인증 상태가 바뀌면 generation 을
+      올려 전부 무효화한다. 빌드/OAuth 는 잠금으로 직렬화해 동시 OAuth 프롬프트를 막는다.
     """
-    global _OAUTH_AUTHORIZED, _DRIVE_SERVICE_CACHE, _DRIVE_SERVICE_AT
+    global _OAUTH_AUTHORIZED, _DRIVE_GENERATION
 
     if not GDRIVE_LIBS_AVAILABLE:
         return None, "google-api-python-client is not installed."
 
-    # 캐시 히트 — 토큰 파일이 아직 존재하고 만료되지 않았을 때만 재사용한다.
-    # (사용자가 수동으로 연동을 해제하면 파일이 사라지므로 즉시 무효화된다.)
-    with _DRIVE_SERVICE_LOCK:
-        cached = _DRIVE_SERVICE_CACHE
-        if cached is not None and os.path.exists(TOKEN_PATH):
-            return cached, "OK"
-        _DRIVE_SERVICE_CACHE = None
-
-    creds = None
+    # 빠른 경로: 이 스레드에 유효한 세션이 있으면 잠금 없이 재사용한다.
+    # 토큰 파일이 존재하는 동안에만 재사용한다(연동 해제 시 즉시 무효화).
     if os.path.exists(TOKEN_PATH):
-        try:
-            creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
-        except Exception as e:
-            logger.warning(f"[GDrive] token.json load failed: {e}")
-            creds = None
+        tls = _DRIVE_TLS
+        cached = getattr(tls, "service", None)
+        if (cached is not None
+                and getattr(tls, "generation", -1) == _DRIVE_GENERATION
+                and (time.monotonic() - getattr(tls, "at", 0.0)) < _DRIVE_SERVICE_TTL_SECONDS):
+            return cached, "OK"
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+    # 느린 경로: 빌드/리프레시/OAuth. 잠금으로 직렬화해 동시 실행을 막는다.
+    with _DRIVE_BUILD_LOCK:
+        # 다른 스레드가 방금 잠금 안에서 준비했을 수 있으므로 한 번 더 확인한다.
+        if os.path.exists(TOKEN_PATH):
+            tls = _DRIVE_TLS
+            cached = getattr(tls, "service", None)
+            if (cached is not None
+                    and getattr(tls, "generation", -1) == _DRIVE_GENERATION
+                    and (time.monotonic() - getattr(tls, "at", 0.0)) < _DRIVE_SERVICE_TTL_SECONDS):
+                return cached, "OK"
+
+        creds = None
+        if os.path.exists(TOKEN_PATH):
             try:
-                creds.refresh(Request())
-                with open(TOKEN_PATH, 'w', encoding='utf-8') as token_file:
-                    token_file.write(creds.to_json())
+                creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
             except Exception as e:
-                logger.warning(f"[GDrive] token refresh failed: {e}")
+                logger.warning(f"[GDrive] token.json load failed: {e}")
                 creds = None
 
-        if not creds and not _OAUTH_AUTHORIZED:
-            try:
-                flow = InstalledAppFlow.from_client_config(_basic_client_config(), SCOPES)
-                # 라이브러리의 인증 URL print 출력을 억제 (브라우저가 자동으로 열림 → 로그 중복 방지)
-                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                    creds = flow.run_local_server(port=0)
-                with open(TOKEN_PATH, 'w', encoding='utf-8') as token_file:
-                    token_file.write(creds.to_json())
-                logger.info("[GDrive] OAuth 인증 완료 — 토큰이 저장되었습니다.")
-                _OAUTH_AUTHORIZED = True
-            except Exception as e:
-                logger.error(f"[GDrive] OAuth flow failed: {e}")
-                return None, f"OAuth authentication failed: {str(e)}"
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                try:
+                    creds.refresh(Request())
+                    with open(TOKEN_PATH, 'w', encoding='utf-8') as token_file:
+                        token_file.write(creds.to_json())
+                except Exception as e:
+                    logger.warning(f"[GDrive] token refresh failed: {e}")
+                    creds = None
 
-    try:
-        service = build('drive', 'v3', credentials=creds, cache_discovery=False)
-    except Exception as e:
-        logger.error(f"[GDrive] Drive service build failed: {e}")
-        return None, f"Drive service creation failed: {str(e)}"
+            if not creds and not _OAUTH_AUTHORIZED:
+                try:
+                    flow = InstalledAppFlow.from_client_config(_basic_client_config(), SCOPES)
+                    # 라이브러리의 인증 URL print 출력을 억제 (브라우저가 자동으로 열림 -> 로그 중복 방지)
+                    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        creds = flow.run_local_server(port=0)
+                    with open(TOKEN_PATH, 'w', encoding='utf-8') as token_file:
+                        token_file.write(creds.to_json())
+                    logger.info("[GDrive] OAuth 인증 완료 — 토큰이 저장되었습니다.")
+                    _OAUTH_AUTHORIZED = True
+                except Exception as e:
+                    logger.error(f"[GDrive] OAuth flow failed: {e}")
+                    return None, f"OAuth authentication failed: {str(e)}"
 
-    with _DRIVE_SERVICE_LOCK:
-        _DRIVE_SERVICE_CACHE = service
-        _DRIVE_SERVICE_AT = time.monotonic()
-    return service, "OK"
+        try:
+            service = build('drive', 'v3', credentials=creds, cache_discovery=False)
+        except Exception as e:
+            logger.error(f"[GDrive] Drive service build failed: {e}")
+            return None, f"Drive service creation failed: {str(e)}"
+
+        tls = _DRIVE_TLS
+        tls.service = service
+        tls.generation = _DRIVE_GENERATION
+        tls.at = time.monotonic()
+        return service, "OK"
 
 
 def invalidate_drive_service_cache() -> None:
-    """인증 상태가 바뀌었을 때(로그아웃·토큰 삭제) 캐시된 Drive 서비스를 버린다."""
-    global _DRIVE_SERVICE_CACHE, _DRIVE_SERVICE_AT
-    with _DRIVE_SERVICE_LOCK:
-        _DRIVE_SERVICE_CACHE = None
-        _DRIVE_SERVICE_AT = 0.0
+    """인증 상태가 바뀌면(로그아웃·토큰 삭제) 모든 스레드의 캐시를 무효화한다.
+
+    스레드별 캐시를 직접 지우는 대신 generation 을 올린다. 다음 호출부터 각 스레드는
+    자기 캐시의 generation 이 구식이므로 새로 빌드한다.
+    """
+    global _DRIVE_GENERATION
+    _DRIVE_GENERATION += 1
 
 
 WORKFLOWS_NS = "workflows/"
@@ -3324,7 +3343,7 @@ def _find_remote_folder_by_name(service, folder_name, parent_id=None):
              f"mimeType = 'application/vnd.google-apps.folder' and trashed = false")
     if parent_id:
         query += f" and '{parent_id}' in parents"
-    results = service.files().list(q=query, fields="files(id, name)").execute()
+    results = service.files().list(q=query, fields="files(id, name)").execute(num_retries=3)
     items = results.get('files', [])
     return items[0]['id'] if items else None
 
@@ -3339,7 +3358,7 @@ def _find_remote_file_by_name(service, file_name, parent_id=None):
     query = f"name = '{escaped}' and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
     if parent_id:
         query += f" and '{parent_id}' in parents"
-    results = service.files().list(q=query, fields="files(id, name)").execute()
+    results = service.files().list(q=query, fields="files(id, name)").execute(num_retries=3)
     items = results.get('files', [])
     return items[0]['id'] if items else None
 

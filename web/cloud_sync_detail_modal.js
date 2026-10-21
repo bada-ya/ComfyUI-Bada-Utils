@@ -33,6 +33,8 @@ let customBrowseLoading = null;  // 로딩 중인 rel (null = 유휴)
 let customBrowseError = "";    // 트리 조회 에러
 
 const MAX_NAME_LEN = 40;
+// 열기 버튼의 임시 피드백(⏳ 여는 중… / ✅ 열림 / ⚠️ 실패)을 원래 라벨로 되돌리는 대기 시간.
+const OPEN_BUTTON_REVERT_MS = 5000;
 const truncName = (s) => {
     if (!s) return "";
     return (s.length > MAX_NAME_LEN) ? (s.slice(0, MAX_NAME_LEN) + "…") : s;
@@ -289,11 +291,25 @@ function remoteTargetByName(name) {
     if (!Array.isArray(detailRemoteSnapshot)) return null;
     return detailRemoteSnapshot.find((t) => t.name === name) || null;
 }
+// 피드백 라벨을 잠시 후 원래대로 되돌림. 클릭당 타이머 1개, DOM 은 라벨/title 만 건드림.
+// 재렌더로 버튼이 교체된 경우(isConnected=false) 새 버튼이 이미 정상이므로 아무것도 하지 않는다.
+function scheduleOpenButtonRevert(btn, label, title, delayMs = OPEN_BUTTON_REVERT_MS) {
+    if (!btn) return;
+    if (btn._openRevertTimer) clearTimeout(btn._openRevertTimer);
+    btn._openRevertTimer = setTimeout(() => {
+        btn._openRevertTimer = 0;
+        if (!btn.isConnected) return;
+        btn.textContent = label;
+        btn.title = title;
+        btn.disabled = false;
+    }, delayMs);
+}
 // "로컬 열기" — 서버 측 화이트리스트 검증 + 탐색기에서 폴더 열림 (파일은 /select 하이라이트).
-// 피드백(✅/⚠️) 표시 후 재렌더링으로 원래 라벨 복원.
 async function callOpenLocal(name, btn) {
     const isKo = BadaI18n.lang === "ko";
     if (!btn || btn.disabled) return;
+    const baseLabel = btn.textContent;
+    const baseTitle = btn.title || "";
     btn.disabled = true;
     // 체감 완화: 서버 응답(즉시) 전이라도 버튼을 먼저 "여는 중…"으로 전환 — 탐색기는 곧 떠 있음.
     btn.textContent = isKo ? "⏳ 여는 중…" : "⏳ Opening…";
@@ -313,13 +329,14 @@ async function callOpenLocal(name, btn) {
     } catch (_) {
         btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
     }
-    setTimeout(paintDetailFiles, 1600);
+    scheduleOpenButtonRevert(btn, baseLabel, baseTitle);
 }
 // "Drive 열기" — 서버 화이트리스트 검증 후 해당 Drive 파일/폴더 URL을 새 탭으로 오픈.
-// 피드백(✅/⚠️) 표시 후 재렌더링으로 원래 라벨 복원.
 async function callOpenDrive(name, btn) {
     const isKo = BadaI18n.lang === "ko";
     if (!btn || btn.disabled) return;
+    const baseLabel = btn.textContent;
+    const baseTitle = btn.title || "";
     btn.disabled = true;
     try {
         const r = await fetch("/api/bada/cloud/open-drive", {
@@ -339,7 +356,7 @@ async function callOpenDrive(name, btn) {
     } catch (_) {
         btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
     }
-    setTimeout(paintDetailFiles, 1600);
+    scheduleOpenButtonRevert(btn, baseLabel, baseTitle);
 }
 // 커스텀 폴더 목록 + 마스터 토글 조회 — 팝업 열 때 1회, 추가/제거 후 재호출.
 async function fetchCustomFolders() {
@@ -871,11 +888,13 @@ function paintCustomSection(body, isKo) {
                 } else {
                     rmBtn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
                     rmBtn.title = s.error || "";
-                    setTimeout(paintDetailFiles, 1600);
+                    scheduleOpenButtonRevert(rmBtn, isKo ? "✕ 제거" : "✕ Remove",
+                        isKo ? "등록 해제 (로컬·Drive 파일은 삭제되지 않음)" : "Unregister only — local & Drive files are kept");
                 }
             } catch (_) {
                 rmBtn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
-                setTimeout(paintDetailFiles, 1600);
+                scheduleOpenButtonRevert(rmBtn, isKo ? "✕ 제거" : "✕ Remove",
+                    isKo ? "등록 해제 (로컬·Drive 파일은 삭제되지 않음)" : "Unregister only — local & Drive files are kept");
             }
         });
         l1.appendChild(rmBtn);
