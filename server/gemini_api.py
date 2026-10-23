@@ -752,6 +752,7 @@ def register_gemini_api_routes():
                         "propertyOrdering": output_fields,
                     }
                     system_prompt_output_format = "json" if submenu.get("output_format") == "json" else "text"
+                    final_system_p1 = system_text
                 elif engine_mode == "system_prompt":
                     try:
                         system_prompt_entry, final_system_p1 = load_user_system_prompt(system_prompt_id)

@@ -3376,13 +3376,14 @@ def _count_remote_folder_tree(service, folder_id: str) -> int:
             visited_folders += 1
             page_token = None
             while True:
-                req = service.files().list(
-                    q=f"'{fid}' in parents and trashed = false",
-                    fields="nextPageToken, files(id, name, mimeType)"
-                )
+                params = {
+                    "q": f"'{fid}' in parents and trashed = false",
+                    "fields": "nextPageToken, files(id, name, mimeType)",
+                    "pageSize": 1000,
+                }
                 if page_token:
-                    req["pageToken"] = page_token
-                res = req.execute()
+                    params["pageToken"] = page_token
+                res = service.files().list(**params).execute(num_retries=3)
                 for item in res.get("files", []):
                     if item.get("mimeType") == "application/vnd.google-apps.folder":
                         next_level.append(item["id"])
