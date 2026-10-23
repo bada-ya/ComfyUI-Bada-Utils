@@ -66,29 +66,88 @@ function overrideDefaultGraph() {
     }
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * IMPACT PACK STACK CONTRACT -- do not rename what lives in here
+ * ---------------------------------------------------------------------------
+ * Impact Pack hooks onConnectionsChange (js/impact-pack.js) and decides whether
+ * it is loading a workflow by string-matching new Error().stack for the text
+ * "loadGraphData". While that text is present it skips its dynamic input
+ * reconnect logic; when it is missing it calls connect() on half-built nodes and
+ * ComfyUI aborts the load with "TypeError: t.findInputSlot is not a function".
+ * Upstream reports: ltdrdata/ComfyUI-Impact-Pack issues 1223 and 1244.
+ *
+ * This module replaces LGraph.prototype.configure, so the NAME of the wrapper
+ * created in patchLGraph() is part of that stack trace. Rules:
+ *   1. The wrapper name must always contain IMPACT_STACK_CONTRACT.
+ *   2. Renaming it "for clarity" silently re-arms that crash for every Impact
+ *      Pack user of this install.
+ *   3. verifyImpactStackContract() checks the name right after patching and logs
+ *      a hard error if a rename, a bundler, or another extension loses it.
+ *
+ * The real fix is upstream: use beforeConfigureGraph / afterConfigureGraph
+ * instead of reading a stack trace. On our side the clean end state is to drop
+ * this wrapper and rely on app.defaultGraph, so we stop depending on a string we
+ * do not own.
+ */
+const IMPACT_STACK_CONTRACT = "loadGraphData";
+
+// Flipped once if substituting the blank graph ever throws. Nodes 2.0 makes
+// LGraph.configure() require an active Pinia instance, and anything thrown out of
+// configure() aborts the whole workflow load -- so on the first throw we stop
+// substituting and let the app.defaultGraph override do the blanking instead.
+let blankSubstitutionBroken = false;
+let contractReported = false;
+let configureFrameSeen = false;
+let ownConfigureWrapper = null;
+
+function verifyImpactStackContract() {
+    if (contractReported) return;
+    const wrapper = window.LGraph && LGraph.prototype && LGraph.prototype.configure;
+    const name = (wrapper && wrapper.name) || "(none)";
+    if (name.indexOf(IMPACT_STACK_CONTRACT) !== -1) return;
+    contractReported = true;
+    console.error("[QoL-Utils] Impact Pack stack contract broken. The LGraph.configure wrapper is named: " + name + ". It has to contain " + IMPACT_STACK_CONTRACT + ", otherwise Impact Pack believes no workflow is loading and aborts the load with t.findInputSlot is not a function. Restore the name in web/blank_startup.js patchLGraph().");
+}
+
+// Our frame only exists while our wrapper is still the one being called. If a
+// later extension replaces LGraph.prototype.configure without chaining to us,
+// the loadGraphData frame disappears and Impact Pack misfires again.
+function watchImpactStackContract() {
+    setTimeout(() => {
+        if (configureFrameSeen) return;
+        const current = window.LGraph && LGraph.prototype && LGraph.prototype.configure;
+        if (!current || current === ownConfigureWrapper) return;
+        console.warn("[QoL-Utils] LGraph.configure was replaced without chaining to this module, so the loadGraphData stack frame this module provides is gone. If Impact Pack aborts workflow loading with t.findInputSlot is not a function, extension load order is the cause.");
+    }, 3000);
+}
+
 // Immediate prototype patch with precise default template detection
-// IMPORTANT: The wrapper function MUST contain 'loadGraphData' in its name.
-// Impact Pack (onConnectionsChange) inspects `new Error().stack` for 'loadGraphData'
-// to skip reconnection logic during workflow loading. Since ComfyUI 0.40.0 bundles
-// the frontend (minifying function names), wrapping LGraph.prototype.configure with
-// an anonymous function removes 'loadGraphData' from the call stack, causing
-// Impact Pack to mistakenly run connect() on half-constructed nodes →
-// "TypeError: t.findInputSlot is not a function".
 function patchLGraph() {
-    if (window.LGraph && LGraph.prototype && !LGraph.prototype._qolBlankConfigured) {
-        LGraph.prototype._qolBlankConfigured = true;
-        const origConfigure = LGraph.prototype.configure;
-        // Named function: Impact Pack checks stack for 'loadGraphData'
-        LGraph.prototype.configure = function loadGraphData_QoLBlankStartup(data, clean) {
-            if (data && isBuiltinDefaultTemplate(data)) {
-                if (shouldStartBlank()) {
-                    console.log("[QoL-Utils] Intercepted built-in default template -> Starting with clean blank graph.");
-                    return origConfigure.call(this, BLANK_GRAPH_DATA, clean);
-                }
+    if (!(window.LGraph && LGraph.prototype)) return;
+    if (LGraph.prototype._qolBlankConfigured) return;
+    LGraph.prototype._qolBlankConfigured = true;
+
+    const origConfigure = LGraph.prototype.configure;
+
+    // Named on purpose -- see IMPACT PACK STACK CONTRACT above.
+    LGraph.prototype.configure = function loadGraphData_QoLBlankStartup(data, clean) {
+        configureFrameSeen = true;
+        if (!blankSubstitutionBroken && data && isBuiltinDefaultTemplate(data) && shouldStartBlank()) {
+            try {
+                console.log("[QoL-Utils] Intercepted built-in default template -> Starting with clean blank graph.");
+                return origConfigure.call(this, BLANK_GRAPH_DATA, clean);
+            } catch (err) {
+                blankSubstitutionBroken = true;
+                console.warn("[QoL-Utils] blank startup substitution disabled for this session:", err);
             }
-            return origConfigure.apply(this, arguments);
-        };
-    }
+        }
+        return origConfigure.apply(this, arguments);
+    };
+
+    ownConfigureWrapper = LGraph.prototype.configure;
+    verifyImpactStackContract();
+    watchImpactStackContract();
 }
 
 // Patch immediately upon script load
