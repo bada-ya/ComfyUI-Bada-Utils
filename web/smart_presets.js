@@ -15,6 +15,7 @@ import { initModal, showPresetModal, closeModal, showToast } from "./presets_mod
 import { hubPresetsStore } from "./hub_node.js";
 import { showHubManageModal } from "./hub_modal.js";
 import { BadaI18n } from "./bada_i18n.js";
+import { isSameId } from "./bada_compat.js";
 
 const STORAGE_KEY = "ComfyUI_Universal_Smart_Presets_v1";
 
@@ -319,7 +320,7 @@ export function getBadgesForNode(node) {
         }
 
         for (const p of Object.values(uniquePresets)) {
-            if ((p.targets || []).some((t) => t.id === node.id)) {
+            if ((p.targets || []).some((t) => isSameId(t.id, node.id))) {
                 hubCount++;
             }
         }
