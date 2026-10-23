@@ -35,6 +35,10 @@ custom_targets.json
 # 그대로 공개된다. 백업은 앱 안의 「📤 백업」 버튼(.json 다운로드)으로 한다.
 gemini_chat_history.json
 engines_registry.json
+# ── 개인 데이터 합집합 병합(tombstone) 런타임 파일 ──
+# 병합 베이스 상태(로컬 전용·동기화 안 함)와 삭제 전파 사이드카. 절대 커밋 금지.
+.bada_merge_state.json
+*.bada_del
 dev_tests/_shots/
 dev_tests/_dividers_shot.png
 dev_tests/_badge_zone.png

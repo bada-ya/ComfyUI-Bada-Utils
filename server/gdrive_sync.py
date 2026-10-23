@@ -1512,6 +1512,202 @@ def _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files
     return uploaded, downloaded
 
 
+# =============================================================================
+# 개인 데이터 4종 — 항목 단위 합집합 병합 + tombstone 삭제 전파
+# -----------------------------------------------------------------------------
+# presets/favorites/gemini_chat_history/engines_registry 는 각각 단일 JSON 덩어리다.
+# 워크플로우처럼 파일 단위 last-write-wins 로 동기화하면 나중에 동기화한 PC 가 상대
+# PC 전체를 통째 덮어써서 유실된다 (실제 사고: 회사에서 동기화한 채팅이 집에서 유실).
+#   -> 항목(id/키) 단위로 합집합 병합하고, 삭제 의도만 tombstone 사이드카로 전파한다.
+# 순수 병합 로직은 server/bada_sync_merge.py 에 분리했고, 여긴 Drive 입출력만 담당한다.
+# 사이드카는 앱 백엔드가 저장 시 예약 키를 지워버리므로 파일 안이 아니라 별도 파일.
+# =============================================================================
+MERGE_STATE_FILE = os.path.join(PARENT_DIR, ".bada_merge_state.json")
+SIDECAR_SUFFIX = ".bada_del"
+
+# 동기화 상대경로 -> (Drive 하위폴더명, 병합 kind, 파일명).
+PERSONAL_DATA_MERGE_SPECS = [
+    {"rel": ".configs/gemini_chat_history.json", "folder": "GeminiChat", "kind": "gemini", "name": "gemini_chat_history.json"},
+    {"rel": ".configs/favorites_data.json", "folder": "Favorites", "kind": "favorites", "name": "favorites_data.json"},
+    {"rel": ".configs/presets_data.json", "folder": "Presets", "kind": "presets", "name": "presets_data.json"},
+    {"rel": ".configs/engines_registry.json", "folder": "SystemPrompts", "kind": "engines", "name": "engines_registry.json"},
+]
+PERSONAL_CONFIG_RELS = {spec["rel"] for spec in PERSONAL_DATA_MERGE_SPECS}
+
+_bmerge = None
+
+
+def _get_bmerge():
+    global _bmerge
+    if _bmerge is None:
+        try:
+            from . import bada_sync_merge as _m
+        except Exception:
+            import bada_sync_merge as _m
+        _bmerge = _m
+    return _bmerge
+
+
+def _load_merge_state():
+    from .atomic_json import read_json_fallback
+    st = read_json_fallback(MERGE_STATE_FILE, {}, log_prefix="[GDrive]")
+    return st if isinstance(st, dict) else {}
+
+
+def _save_merge_state(state):
+    from .atomic_json import write_json_atomic
+    try:
+        write_json_atomic(MERGE_STATE_FILE, state, backup=False)
+    except Exception as e:
+        logger.warning(f"[GDrive] merge state save failed: {e}")
+
+
+def _upload_sidecar(service, folder_id, local_full, remote_name, existing_id=None):
+    """tombstone 사이드카 파일 1개를 드라이브에 업로드 (화이트리스트 밖이라 별도 경로)."""
+    media = MediaFileUpload(local_full, mimetype="application/json", resumable=True)
+    fields = "id, modifiedTime"
+    if existing_id:
+        resp = service.files().update(fileId=existing_id, media_body=media, fields=fields).execute()
+    else:
+        body = {"name": remote_name, "parents": [folder_id]}
+        resp = service.files().create(body=body, media_body=media, fields=fields).execute()
+    _pin_local_mtime(local_full, (resp or {}).get("modifiedTime"))
+
+
+def _merge_one_personal_data(service, root_id, folder_id, spec, now_ms, state, remote_files=None):
+    """개인 데이터 파일 1개를 항목 단위 합집합 병합해 로컬과 원격에 반영한다.
+
+    remote_files 를 넘기면 전체 동기화가 이미 조회한 목록에서 원격 메타/사이드카를
+    찾아 추가 API 조회를 생략한다. 미제공(핀포인트 경로)이면 파일명을 직접 조회한다.
+    반환: (uploaded, local_updated)
+    """
+    from .atomic_json import read_json_fallback, write_json_atomic
+    bmerge = _get_bmerge()
+    name = spec["name"]
+    rel = spec["rel"]
+    kind = spec["kind"]
+    data_full = _resolve_local_path(rel)
+    sidecar_full = data_full + SIDECAR_SUFFIX
+    sidecar_name = name + SIDECAR_SUFFIX
+
+    local_data = read_json_fallback(data_full, None, log_prefix="[GDrive]")
+    local_tombs = read_json_fallback(sidecar_full, None, log_prefix="[GDrive]")
+    local_exists = os.path.isfile(data_full)
+    l_mtime = os.path.getmtime(data_full) if local_exists else -1.0
+
+    # 원격 데이터 파일 (전체 동기화 목록에 있으면 재조회 생략).
+    rmeta = remote_files.get(rel.replace("/", "___")) if remote_files is not None else None
+    if rmeta is not None:
+        remote_id = rmeta.get("id")
+        r_mtime = rmeta.get("modifiedTime") or 0.0
+    else:
+        remote_id = _find_remote_file_in_folder(service, folder_id, name)
+        r_mtime = 0.0
+        if remote_id:
+            try:
+                rmeta_t = service.files().get(fileId=remote_id, fields="modifiedTime").execute()
+                r_mtime = _parse_drive_time(rmeta_t.get("modifiedTime"))
+            except Exception:
+                r_mtime = 0.0
+
+    # 원격 tombstone 사이드카.
+    if remote_files is not None:
+        smeta = remote_files.get((rel + SIDECAR_SUFFIX).replace("/", "___"))
+        remote_sidecar_id = smeta.get("id") if smeta else None
+    else:
+        remote_sidecar_id = _find_remote_file_in_folder(service, folder_id, sidecar_name)
+
+    if (not local_exists) and (not remote_id):
+        return (False, False)
+
+    remote_data = None
+    if remote_id:
+        try:
+            remote_data = _download_remote_json(service, remote_id)
+        except Exception as e:
+            logger.warning(f"[GDrive] 원격 {name} 파싱 실패(이번 사이클 스킵): {e}")
+            return (False, False)
+    remote_tombs = None
+    if remote_sidecar_id:
+        try:
+            remote_tombs = _download_remote_json(service, remote_sidecar_id)
+        except Exception as e:
+            logger.warning(f"[GDrive] 원격 {sidecar_name} 파싱 실패(빈 것으로 진행): {e}")
+            remote_tombs = None
+
+    if not local_exists:
+        winner = "remote"
+    elif not remote_id:
+        winner = "local"
+    else:
+        winner = "local" if l_mtime >= (r_mtime or 0.0) else "remote"
+
+    entry = state.get(name) if isinstance(state.get(name), dict) else {}
+    base_keys = set(entry.get("base_keys", []) or [])
+
+    res = bmerge.merge_personal_data(
+        kind,
+        local_data if local_exists else None,
+        remote_data, base_keys, local_tombs, remote_tombs, now_ms, winner)
+    merged = res["data"]
+    merged_tombs = res["tombstones"]
+    merged_keys = res["live_keys"]
+
+    def _jn(obj):
+        return json.dumps(obj, sort_keys=True, ensure_ascii=False)
+
+    empty_tomb = {"version": 1, "tombstones": []}
+    local_equal = local_exists and _jn(local_data) == _jn(merged)
+    remote_equal = remote_id is not None and _jn(remote_data) == _jn(merged)
+    mt_norm = _jn(merged_tombs)
+    lt_norm = _jn(local_tombs if local_tombs is not None else empty_tomb)
+    rt_norm = _jn(remote_tombs if remote_tombs is not None else empty_tomb)
+
+    uploaded = False
+    local_updated = False
+
+    # 데이터 파일 — 로컬·원격이 병합본과 다르면 반영 (먼저 로컬, 그 다음 원격).
+    if not local_equal:
+        write_json_atomic(data_full, merged)
+        local_updated = True
+    if not remote_equal:
+        local_meta = {"mtime": os.path.getmtime(data_full), "size": os.path.getsize(data_full)}
+        _upload_single_file(service, folder_id, rel, local_meta, existing_id=remote_id)
+        uploaded = True
+
+    # 사이드카 — 병합 tombstone 문서가 각 쪽과 다르면 동기화.
+    if mt_norm != lt_norm:
+        write_json_atomic(sidecar_full, merged_tombs)
+        local_updated = True
+    if mt_norm != rt_norm:
+        _upload_sidecar(service, folder_id, sidecar_full, sidecar_name, existing_id=remote_sidecar_id)
+        uploaded = True
+
+    state[name] = {"base_keys": sorted(merged_keys)}
+    return (uploaded, local_updated)
+
+
+def _sync_and_merge_personal_data(service, root_id, subfolder_ids, remote_files):
+    """4종 개인 데이터를 메인 루프와 분리해 합집합 병합 + 삭제 전파한다."""
+    up = 0
+    down = 0
+    now_ms = time.time() * 1000.0
+    state = _load_merge_state()
+    for spec in PERSONAL_DATA_MERGE_SPECS:
+        folder_id = subfolder_ids.get(spec["folder"])
+        if not folder_id:
+            folder_id = _get_or_create_remote_folder(service, spec["folder"], parent_id=root_id)
+            subfolder_ids[spec["folder"]] = folder_id
+        try:
+            u, d = _merge_one_personal_data(service, root_id, folder_id, spec, now_ms, state, remote_files=remote_files)
+            up += 1 if u else 0
+            down += 1 if d else 0
+        except Exception as e:
+            logger.warning(f"[GDrive] 개인 데이터 병합 실패 {spec['name']}: {e}")
+    _save_merge_state(state)
+    return (up, down)
+
+
 def _perform_sync_blocking():
     """
     실제 동기화(차단) 작업.
@@ -1545,6 +1741,9 @@ def _perform_sync_blocking():
         # custom_targets.json 스마트 동기화 및 분기 병합 (Custom/ 파일 스캔 전에 선행 완료)
         ct_up, ct_down = _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files)
 
+        # 개인 데이터 4종 — 파일 단위 덮어쓰기 대신 항목 단위 합집합 병합 + 삭제 전파.
+        pd_up, pd_down = _sync_and_merge_personal_data(service, root_id, subfolder_ids, remote_files)
+
         local_manifest = build_local_manifest()
         # 중첩 폴더 캐시는 이번 동기화 기준으로 초기화 (이전 세션의 stale 폴더 ID 방지).
         _WORKFLOW_FOLDER_CACHE.clear()
@@ -1558,8 +1757,8 @@ def _perform_sync_blocking():
             custom_root_id = _get_or_create_custom_root(service, root_id)
             remote_files.update(_list_custom_remote_files(service, custom_root_id))
 
-        uploaded_count = 1 if ct_up else 0
-        downloaded_count = 1 if ct_down else 0
+        uploaded_count = 1 if (ct_up or pd_up) else 0
+        downloaded_count = 1 if (ct_down or pd_down) else 0
         trashed_local_count = 0
         trashed_remote_count = 0
 
@@ -1586,7 +1785,7 @@ def _perform_sync_blocking():
             all_keys |= set(base_snapshot.keys())
 
         for rel_path in all_keys:
-            if rel_path == f"{_CONFIG_NS}custom_targets.json":
+            if rel_path == f"{_CONFIG_NS}custom_targets.json" or rel_path in PERSONAL_CONFIG_RELS:
                 continue
             is_workflow = rel_path.startswith(WORKFLOWS_NS)
             is_custom = rel_path.startswith(CUSTOM_NS)
@@ -2034,6 +2233,15 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
             if not target_folder_id:
                 return False
 
+            if rel_path in PERSONAL_CONFIG_RELS:
+                spec = next(sp for sp in PERSONAL_DATA_MERGE_SPECS if sp["rel"] == rel_path)
+                pd_state = _load_merge_state()
+                _merge_one_personal_data(service, root_id, target_folder_id, spec, time.time() * 1000.0, pd_state)
+                _save_merge_state(pd_state)
+                _save_last_sync_state(1, 0)
+                logger.info(f"[GDrive Pinpoint Save] 개인 데이터 합집합 병합 반영: {rel_path}")
+                return True
+
             remote_name = _stored_remote_name(rel_path)
             existing_id = _find_remote_file_in_folder(service, target_folder_id, remote_name)
 
@@ -2064,6 +2272,10 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
                 service, root_id, subfolder_ids, rel_path)
             if not folder_id:
                 return False
+
+            if rel_path in PERSONAL_CONFIG_RELS:
+                logger.info(f"[GDrive Pinpoint] 개인 데이터 파일 전체 삭제는 무시합니다(삭제는 항목 단위 tombstone 로 전파): {rel_path}")
+                return True
 
             remote_name = _stored_remote_name(rel_path)
             file_id = _find_remote_file_in_folder(service, folder_id, remote_name)
