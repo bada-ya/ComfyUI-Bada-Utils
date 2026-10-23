@@ -13,6 +13,23 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { BadaI18n } from "./bada_i18n.js";
 
+// Shared document.body remount watcher: one MutationObserver per module, rAF-coalesced.
+// Replaces the previous per-node observers (Nodes 2.0 Vue-overlay remount self-heal).
+let __badaBodyObserver = null;
+const __badaBodyWatchers = new Set();
+let __badaBodyWatchPending = false;
+function __badaEnsureBodyObserver() {
+    if (__badaBodyObserver || typeof MutationObserver === "undefined" || !document.body) return;
+    __badaBodyObserver = new MutationObserver(() => {
+        if (__badaBodyWatchPending) return;
+        __badaBodyWatchPending = true;
+        const raf = window.requestAnimationFrame || ((cb) => setTimeout(cb, 0));
+        raf(() => { __badaBodyWatchPending = false; for (const fn of __badaBodyWatchers) { try { fn(); } catch (e) { console.debug("[Bada] ignored:", e); } } });
+    });
+    __badaBodyObserver.observe(document.body, { childList: true, subtree: true });
+}
+function __badaWatchBodyRemount(fn) { __badaBodyWatchers.add(fn); __badaEnsureBodyObserver(); return () => __badaBodyWatchers.delete(fn); }
+
 const NODE_CLASS = "BadaPromptGenerator";
 const REGISTRY_URL = "/api/bada/promptgen/registry";
 const CONFIG_URL = "/api/bada/gemini/config";
@@ -931,6 +948,19 @@ function setupNode(node) {
     let domWidth = HEADER_WIDTH;
     domWidget.computeSize = () => [domWidth, domHeight];
 
+    // [Node 2.0 프레임 가드] bada_async_gemini.js와 동일한 패턴 — 프론트엔드의
+    // "요소 실측폭 -> widget.width -> .dom-widget 호스트폭" 자기참조 되먹임은
+    // 위젯이 잠시 분리된 상태(= 토글/재렌더)의 낡은 값을 영구 고착시킨다.
+    // 폭의 유일한 진실 원천은 node.size[0]이므로 getter를 그 값에 연결하고
+    // 되먹임 대입은 버린다. (2026-10-05 Gemini 노드에서 실측 검증됨)
+    if (domWidget) {
+        Object.defineProperty(domWidget, "width", {
+            configurable: true,
+            get() { return node.size ? node.size[0] : HEADER_WIDTH + NODE_WIDTH_INSET; },
+            set() { /* 프론트엔드의 자기 되먹임 — 의도적으로 무시 */ },
+        });
+    }
+
     // ---- height calibration (overlap guard) --------------------------------
     // Measure what the panel actually renders, plus the slack the DOM-widget wrapper
     // eats, and report *that* to LiteGraph, so the canvas box and the panel always match.
@@ -943,15 +973,41 @@ function setupNode(node) {
     // was clipped in Korean and fully hidden in English, which wraps one row more.
     let calibrations = 0;
     let calibrationTimer = null;
+    let remountPending = false;
 
+    let lastWrap = null;
     const calibrateHeight = () => {
         if (calibrations >= 3) return;
+        if (!document.contains(header.root)) { remountPending = true; return; }
         const wrap = header.root.parentElement;
         if (!wrap) return;
+        if (wrap !== lastWrap) {
+            // Node 2.0(Vue 오버레이) <-> 1.X(LiteGraph) 토글로 위젯 호스트가 통째로
+            // 교체된다. 새 호스트에서는 이전 호스트 기준으로 세운 보정 예산/슬랙이
+            // 무의미하므로 처음부터 다시 측정한다.
+            lastWrap = wrap;
+            remountPending = false;
+            calibrations = 0;
+        }
         const scale = (app.canvas && app.canvas.ds && app.canvas.ds.scale) || 1;
         const contentH = Math.ceil(header.root.getBoundingClientRect().height / scale);
         const wrapH = Math.round(wrap.getBoundingClientRect().height / scale);
-        if (contentH < 8 || wrapH < 8) return;
+        if (contentH < 8) return;
+        if (wrapH < 8) {
+            // Node 2.0에서 호스트 실측이 잠시 0이 되는 구간(재렌더 중) — 카드 자체만
+            // 믿고 grow-only로 보정한다. (줄어드는 방향은 절대 취하지 않는다)
+            const grown = contentH + 16;
+            if (grown - domHeight > 1) {
+                domHeight = grown;
+                calibrations += 1;
+                const need = node.computeSize ? node.computeSize() : [HEADER_WIDTH + 26, 520];
+                if (node.size[0] + 1 < need[0] || node.size[1] + 1 < need[1]) {
+                    node.setSize([Math.max(node.size[0], need[0]), Math.max(node.size[1], need[1])]);
+                }
+                node.setDirtyCanvas?.(true, true);
+            }
+            return;
+        }
         const slack = Math.max(0, domHeight - wrapH);   // label strip the wrapper eats
         const next = contentH + slack;
         if (Math.abs(next - domHeight) <= 1) return;
@@ -1024,11 +1080,24 @@ function setupNode(node) {
     };
 
     const MIN_NODE_WIDTH = HEADER_WIDTH + NODE_WIDTH_INSET;
+    const MIN_NODE_HEIGHT = 560;
+    // Nodes 2.0는 위젯을 재배치할 때 computeSize를 거치지 않고 node.size에
+    // 직접 대입하는 경로를 쓴다. 카드는 HEADER_WIDTH 이하로 줄 수 없는데 프레임만
+    // 그 아래로 내려가면 카드가 프레임 밖으로 넘쳐 보인다 — 사용자가 본
+    // "2.0에서 외부 틀이 확 줄어든" 화면이 정확히 이 상태다.
+    // 하한 아래로만 올리는 grow-only 복원이라 사용자 드래그로는 줄일 수 있다.
+    const enforceNodeFloor = () => {
+        if (!node.size) return false;
+        let restored = false;
+        if (node.size[0] < MIN_NODE_WIDTH) { node.size[0] = MIN_NODE_WIDTH; restored = true; }
+        if (node.size[1] < MIN_NODE_HEIGHT) { node.size[1] = MIN_NODE_HEIGHT; restored = true; }
+        return restored;
+    };
     const originalComputeSize = node.computeSize;
     node.computeSize = function (out) {
         const size = originalComputeSize ? originalComputeSize.call(this, out || [0, 0]) : (out || [0, 0]);
         size[0] = Math.max(size[0], MIN_NODE_WIDTH);
-        size[1] = Math.max(size[1], 500);
+        size[1] = Math.max(size[1], MIN_NODE_HEIGHT);
         return size;
     };
 
@@ -1038,12 +1107,73 @@ function setupNode(node) {
     syncHeaderWidth();
 
     const originalOnResize = node.onResize;
-    node.onResize = function () {
+    node.onResize = function (size) {
+        // 마우스로 틀을 줄일 때의 하한 클램프 (Gemini 노드와 동일 패턴).
+        if (size) {
+            if (size[0] < MIN_NODE_WIDTH) size[0] = MIN_NODE_WIDTH;
+            if (size[1] < MIN_NODE_HEIGHT) size[1] = MIN_NODE_HEIGHT;
+        }
         const result = originalOnResize ? originalOnResize.apply(this, arguments) : undefined;
         syncHeaderWidth();
         return result;
     };
     node.__bpgSyncHeaderWidth = syncHeaderWidth;
+
+    // 1.X(LiteGraph 렌더)에서는 프레임 단위 점검이 유일한 실시간 창이다.
+    // Gemini 노드의 syncContainerSize와 같은 패턴이고, 값이 그대로면 즉시 return 한다.
+    const originalOnDrawForeground = node.onDrawForeground;
+    node.onDrawForeground = function (ctx) {
+        if (enforceNodeFloor()) app.graph?.setDirtyCanvas?.(true, true);
+        syncHeaderWidth();
+        if (originalOnDrawForeground) originalOnDrawForeground.apply(this, arguments);
+    };
+
+    // ---- Node 2.0 <-> 1.X 재부착 처리 ---------------------------------------
+    // Nodes 2.0 설정을 토글하면 프론트엔드가 위젯 호스트를 통째로 옮기지만
+    // (canvas DOM -> Vue 오버레이 -> 복귀), 노드 JS 상태(보정 예산, domHeight
+    // 스냅샷)는 토글 전 값으로 남아 새 호스트에 낡은 값을 씌운다 — 이것이
+    // "토글하면 창이 망가진다"의 원인이었다. 호스트 (재)부착을 감지해 예산을
+    // 리셋하고 다시 측정한다.
+    let unwatchRemount = null;
+    if (typeof MutationObserver !== "undefined") {
+        let wasAttached = document.contains(header.root);
+        let lastHost = header.root.parentElement;
+        unwatchRemount = __badaWatchBodyRemount(() => {
+            const attached = document.contains(header.root);
+            const host = header.root.parentElement;
+            if (attached && host && (host !== lastHost || !wasAttached)) {
+                lastHost = host;
+                wasAttached = true;
+                remountPending = false;
+                calibrations = 0;
+                // Nodes 2.0(Vue 오버레이)으로 토글하면 onDrawForeground가 더 이상
+                // 불리지 않는 경로가 남는다. 재부착 지점이 새 호스트 기준으로
+                // 카드 폭을 node.size에서 다시 계산할 수 있는 유일한 창이다.
+                if (enforceNodeFloor()) app.graph?.setDirtyCanvas?.(true, true);
+                syncHeaderWidth();
+                scheduleCalibration(50);
+                scheduleCalibration(600);
+            }
+            wasAttached = attached;
+        });
+    }
+
+    const originalOnConfigure = node.onConfigure;
+    node.onConfigure = function () {
+        const r = originalOnConfigure ? originalOnConfigure.apply(this, arguments) : undefined;
+        // 그래프 재로딩 시 프론트엔드의 크기 재계산이 최소치 아래로 내리지 못하게
+        // 선제 복원한다. (Gemini 노드의 onConfigure 복원과 동일한 안전장치)
+        if (this.size) {
+            if (this.size[0] < MIN_NODE_WIDTH) this.size[0] = 446;
+            if (this.size[1] < 520) this.size[1] = 560;
+        }
+        calibrations = 0;
+        remountPending = false;
+        syncHeaderWidth();
+        scheduleCalibration(60);
+        scheduleCalibration(500);
+        return r;
+    };
 
     let resizeObserver = null;
     if (typeof ResizeObserver !== "undefined") {
@@ -1054,6 +1184,17 @@ function setupNode(node) {
     }
     requestAnimationFrame(() => requestAnimationFrame(calibrateHeight));
     setTimeout(calibrateHeight, 300);
+    // Node 2.0이 요소를 분리했다가 다시 붙이는 시점의 rAF/RO 측정은 전부 실패한다 —
+    // remountPending이 서 있으면 800ms/2500ms에 한 번씩 다시 측정한다.
+    const bootstrapRemountCheck = (delay) => setTimeout(() => {
+        if (remountPending && document.contains(header.root)) {
+            remountPending = false;
+            calibrations = 0;
+            scheduleCalibration(0);
+        }
+    }, delay);
+    bootstrapRemountCheck(800);
+    bootstrapRemountCheck(2500);
 
     const removeBefore = node.onRemoved;
     node.onRemoved = function () {
@@ -1064,6 +1205,10 @@ function setupNode(node) {
         if (calibrationTimer !== null) {
             clearTimeout(calibrationTimer);
             calibrationTimer = null;
+        }
+        if (unwatchRemount) {
+            unwatchRemount();
+            unwatchRemount = null;
         }
         delete this.__bpgSyncHeaderWidth;
         delete this.__bpgRecalibrate;

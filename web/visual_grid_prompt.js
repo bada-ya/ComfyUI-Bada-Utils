@@ -1,6 +1,23 @@
 import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
 
+// Shared document.body remount watcher: one MutationObserver per module, rAF-coalesced.
+// Replaces the previous per-node observers (Nodes 2.0 Vue-overlay remount self-heal).
+let __badaBodyObserver = null;
+const __badaBodyWatchers = new Set();
+let __badaBodyWatchPending = false;
+function __badaEnsureBodyObserver() {
+    if (__badaBodyObserver || typeof MutationObserver === "undefined" || !document.body) return;
+    __badaBodyObserver = new MutationObserver(() => {
+        if (__badaBodyWatchPending) return;
+        __badaBodyWatchPending = true;
+        const raf = window.requestAnimationFrame || ((cb) => setTimeout(cb, 0));
+        raf(() => { __badaBodyWatchPending = false; for (const fn of __badaBodyWatchers) { try { fn(); } catch (e) { console.debug("[Bada] ignored:", e); } } });
+    });
+    __badaBodyObserver.observe(document.body, { childList: true, subtree: true });
+}
+function __badaWatchBodyRemount(fn) { __badaBodyWatchers.add(fn); __badaEnsureBodyObserver(); return () => __badaBodyWatchers.delete(fn); }
+
 // =============================================================================
 // I18N Localization Dictionary
 // =============================================================================
@@ -2475,9 +2492,20 @@ app.registerExtension({
                 syncContainerSize();
             }
 
+            function hostInnerWidth() {
+                // [Regional 4차 정합] 호스트 clientWidth 실측은 Node 2.0 재마운트 순간
+                // 아직 조사되지 않은 넓이(예: 205px)에 동결되어 카드 폭을 얼려버린다. 실측
+                // 읽기를 폐기하고 폭을 node.size에서 산출한다. 노드 2.0 위젯 열 폭은
+                // node.width - 24, LiteGraph 1.X는 node.width - margin*2 범위이므로 -24는
+                // 2.0에서 정확하고 1.X에서는 호스트 padding 안에서 오른쪽이 여유로우며,
+                // 어떤 환경에서도 동결 사고가 발생하지 않는다.
+                const nodeW = node && node.size ? node.size[0] : 0;
+                return Math.max(240, (nodeW || 444) - 24);
+            }
+
             function syncContainerSize() {
                 if (container && node && node.size) {
-                    const targetW = Math.max(420, node.size[0] - 20);
+                    const targetW = hostInnerWidth();
                     const targetH = Math.max(500, node.size[1] - 46);
                     container.style.width = `${targetW}px`;
                     container.style.maxWidth = `${targetW}px`;
@@ -2918,11 +2946,92 @@ app.registerExtension({
                 enforceSingleOutput(this);
             };
 
+            // [Node 2.0 리사이즈 정합] 노드 2.0 는 onDrawForeground 가 매 프레임
+            // 돌지 않아 프레임 리사이즈가 위젯 호스트 폭에 반영되는 시점을 놓친다.
+            // 호스트(부모)의 "폭" 변화만 관찰해 그 자리에서 폭을 재정합한다.
+            // 호스트 폭은 node.size 에서 파생되고 자식 폭의 영향을 받지으므로
+            // 자기참조 되먹임(무한 루프)이 생기지 않는다.
+            let hostSizeWatcher = null;
+            if (typeof ResizeObserver !== "undefined") {
+                let lastHostWidth = -1;
+                hostSizeWatcher = new ResizeObserver((entries) => {
+                    const box = entries && entries[0] ? entries[0].contentRect : null;
+                    const observedWidth = box ? Math.round(box.width) : -1;
+                    if (observedWidth === lastHostWidth) return;
+                    lastHostWidth = observedWidth;
+                    syncContainerSize();
+                    updateCanvasDimensions();
+                });
+                if (container.parentElement) hostSizeWatcher.observe(container.parentElement);
+            }
+
+            // Nodes 2.0 <-> 1.X 토글로 위젯 호스트가 다시 붙으면 토글 패널 높이를
+            // 재계산한다 (onDrawForeground가 더 이상 돌지 않는 환경에서도 안전하도록).
+            if (typeof MutationObserver !== "undefined") {
+                let wasAttached = document.contains(container);
+                let lastHost = container.parentElement;
+                const unwatchRemount = __badaWatchBodyRemount(() => {
+                    const attached = document.contains(container);
+                    const host = container.parentElement;
+                    if (attached && host && (host !== lastHost || !wasAttached)) {
+                        lastHost = host;
+                        wasAttached = true;
+                        setTimeout(() => {
+                            // 토글로 프론트엔드가 node.size를 직접 내려도 카드는
+                            // 420 이하로 줄 수 없다 — 프레임 하한을 먼저 되돌린다.
+                            if (node.size && node.size[0] < 420) node.size[0] = 420;
+                            // 재마운트 직후 호스트는 아직 조사되지 않은 넓이일 수 있다 → 실측을
+                            // 읽지 않고 항상 node.size 산출값으로 카드 폭을 보급합니다 (4차).
+                            if (container) {
+                                const remountW = hostInnerWidth();
+                                container.style.width = remountW + "px";
+                                container.style.maxWidth = remountW + "px";
+                            }
+                            updateHeightOnDrawerToggle();
+                            syncContainerSize();
+                            updateCanvasDimensions();
+                            if (hostSizeWatcher && host) {
+                                try {
+                                    hostSizeWatcher.disconnect();
+                                    hostSizeWatcher.observe(host);
+                                } catch (e) { console.debug("[Bada] ignored:", e); }
+                            }
+                            if (app && app.canvas) app.canvas.setDirty(true, true);
+                        }, 120);
+                    }
+                    wasAttached = attached;
+                });
+                const origRemovedV = node.onRemoved;
+                node.onRemoved = function () {
+                    if (unwatchRemount) unwatchRemount();
+                    if (hostSizeWatcher) { try { hostSizeWatcher.disconnect(); } catch (e) { console.debug("[Bada] ignored:", e); } }
+                    if (origRemovedV) origRemovedV.apply(this, arguments);
+                };
+            }
+
             const onDrawForeground = node.onDrawForeground;
+            // [Regional 4차 자가복구] 프론트엔드(특히 Nodes 2.0)가 node.size를 하한 미만으로
+            // 내려주거나 재마운트 순간의 실측 동결로 카드 폭이 산출값(노드 폭-24)에서
+            // 벗어나면 매 프레임 두 값을 모두 복구한다. 캔버스 통째재렌더는 실제 폭
+            // 변화가 있을 때만 수행해 리사이즈 드래그 중 과도 재계산을 막는다.
+            let lastHealedWidth = -1;
             node.onDrawForeground = function (ctx) {
                 hideAllBackendWidgets(this);
                 enforceSingleOutput(this);
-                syncContainerSize();
+                if (this.size) {
+                    if (this.size[0] < 420) { this.size[0] = 420; if (app && app.canvas) app.canvas.setDirty(true, true); }
+                    const wantW = hostInnerWidth();
+                    const haveW = container && container.style.width ? parseFloat(container.style.width) : NaN;
+                    if (!Number.isFinite(haveW) || Math.abs(haveW - wantW) > 2) {
+                        syncContainerSize();
+                        if (wantW !== lastHealedWidth) {
+                            lastHealedWidth = wantW;
+                            updateCanvasDimensions();
+                        }
+                    } else {
+                        lastHealedWidth = wantW;
+                    }
+                }
                 if (onDrawForeground) onDrawForeground.apply(this, arguments);
             };
 
@@ -2968,6 +3077,15 @@ app.registerExtension({
                 }
             });
 
+            // [Node 2.0 프레임 가드] bada_async_gemini.js와 동일 — 프론트엔드의
+            // "요소 실측폭 -> widget.width -> .dom-widget 호스트폭" 자기참조 되먹임을
+            // 차단하고 폭의 진실 원천을 node.size[0]에 고정한다.
+            Object.defineProperty(domWidget, "width", {
+                configurable: true,
+                get() { return node.size ? node.size[0] : 510; },
+                set() { /* 프론트엔드의 자기 되먹임 — 의도적으로 무시 */ },
+            });
+
             // Initial Sizing & Setup
             currentLang = (BadaI18n && BadaI18n.lang === "ko") ? "한국어" : "English";
             syncContainerSize();
@@ -2981,9 +3099,16 @@ app.registerExtension({
             syncContainerSize();
 
             // LiteGraph Minimum Size Boundary Hook (Prevents shrinking past minimum bounds)
+            // [BUG FIX 2026-10-23] 기존 구현은 computeSize에서 "실제 크기 기준 최소 보장"이
+            // 아니라 "최소값 자체"를 반환했다. 프론트엔드가 재계산 시점(Node 2.0 토글,
+            // 그래프 재로딩, 위젯 재배치)에 setSize(computeSize())를 부르면 틀이 650px선까지
+            // 주저앉았는데, 사용자가 본 "외부 틀이 확 줄어든다"가 정확히 이것이다.
+            // 기본 computeSize의 실측값을 살리고 하한만 보장하는 Gemini 방식으로 바꾼다.
+            // 하한 높이도 updateHeightOnDrawerToggle의 1050과 일치시켰다 (기존 650은 불일치).
+            const baseComputeSize = node.computeSize;
             node.computeSize = function (out) {
                 const minW = 420;
-                let minH = 650;
+                let minH = 1050;
                 const isTreeOpen = treeDrawer && !treeDrawer.classList.contains("collapsed");
                 const isCharOpen = charManagerDrawer && charManagerDrawer.style.display !== "none";
                 const isCustomOpen = customManagerDrawer && customManagerDrawer.style.display !== "none";
@@ -2991,12 +3116,10 @@ app.registerExtension({
                 if (isCharOpen) minH += 240;
                 if (isCustomOpen) minH += 240;
                 
-                if (out) {
-                    out[0] = minW;
-                    out[1] = minH;
-                    return out;
-                }
-                return [minW, minH];
+                const size = baseComputeSize ? baseComputeSize.call(this, out || [0, 0]) : (out || [0, 0]);
+                size[0] = Math.max(size[0] || 0, minW);
+                size[1] = Math.max(size[1] || 0, minH);
+                return size;
             };
 
             // LiteGraph Dynamic Resize Hook (Scales width and height freely while strictly respecting minimum bounds)

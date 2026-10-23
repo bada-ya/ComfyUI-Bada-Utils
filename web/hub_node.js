@@ -1,12 +1,12 @@
 /**
  * ComfyUI Universal Preset Hub Node Extension
+ * - Node 2.0 compatible: UI renders as a DOM widget (addDOMWidget), no canvas painting
  * - Real-Time Multi-Instance Wireless Mirroring (All Hub Nodes on canvas sync 100% like clones)
- * - Direct On-Canvas Radio Switcher (Fast Groups Style): Instant One-Click Preset Switching
+ * - Direct Radio Switcher Panel: Instant One-Click Preset Switching
  * - Exclusive Single-Active State (Radio Button Mode across Workflow)
- * - Dynamic Node Auto-Height Scaling & Smooth Internal Mouse-Wheel Scrolling
- * - Canvas Drag & Drop Reordering with Visual Insertion Guide
+ * - Dynamic Node Auto-Height Scaling & Native Internal Scrolling
+ * - Drag & Drop Reordering with Visual Insertion Guide
  * - Complete Two-Way Sync with Universal Preset Hub Modal
- * - Full Support for Node Execution Modes (Bypass 🟣 / Mute 🔴 / Active 🟢)
  * - Zero Cross-Workflow Leakage + Automatic PNG Metadata Embedding
  */
 
@@ -29,45 +29,130 @@ const NODE_DEFAULT_WIDTH = 370;
 
 export let hubPresetsStore = {}; // Backwards compatibility
 
+let selectionWatcherAttached = false;
+let stylesInjected = false;
+
+function isHubNode(n) {
+    return !!n && (n.comfyClass === "BadaPresetHub" || n.type === "BadaPresetHub");
+}
+
 /**
- * Automatically ensures that the currently active preset is always visible inside the node viewport
+ * Shared stylesheet for the hub DOM panel (injected once)
+ */
+function injectHubStyles() {
+    if (stylesInjected || typeof document === "undefined") return;
+    stylesInjected = true;
+
+    const style = document.createElement("style");
+    style.id = "bada-hub-node-css";
+    style.textContent = `
+    .bada-hub-root {
+        font-family: Arial, sans-serif;
+        color: #f8fafc;
+        width: 100%;
+        box-sizing: border-box;
+        padding: 6px 10px 8px 10px;
+        user-select: none;
+    }
+    .bada-hub-toprow { display: flex; gap: 6px; margin-bottom: 6px; }
+    .bada-hub-btn {
+        height: ${TOP_BTN_HEIGHT}px; border-radius: 5px; font-size: 11.5px; font-weight: bold;
+        display: flex; align-items: center; justify-content: center; cursor: pointer;
+        border: 1px solid rgba(255, 255, 255, 0.1); white-space: nowrap; overflow: hidden;
+    }
+    .bada-hub-save {
+        flex: 1; background: rgba(30, 41, 59, 0.65); color: #94a3b8;
+        font-weight: 600; font-size: 11px;
+    }
+    .bada-hub-save.active {
+        background: linear-gradient(#0e3a4e, #0a2533);
+        border-color: rgba(56, 189, 248, 0.6); color: #38bdf8; font-weight: bold;
+    }
+    .bada-hub-settings {
+        width: 74px; flex-shrink: 0;
+        background: linear-gradient(#334155, #1e293b);
+        border-color: rgba(245, 158, 11, 0.55); color: #fbbf24;
+    }
+    .bada-hub-header { display: flex; justify-content: space-between; align-items: center; height: ${HEADER_HEIGHT}px; }
+    .bada-hub-title { color: #f59e0b; font-weight: bold; font-size: 11px; white-space: nowrap; overflow: hidden; }
+    .bada-hub-hint { color: #94a3b8; font-size: 10px; margin-left: 8px; white-space: nowrap; }
+    .bada-hub-list {
+        display: flex; flex-direction: column; gap: ${ROW_GAP}px;
+        max-height: ${MAX_LIST_VIEW_HEIGHT}px; overflow-y: auto; overflow-x: hidden;
+        padding-right: 4px; scrollbar-width: thin; scrollbar-color: rgba(245, 158, 11, 0.75) transparent;
+    }
+    .bada-hub-list::-webkit-scrollbar { width: 4px; }
+    .bada-hub-list::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.08); border-radius: 2px; }
+    .bada-hub-list::-webkit-scrollbar-thumb { background: rgba(245, 158, 11, 0.75); border-radius: 2px; }
+    .bada-hub-row {
+        display: flex; align-items: center; height: ${ROW_HEIGHT}px; min-height: ${ROW_HEIGHT}px;
+        border-radius: 4px; padding: 0 5px 0 2px; box-sizing: border-box; cursor: pointer;
+        background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .bada-hub-row.active {
+        background: linear-gradient(90deg, rgba(245, 158, 11, 0.2), rgba(217, 119, 6, 0.09));
+        border-color: rgba(245, 158, 11, 0.85);
+    }
+    .bada-hub-row.dragging { opacity: 0.4; }
+    .bada-hub-row.drop-before { box-shadow: 0 -2px 0 0 #f59e0b; }
+    .bada-hub-row.drop-after { box-shadow: 0 2px 0 0 #f59e0b; }
+    .bada-hub-grip { width: 18px; flex-shrink: 0; text-align: center; color: #64748b; font-size: 11px; cursor: grab; }
+    .bada-hub-row.active .bada-hub-grip { color: #fcd34d; }
+    .bada-hub-name {
+        flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        font-size: 12px; color: #f8fafc;
+    }
+    .bada-hub-row.active .bada-hub-name { color: #fef08a; font-weight: bold; }
+    .bada-hub-tag { font-size: 10.5px; color: #94a3b8; margin: 0 6px; white-space: nowrap; }
+    .bada-hub-row.active .bada-hub-tag { color: #fcd34d; }
+    .bada-hub-switch {
+        position: relative; width: 46px; height: 16px; border-radius: 8px; flex-shrink: 0;
+        background: #1e293b; border: 1px solid rgba(255, 255, 255, 0.16);
+    }
+    .bada-hub-switch .bada-hub-knob {
+        position: absolute; top: 1.5px; left: 2px; width: 11px; height: 11px;
+        border-radius: 50%; background: #475569;
+    }
+    .bada-hub-switch .bada-hub-state {
+        position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+        font-size: 8.5px; font-weight: bold; color: #64748b;
+    }
+    .bada-hub-switch.on { background: linear-gradient(90deg, #10b981, #059669); border-color: rgba(255, 255, 255, 0.9); }
+    .bada-hub-switch.on .bada-hub-knob { left: auto; right: 2px; background: #ffffff; }
+    .bada-hub-switch.on .bada-hub-state { right: auto; left: 7px; color: #ffffff; }
+    .bada-hub-empty {
+        border: 1px dashed rgba(255, 255, 255, 0.15); border-radius: 6px; color: #94a3b8;
+        font-size: 11px; text-align: center; padding: 10px 6px; margin-top: 6px;
+    }`;
+    document.head.appendChild(style);
+}
+/**
+ * Automatically ensures that the currently active preset is visible inside the DOM list viewport
  */
 export function ensureActivePresetInView(node) {
     if (!node || !node.properties) return;
-    const presets = getHubPresets(node);
-    const presetNames = Object.keys(presets);
-    const count = presetNames.length;
-    if (count === 0) return;
+    const ui = node._hubUI;
+    if (!ui || !ui.listEl) return;
 
+    const presets = getHubPresets(node);
     const activeName = node.properties.active_preset;
     if (!activeName || !presets[activeName]) return;
 
-    const activeIdx = presetNames.indexOf(activeName);
+    const activeIdx = Object.keys(presets).indexOf(activeName);
     if (activeIdx < 0) return;
 
-    const listTopY = TOP_CONTROLS_HEIGHT;
-    const listBottomY = node.size[1] - BOTTOM_PADDING;
-    const listViewHeight = Math.max(10, listBottomY - listTopY);
-    const viewH = Math.max(10, listViewHeight - HEADER_HEIGHT);
-    const fullContentHeight = HEADER_HEIGHT + count * (ROW_HEIGHT + ROW_GAP);
-    const maxScroll = Math.max(0, fullContentHeight - listViewHeight);
+    const list = ui.listEl;
+    const rowEl = list.children[activeIdx];
+    if (!rowEl) return;
 
-    if (maxScroll <= 0) {
-        node._scrollOffset = 0;
-        return;
+    const listRect = list.getBoundingClientRect();
+    const rowRect = rowEl.getBoundingClientRect();
+    if (rowRect.top < listRect.top) {
+        list.scrollTop -= listRect.top - rowRect.top;
+    } else if (rowRect.bottom > listRect.bottom) {
+        list.scrollTop += rowRect.bottom - listRect.bottom;
     }
-
-    const itemTop = activeIdx * (ROW_HEIGHT + ROW_GAP);
-    const itemBottom = itemTop + ROW_HEIGHT;
-    let scroll = Math.max(0, Math.min(maxScroll, node._scrollOffset || 0));
-
-    if (itemTop < scroll) {
-        scroll = itemTop;
-    } else if (itemBottom > scroll + viewH) {
-        scroll = Math.min(maxScroll, itemBottom - viewH);
-    }
-
-    node._scrollOffset = scroll;
+    node._scrollOffset = list.scrollTop;
 }
 
 /**
@@ -77,13 +162,11 @@ export function broadcastHubPresets(presets, activePreset = null) {
     if (!app.graph?._nodes) return;
 
     for (const n of app.graph._nodes) {
-        if (n.type === "BadaPresetHub" || n.comfyClass === "BadaPresetHub") {
-            if (!n.properties) n.properties = {};
-            n.properties.hub_presets = JSON.parse(JSON.stringify(presets));
-            if (activePreset !== null) {
-                n.properties.active_preset = activePreset;
-            }
-            ensureActivePresetInView(n);
+        if (!isHubNode(n)) continue;
+        if (!n.properties) n.properties = {};
+        n.properties.hub_presets = JSON.parse(JSON.stringify(presets));
+        if (activePreset !== null) {
+            n.properties.active_preset = activePreset;
         }
     }
     updateAllHubNodes();
@@ -94,7 +177,7 @@ export function broadcastHubPresets(presets, activePreset = null) {
  */
 export function getHubPresets(hubNode) {
     if (!hubNode && app.graph?._nodes) {
-        hubNode = app.graph._nodes.find(n => n.type === "BadaPresetHub" || n.comfyClass === "BadaPresetHub");
+        hubNode = app.graph._nodes.find(isHubNode);
     }
     if (!hubNode) return {};
     if (!hubNode.properties) hubNode.properties = {};
@@ -104,10 +187,10 @@ export function getHubPresets(hubNode) {
 
     // If this node is empty but other hub nodes on canvas have presets, auto-inherit
     if (Object.keys(hubNode.properties.hub_presets).length === 0 && app.graph?._nodes) {
-        const otherHub = app.graph._nodes.find(n => 
-            (n.type === "BadaPresetHub" || n.comfyClass === "BadaPresetHub") && 
-            n !== hubNode && 
-            n.properties?.hub_presets && 
+        const otherHub = app.graph._nodes.find(n =>
+            isHubNode(n) &&
+            n !== hubNode &&
+            n.properties?.hub_presets &&
             Object.keys(n.properties.hub_presets).length > 0
         );
         if (otherHub) {
@@ -122,7 +205,7 @@ export function getHubPresets(hubNode) {
 }
 
 /**
- * Dynamically calculate and set the exact required size for BadaPresetHub node
+ * Dynamically calculate and request the exact required size for BadaPresetHub node
  */
 export function computeHubNodeSize(node) {
     if (!node || !node.size) return [NODE_DEFAULT_WIDTH, 140];
@@ -144,13 +227,35 @@ export function computeHubNodeSize(node) {
 }
 
 /**
+ * Live selection watcher (replaces legacy LGraphCanvas prototype patches).
+ * Uses the frontend canvas event bus when available; the DOM panel also
+ * refreshes the detection badge on hover as a universal fallback.
+ */
+function attachSelectionWatcher() {
+    if (selectionWatcherAttached) return;
+    try {
+        if (app.canvas && typeof app.canvas.addEventListener === "function") {
+            app.canvas.addEventListener("selection:changed", () => refreshAllHubSelectionBadges());
+            selectionWatcherAttached = true;
+        }
+    } catch (e) {
+        console.debug("[Bada Hub] selection watcher unavailable:", e);
+    }
+}
+
+function refreshAllHubSelectionBadges() {
+    if (!app.graph?._nodes) return;
+    for (const node of app.graph._nodes) {
+        if (isHubNode(node)) node._hubUI?.updateSelectionBadge?.();
+    }
+}
+/**
  * Register BadaPresetHub extension
  */
 app.registerExtension({
     name: "ComfyUI.BadaPresetHub",
 
     async setup() {
-        console.log("[Hub Node] Initializing Cloned Multi-Instance Universal Preset Hub Switchers...");
 
         // Auto-clean any legacy global localStorage hub cache
         try {
@@ -230,116 +335,33 @@ app.registerExtension({
             },
         });
 
-        // 1. Window-level Wheel listener for smooth internal list scrolling without zooming canvas
-        window.addEventListener("wheel", (e) => {
-            const canvas = app.canvas;
-            if (!canvas || !app.graph?._nodes) return;
-
-            const rect = canvas.canvas?.getBoundingClientRect?.() || document.querySelector("canvas")?.getBoundingClientRect?.();
-            if (!rect) return;
-
-            const clientX = e.clientX;
-            const clientY = e.clientY;
-            if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return;
-
-            const scale = Number(canvas.ds?.scale || 1);
-            const offset = canvas.ds?.offset || [0, 0];
-            const canvasX = (clientX - rect.left) / scale - offset[0];
-            const canvasY = (clientY - rect.top) / scale - offset[1];
-
-            for (const node of app.graph._nodes) {
-                if (node.type === "BadaPresetHub" || node.comfyClass === "BadaPresetHub") {
-                    if (
-                        node.pos &&
-                        node.size &&
-                        canvasX >= node.pos[0] &&
-                        canvasX <= node.pos[0] + node.size[0] &&
-                        canvasY >= node.pos[1] &&
-                        canvasY <= node.pos[1] + node.size[1]
-                    ) {
-                        const presets = getHubPresets(node);
-                        const count = Object.keys(presets).length;
-                        const listTopY = TOP_CONTROLS_HEIGHT;
-                        const listBottomY = node.size[1] - BOTTOM_PADDING;
-                        const listViewHeight = listBottomY - listTopY;
-                        const totalContentHeight = HEADER_HEIGHT + count * (ROW_HEIGHT + ROW_GAP);
-                        const maxScroll = Math.max(0, totalContentHeight - listViewHeight);
-
-                        if (maxScroll > 0 && canvasY >= node.pos[1] + listTopY && canvasY <= node.pos[1] + listBottomY) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const delta = e.deltaY > 0 ? 36 : -36;
-                            node._scrollOffset = Math.max(0, Math.min(maxScroll, (node._scrollOffset || 0) + delta));
-                            app.graph.setDirtyCanvas(true, true);
-                            return;
-                        }
-                    }
-                }
-            }
-        }, { passive: false });
-
-        // 2. Real-time canvas selection watcher (Ctrl+Click & Ctrl+Drag Box Area Selection)
-        if (typeof LGraphCanvas !== "undefined") {
-            const origProcessMouseDown = LGraphCanvas.prototype.processMouseDown;
-            LGraphCanvas.prototype.processMouseDown = function () {
-                const res = origProcessMouseDown ? origProcessMouseDown.apply(this, arguments) : false;
-                setTimeout(() => updateAllHubNodes(), 30);
-                return res;
-            };
-
-            const origProcessMouseUp = LGraphCanvas.prototype.processMouseUp;
-            LGraphCanvas.prototype.processMouseUp = function () {
-                const res = origProcessMouseUp ? origProcessMouseUp.apply(this, arguments) : false;
-                setTimeout(() => updateAllHubNodes(), 20);
-                setTimeout(() => updateAllHubNodes(), 100);
-                return res;
-            };
-
-            const origSelectNodesInArea = LGraphCanvas.prototype.selectNodesInArea;
-            if (origSelectNodesInArea) {
-                LGraphCanvas.prototype.selectNodesInArea = function () {
-                    const res = origSelectNodesInArea.apply(this, arguments);
-                    setTimeout(() => updateAllHubNodes(), 20);
-                    return res;
-                };
-            }
-
-            const origDeselectAllNodes = LGraphCanvas.prototype.deselectAllNodes;
-            if (origDeselectAllNodes) {
-                LGraphCanvas.prototype.deselectAllNodes = function () {
-                    const res = origDeselectAllNodes.apply(this, arguments);
-                    setTimeout(() => updateAllHubNodes(), 20);
-                    return res;
-                };
-            }
-        }
+        attachSelectionWatcher();
     },
 
     async nodeCreated(node) {
-        if (node.comfyClass === "BadaPresetHub" || node.type === "BadaPresetHub") {
+        if (isHubNode(node)) {
             node.title = BadaI18n.t("hub_node_title");
             // Inherit presets from any existing hub node on canvas
             getHubPresets(node);
             setupHubNodeWidgets(node);
             computeHubNodeSize(node);
-            updateAllHubNodes();
         }
     },
 
     async loadedGraphNode(node) {
-        if (node.comfyClass === "BadaPresetHub" || node.type === "BadaPresetHub") {
+        if (isHubNode(node)) {
             node.title = BadaI18n.t("hub_node_title");
             getHubPresets(node);
             setupHubNodeWidgets(node);
             computeHubNodeSize(node);
-            updateHubPresetButton(node);
         }
     },
 
     afterConfigureGraph() {
+        attachSelectionWatcher();
         if (app.graph?._nodes) {
             for (const node of app.graph._nodes) {
-                if (node.comfyClass === "BadaPresetHub" || node.type === "BadaPresetHub") {
+                if (isHubNode(node)) {
                     node.title = BadaI18n.t("hub_node_title");
                     getHubPresets(node);
                     setupHubNodeWidgets(node);
@@ -355,7 +377,7 @@ app.registerExtension({
 BadaI18n.subscribe(() => {
     if (app.graph?._nodes) {
         for (const node of app.graph._nodes) {
-            if (node.comfyClass === "BadaPresetHub" || node.type === "BadaPresetHub") {
+            if (isHubNode(node)) {
                 node.title = BadaI18n.t("hub_node_title");
             }
         }
@@ -400,7 +422,261 @@ export function getCurrentlySelectedNodes(hubNode) {
 }
 
 /**
- * Configure Ultra-Streamlined Top Action Controls + Selection Status + Direct On-Canvas Preset Switcher
+ * Top-row [Save from Selection] button behavior (opens modal with prefilled default name)
+ */
+function openHubSaveFlow(node) {
+    const selectedNodes = getCurrentlySelectedNodes(node);
+    if (selectedNodes.length === 0) {
+        showToast(BadaI18n.t("modal_hub_no_selection"), "warning");
+        return;
+    }
+
+    const presets = getHubPresets(node);
+    const defaultName = `${BadaI18n.lang === "ko" ? "유니버셜 세팅" : "Universal Preset"} #${Object.keys(presets).length + 1}`;
+    showHubManageModal(node, { focusSave: true, defaultName: defaultName });
+    app.graph?.setDirtyCanvas(true, true);
+}
+
+/**
+ * Move a preset entry to a new index and broadcast the reordered store
+ */
+function movePresetOrder(node, fromIndex, insertAt, movedName) {
+    const presets = getHubPresets(node);
+    const entries = Object.entries(presets);
+    if (fromIndex < 0 || fromIndex >= entries.length) return;
+
+    const [moved] = entries.splice(fromIndex, 1);
+    const finalIndex = insertAt > fromIndex ? insertAt - 1 : insertAt;
+    entries.splice(Math.max(0, Math.min(entries.length, finalIndex)), 0, moved);
+
+    const newStore = {};
+    for (const [k, v] of entries) {
+        newStore[k] = v;
+    }
+    broadcastHubPresets(newStore);
+    showToast(`↕️ [${movedName}] 프리셋 순서가 변경되었습니다.`, "gold");
+}
+/**
+ * Build the DOM panel UI for a hub node (rendered inside the DOM widget host)
+ */
+function buildHubUI(node) {
+    injectHubStyles();
+
+    const root = document.createElement("div");
+    root.className = "bada-hub-root";
+
+    const topRow = document.createElement("div");
+    topRow.className = "bada-hub-toprow";
+
+    const saveBtn = document.createElement("div");
+    saveBtn.className = "bada-hub-btn bada-hub-save";
+
+    const settingsBtn = document.createElement("div");
+    settingsBtn.className = "bada-hub-btn bada-hub-settings";
+    settingsBtn.textContent = BadaI18n.t("hub_settings_btn");
+
+    topRow.append(saveBtn, settingsBtn);
+
+    const header = document.createElement("div");
+    header.className = "bada-hub-header";
+    const titleEl = document.createElement("span");
+    titleEl.className = "bada-hub-title";
+    const hintEl = document.createElement("span");
+    hintEl.className = "bada-hub-hint";
+    header.append(titleEl, hintEl);
+
+    const listEl = document.createElement("div");
+    listEl.className = "bada-hub-list";
+
+    const emptyEl = document.createElement("div");
+    emptyEl.className = "bada-hub-empty";
+    emptyEl.textContent = BadaI18n.t("hub_empty_hint");
+
+    root.append(topRow, header, listEl, emptyEl);
+
+    let lastSig = null;
+    let dragState = null; // { fromIndex, name }
+    let pendingInsertAt = -1;
+    let suppressClickUntil = 0;
+
+    // --- Top action buttons ---
+    saveBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openHubSaveFlow(node);
+    });
+    settingsBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        showHubManageModal(node);
+        app.graph?.setDirtyCanvas(true, true);
+    });
+
+    // Universal fallback: refresh detection badge whenever the pointer enters the panel
+    root.addEventListener("pointerenter", () => updateSelectionBadge());
+
+    function updateSelectionBadge() {
+        const selCount = getCurrentlySelectedNodes(node).length;
+        if (selCount > 0) {
+            saveBtn.classList.add("active");
+            saveBtn.textContent = BadaI18n.t("hub_detected_nodes", { count: selCount });
+        } else {
+            saveBtn.classList.remove("active");
+            saveBtn.textContent = BadaI18n.t("hub_select_nodes");
+        }
+        return selCount;
+    }
+
+    function clearDropMarks() {
+        pendingInsertAt = -1;
+        listEl.querySelectorAll(".bada-hub-row").forEach(r => r.classList.remove("drop-before", "drop-after"));
+    }
+
+    function makeRow(name, presetData, idx, isActive) {
+        const row = document.createElement("div");
+        row.className = "bada-hub-row" + (isActive ? " active" : "");
+        row.dataset.index = String(idx);
+
+        const grip = document.createElement("span");
+        grip.className = "bada-hub-grip";
+        grip.textContent = "⠿";
+        grip.title = "드래그하여 순서 변경";
+
+        const nameEl = document.createElement("span");
+        nameEl.className = "bada-hub-name";
+        nameEl.textContent = `⚓ ${name}`;
+        nameEl.title = name;
+
+        const tagEl = document.createElement("span");
+        tagEl.className = "bada-hub-tag";
+        const nodeCount = presetData?.targets?.length || 0;
+        tagEl.textContent = BadaI18n.lang === "ko" ? `(${nodeCount}개)` : `(${nodeCount})`;
+
+        const sw = document.createElement("span");
+        sw.className = "bada-hub-switch" + (isActive ? " on" : "");
+        const knob = document.createElement("span");
+        knob.className = "bada-hub-knob";
+        const stateEl = document.createElement("span");
+        stateEl.className = "bada-hub-state";
+        stateEl.textContent = isActive ? "ON" : "OFF";
+        sw.append(knob, stateEl);
+
+        row.append(grip, nameEl, tagEl, sw);
+
+        // Click row or switch: activate preset and sync across ALL hub nodes
+        row.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (dragState || Date.now() < suppressClickUntil) return;
+            const presets = getHubPresets(node);
+            if (!presets[name]) return;
+            applyMasterPresetToWorkflow(presets[name], node);
+            broadcastHubPresets(presets, name);
+        });
+
+        // Reordering is initiated from the grip handle only
+        grip.addEventListener("pointerdown", () => { row.draggable = true; });
+        row.addEventListener("dragstart", (e) => {
+            dragState = { fromIndex: idx, name };
+            row.classList.add("dragging");
+            try {
+                e.dataTransfer.setData("text/plain", String(idx));
+                e.dataTransfer.effectAllowed = "move";
+            } catch (err) { console.debug("[Bada Hub] ignored:", err); }
+        });
+        row.addEventListener("dragend", () => {
+            row.draggable = false;
+            row.classList.remove("dragging");
+            dragState = null;
+            clearDropMarks();
+            suppressClickUntil = Date.now() + 150;
+        });
+
+        return row;
+    }
+
+    // --- Drag & Drop reordering (insertion guide) ---
+    listEl.addEventListener("dragover", (e) => {
+        if (!dragState) return;
+        e.preventDefault();
+        try { e.dataTransfer.dropEffect = "move"; } catch (err) { console.debug("[Bada Hub] ignored:", err); }
+
+        clearDropMarks();
+        const rows = Array.from(listEl.querySelectorAll(".bada-hub-row"));
+        if (rows.length === 0) return;
+
+        let insertAt = rows.length; // default: drop after last row
+        for (let i = 0; i < rows.length; i++) {
+            const r = rows[i].getBoundingClientRect();
+            if (e.clientY < r.top + r.height / 2) {
+                insertAt = i;
+                break;
+            }
+        }
+        pendingInsertAt = insertAt;
+        if (insertAt < rows.length) {
+            rows[insertAt].classList.add("drop-before");
+        } else {
+            rows[rows.length - 1].classList.add("drop-after");
+        }
+    });
+
+    listEl.addEventListener("dragleave", (e) => {
+        if (!listEl.contains(e.relatedTarget)) clearDropMarks();
+    });
+
+    listEl.addEventListener("drop", (e) => {
+        if (!dragState) return;
+        e.preventDefault();
+
+        const fromIndex = dragState.fromIndex;
+        const movedName = dragState.name;
+        const insertAt = pendingInsertAt;
+        dragState = null;
+        clearDropMarks();
+        suppressClickUntil = Date.now() + 150;
+
+        if (insertAt < 0 || insertAt === fromIndex || insertAt === fromIndex + 1) {
+            refresh({ force: true });
+            return;
+        }
+        movePresetOrder(node, fromIndex, insertAt, movedName);
+    });
+
+    function refresh({ force = false } = {}) {
+        const presets = getHubPresets(node);
+        const names = Object.keys(presets);
+        const activeName = node.properties?.active_preset || "None";
+
+        updateSelectionBadge();
+        titleEl.textContent = BadaI18n.t("hub_presets_header", { count: names.length });
+        hintEl.textContent = BadaI18n.t("hub_click_apply");
+        settingsBtn.textContent = BadaI18n.t("hub_settings_btn");
+        emptyEl.textContent = BadaI18n.t("hub_empty_hint");
+
+        const sig = [
+            BadaI18n.lang,
+            activeName,
+            names.map(nm => `${nm}:${presets[nm]?.targets?.length || 0}`).join("\u0001"),
+        ].join("\u0002");
+
+        if (!force && sig === lastSig) return;
+        lastSig = sig;
+        if (dragState) return; // never rebuild rows in the middle of a drag
+
+        listEl.replaceChildren();
+        if (names.length === 0) {
+            emptyEl.style.display = "";
+        } else {
+            emptyEl.style.display = "none";
+            names.forEach((nm, idx) => {
+                listEl.appendChild(makeRow(nm, presets[nm], idx, nm === activeName));
+            });
+        }
+        ensureActivePresetInView(node);
+    }
+
+    return { root, listEl, refresh, updateSelectionBadge };
+}
+/**
+ * Attach the hub DOM widget (official addDOMWidget API: renders on both Node 1.x and Node 2.0)
  */
 function setupHubNodeWidgets(node) {
     node.title = BadaI18n.t("hub_node_title");
@@ -408,509 +684,21 @@ function setupHubNodeWidgets(node) {
     if (!node.properties.active_preset) node.properties.active_preset = "None";
     if (!node.properties.hub_presets) node.properties.hub_presets = {};
     if (node._scrollOffset === undefined) node._scrollOffset = 0;
-    if (!node._dragState) node._dragState = null;
 
-    // Clear LiteGraph standard vertical stacked widgets in favor of sleek canvas buttons
-    node.widgets = [];
-
-    // Attach event hooks only once per node instance to prevent recursion
+    // Build the DOM panel and widget mount only once per node instance
     if (!node._hubHooksInitialized) {
         node._hubHooksInitialized = true;
 
-        // 3. Interactive Mouse Event Handlers for Direct On-Canvas Buttons, Switching & Reordering
-        const origOnMouseDown = node.onMouseDown;
-        node.onMouseDown = function (e, localPos, canvas) {
-            const res = origOnMouseDown ? origOnMouseDown.apply(this, arguments) : false;
-            if (res) return res;
-
-            const localX = localPos ? localPos[0] : (e && e.canvasX !== undefined ? e.canvasX - this.pos[0] : 0);
-            const localY = localPos ? localPos[1] : (e && e.canvasY !== undefined ? e.canvasY - this.pos[1] : 0);
-
-            // 1. Top Row Action Buttons: [🎯 캔버스 선택 감지: N개 노드 (저장 가능)] + [⚙️ 설정]
-            const btnY = 6;
-            const btnH = TOP_BTN_HEIGHT;
-            if (localY >= btnY && localY <= btnY + btnH && localX >= 10 && localX <= this.size[0] - 10) {
-                const settingBtnW = 74;
-                const settingBtnX = this.size[0] - 10 - settingBtnW;
-                const saveBtnW = settingBtnX - 6 - 10;
-
-                // Clicked [⚙️ 설정] Button -> Opens Hub Modal Manager
-                if (localX >= settingBtnX && localX <= settingBtnX + settingBtnW) {
-                    showHubManageModal(this);
-                    app.graph?.setDirtyCanvas(true, true);
-                    return true;
-                }
-
-                // Clicked [🎯 캔버스 선택 감지 / 저장] Button
-                if (localX >= 10 && localX <= 10 + saveBtnW) {
-                    const selectedNodes = getCurrentlySelectedNodes(this);
-                    if (selectedNodes.length === 0) {
-                        showToast(BadaI18n.t("modal_hub_no_selection"), "warning");
-                        return true;
-                    }
-
-                    const presets = getHubPresets(this);
-                    const defaultName = `${BadaI18n.lang === "ko" ? "유니버셜 세팅" : "Universal Preset"} #${Object.keys(presets).length + 1}`;
-                    showHubManageModal(this, { focusSave: true, defaultName: defaultName });
-                    app.graph?.setDirtyCanvas(true, true);
-                    return true;
-                }
-            }
-
-            // 2. Preset List Row Clicking / Dragging
-            const presets = getHubPresets(this);
-            const presetNames = Object.keys(presets);
-            const count = presetNames.length;
-            if (count === 0) return false;
-
-            const listTopY = TOP_CONTROLS_HEIGHT;
-            const listBottomY = this.size[1] - BOTTOM_PADDING;
-
-            if (localY >= listTopY + HEADER_HEIGHT && localY <= listBottomY && localX >= 10 && localX <= this.size[0] - 10) {
-                const scroll = this._scrollOffset || 0;
-                const contentY = localY - (listTopY + HEADER_HEIGHT) + scroll;
-                const rowIndex = Math.floor(contentY / (ROW_HEIGHT + ROW_GAP));
-                const offsetInRow = contentY % (ROW_HEIGHT + ROW_GAP);
-
-                if (rowIndex >= 0 && rowIndex < count && offsetInRow <= ROW_HEIGHT) {
-                    const targetName = presetNames[rowIndex];
-
-                    // Check if user clicked on drag handle ⠿ (X: 10 ~ 38px)
-                    if (localX <= 38) {
-                        this._dragState = {
-                            active: true,
-                            fromIndex: rowIndex,
-                            targetIndex: rowIndex,
-                            name: targetName,
-                            startY: localY,
-                            currentY: localY,
-                        };
-                        if (app.canvas?.canvas) app.canvas.canvas.style.cursor = "grabbing";
-                        app.graph?.setDirtyCanvas(true, true);
-                        return true;
-                    }
-
-                    // Clicked on the row or Radio Toggle Switch: Activate and sync across ALL hub nodes!
-                    applyMasterPresetToWorkflow(presets[targetName], this);
-                    broadcastHubPresets(presets, targetName);
-                    ensureActivePresetInView(this);
-                    app.graph?.setDirtyCanvas(true, true);
-                    return true;
-                }
-            }
-
-            return false;
-        };
-
-        const origOnMouseMove = node.onMouseMove;
-        node.onMouseMove = function (e, localPos, canvas) {
-            origOnMouseMove?.apply(this, arguments);
-
-            const presets = getHubPresets(this);
-            const presetNames = Object.keys(presets);
-            const count = presetNames.length;
-            const localX = localPos ? localPos[0] : (e && e.canvasX !== undefined ? e.canvasX - this.pos[0] : 0);
-            const localY = localPos ? localPos[1] : (e && e.canvasY !== undefined ? e.canvasY - this.pos[1] : 0);
-            const listTopY = TOP_CONTROLS_HEIGHT;
-            const listBottomY = this.size[1] - BOTTOM_PADDING;
-
-            // Handle Active Drag Reordering
-            if (this._dragState?.active) {
-                this._dragState.currentY = localY;
-                const scroll = this._scrollOffset || 0;
-                const contentY = Math.max(0, localY - (listTopY + HEADER_HEIGHT) + scroll);
-                const rawTargetIndex = Math.floor(contentY / (ROW_HEIGHT + ROW_GAP));
-                this._dragState.targetIndex = Math.max(0, Math.min(count - 1, rawTargetIndex));
-                app.graph?.setDirtyCanvas(true, true);
-                return;
-            }
-
-            // Top Row Buttons Hover Cursor
-            const btnY = 6;
-            const btnH = TOP_BTN_HEIGHT;
-            if (localY >= btnY && localY <= btnY + btnH && localX >= 10 && localX <= this.size[0] - 10) {
-                if (app.canvas?.canvas) app.canvas.canvas.style.cursor = "pointer";
-                return;
-            }
-
-            // Preset List Hover Cursor
-            if (localY >= listTopY + HEADER_HEIGHT && localY <= listBottomY && localX >= 10 && localX <= this.size[0] - 10) {
-                if (localX <= 38) {
-                    if (app.canvas?.canvas) app.canvas.canvas.style.cursor = "grab";
-                } else {
-                    if (app.canvas?.canvas) app.canvas.canvas.style.cursor = "pointer";
-                }
-            }
-        };
-
-        const origOnMouseUp = node.onMouseUp;
-        node.onMouseUp = function (e, localPos, canvas) {
-            origOnMouseUp?.apply(this, arguments);
-
-            if (this._dragState?.active) {
-                const fromIndex = this._dragState.fromIndex;
-                const toIndex = this._dragState.targetIndex;
-                const presetName = this._dragState.name;
-                this._dragState = null;
-
-                if (fromIndex !== undefined && toIndex !== undefined && fromIndex !== toIndex) {
-                    const presets = getHubPresets(this);
-                    const entries = Object.entries(presets);
-                    const [moved] = entries.splice(fromIndex, 1);
-                    entries.splice(toIndex, 0, moved);
-
-                    const newStore = {};
-                    for (const [k, v] of entries) {
-                        newStore[k] = v;
-                    }
-                    broadcastHubPresets(newStore);
-                    showToast(`↕️ [${presetName}] 프리셋 순서가 변경되었습니다.`, "gold");
-                }
-
-                if (app.canvas?.canvas) app.canvas.canvas.style.cursor = "default";
-                app.graph?.setDirtyCanvas(true, true);
-            }
-        };
-
-        // 4. Custom Canvas Rendering: Streamlined Top Row, Live Selection Bar & On-Canvas Radio Switcher
-        const origDrawForeground = node.onDrawForeground;
-        node.onDrawForeground = function (ctx) {
-            origDrawForeground?.apply(this, arguments);
-
-            const presets = getHubPresets(this);
-            const presetNames = Object.keys(presets);
-            const count = presetNames.length;
-            const activeName = this.properties?.active_preset || "None";
-
-            ctx.save();
-
-            // Auto-ensure active preset is always visible inside viewport
-            if (!this._dragState?.active) {
-                ensureActivePresetInView(this);
-            }
-
-            // 1. Top Row: [🎯 캔버스 선택 감지: N개 노드 (저장 가능)] + [⚙️ 설정]
-            const btnY = 6;
-            const btnH = TOP_BTN_HEIGHT;
-            const settingBtnW = 74;
-            const settingBtnX = this.size[0] - 10 - settingBtnW;
-            const saveBtnX = 10;
-            const saveBtnW = settingBtnX - 6 - saveBtnX;
-            const selectedNodes = getCurrentlySelectedNodes(this);
-            const selCount = selectedNodes.length;
-
-            // Left Action Button: Selection Watcher + Instant Save Trigger
-            ctx.save();
-            ctx.beginPath();
-            if (ctx.roundRect) ctx.roundRect(saveBtnX, btnY, saveBtnW, btnH, 5);
-            else ctx.rect(saveBtnX, btnY, saveBtnW, btnH);
-
-            if (selCount > 0) {
-                const saveGrad = ctx.createLinearGradient(saveBtnX, btnY, saveBtnX, btnY + btnH);
-                saveGrad.addColorStop(0, "#0e3a4e");
-                saveGrad.addColorStop(1, "#0a2533");
-                ctx.fillStyle = saveGrad;
-                ctx.fill();
-
-                ctx.strokeStyle = "rgba(56, 189, 248, 0.6)";
-                ctx.lineWidth = 1.2;
-                ctx.stroke();
-
-                ctx.fillStyle = "#38bdf8";
-                ctx.font = "bold 11.5px sans-serif";
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-                ctx.fillText(BadaI18n.t("hub_detected_nodes", { count: selCount }), saveBtnX + saveBtnW / 2, btnY + btnH / 2);
-            } else {
-                ctx.fillStyle = "rgba(30, 41, 59, 0.65)";
-                ctx.fill();
-
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
-                ctx.lineWidth = 1;
-                ctx.stroke();
-
-                ctx.fillStyle = "#94a3b8";
-                ctx.font = "11px sans-serif";
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-                ctx.fillText(BadaI18n.t("hub_select_nodes"), saveBtnX + saveBtnW / 2, btnY + btnH / 2);
-            }
-
-            // Right Action Button: [⚙️ 설정]
-            ctx.beginPath();
-            if (ctx.roundRect) ctx.roundRect(settingBtnX, btnY, settingBtnW, btnH, 5);
-            else ctx.rect(settingBtnX, btnY, settingBtnW, btnH);
-
-            const setGrad = ctx.createLinearGradient(settingBtnX, btnY, settingBtnX, btnY + btnH);
-            setGrad.addColorStop(0, "#334155");
-            setGrad.addColorStop(1, "#1e293b");
-            ctx.fillStyle = setGrad;
-            ctx.fill();
-
-            ctx.strokeStyle = "rgba(245, 158, 11, 0.55)";
-            ctx.lineWidth = 1;
-            ctx.stroke();
-
-            ctx.fillStyle = "#fbbf24";
-            ctx.font = "bold 11.5px sans-serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(BadaI18n.t("hub_settings_btn"), settingBtnX + settingBtnW / 2, btnY + btnH / 2);
-            ctx.restore();
-
-            // 2. Preset List Header Strip
-            const listTopY = TOP_CONTROLS_HEIGHT;
-            const listBottomY = this.size[1] - BOTTOM_PADDING;
-            const listViewHeight = Math.max(10, listBottomY - listTopY);
-            const fullContentHeight = HEADER_HEIGHT + count * (ROW_HEIGHT + ROW_GAP);
-            const maxScroll = Math.max(0, fullContentHeight - listViewHeight);
-            const scrollOffset = Math.max(0, Math.min(maxScroll, this._scrollOffset || 0));
-
-            ctx.fillStyle = "#f59e0b";
-            ctx.font = "bold 11px sans-serif";
-            ctx.textAlign = "left";
-            ctx.textBaseline = "middle";
-            ctx.fillText(BadaI18n.t("hub_presets_header", { count }), 12, listTopY + 12);
-
-            ctx.fillStyle = "#94a3b8";
-            ctx.font = "10px sans-serif";
-            ctx.textAlign = "right";
-            ctx.fillText(BadaI18n.t("hub_click_apply"), this.size[0] - 12, listTopY + 12);
-
-            // 4. Preset List Viewport with Strict Canvas Clipping
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(8, listTopY + HEADER_HEIGHT, this.size[0] - 16, Math.max(0, listViewHeight - HEADER_HEIGHT));
-            ctx.clip();
-
-            ctx.translate(0, -scrollOffset);
-
-            if (count === 0) {
-                // Empty State Notice
-                const emptyBoxY = listTopY + HEADER_HEIGHT + 6;
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-                ctx.lineWidth = 1;
-                ctx.setLineDash([4, 4]);
-                if (ctx.roundRect) {
-                    ctx.beginPath();
-                    ctx.roundRect(10, emptyBoxY, this.size[0] - 20, 36, 6);
-                    ctx.stroke();
-                } else {
-                    ctx.strokeRect(10, emptyBoxY, this.size[0] - 20, 36);
-                }
-                ctx.setLineDash([]);
-
-                ctx.fillStyle = "#94a3b8";
-                ctx.font = "11px sans-serif";
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-                ctx.fillText(BadaI18n.t("hub_empty_hint"), this.size[0] / 2, emptyBoxY + 18);
-            } else {
-                // Draw Preset Rows
-                presetNames.forEach((name, idx) => {
-                    const presetData = presets[name];
-                    const rowY = listTopY + HEADER_HEIGHT + idx * (ROW_HEIGHT + ROW_GAP);
-                    const rowW = this.size[0] - 20;
-                    const isActive = (name === activeName);
-                    const isDraggingThis = (this._dragState?.active && this._dragState.fromIndex === idx);
-
-                    ctx.save();
-                    if (isDraggingThis) {
-                        ctx.globalAlpha = 0.4;
-                    }
-
-                    // Row Background Container
-                    ctx.beginPath();
-                    if (ctx.roundRect) {
-                        ctx.roundRect(10, rowY, rowW, ROW_HEIGHT, 4);
-                    } else {
-                        ctx.rect(10, rowY, rowW, ROW_HEIGHT);
-                    }
-
-                    if (isActive) {
-                        const rowGrad = ctx.createLinearGradient(10, rowY, 10 + rowW, rowY + ROW_HEIGHT);
-                        rowGrad.addColorStop(0, "rgba(245, 158, 11, 0.2)");
-                        rowGrad.addColorStop(1, "rgba(217, 119, 6, 0.09)");
-                        ctx.fillStyle = rowGrad;
-                        ctx.fill();
-
-                        ctx.strokeStyle = "rgba(245, 158, 11, 0.85)";
-                        ctx.lineWidth = 1.3;
-                        ctx.stroke();
-                    } else {
-                        ctx.fillStyle = "rgba(30, 41, 59, 0.7)";
-                        ctx.fill();
-
-                        ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-                    }
-
-                    // ⠿ Drag Grip Icon
-                    ctx.fillStyle = isActive ? "#fcd34d" : "#64748b";
-                    ctx.font = "bold 11px sans-serif";
-                    ctx.textAlign = "center";
-                    ctx.textBaseline = "middle";
-                    ctx.fillText("⠿", 20, rowY + ROW_HEIGHT / 2);
-
-                    // 🟢 Radio Toggle Switch Capsule Dimensions
-                    const switchW = 46;
-                    const switchH = 16;
-                    const switchX = 10 + rowW - switchW - 5;
-                    const switchY = rowY + (ROW_HEIGHT - switchH) / 2;
-
-                    // 🏷️ Target Node Count Tag Measurement
-                    const nodeCount = presetData?.targets?.length || 0;
-                    const countTagText = BadaI18n.lang === "ko" ? `(${nodeCount}개)` : `(${nodeCount})`;
-                    ctx.font = "10.5px sans-serif";
-                    const countTagWidth = ctx.measureText(countTagText).width;
-
-                    // 🌟 Dynamic Preset Name Width Calculation (Adapts dynamically when user widens node)
-                    const titleStartX = 30;
-                    const tagGap = 6;
-                    const switchMargin = 8;
-                    const maxTitleWidth = Math.max(50, switchX - switchMargin - countTagWidth - tagGap - titleStartX);
-
-                    ctx.font = isActive ? "bold 12px sans-serif" : "12px sans-serif";
-                    let displayName = name;
-                    let titleText = `⚓ ${displayName}`;
-
-                    if (ctx.measureText(titleText).width > maxTitleWidth) {
-                        let truncated = displayName;
-                        while (truncated.length > 1 && ctx.measureText(`⚓ ${truncated}...`).width > maxTitleWidth) {
-                            truncated = truncated.slice(0, -1);
-                        }
-                        titleText = `⚓ ${truncated}...`;
-                    }
-
-                    // Draw Preset Name (Font size 12px fully preserved)
-                    ctx.fillStyle = isActive ? "#fef08a" : "#f8fafc";
-                    ctx.textAlign = "left";
-                    ctx.textBaseline = "middle";
-                    ctx.fillText(titleText, titleStartX, rowY + ROW_HEIGHT / 2);
-
-                    const finalTitleWidth = ctx.measureText(titleText).width;
-
-                    // Draw Target Node Count Tag
-                    ctx.font = "10.5px sans-serif";
-                    ctx.fillStyle = isActive ? "#fcd34d" : "#94a3b8";
-                    ctx.fillText(countTagText, titleStartX + finalTitleWidth + tagGap, rowY + ROW_HEIGHT / 2);
-
-                    // Draw Switch Capsule
-                    ctx.beginPath();
-                    if (ctx.roundRect) {
-                        ctx.roundRect(switchX, switchY, switchW, switchH, 8);
-                    } else {
-                        ctx.rect(switchX, switchY, switchW, switchH);
-                    }
-
-                    if (isActive) {
-                        // Vibrant Active Gradient (Emerald / Amber)
-                        const swGrad = ctx.createLinearGradient(switchX, switchY, switchX + switchW, switchY + switchH);
-                        swGrad.addColorStop(0, "#10b981");
-                        swGrad.addColorStop(1, "#059669");
-                        ctx.fillStyle = swGrad;
-                        ctx.fill();
-
-                        ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        // Active "ON" Text
-                        ctx.fillStyle = "#ffffff";
-                        ctx.font = "bold 8.5px sans-serif";
-                        ctx.textAlign = "left";
-                        ctx.fillText("ON", switchX + 7, switchY + switchH / 2 + 0.5);
-
-                        // Knob on Right
-                        ctx.beginPath();
-                        ctx.arc(switchX + switchW - 8, switchY + switchH / 2, 5.5, 0, Math.PI * 2);
-                        ctx.fillStyle = "#ffffff";
-                        ctx.fill();
-                    } else {
-                        // Inactive Switch
-                        ctx.fillStyle = "#1e293b";
-                        ctx.fill();
-
-                        ctx.strokeStyle = "rgba(255, 255, 255, 0.16)";
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-
-                        // Inactive "OFF" Text
-                        ctx.fillStyle = "#64748b";
-                        ctx.font = "bold 8.5px sans-serif";
-                        ctx.textAlign = "right";
-                        ctx.fillText("OFF", switchX + switchW - 6, switchY + switchH / 2 + 0.5);
-
-                        // Knob on Left
-                        ctx.beginPath();
-                        ctx.arc(switchX + 8, switchY + switchH / 2, 5.5, 0, Math.PI * 2);
-                        ctx.fillStyle = "#475569";
-                        ctx.fill();
-                    }
-
-                    ctx.restore();
-                });
-
-                // Draw Drag Insertion Indicator Line
-                if (this._dragState?.active && this._dragState.targetIndex !== undefined) {
-                    const targetY = listTopY + HEADER_HEIGHT + this._dragState.targetIndex * (ROW_HEIGHT + ROW_GAP);
-                    ctx.save();
-                    ctx.strokeStyle = "#f59e0b";
-                    ctx.lineWidth = 2.5;
-                    ctx.beginPath();
-                    ctx.moveTo(10, targetY - 2);
-                    ctx.lineTo(this.size[0] - 10, targetY - 2);
-                    ctx.stroke();
-
-                    ctx.fillStyle = "#f59e0b";
-                    ctx.beginPath();
-                    ctx.arc(10, targetY - 2, 4, 0, Math.PI * 2);
-                    ctx.arc(this.size[0] - 10, targetY - 2, 4, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.restore();
-                }
-            }
-
-            ctx.restore(); // Restore Clipping & Translation
-
-            // 5. Draw Sleek Modern Scrollbar (when content exceeds viewport)
-            if (maxScroll > 0) {
-                const scrollTrackX = this.size[0] - 10;
-                const scrollTrackY = listTopY + HEADER_HEIGHT + 2;
-                const scrollTrackH = Math.max(10, listViewHeight - HEADER_HEIGHT - 4);
-
-                ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
-                ctx.beginPath();
-                if (ctx.roundRect) {
-                    ctx.roundRect(scrollTrackX, scrollTrackY, 4, scrollTrackH, 2);
-                } else {
-                    ctx.rect(scrollTrackX, scrollTrackY, 4, scrollTrackH);
-                }
-                ctx.fill();
-
-                const thumbH = Math.max(18, (scrollTrackH / fullContentHeight) * scrollTrackH);
-                const thumbY = scrollTrackY + (scrollOffset / maxScroll) * (scrollTrackH - thumbH);
-
-                ctx.fillStyle = "rgba(245, 158, 11, 0.75)";
-                ctx.beginPath();
-                if (ctx.roundRect) {
-                    ctx.roundRect(scrollTrackX, thumbY, 4, thumbH, 2);
-                } else {
-                    ctx.rect(scrollTrackX, thumbY, 4, thumbH);
-                }
-                ctx.fill();
-            }
-
-            ctx.restore();
-        };
+        const ui = buildHubUI(node);
+        node._hubUI = ui;
+
+        node.addDOMWidget("bada_hub_ui", "custom", ui.root, {
+            serialize: false,
+            hideOnZoom: false,
+        });
     }
 
-    updateHubPresetButton(node);
-}
-
-function updateHubPresetButton(node) {
-    // Top action buttons and status indicators are rendered directly on-canvas
+    node._hubUI?.refresh({ force: true });
 }
 
 /**
@@ -918,7 +706,7 @@ function updateHubPresetButton(node) {
  */
 export function saveMasterPresetFromSelection(hubNode, presetName) {
     if (!hubNode && app.graph?._nodes) {
-        hubNode = app.graph._nodes.find(n => n.type === "BadaPresetHub" || n.comfyClass === "BadaPresetHub");
+        hubNode = app.graph._nodes.find(isHubNode);
     }
     if (!hubNode) return;
 
@@ -988,7 +776,7 @@ export function applyMasterPresetToWorkflow(presetData, hubNode = null) {
     for (const target of targets) {
         if (target._matched) continue;
         if (target.title && target.nodeType) {
-            const matchedByTitle = graph._nodes.find(n => 
+            const matchedByTitle = graph._nodes.find(n =>
                 !usedNodeIds.has(n.id) &&
                 (n.comfyClass || n.type) === target.nodeType &&
                 (n.title || n.type) === target.title
@@ -1006,8 +794,8 @@ export function applyMasterPresetToWorkflow(presetData, hubNode = null) {
     for (const target of targets) {
         if (target._matched) continue;
         if (target.nodeType) {
-            const availableNodes = graph._nodes.filter(n => 
-                !usedNodeIds.has(n.id) && 
+            const availableNodes = graph._nodes.filter(n =>
+                !usedNodeIds.has(n.id) &&
                 (n.comfyClass || n.type) === target.nodeType
             );
 
@@ -1027,7 +815,7 @@ export function applyMasterPresetToWorkflow(presetData, hubNode = null) {
     // Synchronize active preset across ALL hub nodes on canvas
     if (graph._nodes) {
         for (const n of graph._nodes) {
-            if (n.comfyClass === "BadaPresetHub" || n.type === "BadaPresetHub") {
+            if (isHubNode(n)) {
                 if (!n.properties) n.properties = {};
                 n.properties.active_preset = presetData.name;
             }
@@ -1036,22 +824,21 @@ export function applyMasterPresetToWorkflow(presetData, hubNode = null) {
 
     updateAllHubNodes();
     graph.setDirtyCanvas(true, true);
-    showToast(BadaI18n.lang === "ko" 
-        ? `✨ [${presetData.name}] 유니버셜 프리셋 일괄 적용 완료 (총 ${appliedCount}개 노드 동기화)` 
+    showToast(BadaI18n.lang === "ko"
+        ? `✨ [${presetData.name}] 유니버셜 프리셋 일괄 적용 완료 (총 ${appliedCount}개 노드 동기화)`
         : `✨ Applied [${presetData.name}] preset (${appliedCount} nodes synchronized)`, "gold");
 }
 
 /**
- * Update all Hub nodes on canvas (Recomputes size, updates buttons, refreshes switcher)
+ * Update all Hub nodes on canvas (Recomputes size and refreshes DOM panels)
  */
 export function updateAllHubNodes() {
     if (!app.graph?._nodes) return;
 
     for (const node of app.graph._nodes) {
-        if (node.comfyClass === "BadaPresetHub" || node.type === "BadaPresetHub") {
-            computeHubNodeSize(node);
-            updateHubPresetButton(node);
-        }
+        if (!isHubNode(node)) continue;
+        computeHubNodeSize(node);
+        node._hubUI?.refresh();
     }
     app.graph.setDirtyCanvas(true, true);
 }

@@ -702,6 +702,10 @@ function attachBadaNoteHelper(node) {
         // Hide Completely if Node is Collapsed by native ComfyUI (No Floating Icons)
         if (n.flags && n.flags.collapsed) return;
 
+        // Nodes 2.0 (Vue) renders nodes as DOM; a real header button is injected there.
+        // Skip canvas painting so the globe is never drawn twice.
+        if (n._badaDomButtonActive) return;
+
         const state = n.badaNoteState;
         if (!state) return;
 
@@ -1017,6 +1021,14 @@ function attachBadaNoteHelper(node) {
             return origOnMouseLeave.apply(this, arguments);
         }
     };
+
+    // --- Nodes 2.0 (Vue) DOM header button -----------------------------------
+    // Expose hit geometry so the injected DOM button can reuse node.onMouseDown.
+    node.__badaGetButtonBounds = getButtonBounds;
+    BadaDomNodes.add(node);
+    ensureBadaDomObserver();
+    startBadaDomSyncTimer();
+    attachBadaDomHeaderButton(node);
 }
 
 function scheduleAttachBadaNoteHelper(node) {
@@ -1042,6 +1054,161 @@ function watchGraphNodeAdditions(graph) {
     };
     graph._badaNoteHelperNodeAddedHook = true;
 }
+
+// ============================================================================
+// Nodes 2.0 (Vue) DOM header button support
+// ---------------------------------------------------------------------------
+// The canvas-drawn globe (drawHeaderButtons + onMouseDown hit-testing) only
+// renders while nodes are painted on the LiteGraph canvas. In Nodes 2.0 the
+// Vue front-end draws nodes as real DOM and onDrawForeground never runs, so
+// the button silently disappears. We inject a real DOM button into each node
+// title bar and reuse the EXACT translation logic by invoking the installed
+// node.onMouseDown with a point that lands on the translate button. No
+// translation code is duplicated, so both modes stay in lockstep.
+// ============================================================================
+const BADA_DOM_BTN_CLASS = "bada-translate-dom-btn";
+const BADA_DOM_STYLE_ID = "bada-note-helper-dom-style";
+const BadaDomNodes = new Set();
+let BadaDomObserver = null;
+let BadaDomRafPending = false;
+let BadaDomSyncTimer = null;
+
+function findBadaDomButton(node) {
+    if (node.id === undefined || node.id === null) return null;
+    return document.querySelector("." + BADA_DOM_BTN_CLASS + "[data-bada-for=\"" + node.id + "\"]");
+}
+
+function ensureBadaDomStyles() {
+    if (document.getElementById(BADA_DOM_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = BADA_DOM_STYLE_ID;
+    style.textContent = [
+        "." + BADA_DOM_BTN_CLASS + "{",
+        "  display:inline-flex; align-items:center; justify-content:center;",
+        "  min-width:22px; height:18px; padding:0 5px; margin-left:2px;",
+        "  border-radius:5px; border:1px solid rgba(255,255,255,0.35);",
+        "  background:rgba(30,41,59,0.92); color:#fff; cursor:pointer;",
+        "  font:bold 12px 'Segoe UI Emoji','Apple Color Emoji',sans-serif;",
+        "  line-height:1; flex:0 0 auto; user-select:none;",
+        "}",
+        "." + BADA_DOM_BTN_CLASS + ":hover{ border-color:#bfdbfe; }",
+        "." + BADA_DOM_BTN_CLASS + ".bada-dom-on{ background:rgba(37,99,235,0.95); border-color:#bfdbfe; }"
+    ].join("");
+    document.head.appendChild(style);
+}
+
+function findBadaNodeElement(node) {
+    if (node.id === undefined || node.id === null) return null;
+    return document.querySelector(".lg-node[data-node-id=\"" + node.id + "\"]");
+}
+
+function getBadaDomButtonLabel(node) {
+    const state = node.badaNoteState;
+    if (!state) return { icon: "\ud83c\udf10", on: false };
+    if (state.isTranslating) return { icon: "\u23f3", on: false };
+    const aw = getActiveWidgetState(node);
+    const translated = aw ? (aw.translated || state.translatedText) : state.translatedText;
+    const viewTranslated = aw ? aw.viewMode === "translated" : state.viewMode === "translated";
+    if (translated && viewTranslated) return { icon: "\u2705", on: true };
+    return { icon: "\ud83c\udf10", on: false };
+}
+
+function syncBadaDomButton(node) {
+    const btn = findBadaDomButton(node);
+    if (!btn) return;
+    const info = getBadaDomButtonLabel(node);
+    if (btn.textContent !== info.icon) btn.textContent = info.icon;
+    btn.classList.toggle("bada-dom-on", !!info.on);
+    const collapsed = (node.flags && node.flags.collapsed) || node.collapsed;
+    btn.style.display = collapsed ? "none" : "";
+}
+
+function removeBadaDomButton(node) {
+    const btn = findBadaDomButton(node);
+    if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+    node._badaDomButtonActive = false;
+}
+
+function attachBadaDomHeaderButton(node) {
+    if (!isNoteHelperEnabled()) { removeBadaDomButton(node); return; }
+    const collapsed = (node.flags && node.flags.collapsed) || node.collapsed;
+    if (collapsed || !node.badaNoteState) { removeBadaDomButton(node); return; }
+
+    const el = findBadaNodeElement(node);
+    if (!el) {
+        // Canvas mode (LiteGraph 1.X): no DOM host. Keep the canvas-drawn globe.
+        node._badaDomButtonActive = false;
+        return;
+    }
+
+    const row = el.querySelector(".lg-node-header > div") || el.querySelector(".lg-node-header");
+    if (!row) { node._badaDomButtonActive = false; return; }
+
+    let btn = findBadaDomButton(node);
+    if (btn && btn.parentNode !== row) { if (btn.parentNode) btn.parentNode.removeChild(btn); btn = null; }
+    if (!btn) {
+        ensureBadaDomStyles();
+        btn = document.createElement("button");
+        btn.className = BADA_DOM_BTN_CLASS;
+        btn.type = "button";
+        btn.setAttribute("data-bada-for", String(node.id));
+        btn.title = getBadaLanguage() === "ko"
+            ? "\ud074\ub9ad: \ubc88\uc5ed/\uc6d0\ubb38 \ud1a0\uae08 (Shift+\ud074\ub9ad: \uac15\uc81c \uc7ac\ubc88\uc5ed)"
+            : "Click: Toggle Translation/Original (Shift+Click: Force Re-translate)";
+        btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); });
+        btn.addEventListener("mousedown", (e) => { e.stopPropagation(); });
+        btn.addEventListener("click", (e) => {
+            e.preventDefault(); e.stopPropagation();
+            const bounds = node.__badaGetButtonBounds ? node.__badaGetButtonBounds(node) : null;
+            const bb = bounds ? bounds.find(b => b.id === "translate") : null;
+            if (!bb) return;
+            const fakeEvt = {
+                type: "click", button: 0, buttons: 1, shiftKey: !!e.shiftKey,
+                clientX: e.clientX, clientY: e.clientY,
+                preventDefault() {}, stopPropagation() {}
+            };
+            try {
+                node.onMouseDown(fakeEvt, [bb.x + bb.w / 2, bb.yHit1 + bb.h / 2], app.canvas);
+                setTimeout(() => syncBadaDomButton(node), 0);
+            } catch (err) {
+                console.warn("[BadaUtils.NoteHelper] DOM translate click failed:", err);
+            }
+        });
+        row.appendChild(btn);
+    }
+    node._badaDomButtonActive = true;
+    syncBadaDomButton(node);
+    ensureBadaDomObserver();
+    startBadaDomSyncTimer();
+}
+
+function ensureBadaDomObserver() {
+    if (BadaDomObserver) return;
+    const target = document.getElementById("graph-canvas-container") || document.body;
+    BadaDomObserver = new MutationObserver(() => {
+        if (BadaDomRafPending) return;
+        BadaDomRafPending = true;
+        const raf = window.requestAnimationFrame || (cb => setTimeout(cb, 0));
+        raf(() => { BadaDomRafPending = false; refreshAllBadaDomButtons(); });
+    });
+    BadaDomObserver.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "data-node-id"] });
+}
+
+function startBadaDomSyncTimer() {
+    if (BadaDomSyncTimer) return;
+    BadaDomSyncTimer = setInterval(() => { if (BadaDomNodes.size) refreshAllBadaDomButtons(); }, 1200);
+}
+
+function refreshAllBadaDomButtons() {
+    const nodes = app.graph && app.graph._nodes;
+    for (const node of Array.from(BadaDomNodes)) {
+        const gone = !nodes || !nodes.includes(node);
+        if (gone) { removeBadaDomButton(node); BadaDomNodes.delete(node); continue; }
+        if (!isNoteHelperEnabled() || (node.flags && node.flags.collapsed) || !node.badaNoteState) { removeBadaDomButton(node); continue; }
+        attachBadaDomHeaderButton(node);
+    }
+}
+
 
 // Register Extension with Multi-Hook Scanning
 app.registerExtension({
