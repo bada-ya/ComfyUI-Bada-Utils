@@ -53,6 +53,10 @@ const fmtTime = (ts) => {
         return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
     } catch (_) { return null; }
 };
+// Bada PRO 전용 동기화 대상 — 서버 PRO_ONLY_PERSONAL_DATA(gdrive_sync.py) 와 짝을 이룬다.
+const PRO_ONLY_FILES = new Set(["gemini_chat_history.json"]);
+const isProOnlyFile = (name) => PRO_ONLY_FILES.has(name);
+
 const FILE_LABELS = {
     "presets_data.json": { ko: "⚓ 프리셋 (Regional Prompt)", en: "⚓ Presets (Regional Prompt)" },
     "favorites_data.json": { ko: "⭐ 즐겨찾기", en: "⭐ Favorites" },
@@ -621,15 +625,7 @@ function paintCustomSection(body, isKo) {
     header.appendChild(rightCtl);
     sec.appendChild(header);
 
-    // Bada PRO 미발급 + 등록 대상 존재 — 동기화 중단 안내 (목록은 표시만, 파일 동기화는 안 됨).
-    if (!customProActive && customFolders.length) {
-        const notice = document.createElement("div");
-        notice.style.cssText = "margin-top:8px; padding:6px 10px; border-radius:6px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); font-size:11px; color:#fbbf24;";
-        notice.textContent = isKo
-            ? "⚠️ Bada PRO 미발급 — 커스텀 동기화 일시 중단 (목록은 표시만 되고 파일 동기화는 안 됨)"
-            : "⚠️ Bada PRO not activated — custom sync paused (list shown, files are NOT synced)";
-        sec.appendChild(notice);
-    }
+    // 미발급 안내는 PRO 그룹 헤더 아래 통합 공지(paintProSectionHeader) 가 담당한다 — 중복 제거.
 
     // 인라인 추가 폼 — [경로 입력][확인][✕] + 빨간 검증 에러 (팝업 없음). 미발급이면 폼 자체가 열리지 않음.
     if (customAddOpen && customProActive) {
@@ -924,6 +920,46 @@ function paintCustomSection(body, isKo) {
     body.appendChild(sec);
 }
 
+// ── PRO 그룹 헤더 — 제미나이 채팅 기록 + 커스텀 동기화 대상을 하나의 PRO 섹션으로 묶는다.
+// 미발급이면 잠금 사유와 발급 안내를 바로 아래에 표시한다 (행 잠금은 각 행에서 처리).
+function paintProSectionHeader(body, isKo) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:14px 0 6px; padding-top:10px; border-top:1px solid rgba(245,158,11,0.3);";
+    const badge = document.createElement("span");
+    badge.textContent = "⭐ PRO";
+    badge.style.cssText = "background:rgba(245,158,11,0.16); border:1px solid rgba(245,158,11,0.5); color:#fcd34d; border-radius:6px; padding:1px 8px; font-size:11px; font-weight:800; letter-spacing:0.4px;";
+    const title = document.createElement("span");
+    title.textContent = isKo ? "PRO 전용 동기화" : "PRO-only sync";
+    title.style.cssText = "font-size:13px; font-weight:700; color:#e2e8f0;";
+    const state = document.createElement("span");
+    state.textContent = customProActive ? (isKo ? "· 활성화됨" : "· active") : (isKo ? "· 미발급" : "· not activated");
+    state.style.cssText = "font-size:11px; color:" + (customProActive ? "#34d399" : "#fbbf24") + ";";
+    wrap.appendChild(badge);
+    wrap.appendChild(title);
+    wrap.appendChild(state);
+    body.appendChild(wrap);
+
+    if (customProActive) return;
+
+    const notice = document.createElement("div");
+    notice.style.cssText = "display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 8px; padding:6px 10px; border-radius:6px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); font-size:11px; color:#fbbf24;";
+    const txt = document.createElement("span");
+    txt.textContent = isKo
+        ? "⚠️ Bada PRO 미발급 — 제미나이 채팅 기록과 커스텀 동기화 대상은 동기화되지 않고 이 기기에만 보관됩니다 (Drive·로컬 데이터 삭제 없음)"
+        : "⚠️ Bada PRO not activated — Gemini chat history and custom sync targets stay on this device and are NOT synced (nothing on Drive or your PC is deleted)";
+    const guide = document.createElement("button");
+    guide.type = "button";
+    guide.textContent = isKo ? "🚀 발급 가이드" : "🚀 Activation guide";
+    guide.style.cssText = "flex-shrink:0; background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.5); color:#fde68a; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
+    guide.addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.open("/api/bada/cloud/pro/guide?lang=" + (isKo ? "ko" : "en"), "_blank", "noopener");
+    });
+    notice.appendChild(txt);
+    notice.appendChild(guide);
+    body.appendChild(notice);
+}
+
 function paintDetailFiles() {
     if (!detailModalEl) return;
     const isKo = (BadaI18n.lang === "ko");
@@ -957,10 +993,22 @@ function paintDetailFiles() {
     body.textContent = "";
     // 내부 관리용 레지스트리는 상세 목록에 노출하지 않는다 (동기화는 유지).
     const visibleFiles = detailFilesSnapshot.filter(f => f && f.name !== "custom_targets.json");
-    for (const f of visibleFiles) {
+    // PRO 전용 항목은 목록 맨 뒤(PRO 그룹 헤더 아래)로 모은다 — 아래 커스텀 섹션과 한 덩어리.
+    const proOnly = visibleFiles.filter(f => isProOnlyFile(f.name));
+    const orderedFiles = proOnly.length
+        ? [...visibleFiles.filter(f => !isProOnlyFile(f.name)), ...proOnly]
+        : visibleFiles;
+    let proHeaderPainted = false;
+    for (const f of orderedFiles) {
+        // 잠금 = PRO 전용 항목 ∧ 미발급 (서버 pro_locked 는 참고용, 이 상태가 우선 — 즉시 반영).
+        const proLocked = isProOnlyFile(f.name) && !customProActive;
+        if (isProOnlyFile(f.name) && !proHeaderPainted) {
+            paintProSectionHeader(body, isKo);
+            proHeaderPainted = true;
+        }
         const lbl = FILE_LABELS[f.name] || { ko: f.name, en: f.name };
         const label = isKo ? lbl.ko : lbl.en;
-        const mark = f.exists ? "✅" : "➖";
+        const mark = proLocked ? "🔒" : (f.exists ? "✅" : "➖");
         const sz = fmtSize(f.size);
         const localCnt = (typeof f.count === "number") ? f.count : null;
         const rt = remoteTargetByName(f.name);
@@ -968,7 +1016,9 @@ function paintDetailFiles() {
         // config: 원격 내용 개수 API 불가 → "원격 있음/없음"만.
         // workflows: 원격 파일 수 확정 → "로컬 N개 · 원격 M개".
         let rightParts = [];
-        if (!f.exists) {
+        if (proLocked) {
+            rightParts = [isKo ? "PRO 전용 · 이 기기에만 보관" : "PRO-only · kept on this device"];
+        } else if (!f.exists) {
             rightParts = [isKo ? "없음" : "absent"];
         } else if (f.name === "workflows") {
             const lc = (localCnt !== null) ? `${localCnt}${isKo ? "개" : ""}` : "";
@@ -1061,11 +1111,13 @@ function paintDetailFiles() {
             const l2 = document.createElement("div");
             l2.style.cssText = "display:flex; align-items:center; gap:8px;";
             const p2 = document.createElement("span");
-            p2.textContent = `☁️ Drive: ${rn || (isKo ? "원격 확인 중…" : "checking remote…")}`;
+            p2.textContent = proLocked
+                ? (isKo ? "☁️ Drive: PRO 발급 후 동기화 재개 (Drive 기존 사본은 그대로 유지)" : "☁️ Drive: resumes after PRO activation (existing Drive copy kept)")
+                : `☁️ Drive: ${rn || (isKo ? "원격 확인 중…" : "checking remote…")}`;
             p2.title = rn;
             l2.appendChild(p2);
             // "Drive 열기" 버튼 — 서버 화이트리스트 검증 후 해당 **동기화 폴더**(Presets/SystemPrompts 등)를 새 탭으로 오픈.
-            if (rn) {
+            if (rn && !proLocked) {
                 const driveBtn = document.createElement("button");
                 driveBtn.type = "button";
                 driveBtn.style.cssText = "flex-shrink:0; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#bae6fd; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
@@ -1080,7 +1132,9 @@ function paintDetailFiles() {
         }
         body.appendChild(wrap);
     }
-    // 커스텀 폴더 섹션 — 내장 5개 섹션 아래에 추가 (동일 스타일 재사용).
+    // PRO 항목이 없는 환경에서는 커스텀 섹션 직전에 헤더를 그린다 (커스텀도 PRO 그룹 소속).
+    if (!proHeaderPainted) paintProSectionHeader(body, isKo);
+    // 커스텀 폴더 섹션 — PRO 그룹 헤더 아래에 이어서 표시 (동일 스타일 재사용).
     paintCustomSection(body, isKo);
     // 미니 트리 스크롤 복원 — paintCustomSection 이 박스를 재생성한 뒤 저장값으로 되돌린다.
     if (browseScrollTop > 0) {

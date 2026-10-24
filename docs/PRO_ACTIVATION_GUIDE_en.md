@@ -13,6 +13,7 @@
 | Credentials | Shared client embedded in the node | OAuth client **issued by you** |
 | Setup steps | None — works immediately after install | Drag & drop one JSON file + Google login once |
 | Capacity (quota) | Developer shared pool (consumed jointly by all users) | **Your project's Drive API limit** |
+| Gemini chat history & custom-target sync | Excluded — kept on this device only | **Synced automatically** — continue on other PCs |
 | Cost | Free (no subscription or payment) | **Free** (uses your own Google account, no extra billing) |
 | Restart required | None | None — PRO badge appears immediately upon activation |
 

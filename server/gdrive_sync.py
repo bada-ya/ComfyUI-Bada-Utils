@@ -1362,6 +1362,27 @@ def _custom_pro_gate_open() -> bool:
         return False
 
 
+# Bada PRO 전용 개인 데이터 — 미발급이면 이 목록에 있는 파일만 동기화(업/다운)를 동결한다.
+# presets/favorites/engines_registry 등 나머지는 BASIC 으로 계속 동기화된다.
+PRO_ONLY_PERSONAL_DATA = {"gemini_chat_history.json"}
+
+
+def _personal_data_pro_gate_open(name: str) -> bool:
+    """개인 데이터 1건의 동기화 허용 여부 — PRO 전용 목록에 없으면 항상 허용.
+
+    PRO 전용(gemini_chat_history.json) 은 Bada PRO 발급 시에만 동기화한다. 미발급이면
+    False 를 반환해 업로드·다운로드·tombstone 사이드카·merge state 갱신을 모두 건너뛴다
+    (Drive 기존 사본과 로컬 파일을 그대로 유지 — 절대 삭제하지 않는다).
+    게이트 판정 실패는 `_custom_pro_gate_open` 과 동일하게 안전측(닫힘) 으로 처리한다.
+    """
+    if name not in PRO_ONLY_PERSONAL_DATA:
+        return True
+    if _custom_pro_gate_open():
+        return True
+    logger.debug(f"[GDrive] Bada PRO 미발급 — {name} 동기화 보류 (로컬에만 보관)")
+    return False
+
+
 def _custom_sync_state():
     """(마스터 ON/OFF, 등록 대상 목록) — 엔진 연동용 (매니페스트·원격 열거·워커 공용).
 
@@ -1580,10 +1601,15 @@ def _merge_one_personal_data(service, root_id, folder_id, spec, now_ms, state, r
     remote_files 를 넘기면 전체 동기화가 이미 조회한 목록에서 원격 메타/사이드카를
     찾아 추가 API 조회를 생략한다. 미제공(핀포인트 경로)이면 파일명을 직접 조회한다.
     반환: (uploaded, local_updated)
+
+    Bada PRO 게이트: PRO 전용 데이터 + 미발급이면 원격 조회조차 하지 않고 (0, 0) 으로
+    동결한다 — 업/다운·사이드카·merge state 갱신이 모두 발생하기 전 지점이다.
     """
     from .atomic_json import read_json_fallback, write_json_atomic
     bmerge = _get_bmerge()
     name = spec["name"]
+    if not _personal_data_pro_gate_open(name):
+        return (0, 0)
     rel = spec["rel"]
     kind = spec["kind"]
     data_full = _resolve_local_path(rel)
@@ -1694,6 +1720,8 @@ def _sync_and_merge_personal_data(service, root_id, subfolder_ids, remote_files)
     now_ms = time.time() * 1000.0
     state = _load_merge_state()
     for spec in PERSONAL_DATA_MERGE_SPECS:
+        if not _personal_data_pro_gate_open(spec["name"]):
+            continue  # PRO 전용 + 미발급 → 원격 폴더 생성조차 하지 않는다.
         folder_id = subfolder_ids.get(spec["folder"])
         if not folder_id:
             folder_id = _get_or_create_remote_folder(service, spec["folder"], parent_id=root_id)
@@ -2716,6 +2744,20 @@ def _count_config_items(filename, full_path):
         return None
 
 
+def _apply_pro_lock_flags(details) -> None:
+    """개인 데이터 항목에 pro_locked 플래그 부여 — UI 가 행 잠금/원격 조회 생략에 사용한다.
+
+    표시 전용 정보다. 실제 차단은 동기화 경로(`_merge_one_personal_data`) 에서 일어나며,
+    캐시(TTL 10초) 에 잠금 상태가 함께 들어가도 UI 는 PRO 상태 API 를 우선해 즉시 반영한다.
+    """
+    try:
+        locked = {n for n in PRO_ONLY_PERSONAL_DATA if not _personal_data_pro_gate_open(n)}
+    except Exception:  # noqa: BLE001 — 판정 실패 = 안전측(잠김).
+        locked = set(PRO_ONLY_PERSONAL_DATA)
+    for entry in details:
+        entry["pro_locked"] = entry.get("name") in locked
+
+
 def _build_sync_file_details() -> list:
     """실제 스캔 — get_sync_file_details()의 캐시 미스 경로에서만 호출된다."""
     details = []
@@ -2762,6 +2804,7 @@ def _build_sync_file_details() -> list:
         "size": wf_bytes,
         "count": wf_count,
     })
+    _apply_pro_lock_flags(details)
     _apply_path_prefill(details)
     return details
 
@@ -2907,10 +2950,12 @@ def get_remote_counts_snapshot(target: str = None):
             except Exception:
                 local_path = ""
             local_count = _count_config_items(target, local_path) if (local_path and os.path.exists(local_path)) else None
+            # PRO 전용 + 미발급 → 원격 조회(Drive API) 를 생략하고 잠금 상태로만 응답한다.
+            pro_locked = target in PRO_ONLY_PERSONAL_DATA and not _personal_data_pro_gate_open(target)
 
             remote_exists = False
             remote_count = None
-            if subfolder_id:
+            if subfolder_id and not pro_locked:
                 escaped = target.replace("\\", "\\\\").replace("'", "\\'")
                 res = service.files().list(
                     q=f"name = '{escaped}' and '{subfolder_id}' in parents and trashed = false",
@@ -2936,6 +2981,7 @@ def get_remote_counts_snapshot(target: str = None):
                 "remote_count": remote_count,
                 "remote_exists": remote_exists,
                 "kind": "config",
+                "pro_locked": pro_locked,
             }
             _apply_path_prefill([t])
             return {"success": True, "targets": [t]}
