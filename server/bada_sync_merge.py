@@ -15,7 +15,7 @@ gdrive_sync.py 의 _sync_and_merge_personal_data() 가 담당한다.
 tombstone 사이드카는 앱 백엔드가 저장을 다시 직렬화할 때 예약 키를 지워버리므로
 데이터 파일 "안"이 아니라 별도 파일로 관리해야 한다(설계 확정 사항).
 
-tombstone 보관 상한 = 항목수(cap 기본 100). 시간 기반 만료는 하지 않고,
+tombstone 보관 상한 = 항목수(cap 기본 500). 시간 기반 만료는 하지 않고,
 가장 최근 삭제된 cap 개만 유지한다.
 """
 
@@ -23,8 +23,12 @@ from __future__ import annotations
 
 import copy
 
-# tombstone 보관 상한 (항목수). newest cap 개만 유지하고 초과분은 버린다.
-TOMBSTONE_CAP = 100
+# tombstone 보관 상한 (항목수). 가장 최근 삭제된 cap 개만 유지하고 나머지는 버린다.
+#   * 100 → 500 상향: 대화가 200개(📌 고정 100개 별도)로 늘면서 삭제 의도도 그만큼
+#     오래 기억해야 한다. tombstone 이 먼저 증발하면 오래 오프라인이던 PC를 다시
+#     붙였을 때 Drive 사본에서 이미 지운 대화가 되살아난다.
+#     항목당 ~100 B 수준이라 500개여도 사이드카는 수십 KB — 아낄 이유가 없다.
+TOMBSTONE_CAP = 500
 
 # presets 2단 키 구분자: 노드타입과 프리셋명 사이에 사용할 수 없는 문자.
 _SEP = "\u0000"

@@ -36,13 +36,30 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HISTORY_FILE = os.path.join(ROOT_DIR, "gemini_chat_history.json")
 
 # 사용자가 지정한 보관 개수. 초과하면 가장 오래된 것부터 버린다.
-# 상단 고정한 대화는 여기서 세지 않는다 — `_prune` 가 따로 보존한다.
-MAX_CHATS = 30
+# 상단 고정한 대화는 여기서 세지 않는다 - `_prune` 가 따로 보존한다.
+#
+# 30 -> 200 상향 근거
+#   * Drive 동기화가 PRO 사용자의 개인 API 키로 도는 구조라 앱 기본 쿼터 문제와 무관하다.
+#   * 실측 1건당 텍스트 전용 ~2 KB, 이미지 포함 ~195 KB. 200+100 이어도 일반적인 파일은
+#     ~60 MB 수준에 머문다(저장 실측: 0.4 MB 13 ms, 128 MB 1.0 초).
+#   * 따라서 실제 마지노선은 개수가 아니라 아래 MAX_STORE_BYTES 가 지킨다.
+MAX_CHATS = 200
 
-# 상단 고정은 「자동 삭제되면 안 되는 대화」를 위한 것이므로, 사용자가 30개를 넘겨
-# 고정한 순간 나머지가 전부 밀려나는 결과는 고-fixed 기능의 취지에 맞지 않는다.
+# 상단 고정은 「자동 삭제되면 안 되는 대화」를 위한 것이므로, 사용자가 MAX_CHATS 를 넘겨
+# 고정한 순간 나머지가 전부 밀려나는 결과는 고정 기능의 취지에 맞지 않는다.
 # 대신 고정 대수도 따로 상한을 두어 파일이 무한정 커지는 것만 막는다.
-MAX_PINNED = 30
+MAX_PINNED = 100
+
+# 파일 용량의 절대 상한(bytes). 개수 상한을 모두 지켰는데 이미지가 커서 이 값을 넘기면
+# 가장 오래된 비고정 대화부터 추가로 비운다. 고정 대화는 절대 먼저 버리지 않는다.
+# 실측(이 머신 NVMe): 저장 128 MB -> 1.0 초, 512 MB -> 4.4 초. 원격 병합 시 피크 RSS 는
+# 파일의 약 2 배였으므로, 여기서 멈추면 ComfyUI 프로세스가 죽는 상황은 발생하지 않는다.
+MAX_STORE_BYTES = 256 * 1024 * 1024
+
+# `.bak` 사본은 반쯤 써진 파일로부터 지키는 안전망이지만 그 자체로 디스크를 2 배 쓴다.
+# 이 크기를 넘기면 백업 복사를 생략한다. 대용량 스냅숏이 필요할 때는 목록의 백업 버튼이
+# 이미 전체 내보내기를 담당한다.
+BAK_SKIP_BYTES = 128 * 1024 * 1024
 
 # 한 대화 안에서 무한정 쌓이는 것을 막기 위한 안전망(문자 수 기준).
 # 서버가 신뢰하는 한계치는 훨씬 높지만, 저장 파일이 비정상적으로 커지는 것을 막는다.
@@ -63,8 +80,19 @@ def _write_json(path: str, payload) -> None:
 
     A half-written history file would lose every conversation at once, so the temp-file
     dance is not optional. Shared with the rest of the pack via ``server/atomic_json.py``.
+
+    The ``.bak`` copy is skipped once the file passes ``BAK_SKIP_BYTES``: at that size a
+    second full copy costs more disk than it buys safety, and the history picker's backup
+    button already produces an explicit snapshot on demand.
     """
-    write_json_atomic(path, payload)
+    backup = True
+    try:
+        backup = os.path.getsize(path) < BAK_SKIP_BYTES
+    except OSError:
+        pass
+    if not backup:
+        logger.debug("[BadaChatHistory] %s over BAK_SKIP_BYTES - .bak skipped", path)
+    write_json_atomic(path, payload, backup=backup)
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +197,22 @@ def _summary(chat: dict) -> dict:
     }
 
 
-def _prune(chats: list) -> list:
+def _recency_key(chat: dict) -> int:
+    """Sort key: newest conversation first.
+
+    ``updatedAtMs`` is authoritative and ``updatedAt`` (seconds) is the legacy fallback;
+    summing both keeps working for chats that carry only one of them.
+    """
+    value = 0
+    for field in ("updatedAtMs", "updatedAt"):
+        try:
+            value += int(chat.get(field) or 0)
+        except (TypeError, ValueError):
+            continue
+    return value
+
+
+def _cap_counts(chats: list) -> list:
     """Keep the newest MAX_CHATS UNPINNED conversations, newest first, and keep every
     pinned one regardless of age.
 
@@ -202,9 +245,76 @@ def _prune(chats: list) -> list:
     # Newest first again: a pinned chat rescued from the trim must not jump ahead of
     # newer unpinned ones, so the two halves are merged back in recency order.
     return sorted(pinned + loose[:MAX_CHATS],
-                  key=lambda c: (int(c.get("updatedAtMs") or 0),
-                                 int(c.get("updatedAt") or 0)),
+                  key=_recency_key,
                   reverse=True)
+
+
+def _apply_byte_budget(chats: list) -> list:
+    """Hard capacity guard: keep the stored file under ``MAX_STORE_BYTES``.
+
+    Count caps alone do not bound the file - one conversation carrying a dozen
+    original-size images outweighs fifty text-only ones. Each chat already carries a
+    ``bytes`` field (the serialised size of its messages, written by ``upsert_chat`` and
+    ``import_store``), so summing it estimates the file size without serialising anything.
+
+    Eviction order: oldest unpinned first. Pinned conversations are NEVER evicted here.
+    「상단 고정」 is an explicit user request, so deleting a pinned chat because a different
+    chat grew large would be exactly the failure the pin exists to prevent. When the
+    pinned set alone busts the budget we log it and keep it - that trade is the user's.
+
+    The eviction loop stops at the first overflow, so the list is re-sorted
+    newest-first here instead of trusting the caller — ``_cap_counts`` hands
+    its input back untouched whenever the count caps are not exceeded.
+    """
+    if not chats:
+        return chats
+
+    def _size(chat):
+        try:
+            return int(chat.get("bytes") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    total = sum(_size(chat) for chat in chats)
+    if total <= MAX_STORE_BYTES:
+        return chats
+
+    chats = sorted(chats, key=_recency_key, reverse=True)
+
+    pinned = [chat for chat in chats if chat.get("pinned")]
+    loose = [chat for chat in chats if not chat.get("pinned")]
+    pinned_bytes = sum(_size(chat) for chat in pinned)
+    budget = max(0, MAX_STORE_BYTES - pinned_bytes)
+
+    kept = []
+    used = 0
+    for chat in loose:
+        size = _size(chat)
+        if kept and used + size > budget:
+            break
+        kept.append(chat)
+        used += size
+
+    dropped = len(loose) - len(kept)
+    if dropped:
+        logger.warning(
+            "[BadaChatHistory] 용량 상한 %d MB 초과 - 가장 오래된 대화 %d개 삭제 (전체 %d MB)",
+            MAX_STORE_BYTES // 1048576, dropped, total // 1048576)
+    if pinned_bytes > MAX_STORE_BYTES:
+        logger.warning(
+            "[BadaChatHistory] 고정 대화 %d개만으로도 용량 상한 %d MB 초과 - 고정은 삭제하지 않음",
+            len(pinned), MAX_STORE_BYTES // 1048576)
+    if not dropped:
+        return chats
+
+    return sorted(pinned + kept,
+                  key=_recency_key,
+                  reverse=True)
+
+
+def _prune(chats: list) -> list:
+    """Apply the storage caps in two stages: first the conversation counts, then the byte budget."""
+    return _apply_byte_budget(_cap_counts(chats))
 
 
 def load_store() -> dict:

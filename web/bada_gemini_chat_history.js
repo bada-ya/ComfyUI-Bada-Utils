@@ -3,9 +3,9 @@
  * ---------------------------------------------------------------------------
  * 「🕐」 버튼(프롬프트 관리 · 새 채팅 오른쪽)에서 열리는 대화 목록입니다.
  *   • 대화 선택 → 현재 스레드로 복원, 이어서 대화 가능
- 추가: 10행 넘으면 스크롤 / 📌 상단 고정(30개 자동 삭제 제외)
+ *  추가: 10행 넘으면 스크롤 / 📌 상단 고정(자동 삭제 상한에서 제외)
  *   • 개별 삭제 / 전체 삭제
- *   • 📌 상단 고정 — 고정한 대화는 30개 자동 삭제 상한에서 제외되고 목록 맨 위에 놓인다
+ *   • 📌 상단 고정 — 고정한 대화는 자동 삭제 상한에서 제외되고 목록 맨 위에 놓인다
  *   • 목록은 10행까지만 펼쳐지고, 그 위로 스크롤된다(대화가 늘어나도 팝업이 화면을 덮지 않는다)
  *   • 📤 백업(.json 다운로드) / 📥 복원(파일 업로드, 병합 또는 전체 교체)
  *
@@ -45,9 +45,9 @@ const L = {
         remove: "🗑",
         removeTitle: "이 대화 삭제",
         pin: "📌",
-        pinTitle: "상단 고정 (30개 자동 삭제에서 제외)",
+        pinTitle: "상단 고정 ({n}개 자동 삭제에서 제외)",
         unpinTitle: "고정 해제",
-        pinnedOn: "📌 상단 고정 — 30개 자동 삭제에서 제외됩니다",
+        pinnedOn: "📌 상단 고정 — {n}개 자동 삭제에서 제외됩니다",
         pinnedOff: "고정 해제되었습니다",
         pinnedSection: "📌 고정됨 — 자동 삭제되지 않음",
         confirmDelete: "「{title}」 대화를 삭제할까요?",
@@ -85,7 +85,7 @@ const L = {
         remove: "🗑",
         removeTitle: "Delete this conversation",
         pin: "📌",
-        pinTitle: "Pin to top (exempt from the 30-chat auto-delete)",
+        pinTitle: "Pin to top (exempt from the {n}-chat auto-delete)",
         unpinTitle: "Unpin",
         pinnedOn: "📌 Pinned to top",
         pinnedOff: "Unpinned",
@@ -196,7 +196,7 @@ export async function openChatHistory(anchor, opts = {}) {
     const onImageModeChange = opts.onImageModeChange || (() => {});
     let imageMode = opts.imageMode || "small";
     let chats = [];
-    let maxChats = 30;
+    let maxChats = 200;
 
     const pop = document.createElement("div");
     pop.className = "bada-chat-history-pop";
@@ -376,7 +376,7 @@ export async function openChatHistory(anchor, opts = {}) {
         pinBtn.textContent = t("pin");
         // Reflect state two ways: the tooltip says what clicking will DO, and the row
         // highlight says what is already true.
-        const synced = chat.pinned ? t("unpinTitle") : t("pinTitle");
+        const synced = chat.pinned ? t("unpinTitle") : t("pinTitle").replace("{n}", maxChats);
         pinBtn.title = synced;
         pinBtn.setAttribute("aria-pressed", chat.pinned ? "true" : "false");
         pinBtn.setAttribute("aria-label", synced);
@@ -393,7 +393,7 @@ export async function openChatHistory(anchor, opts = {}) {
                 // too, and that ordering lives on the server.
                 const data = await postJSON(API.pin, { id: chat.id, pinned: next });
                 chat.pinned = data.chat ? !!data.chat.pinned : next;
-                showToast(chat.pinned ? t("pinnedOn") : t("pinnedOff"));
+                showToast(chat.pinned ? t("pinnedOn").replace("{n}", maxChats) : t("pinnedOff"));
                 await load();
             } catch (err) {
                 alert(t("failed").replace("{err}", err.message));
@@ -444,7 +444,7 @@ export async function openChatHistory(anchor, opts = {}) {
             const data = await resp.json();
             if (!data.success) throw new Error(data.error || (T() ? "목록 조회 실패" : "List failed"));
             chats = Array.isArray(data.chats) ? data.chats : [];
-            maxChats = data.maxChats || 30;
+            maxChats = data.maxChats || 200;
             render();
         } catch (err) {
             list.innerHTML = "";

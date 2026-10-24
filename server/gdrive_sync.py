@@ -1394,16 +1394,64 @@ def _custom_sync_state():
     return enabled, (get_custom_folders() if enabled else [])
 
 
-def _download_remote_json(service, file_id) -> dict:
-    """원격 JSON 파일 다운로드 및 파싱."""
+# 동기화 JSON 하나의 수신 상한(바이트).
+#   * 로컬 보관 상한(gemini_chat_history.MAX_STORE_BYTES 256 MB)에, 다른 PC 의
+#     병합본이 합쳐질 여유를 더해 잡았다. 이상치/파손 파일 하나가 동기화 사이클에서
+#     ComfyUI 프로세스 전체를 OOM 으로 죽이는 것을 막는 것이 주목적이다
+#     (실측: 원격 병합 피크 RSS 가 파일 크기의 약 2.0 배).
+SYNC_JSON_CAP_BYTES = 320 * 1024 * 1024
+
+# googleapiclient 기본 청크는 100 MB 라서 그 사이에서는 상한 판정을 못 한다.
+# 16 MB 로 줄이면 초과 시점까지 낭비되는 버퍼를 16 MB 이내로 묶을 수 있다.
+_SYNC_CHUNK_BYTES = 16 * 1024 * 1024
+
+
+class _ByteSink:
+    """MediaIoBaseDownload 가 필요로 하는 최소 인터페이스(실제로는 write() 만 호출).
+
+    io.BytesIO 와 달리 누적 크기를 매 청크마다 값싸게 확인할 수 있어,
+    상한을 넘는 순간 전송을 끊고 버퍼를 폐기할 수 있다.
+    """
+
+    def __init__(self):
+        self.buf = bytearray()
+
+    def write(self, chunk):
+        self.buf.extend(chunk)
+        return len(chunk)
+
+
+def _download_remote_json(service, file_id, expected_size=None,
+                          max_bytes=SYNC_JSON_CAP_BYTES) -> dict:
+    """원격 JSON 파일 다운로드 및 파싱 (용량 상한이 있는 스트리밍 수신).
+
+    expected_size(원격 메타데이터의 size) 가 이미 상한을 넘으면 요청을 보내지
+    않는다. 응답 도중 상한을 넘으면 즉시 폐기하고 ValueError 를 던진다 →
+    호출부의 예외 처리가 "이번 사이클 스킵"으로 안전하게 흡수한다.
+    """
+    try:
+        expected_size = int(expected_size or 0)
+    except (TypeError, ValueError):
+        expected_size = 0
+    if expected_size > max_bytes:
+        raise ValueError(
+            "원격 JSON이 수신 상한을 초과해 다운로드를 생략합니다 "
+            f"({expected_size} > {max_bytes} bytes)")
+
     request = service.files().get_media(fileId=file_id)
-    fh = io.BytesIO()
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while not done:
-        _, done = downloader.next_chunk()
-    fh.seek(0)
-    return json.loads(fh.read().decode('utf-8'))
+    sink = _ByteSink()
+    downloader = MediaIoBaseDownload(sink, request, chunksize=_SYNC_CHUNK_BYTES)
+    try:
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+            if len(sink.buf) > max_bytes:
+                raise ValueError(
+                    "원격 JSON이 수신 상한을 초과해 폐기합니다 "
+                    f"(> {max_bytes} bytes)")
+        return json.loads(sink.buf)
+    finally:
+        del sink.buf[:]
 
 
 def _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files) -> tuple:
@@ -1451,7 +1499,7 @@ def _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files
 
     # 2. 원격 파일이 존재하는 경우
     try:
-        remote_data = _download_remote_json(service, remote_meta["id"])
+        remote_data = _download_remote_json(service, remote_meta["id"], remote_meta.get("size"))
         if isinstance(remote_data, dict):
             remote_targets = remote_data.get("targets", [])
         elif isinstance(remote_data, list):
@@ -1642,6 +1690,7 @@ def _merge_one_personal_data(service, root_id, folder_id, spec, now_ms, state, r
         remote_sidecar_id = smeta.get("id") if smeta else None
     else:
         remote_sidecar_id = _find_remote_file_in_folder(service, folder_id, sidecar_name)
+        smeta = None
 
     if (not local_exists) and (not remote_id):
         return (False, False)
@@ -1649,14 +1698,14 @@ def _merge_one_personal_data(service, root_id, folder_id, spec, now_ms, state, r
     remote_data = None
     if remote_id:
         try:
-            remote_data = _download_remote_json(service, remote_id)
+            remote_data = _download_remote_json(service, remote_id, rmeta.get("size") if rmeta else None)
         except Exception as e:
             logger.warning(f"[GDrive] 원격 {name} 파싱 실패(이번 사이클 스킵): {e}")
             return (False, False)
     remote_tombs = None
     if remote_sidecar_id:
         try:
-            remote_tombs = _download_remote_json(service, remote_sidecar_id)
+            remote_tombs = _download_remote_json(service, remote_sidecar_id, smeta.get("size") if smeta else None)
         except Exception as e:
             logger.warning(f"[GDrive] 원격 {sidecar_name} 파싱 실패(빈 것으로 진행): {e}")
             remote_tombs = None

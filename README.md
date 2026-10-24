@@ -312,8 +312,9 @@ Click **[📖 Detailed Guide & Settings]** on any item to expand in-depth instru
   * Injects the generated English prompt directly into the active `CLIPTextEncode` node on your canvas.
 
 #### 🕐 Chat History (v1.0.1)
-* Keeps up to **30 past conversations** on disk and reopens any of them with 「이어하기」.
-* **📌 Pin to top** exempts a conversation from the 30-chat auto-delete (pins travel with a backup).
+* Keeps up to **200 past conversations** on disk and reopens any of them with 「이어하기」.
+* **📌 Pin to top** exempts a conversation from the 200-chat auto-delete (pins travel with a backup).
+* The store is capped by **size (256 MB)** as well as by count — past that the oldest conversations go first, and 📌 pinned ones stay exempt.
 * **🖼️ Thumbnails** — up to 3 tiny 28px previews per conversation, loaded only for the rows you actually scroll to. Click one to jump straight into that chat.
 * Image quality per conversation: **원본 / 2048px / 1024px / 저장 안 함**. Choosing 「저장 안 함」 stores no bytes but keeps the image count, so the placeholder still renders.
 * Backup, restore and clear-everything are available in the same popup.
