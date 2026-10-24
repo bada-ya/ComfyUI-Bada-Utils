@@ -4,9 +4,7 @@
  * (P0) Render-mode instrumentation for the Nodes 2.0 program.
  *
  * WHAT IT DOES
- *   Detects whether the canvas draws with the legacy LiteGraph renderer or with
- *   Nodes 2.0 (Vue DOM nodes), exposes the raw signal matrix for debugging, and
- *   shows a small status badge in the bottom-left corner.
+ *   Detects whether the canvas draws with the legacy LiteGraph renderer or with *   Nodes 2.0 (Vue DOM nodes) and exposes the raw signal matrix for debugging.
  *
  * WHY IT EXISTS
  *   The frontend binds heavily to internals (app.graph, app.canvas, node.size,
@@ -31,10 +29,6 @@ export const MODE_LEGACY = "legacy";
 export const MODE_VUE_NODES = "vueNodes";
 export const MODE_UNKNOWN = "unknown";
 
-const LS_BADGE = "BadaUtils.Mode.Badge";
-const BADGE_ATTR = "data-bada-mode-root";
-const STYLE_ID = "bada-mode-style";
-
 // Node type names that only Impact Pack registers. An indirect guess at whether
 // Impact Pack is installed, because that is the second axis of the P4 matrix.
 const IMPACT_PROBE_TYPES = ["ImageScaleBy", "ImagePadForOutpaintMasked", "InpaintModelConditioning"];
@@ -51,8 +45,6 @@ const listeners = new Set();
 
 let latest = null;
 let settleTimer = null;
-let badgeRoot = null;
-let detailOpen = false;
 let announced = false;
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -228,7 +220,6 @@ function notify(result) {
         announced = true;
         console.info("[BadaMode] renderer=" + result.mode + " " + JSON.stringify(summarize(result)));
     }
-    safe(renderBadge);
 }
 
 export function onModeChange(fn) {
@@ -269,7 +260,7 @@ function startProbing() {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-//  Report + debug badge
+//  Report (console diagnostics)
 // ────────────────────────────────────────────────────────────────────────────
 function buildReport(result) {
     if (!result) return "BadaMode: no probe yet";
@@ -310,128 +301,6 @@ export function report() {
     return text;
 }
 
-function copyText(text) {
-    const done = safe(function () {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(text);
-            return true;
-        }
-        return false;
-    }, false);
-    if (done) return;
-    safe(function () {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-    });
-}
-
-function badgeEnabled() {
-    const stored = safe(function () { return localStorage.getItem(LS_BADGE); }, null);
-    return stored === null ? true : stored === "1";
-}
-
-export function setBadgeEnabled(enabled) {
-    safe(function () { localStorage.setItem(LS_BADGE, enabled ? "1" : "0"); });
-    safe(renderBadge);
-}
-
-const CSS_RULES = [
-    ".bada-mode-root{position:fixed;left:10px;bottom:10px;z-index:2147483000;font-family:ui-monospace,Consolas,Menlo,monospace;font-size:11px;line-height:1.45;color:#dff6ff;background:rgba(12,16,22,.86);border:1px solid rgba(0,240,255,.45);border-radius:7px;padding:3px 8px;box-shadow:0 2px 10px rgba(0,0,0,.45);cursor:pointer;user-select:none;max-width:min(62vw,560px);}",
-    ".bada-mode-root b{color:#00f0ff;font-weight:700;}",
-    ".bada-mode-root.is-legacy b{color:#ffb86b;}",
-    ".bada-mode-root.is-unknown b{color:#ff7b7b;}",
-    ".bada-mode-detail{margin-top:6px;border-top:1px solid rgba(255,255,255,.18);padding-top:5px;white-space:pre;display:none;max-height:46vh;overflow:auto;cursor:text;}",
-    ".bada-mode-root.is-open .bada-mode-detail{display:block;}",
-    ".bada-mode-actions{display:flex;gap:6px;margin-top:5px;}",
-    ".bada-mode-actions button{font:inherit;color:#dff6ff;background:rgba(0,240,255,.12);border:1px solid rgba(0,240,255,.4);border-radius:4px;padding:1px 7px;cursor:pointer;}"
-];
-
-function ensureStyle() {
-    if (document.getElementById(STYLE_ID)) return;
-    const style = document.createElement("style");
-    style.id = STYLE_ID;
-    style.textContent = CSS_RULES.join("\n");
-    document.head.appendChild(style);
-}
-
-function makeAction(label, handler) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = label;
-    btn.setAttribute("data-bada-mode-action", label);
-    btn.addEventListener("click", function (event) {
-        event.stopPropagation();
-        handler();
-    });
-    return btn;
-}
-
-function renderBadge() {
-    if (typeof document === "undefined" || !document.body) return;
-
-    if (!badgeEnabled()) {
-        if (badgeRoot && badgeRoot.parentNode) badgeRoot.parentNode.removeChild(badgeRoot);
-        badgeRoot = null;
-        return;
-    }
-
-    ensureStyle();
-
-    if (!badgeRoot || !badgeRoot.isConnected) {
-        badgeRoot = document.createElement("div");
-        badgeRoot.setAttribute(BADGE_ATTR, "1");
-        badgeRoot.addEventListener("click", function () {
-            detailOpen = !detailOpen;
-            safe(renderBadge);
-        });
-        document.body.appendChild(badgeRoot);
-    }
-
-    const result = latest;
-    const tone = !result || result.mode === MODE_UNKNOWN
-        ? "unknown"
-        : (result.mode === MODE_LEGACY ? "legacy" : "vue");
-
-    badgeRoot.className = "bada-mode-root is-" + tone + (detailOpen ? " is-open" : "");
-    badgeRoot.textContent = "";
-
-    const head = document.createElement("div");
-    const label = document.createElement("b");
-    label.textContent = modeLabel(result);
-    head.appendChild(label);
-    const extra = document.createElement("span");
-    extra.textContent = result
-        ? "  ·  IPack " + result.signals.impactPack.verdict.replace("likely", "~") + "  ·  click for signals"
-        : "  ·  probing";
-    head.appendChild(extra);
-    badgeRoot.appendChild(head);
-
-    const detail = document.createElement("div");
-    detail.className = "bada-mode-detail";
-    detail.textContent = buildReport(result);
-    badgeRoot.appendChild(detail);
-
-    const actions = document.createElement("div");
-    actions.className = "bada-mode-actions";
-    actions.appendChild(makeAction("copy", function () { copyText(report()); }));
-    actions.appendChild(makeAction("re-probe", function () { notify(detect({ reason: "badge" })); }));
-    actions.appendChild(makeAction("hide", function () { setBadgeEnabled(false); }));
-    badgeRoot.appendChild(actions);
-}
-
-function modeLabel(result) {
-    if (!result) return "mode: ...";
-    if (result.mode === MODE_VUE_NODES) return "Bada · Nodes 2.0";
-    if (result.mode === MODE_LEGACY) return "Bada · Legacy canvas";
-    return "Bada · mode: unknown";
-}
-
 // ────────────────────────────────────────────────────────────────────────────
 //  Public surface (console + future P2 compat layer)
 // ────────────────────────────────────────────────────────────────────────────
@@ -442,8 +311,7 @@ export const BadaMode = {
     detect: detect,
     get: get,
     onModeChange: onModeChange,
-    report: report,
-    setBadgeEnabled: setBadgeEnabled
+    report: report
 };
 
 safe(function () { window.BadaMode = BadaMode; });
