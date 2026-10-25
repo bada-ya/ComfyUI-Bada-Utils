@@ -669,6 +669,48 @@ function attachBadaNoteHelper(node) {
     const btnWidth = 24;
     const btnHeight = 20;
     const btnPaddingRight = 8;
+    // Floor for the gap between the node right edge and OUR button right edge. The
+    // host paints native title buttons flush with that edge and accumulates
+    // leftwards, so the floor is just the normal padding: we take the corner (the
+    // same look nodes 2.0 get from flex) and step left only when a host button
+    // actually shows up there. See updateBadaReservedRight.
+    const BTN_MIN_RIGHT_INSET = btnPaddingRight;
+    const BTN_RESERVED_GAP = 6;
+    // A hand-painted help glyph keeps the outermost strip of the header for itself,
+    // and one of them claims the click area of the whole last NODE_TITLE_HEIGHT px,
+    // so reserve that much rather than only the ink it draws.
+    const HELP_GLYPH_RESERVED = 30;
+
+    // The host paints native title buttons flush with the right edge and accumulates
+    // leftwards (LGraphCanvas: current_x = size[0]; current_x -= width; -= 2), and it
+    // does so BEFORE onDrawForeground, so anything we paint in that band overwrites
+    // them. Cache how much edge they already reserved and let getButtonBounds sit to
+    // the left of it instead of trusting a fixed inset. Nodes with nothing there
+    // (nearly all of them) only pay a couple of property reads and keep the corner.
+    //
+    // title_buttons is only half of it: hand-painted help glyphs never register there
+    // yet land on the same corner, and we used to hide them and eat their clicks. They
+    // are all driven by the node carrying help text, which the core never puts on a
+    // node by itself, and each leaves an observable mark on the instance:
+    //   comfyui-kjnodes help_popup.js -> _kjHelpDescription, '?' at size[0]-18
+    //   VHS.core.js                   -> description,        '?' at size[0]-17
+    // Sitting left of that strip keeps both the glyph and its click area intact.
+    function updateBadaReservedRight(n, ctx) {
+        let reserved = 0;
+        const buttons = n.title_buttons;
+        if (buttons && buttons.length) {
+            for (let i = 0; i < buttons.length; i++) {
+                const b = buttons[i];
+                if (!b.visible) continue;
+                let w = 0;
+                try { w = b.getWidth(ctx) || 0; } catch (err) { w = 0; }
+                reserved += w + 2;
+                if (b.xOffset < 0) reserved -= b.xOffset;
+            }
+        }
+        if (n._kjHelpDescription || n.description) reserved += HELP_GLYPH_RESERVED;
+        n.__badaReservedRight = reserved;
+    }
     
     function getHeaderHeight(n) {
         if (LiteGraph && LiteGraph.NODE_TITLE_HEIGHT) return LiteGraph.NODE_TITLE_HEIGHT;
@@ -688,7 +730,10 @@ function attachBadaNoteHelper(node) {
         const yHit2 = yDraw;          // Relative to translated origin
 
         const width = (n.size && n.size[0] > 50) ? n.size[0] : 200;
-        const xTranslate = width - btnPaddingRight - btnWidth - btnWidth - 8;
+        // Take the corner; step left only past what the host reserved there.
+        const reserved = n.__badaReservedRight > 0 ? n.__badaReservedRight : 0;
+        const rightInset = reserved > 0 ? Math.max(BTN_MIN_RIGHT_INSET, reserved + BTN_RESERVED_GAP) : BTN_MIN_RIGHT_INSET;
+        const xTranslate = width - btnWidth - rightInset;
 
         return [
             { id: "translate", x: xTranslate, yDraw, yHit1, yHit2, w: btnWidth, h: btnHeight }
@@ -709,6 +754,7 @@ function attachBadaNoteHelper(node) {
         const state = n.badaNoteState;
         if (!state) return;
 
+        updateBadaReservedRight(n, ctx);
         const buttons = getButtonBounds(n);
         ctx.save();
 
@@ -1072,6 +1118,7 @@ const BadaDomNodes = new Set();
 let BadaDomObserver = null;
 let BadaDomRafPending = false;
 let BadaDomSyncTimer = null;
+let BadaDomHostWarned = false;
 
 function findBadaDomButton(node) {
     if (node.id === undefined || node.id === null) return null;
@@ -1129,6 +1176,27 @@ function removeBadaDomButton(node) {
     node._badaDomButtonActive = false;
 }
 
+// Nodes 2.0 renders the header with Vue + flexbox:
+//   .lg-node-header > div.flex.justify-between > [collapse+title] [badges] [pin]
+// Appending a sibling to that flex row is enough to coexist with anything else
+// the header hosts (our own button, native badges, the pin icon): the title owns
+// the only shrinkable slot (flex-1 truncate), so it gives up width instead of
+// overlapping us. No coordinates, no z-index, so nothing can stack on top of it.
+// Resolve the row structurally rather than assuming '.lg-node-header > div', which
+// would bind to the wrong element if the template ever adds a wrapper div.
+function findBadaHeaderRow(el) {
+    const header = el.querySelector('.lg-node-header');
+    if (!header) return null;
+    const kids = header.children;
+    for (let i = 0; i < kids.length; i++) {
+        if (kids[i].querySelector('[data-testid="node-collapse-button"]')) return kids[i];
+    }
+    for (let i = 0; i < kids.length; i++) {
+        if (kids[i].querySelector('[data-testid="node-title"]')) return kids[i];
+    }
+    return header.querySelector(':scope > div') || header;
+}
+
 function attachBadaDomHeaderButton(node) {
     if (!isNoteHelperEnabled()) { removeBadaDomButton(node); return; }
     const collapsed = (node.flags && node.flags.collapsed) || node.collapsed;
@@ -1141,10 +1209,18 @@ function attachBadaDomHeaderButton(node) {
         return;
     }
 
-    const row = el.querySelector(".lg-node-header > div") || el.querySelector(".lg-node-header");
-    if (!row) { node._badaDomButtonActive = false; return; }
-
     let btn = findBadaDomButton(node);
+    // Fast path: our button already lives inside this node header, so skip host
+    // resolution entirely and keep the periodic sync as cheap as it was before.
+    let row = btn && btn.parentNode && btn.parentNode.closest('.lg-node-header') &&
+        btn.parentNode.closest('.lg-node') === el ? btn.parentNode : findBadaHeaderRow(el);
+    if (!row) {
+        if (!BadaDomHostWarned) {
+            BadaDomHostWarned = true;
+            console.warn("[BadaUtils.NoteHelper] Node 2.0 header host unresolved; header structure may have changed. node:", node.id);
+        }
+        node._badaDomButtonActive = false; return;
+    }
     if (btn && btn.parentNode !== row) { if (btn.parentNode) btn.parentNode.removeChild(btn); btn = null; }
     if (!btn) {
         ensureBadaDomStyles();
