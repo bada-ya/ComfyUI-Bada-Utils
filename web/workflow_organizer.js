@@ -1355,26 +1355,9 @@ class WorkflowsPlusManager {
     setupAutoSyncOnSave() {
         const self = this;
 
-        // 1. Hook app.loadGraphData if available (instant response when opening workflows)
-        try {
-            const targetApp = app || window.app;
-            if (targetApp && typeof targetApp.loadGraphData === "function" && !targetApp._qolHooked) {
-                const origLoad = targetApp.loadGraphData;
-                targetApp.loadGraphData = async function(...args) {
-                    const res = await origLoad.apply(this, args);
-                    try {
-                        const targetPath = args[3] || args[0]?.extra?.title || args[0]?.name || "";
-                        if (targetPath) {
-                            self.setActiveWorkflow(targetPath, true);
-                        } else {
-                            setTimeout(() => self.detectActiveWorkflowFromUI(), 50);
-                        }
-                    } catch (e) { console.debug("[Bada] ignored:", e); }
-                    return res;
-                };
-                targetApp._qolHooked = true;
-            }
-        } catch (e) { console.debug("[Bada] ignored:", e); }
+        // 1. (Removed) loadGraphData monkeypatch. Active-workflow tracking is driven by the
+        //    tab/UI handlers below, so BadaUtils never sits on ComfyUI's workflow-load path
+        //    and is not attributed in unrelated load-error stack traces.
 
         // 2. Instant Mousedown Interceptor on top workspace tabs (0ms response with auto-scroll)
         document.addEventListener("mousedown", (e) => {
