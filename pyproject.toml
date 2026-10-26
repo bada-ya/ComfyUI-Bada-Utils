@@ -30,7 +30,7 @@ Includes = [
     "docs",
     "__init__.py",
     "translation_runtime.py",
-    "presets_data.json",
+    "presets_default.json",
     "node_list.json",
     "config.example.json",
     "LICENSE",

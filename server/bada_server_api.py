@@ -31,6 +31,7 @@ logger = logging.getLogger("ComfyUI-Bada-Utils")
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 PRESETS_FILE = os.path.join(PARENT_DIR, "presets_data.json")
+PRESETS_DEFAULT_FILE = os.path.join(PARENT_DIR, "presets_default.json")
 FAVORITES_FILE = os.path.join(PARENT_DIR, "favorites_data.json")
 
 
@@ -1005,11 +1006,32 @@ def register_bada_api_routes():
         # --- A. Presets API ---
         async def load_presets_handler(request):
             try:
-                data = {}
+                merged = {}
+                if os.path.exists(PRESETS_DEFAULT_FILE):
+                    try:
+                        with open(PRESETS_DEFAULT_FILE, "r", encoding="utf-8") as f:
+                            raw_default = json.load(f)
+                            if isinstance(raw_default, dict):
+                                merged = raw_default
+                    except Exception as e:
+                        logger.warning(f"[Bada-Utils] Failed to load presets_default.json: {e}")
+
                 if os.path.exists(PRESETS_FILE):
-                    with open(PRESETS_FILE, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                return web.json_response({"success": True, "presets": data, "hub_presets": {}})
+                    try:
+                        with open(PRESETS_FILE, "r", encoding="utf-8") as f:
+                            user_data = json.load(f)
+                            if isinstance(user_data, dict):
+                                for node_type, presets in user_data.items():
+                                    if isinstance(presets, dict):
+                                        if node_type not in merged or not isinstance(merged[node_type], dict):
+                                            merged[node_type] = {}
+                                        merged[node_type].update(presets)
+                                    else:
+                                        merged[node_type] = presets
+                    except Exception as e:
+                        logger.warning(f"[Bada-Utils] Failed to load presets_data.json: {e}")
+
+                return web.json_response({"success": True, "presets": merged, "hub_presets": {}})
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 

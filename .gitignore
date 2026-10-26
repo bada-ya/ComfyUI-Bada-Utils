@@ -9,6 +9,7 @@ WORK_LOG.md
 .agents/
 config.json
 favorites_data.json
+presets_data.json
 *.bak
 
 # 🔐 Google OAuth 개인 인증 토큰 — 절대 배포 금지.

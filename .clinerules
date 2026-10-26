@@ -9,7 +9,7 @@
 - **임의 백업 복원 절대 금지**: 편집 실패 시 개발자의 명시적 승인 없이 `_backups/`로 덮어쓰거나 `git checkout`으로 로컬 작업을 되돌리는 파괴적 행위를 엄금한다.
 - **UTF-8(BOM 없음) + CRLF 보존**: 파일 저장 시 기존 인코딩·줄바꿈을 그대로 유지한다. BOM을 붙이지 않도록 Node `fs.writeFileSync(path, text, "utf8")` 사용을 권장한다.
 - **상태 파악은 인계장 직행**: 프로젝트의 진행 상황·방향을 파악할 때 무작정 전체 검색을 하지 말고 `_vault/ComfyUI-Bada-Utils/HANDOVER.md`만 열어라. 단, 코드 위치를 찾기 위한 검색·파일 읽기·수정 편집은 자유롭게 허용한다(본 조항은 "지금 뭘 하고 있었나"에만 적용).
-- **`presets_data.json` 커밋 절대 금지**: 사용자 실데이터인 `presets_data.json`은 어떤 커밋·푸시에도 포함하지 마라. 스테이징 전 `git status`로 제외 여부를 확인하라.
+- **`presets_data.json` 추적 제외 보존**: 사용자 실데이터인 `presets_data.json`은 `.gitignore`로 보호되며 커밋 대상이 아니다. 기본 배포 예시는 `presets_default.json`을 통해 관리한다.
 
 ---
 
@@ -45,7 +45,7 @@
 3. 전용 파일 읽기 툴로 `_vault/ComfyUI-Bada-Utils/HANDOVER.md`를 열어 상태 요약 보고 후 지시 대기
 
 ### [2] "깃허브 베타에 올려줘"
-1. **코드**: `git status`로 `presets_data.json` 제외 확인 → `beta` 브랜치 확인 → 변경 커밋 → `git push origin beta`
+1. **코드**: `git status` 상태 확인 → `beta` 브랜치 확인 → 변경 커밋 → `git push origin beta`
 2. **인계장**: `_vault/ComfyUI-Bada-Utils/HANDOVER.md` 작업 내역 갱신(필요시 아카이브 생성) 후 `_vault/`에서 커밋 & push 실행
 3. **완료 판정 게이트**: 위 1·2가 모두 푸시된 것을 확인하고, **코드 커밋 SHA와 `_vault` 커밋 SHA를 함께 보고**해야만 완료로 간주한다. 둘 중 하나라도 누락되면 미완료로 처리한다.
 
