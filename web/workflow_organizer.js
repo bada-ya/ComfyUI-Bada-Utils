@@ -25,6 +25,35 @@ const FONT_SIZE_PRESETS = [
 ];
 
 /**
+ * 안전 휴지통(`_deleted_workflows`) 표기 헬퍼.
+ *
+ * 서버는 워크플로우를 영구 삭제하지 않고 워크플로우 루트 안의 `_deleted_workflows/`
+ * 보관함으로 옮긴다(server/gdrive_sync.py > trash_local_workflow). 마우스로 꺼내
+ * 복원할 수 있어야 하므로 트리에서 숨기지 않고 보이는 것이 설계 의도다.
+ * 다만 일반 폴더와 구분이 안 되어 "실수로 만든 폴더"처럼 보였던 문제가 여기 있다.
+ *
+ * 그래서 '표시' 만 바꾼다 - 라벨(휴지통/Trash) 와 아이콘(🗑️).
+ * `path` 는 실경로(`_deleted_workflows/...`)를 그대로 유지한다. 삭제·이동·즐겨찾기·
+ * 드래그가 전부 실경로 기반이므로 라벨을 path 에 섞면 그 흐름이 전부 깨진다.
+ */
+const TRASH_FOLDER_NAME = "_deleted_workflows";
+
+const trashPathSegments = (rawPath) =>
+    String(rawPath ?? "").replace(/\\/g, "/").split("/").filter(Boolean).map((part) => part.toLowerCase());
+
+/** 휴지통 폴더 자체 또는 그 하위 경로 여부 (Windows 경로 특성상 대/소문자 무시). */
+const isTrashPath = (rawPath) => trashPathSegments(rawPath)[0] === TRASH_FOLDER_NAME;
+
+/** 트리 최상위의 휴지통 노드 여부. 하위 폴더는 일반 폴더로 남긴다(라벨 중복 방지). */
+const isTrashRootNode = (node) => {
+    const segments = trashPathSegments(node?.path);
+    return segments.length === 1 && segments[0] === TRASH_FOLDER_NAME;
+};
+
+/** 행에 표시할 폴더 이름. 실제 폴더 이름은 절대 바꾸지 않는다. */
+const folderDisplayName = (node) => (isTrashRootNode(node) ? BadaI18n.t("wf_trash_folder") : String(node?.name ?? ""));
+
+/**
  * Drag/click discrimination for the workflow tree.
  *
  * A plain click never lands perfectly still: a normal press that drifts 5-9px used to
@@ -1606,7 +1635,14 @@ class WorkflowsPlusManager {
         // 1. 즉시 시각적 피드백: 구름 아이콘 즉각 회전
         this.applyGDriveSyncingState(true);
 
-        // 2. 디바운스: 300ms 이내에 연달아 들어오는 트리거는 1회로 통합하며 가장 구체적인 details 보존
+        // 2. 삭제는 병합 금지 — 삭제 이벤트만 별도 FIFO 에 전량 누적한다.
+        //    아래 단일 슬롯 디바운스에 합류하면 마지막 1건만 남아 나머지 삭제가 유실된다.
+        if (details && details.action === "delete") {
+            this._queueDeleteSync(reason, details);
+            return;
+        }
+
+        // 3. 디바운스: 300ms 이내에 연달아 들어오는 트리거는 1회로 통합하며 가장 구체적인 details 보존
         if (details) window.__BADA_LATEST_SYNC_DETAILS__ = details;
         clearTimeout(window.__BADA_DEBOUNCE_TIMER__);
         window.__BADA_DEBOUNCE_TIMER__ = setTimeout(() => {
@@ -1614,6 +1650,36 @@ class WorkflowsPlusManager {
             window.__BADA_LATEST_SYNC_DETAILS__ = null;
             this._executeRealtimeCloudSync(reason, finalDetails);
         }, 300);
+    }
+
+    /** 삭제 이벤트 전용 FIFO 큐 — 단일 슬롯 덮어쓰기로 인한 삭제 유실을 막는다. */
+    _syncDeleteQueue() {
+        if (!Array.isArray(window.__BADA_SYNC_QUEUE__)) window.__BADA_SYNC_QUEUE__ = [];
+        return window.__BADA_SYNC_QUEUE__;
+    }
+
+    _queueDeleteSync(reason, details) {
+        const queue = this._syncDeleteQueue();
+        // 큐 포화 시 개별 전송을 포기하지 않고 전체 스냅샷 Full sync 에 위임한다 (유실 0).
+        if (queue.length >= 200) {
+            const saturated = queue.length;
+            queue.length = 0;
+            console.warn("[Bada] Delete sync queue saturated (" + saturated + ") -> full sync.");
+            this._executeRealtimeCloudSync("delete_queue_overflow", null);
+            return;
+        }
+        queue.push({ reason, details });
+        clearTimeout(window.__BADA_SYNC_QUEUE_TIMER__);
+        window.__BADA_SYNC_QUEUE_TIMER__ = setTimeout(() => this._drainSyncDeleteQueue(), 300);
+    }
+
+    /** 큐의 삭제를 1건씩 순차 전송한다. 진행/대기 중이면 다음 완료 시점에 다시 시도한다. */
+    _drainSyncDeleteQueue() {
+        const queue = this._syncDeleteQueue();
+        if (!queue.length) return;
+        if (window.__BADA_SYNC_IN_PROGRESS__ || window.__BADA_SYNC_PENDING__) return;
+        const next = queue.shift();
+        this._executeRealtimeCloudSync(next.reason, next.details);
     }
 
     async _executeRealtimeCloudSync(reason, details = null) {
@@ -1634,6 +1700,7 @@ class WorkflowsPlusManager {
                 console.warn("[Bada] Realtime sync safety timeout reached (30s) — resetting lock.");
                 window.__BADA_SYNC_IN_PROGRESS__ = false;
                 this.applyGDriveSyncingState(false);
+                this._drainSyncDeleteQueue();
             }
         }, 30000);
 
@@ -1672,6 +1739,7 @@ class WorkflowsPlusManager {
                         window.__BADA_PENDING_SYNC_DETAILS__ = null;
                         this.triggerRealtimeCloudSync("retry_after_busy", pDetails);
                     }
+                    this._drainSyncDeleteQueue();
                 }, 3000);
                 return;
             }
@@ -1695,6 +1763,8 @@ class WorkflowsPlusManager {
                                 console.log("[Bada] Tail-dedup: firing pending realtime sync");
                                 setTimeout(() => this._executeRealtimeCloudSync("tail_dedup", pDetails), 200);
                             }
+                            // 동기화 완료가 확인된 시점부터 누적된 삭제를 1건씩 순차 전송한다.
+                            setTimeout(() => this._drainSyncDeleteQueue(), 300);
                         }
                     });
                 }
@@ -1834,6 +1904,7 @@ class WorkflowsPlusManager {
         if (typeof BadaI18n !== "undefined" && BadaI18n.subscribe) {
             BadaI18n.subscribe(() => {
                 this.updateTabLabel();
+                this.renderPlusTree();
             });
         }
 
@@ -3383,16 +3454,25 @@ class WorkflowsPlusManager {
                     (f.notes && f.notes.toLowerCase().includes(query))
                 );
                 filteredFolders = filteredFolders.filter(f => {
-                    const matchSelf = f.name.toLowerCase().includes(query);
+                    // 라벨이 바뀐 휴지통은 실경로 이름으로 검색이 안 잡힌다 -> 표시 라벨도 함께 매칭
+                    const matchSelf = f.name.toLowerCase().includes(query) || folderDisplayName(f).toLowerCase().includes(query);
                     const matchChildren = f.files.some(cf => 
                         cf.name.toLowerCase().includes(query) || 
                         (cf.notes && cf.notes.toLowerCase().includes(query))
                     );
                     return matchSelf || matchChildren;
                 });
-                if (!filteredFiles.length && !filteredFolders.length && !folderNode.name.toLowerCase().includes(query)) {
+                if (!filteredFiles.length && !filteredFolders.length
+                    && !folderNode.name.toLowerCase().includes(query)
+                    && !folderDisplayName(folderNode).toLowerCase().includes(query)) {
                     return null;
                 }
+            }
+
+            if (isRoot) {
+                // 휴지통은 목록 맨 아래로 -> 실제 작업 폴더가 항상 최상위를 차지하게
+                const trashNodes = filteredFolders.filter((f) => isTrashRootNode(f));
+                if (trashNodes.length) filteredFolders = filteredFolders.filter((f) => !isTrashRootNode(f)).concat(trashNodes);
             }
 
             const isExpanded = query ? true : this.expandedFolders.has(folderNode.path);
@@ -3411,13 +3491,15 @@ class WorkflowsPlusManager {
                 chevron.className = `qol-chevron ${isExpanded ? "expanded" : ""}`;
                 chevron.textContent = "▶";
 
+                const isTrash = isTrashRootNode(folderNode);
+
                 const icon = document.createElement("span");
                 icon.className = "qol-folder-icon";
-                icon.textContent = isExpanded ? "📂" : "📁";
+                icon.textContent = isTrash ? "🗑️" : (isExpanded ? "📂" : "📁");
 
                 const name = document.createElement("span");
                 name.className = "qol-folder-name";
-                name.innerHTML = this.highlightMatch(folderNode.name, query);
+                name.innerHTML = this.highlightMatch(folderDisplayName(folderNode), query);
 
                 const countBadge = document.createElement("span");
                 countBadge.className = `qol-count-badge ${folderNode.count === 0 ? "zero" : ""}`;
@@ -3810,7 +3892,8 @@ class WorkflowsPlusManager {
         const walk = (node, depth) => {
             const isRoot = depth === 0;
             const path = isRoot ? "/" : this.normalizeFolderPath(node.path);
-            const children = (node.folders || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+            // 휴지통과 그 하위는 "새로 저장할 대상"이 될 수 없다 -> 선택지 자체에서 제외
+            const children = (node.folders || []).filter((sub) => !isTrashPath(sub.path)).sort((a, b) => String(a.name).localeCompare(String(b.name)));
             const hasChildren = children.length > 0;
             const expanded = isRoot || expandedPaths.has(path);
             rows.push({
@@ -3970,6 +4053,7 @@ class WorkflowsPlusManager {
             const pathEl = overlay.querySelector("#qol-sa-path");
 
             let selectedPath = this.normalizeFolderPath(initialFolder);
+            if (isTrashPath(selectedPath)) selectedPath = "/";   // 휴지통 안에는 새로 저장하지 않는다
             const expandedPaths = new Set(["/"]);
             (() => {
                 let acc = "";
@@ -4153,7 +4237,7 @@ class WorkflowsPlusManager {
                         <div class="qol-form-label" style="margin-bottom:4px;">${BadaI18n.t("wf_modal_move_dest")}</div>
                         <select class="qol-select" id="qol-dest-select">
                             <option value="/">[Root] /</option>
-                            ${folders.filter(f => f !== "/").map(f => `<option value="${f}" ${f === currentFolder ? 'disabled' : ''}>📁 ${f} ${f === currentFolder ? '(Current)' : ''}</option>`).join("")}
+                            ${folders.filter(f => f !== "/" && !isTrashPath(f)).map(f => `<option value="${f}" ${f === currentFolder ? 'disabled' : ''}>📁 ${f} ${f === currentFolder ? '(Current)' : ''}</option>`).join("")}
                         </select>
                     </div>
                     <div>
@@ -4200,7 +4284,7 @@ class WorkflowsPlusManager {
                         <div class="qol-form-label" style="margin-bottom:4px;">${BadaI18n.t("wf_modal_mkdir_parent")}</div>
                         <select class="qol-select" id="qol-parent-select">
                             <option value="/">[Root] /</option>
-                            ${folders.filter(f => f !== "/").map(f => `<option value="${f}" ${f === defaultParent ? "selected" : ""}>📁 ${f}</option>`).join("")}
+                            ${folders.filter(f => f !== "/" && !isTrashPath(f)).map(f => `<option value="${f}" ${f === defaultParent ? "selected" : ""}>📁 ${f}</option>`).join("")}
                         </select>
                     </div>
                     <div>
