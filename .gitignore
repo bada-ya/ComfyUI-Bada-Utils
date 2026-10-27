@@ -87,3 +87,8 @@ agentic-workflow/
 # _vault는 .clinerules 규약에 따라 필요 시 clone하는 독립 저장소(bada-work-handover.git)
 # .gitmodules 없는 gitlink이라 영구 dirty 표시와 main 릴리스로 깨진 서브모듈 포인터가 유입됨
 _vault/
+
+# ── Local agent maintenance helpers, NOT part of the shipped pack ──
+# tools/bada_tmpclean.js clears the scratch files an agent leaves behind in
+# %TEMP% without a shell delete verb (which the app policy blocks).
+tools/
