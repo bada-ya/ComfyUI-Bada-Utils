@@ -1070,6 +1070,10 @@ def _list_workflows_recursive_fast(service, root_id, legacy_files=None):
                     # 매 동기화 재다운로드 churn 이 생긴다.
                     if "___" in name:
                         continue
+                    # 휴지통/캐시 폴더는 원격에 남아 있어도 동기화 대상이 아니다 (로컬 스캔과 동일 정책).
+                    # 건너뛰지 않으면 CASE 3 이 원격에만 있는 것으로 판정해 로컬 휴지통으로 좀비 복원된다.
+                    if name in WORKFLOW_EXCLUDE_DIRS:
+                        continue
                     sub_rel = f"{rdir}/{name}" if rdir else name
                     next_level.append((item_id, sub_rel))
                     continue
@@ -1851,6 +1855,9 @@ def _perform_sync_blocking():
         remote_by_rel = {}
         for r_name, r_meta in remote_files.items():
             r_rel = r_name.replace('___', '/')
+            # 로컬 스캔이 보지 않는 휴지통/캐시 키는 원격 판정에서 완전 제외 (대칭성 확보).
+            if _is_out_of_sync_scope(r_rel):
+                continue
             try:
                 _resolve_local_path(r_rel)
                 remote_by_rel[r_rel] = r_meta
@@ -2038,12 +2045,18 @@ def _perform_sync_blocking():
 
         # 3-Way Snapshot 갱신: 동기화가 정상 완료되었거나 일부라도 반영된 경우,
         # 최신 로컬 상태를 기준으로 Base 스냅샷을 캡처해 다음 동기화의 기준으로 삼는다.
-        try:
-            latest_local = build_local_manifest()
-            save_base_snapshot(latest_local)
-            logger.info(f"[GDrive] Base snapshot updated with {len(latest_local)} files.")
-        except Exception as e:
-            logger.warning(f"[GDrive] Failed to update base snapshot: {e}")
+        # 단 취소된 동기화는 루프가 중간에 빠져나와 반영 대상이 아직 남아있으므로 캡처하지
+        # 않는다. 미반영 삭제 파일의 Base 키가 먼저 사라지면 다음 동기화에서 CASE 3 else 로
+        # 재다운로드되어 삭제 전파가 영구히 불가능해진다.
+        if cancelled:
+            logger.info("[GDrive] Base snapshot left unchanged (sync cancelled) - 재시도 대기.")
+        else:
+            try:
+                latest_local = build_local_manifest()
+                save_base_snapshot(latest_local)
+                logger.info(f"[GDrive] Base snapshot updated with {len(latest_local)} files.")
+            except Exception as e:
+                logger.warning(f"[GDrive] Failed to update base snapshot: {e}")
 
         if cancelled:
             logger.info(
@@ -2261,6 +2274,21 @@ def normalize_sync_rel_path(p: str) -> str:
     return f"{WORKFLOWS_NS}{p}"
 
 
+def _is_out_of_sync_scope(rel_path):
+    """
+    동기화에서 항상 제외되는 워크플로우 경로인지 (휴지통/캐시/'___' 내부 키).
+
+    로컬 스캔(_iter_workflow_rel_paths)과 동일한 규칙을 쓴다. 이 경로를 Pinpoint 에
+    그대로 넘기면 _ensure_workflow_folder 가 원격에 해당 폴더를 '생성'한 뒤 미발견으로
+    실패하고 무의미한 전체 스캔 폴백까지 발생해 드라이브에 빈 폴더만 잔재한다.
+    """
+    if not rel_path.startswith(WORKFLOWS_NS):
+        return False
+    segments = rel_path[len(WORKFLOWS_NS):].split("/")
+    return any(seg in WORKFLOW_EXCLUDE_DIRS or seg in WORKFLOW_EXCLUDE_NAMES
+               or "___" in seg for seg in segments)
+
+
 def _perform_pinpoint_sync_blocking(details: dict) -> bool:
     """
     실시간 단일 파일 저장/삭제/이동(Pinpoint Sync)을 수행한다.
@@ -2269,6 +2297,13 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
     - 3-Way Snapshot(.gdrive_snapshot.json) 동시 갱신으로 좀비 부활 원천 차단
     - 실패 시 False 반환 -> 호출측에서 _perform_sync_blocking()으로 안전 폴백
     """
+    raw_path = details.get("path")
+    if raw_path and _is_out_of_sync_scope(normalize_sync_rel_path(raw_path)):
+        # 휴지통으로의 이동/영구 삭제는 동기화 대상이 아니다. 원격에 손을 대지 않고 성공
+        # 처리해 전체 스캔 폴백을 막는다 (Full sync 도 같은 규칙으로 스킵하므로 일관된다).
+        logger.info(f"[GDrive Pinpoint] 동기화 제외 경로 - 원격 변경 없음: {raw_path}")
+        return True
+
     if not _SYNC_GUARD.acquire(blocking=False):
         logger.info("[GDrive Pinpoint] Sync already in progress, skipping.")
         return False
@@ -2356,11 +2391,24 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
 
             remote_name = _stored_remote_name(rel_path)
             file_id = _find_remote_file_in_folder(service, folder_id, remote_name)
-            if file_id:
-                trash_remote_file(service, file_id, remote_name)
-                logger.info(f"[GDrive Pinpoint Delete] Trashed remote file: {rel_path} (ID: {file_id})")
+            if not file_id:
+                # 미발견 = 폴더 경로 삭제(자식 다수) 또는 원격 조회 실패다. 여기서 True 를
+                # 반환하면 호출측의 Full sync 폴백이 영원히 돌지 않아 원격에 영구 잔재한다.
+                # 폴더 경로는 부모 폴더 + basename 조회이므로 구조적으로 항상 미발견이다.
+                logger.info(
+                    f"[GDrive Pinpoint Delete] 원격 대상 미발견({remote_name}) -> Full sync 폴백 위임: {rel_path}"
+                )
+                return False
 
-            # 3-Way Snapshot 에서 제거 (좀비 방지)
+            if not trash_remote_file(service, file_id, remote_name):
+                logger.warning(f"[GDrive Pinpoint Delete] 원격 휴지통 실패 -> Full sync 폴백: {rel_path}")
+                return False
+
+            logger.info(f"[GDrive Pinpoint Delete] Trashed remote file: {rel_path} (ID: {file_id})")
+
+            # 3-Way Snapshot 에서 제거 (좀비 방지) — 원격 휴지통이 실제로 성공한 뒤에만.
+            # 미발견/실패 시 키를 지우면 다음 Full sync 가 "원격에만 존재 + Base 없음"으로
+            # 판정해 재다운로드한다 (CASE 3 else -> 좀비 부활).
             snapshot = get_base_snapshot()
             if snapshot and rel_path in snapshot:
                 del snapshot[rel_path]
