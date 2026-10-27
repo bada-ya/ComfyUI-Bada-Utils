@@ -38,7 +38,7 @@
 // text is safe here. Keep injected-CSS concerns out of this file.
 // ──────────────────────────────────────────────────────────────────────────────
 import { BadaI18n } from "./bada_i18n.js";
-import { escapeHtml } from "./bada_shared.js";
+import { escapeHtml, findBadaSettingCells } from "./bada_shared.js";
 // Phase 2: the Global Presets row is self-owned. It used to call back into
 // bada_core.js's buildInlinePresetsPanel() through window.__BADA_BUILD_PRESETS_PANEL__;
 // that bridge is gone, so v2 imports the overview modal module directly.
@@ -182,7 +182,12 @@ const SAVE_BTN_OK_EXTRA = "background: rgba(16, 185, 129, 0.18); border-color: #
 function decorateTranslatorRow(rowId, isKo, onChange) {
     const row = document.querySelector(`[data-setting-id="${rowId}"]`);
     if (!row) return null;
-    const col = row.querySelector(".form-input");
+    // 2026-10-27: frontend 1.57.4 removed .form-input. Legacy stays first because it
+    // resolves to the very same element on <= 1.56; then fall back to the control cell
+    // derived from the version-agnostic label SPAN anchor.
+    const col = row.querySelector(".form-input")
+        || findBadaSettingCells(row)?.controlCell
+        || null;
     const input = col?.querySelector("input");
     if (!col || !input) return null;
 
@@ -241,7 +246,10 @@ function refreshTranslatorHints(isKo) {
     const paint = (rowId, parts, hasConflict) => {
         const row = document.querySelector(`[data-setting-id="${rowId}"]`);
         const hint = row?.querySelector(".bada-v2-list-hint");
-        const input = row?.querySelector(".form-input input");
+        // 1.57.4 has no .form-input; both translator rows hold exactly one input, so the
+        // unscoped lookup stays as safe as the classed one.
+        const input = row?.querySelector(".form-input input")
+            || row?.querySelector("input");
         if (!hint || !input) return;
         if (!parts.length) {
             hint.textContent = "";

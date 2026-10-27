@@ -1,5 +1,5 @@
 import { app } from "../../scripts/app.js";
-import { escapeHtml } from "./bada_shared.js";
+import { escapeHtml, findBadaSettingCells } from "./bada_shared.js";
 import { BadaI18n } from "./bada_i18n.js";
 // PHASE 3: the presets helpers and showToast were only used by buildInlinePresetsPanel(),
 // deleted with the legacy category. bada_settings_v2.js imports the presets helpers from
@@ -163,6 +163,25 @@ function getSettingsText(key) {
     return BADA_SETTINGS_TEXTS[lang][key] || BADA_SETTINGS_TEXTS.en[key] || "";
 }
 
+// The strings a badge-position combo can be showing, in either language. Exact match
+// only: every Korean option embeds its English name as a substring, so a looser test
+// would match several leaves at once.
+const BADGE_POS_OPTION_TEXTS = [
+    ...BADA_SETTINGS_TEXTS.en.presetsBadgePosOptions,
+    ...BADA_SETTINGS_TEXTS.ko.presetsBadgePosOptions,
+].map((option) => option.text).filter((text, i, all) => all.indexOf(text) === i);
+
+// The 1.57.4 combo renders its value in an unclassed leaf, so it has to be found by what
+// it says. It only ever returns an element whose text is one of ours, which is what stops
+// the fallback from overwriting a row title or a description.
+function findBadgePosOptionLeaf(row, shownText) {
+    if (!row || !shownText || BADGE_POS_OPTION_TEXTS.indexOf(shownText) === -1) return null;
+    const cells = findBadaSettingCells(row);
+    const scope = cells?.controlCell || row;
+    return [...scope.querySelectorAll("span, div")].find(
+        (el) => el.childElementCount === 0 && el.textContent.trim() === shownText) || null;
+}
+
 function updatePresetBadgePositionOptions(lang) {
     const setting = BADA_UNIFIED_SETTINGS.presetsBadgePosition;
     const options = BADA_SETTINGS_TEXTS[lang === "ko" ? "ko" : "en"].presetsBadgePosOptions;
@@ -181,7 +200,10 @@ function updatePresetBadgePositionOptions(lang) {
     const row = document.querySelector(`[data-setting-id="${setting.id}"]`);
     const selectedValue = app.ui?.settings?.getSettingValue?.(setting.id) || setting.defaultValue;
     const selectedOption = localizedOptions.find((option) => option.value === selectedValue);
-    const selectedLabel = row?.querySelector(".p-select-label");
+    // 2026-10-27: frontend 1.57.4 dropped .p-select-label. Legacy first, so <= 1.56 keeps
+    // its current behaviour untouched, then the text-matched leaf for 1.57.4.
+    const selectedLabel = row?.querySelector(".p-select-label")
+        || findBadgePosOptionLeaf(row, selectedOption?.text);
     if (selectedLabel && selectedOption) {
         selectedLabel.textContent = selectedOption.text;
         selectedLabel.setAttribute("aria-label", selectedOption.text);
@@ -497,7 +519,8 @@ let isPresetsExpanded = true;
             min-height: 34px !important;
             align-items: center !important;
         }
-        .setting-group:has([data-setting-id^="BadaUtils"]) .form-label {
+        .setting-group:has([data-setting-id^="BadaUtils"]) .form-label,
+        .setting-group:has([data-setting-id^="BadaUtils"]) .bada-label-cell {
             /* REGRESSION FIX: this rule used to say align-items: center. The JS layer below
                turns .form-label into a column flex container (title span + description),
                and an !important "center" on the cross axis overrode the inline flex-start
@@ -518,7 +541,9 @@ let isPresetsExpanded = true;
            this frontend — they are custom components, so selecting .form-input select only
            left the language and badge-position dropdowns at 16px (measured, then fixed). */
         .setting-group:has([data-setting-id^="BadaUtils"]) .form-input,
-        .setting-group:has([data-setting-id^="BadaUtils"]) .form-input * {
+        .setting-group:has([data-setting-id^="BadaUtils"]) .form-input *,
+        .setting-group:has([data-setting-id^="BadaUtils"]) .bada-control-cell,
+        .setting-group:has([data-setting-id^="BadaUtils"]) .bada-control-cell * {
             font-size: 13px !important;
         }
         /* Translator list rows: give the input the space. Measured before the change:
@@ -526,12 +551,15 @@ let isPresetsExpanded = true;
            into a sixth of the row while the description text took the rest. Only these two
            rows are changed - every other row's label/input balance is already right. */
         .setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]) .form-label,
-        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) .form-label {
+        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) .form-label,
+        .setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]) .bada-label-cell {
             flex: 0 1 300px !important;
             max-width: 300px !important;
         }
         .setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]) .form-input,
-        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) .form-input {
+        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) .form-input,
+        .setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]) .bada-control-cell,
+        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) .bada-control-cell {
             flex: 1 1 auto !important;
             max-width: none !important;
             display: flex !important;
@@ -539,7 +567,9 @@ let isPresetsExpanded = true;
             gap: 8px !important;
         }
         .setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]) .form-input input,
-        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) .form-input input {
+        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) .form-input input,
+        .setting-group:has([data-setting-id="BadaUtils.TranslationBlacklist"]) .bada-control-cell input,
+        .setting-group:has([data-setting-id="BadaUtils.TranslationWhitelist"]) .bada-control-cell input {
             flex: 1 1 auto !important;
             width: auto !important;
             min-width: 0 !important;
@@ -549,7 +579,8 @@ let isPresetsExpanded = true;
             flex-wrap: wrap !important;
         }
         .bada-v2-list-hint { flex-basis: 100%; }
-        .setting-group:has([data-setting-id^="BadaUtils"]) .form-input {
+        .setting-group:has([data-setting-id^="BadaUtils"]) .form-input,
+        .setting-group:has([data-setting-id^="BadaUtils"]) .bada-control-cell {
             margin-top: 0 !important;
         }
 
@@ -563,10 +594,20 @@ let isPresetsExpanded = true;
             align-items: stretch !important;
             width: 100% !important;
         }
-        div[data-setting-id="BadaUtils.GlobalPresetsPanel"] .form-label {
+        /* Three routes to the same element, so the label cell is hidden on the very first
+           paint and on both frontends: the legacy class (<= 1.56), the class added by
+           stampBadaSettingCells(), and a structural rule that needs no JS at all. The
+           structural one matters most here - this row is custom-rendered, so its own
+           widget owns the visible title and description and the FormItem label cell is
+           pure duplication. Verified identical markup in both installed bundles. */
+        div[data-setting-id="BadaUtils.GlobalPresetsPanel"] .form-label,
+        div[data-setting-id="BadaUtils.GlobalPresetsPanel"] .bada-label-cell,
+        div[data-setting-id="BadaUtils.GlobalPresetsPanel"] > div > div:has(> span[id$="-label"]) {
             display: none !important;
         }
-        div[data-setting-id="BadaUtils.GlobalPresetsPanel"] .form-input {
+        div[data-setting-id="BadaUtils.GlobalPresetsPanel"] .form-input,
+        div[data-setting-id="BadaUtils.GlobalPresetsPanel"] .bada-control-cell,
+        div[data-setting-id="BadaUtils.GlobalPresetsPanel"] > div > div:has(> span[id$="-label"]) + div {
             width: 100% !important;
             max-width: 100% !important;
             display: block !important;
@@ -586,10 +627,20 @@ let isPresetsExpanded = true;
             align-items: stretch !important;
             width: 100% !important;
         }
-        div[data-setting-id="BadaUtils.CloudSync"] .form-label {
+        /* Three routes to the same element, so the label cell is hidden on the very first
+           paint and on both frontends: the legacy class (<= 1.56), the class added by
+           stampBadaSettingCells(), and a structural rule that needs no JS at all. The
+           structural one matters most here - this row is custom-rendered, so its own
+           widget owns the visible title and description and the FormItem label cell is
+           pure duplication. Verified identical markup in both installed bundles. */
+        div[data-setting-id="BadaUtils.CloudSync"] .form-label,
+        div[data-setting-id="BadaUtils.CloudSync"] .bada-label-cell,
+        div[data-setting-id="BadaUtils.CloudSync"] > div > div:has(> span[id$="-label"]) {
             display: none !important;
         }
-        div[data-setting-id="BadaUtils.CloudSync"] .form-input {
+        div[data-setting-id="BadaUtils.CloudSync"] .form-input,
+        div[data-setting-id="BadaUtils.CloudSync"] .bada-control-cell,
+        div[data-setting-id="BadaUtils.CloudSync"] > div > div:has(> span[id$="-label"]) + div {
             width: 100% !important;
             max-width: 100% !important;
             display: block !important;
@@ -895,6 +946,33 @@ function paintManagerCacheWidget(wrap) {
 // ──────────────────────────────────────────────────────────────────────────────
 //  Dynamic Settings Dialog Live Updater (Freeze-Safe & Re-entrant Guarded)
 // ──────────────────────────────────────────────────────────────────────────────
+// Row selector shared by the paint loop and the stamper below. Single source of truth:
+// adding a Bada settings prefix here is enough for both.
+const BADA_ROW_SELECTOR = '[data-setting-id^="BadaUtils"], [data-setting-id^="⚓ Bada"]';
+
+// Frontend-proof class stamps for the two FormItem cells.
+//
+// ComfyUI 0.43.0 (frontend 1.57.4) deleted the .form-label/.form-input classes, so the
+// stylesheet can no longer name them. Both classes are hoisted static Vue class objects,
+// i.e. a re-render never rewrites className, so an added class sticks. The label SPAN is
+// deliberately never stamped: its class prop is dynamic (labelClass) and Vue would wipe
+// anything added there.
+//
+// Loop-safe: the settings-dialog observer watches childList/subtree only, never
+// attributes, so writing class attributes cannot feed mutations back into this function.
+function stampBadaSettingCells() {
+    document.querySelectorAll(BADA_ROW_SELECTOR).forEach((row) => {
+        const cells = findBadaSettingCells(row);
+        if (!cells) return;
+        if (cells.labelCell !== cells.labelSpan && !cells.labelCell.classList.contains("bada-label-cell")) {
+            cells.labelCell.classList.add("bada-label-cell");
+        }
+        if (cells.controlCell && !cells.controlCell.classList.contains("bada-control-cell")) {
+            cells.controlCell.classList.add("bada-control-cell");
+        }
+    });
+}
+
 let isApplyingBilingualUI = false;
 function applyBilingualSettingsUI(targetLang) {
     if (isApplyingBilingualUI) return;
@@ -907,10 +985,14 @@ function applyBilingualSettingsUI(targetLang) {
         const lang = targetLang || BadaI18n.lang || "en";
         const isKo = lang === "ko";
         const texts = BADA_SETTINGS_TEXTS[isKo ? "ko" : "en"];
+        // Stamp the cells before anything reads them. The two custom rows are why this
+        // runs first: their label cell is hidden by CSS only once the class exists, and
+        // their own title/description never go through the per-row loop below.
+        stampBadaSettingCells();
         updatePresetBadgePositionOptions(lang);
 
         // 2. Setting rows label updates (Title with custom SVG + Sub-description below)
-        const settingRows = document.querySelectorAll('[data-setting-id^="BadaUtils"], [data-setting-id^="⚓ Bada"]');
+        const settingRows = document.querySelectorAll(BADA_ROW_SELECTOR);
         settingRows.forEach(row => {
             const id = row.getAttribute("data-setting-id");
             // The Manager cache row is a plain boolean switch again, so it needs its bilingual
@@ -923,11 +1005,19 @@ function applyBilingualSettingsUI(targetLang) {
             // endless append -> observe -> append loop and the tab freezes. Both writes
             // below are therefore content-guarded (desc is only created when absent, and
             // only rewritten when the text actually changes), so a second pass is a no-op.
-            // GUARD ORDER (2026-10-10): formLabel lookup FIRST. If the row's label is not
+            // GUARD ORDER (2026-10-10): label lookup FIRST. If the row's label is not
             // rendered yet (dialog just opened, search filter mid-pass), return WITHOUT
             // stamping the guard so the next pass retries instead of skipping forever.
-            const formLabel = row.querySelector(".form-label, label");
-            if (!formLabel) return;
+            //
+            // 2026-10-27: the bare label fallback is gone on purpose. On 1.57.4 there is no
+            // .form-label, so that fallback grabbed the first LABEL element inside the row.
+            // On the Cloud Sync row that is .bada-cloud-switch, the master toggle: the title
+            // got duplicated into the narrow right-hand column and the description stacked
+            // vertically inside it. Anchoring on the label SPAN is exact on 1.57.4 and on
+            // <= 1.56, where the legacy class still resolves first inside the helper.
+            const badaCells = findBadaSettingCells(row);
+            if (!badaCells) return;
+            const formLabel = badaCells.labelCell;
 
             if (row.__badaDescApplied === `${targetLang || lang}|${isKo}`) return;
             row.__badaDescApplied = `${targetLang || lang}|${isKo}`;
@@ -990,7 +1080,7 @@ function applyBilingualSettingsUI(targetLang) {
             const registeredSetting = app.ui?.settings?.settingsLookup?.[id];
             if (registeredSetting) registeredSetting.name = targetTitle;
 
-            // Enforce vertical flex layout for form-label
+            // Enforce vertical flex layout for the label cell
             formLabel.style.display = "flex";
             formLabel.style.flexDirection = "column";
             formLabel.style.alignItems = "flex-start";

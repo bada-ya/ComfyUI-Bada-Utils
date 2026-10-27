@@ -180,3 +180,54 @@ export function placePopupInViewport(el, anchorX, anchorY, gap = 8) {
     el.style.top = `${top}px`;
     return { left, top };
 }
+
+/**
+ * Frontend-version-agnostic settings-row anchors.
+ *
+ * ComfyUI 0.43.0 ships frontend 1.57.4, whose FormItem dropped the .form-label and
+ * .form-input classes. Measured in the installed bundles, not assumed: form-label and
+ * form-input occur 2 and 14 times in 1.55.18 and zero times in 1.57.4, while the label
+ * anchor <span id="<settingId>-label">, data-setting-id and setting-item are identical
+ * in both. Key every settings-DOM lookup off that anchor, and one code path covers
+ * <= 1.56 (where the legacy classes still resolve first) and 1.57+ (derived from the
+ * span) - no version sniffing, no second build for people on an older ComfyUI.
+ *
+ * FormItem markup, identical apart from the two removed classes:
+ *   div.setting-item[data-setting-id]               the row our CSS hooks
+ *     div.flex.min-h-8                             FormItem root
+ *       div.(form-label)flex.grow.items-center        label cell
+ *         span[id="<settingId>-label"]               title anchor  <-- primary anchor
+ *       div.(form-input)flex.justify-end              control cell
+ *         <control id aria-labelledby="<settingId>-label">
+ */
+export function findBadaSettingLabelSpan(row) {
+    if (!row) return null;
+    const id = row.getAttribute("data-setting-id");
+    if (id) {
+        // getElementById is not a selector engine, so ids containing dots need no escaping.
+        const exact = document.getElementById(id + "-label");
+        if (exact && row.contains(exact)) return exact;
+    }
+    const bySuffix = row.querySelector('span[id$="-label"]');
+    if (bySuffix) return bySuffix;
+    // Frontends <= 1.56: .form-label is the label cell and wraps the title span.
+    const legacy = row.querySelector(".form-label");
+    if (!legacy) return null;
+    return (legacy.matches("span") ? legacy : legacy.querySelector("span")) || legacy;
+}
+
+/**
+ * Returns { labelSpan, labelCell, controlCell } for a settings row, or null while the
+ * row has not rendered its label yet. Callers must treat null as "retry later".
+ */
+export function findBadaSettingCells(row) {
+    const labelSpan = findBadaSettingLabelSpan(row);
+    if (!labelSpan) return null;
+    const labelCell = labelSpan.parentElement || row.querySelector(".form-label") || labelSpan;
+    // The control cell is the label cell sibling. .form-input stays in the chain for the
+    // frontends that still render it.
+    const controlCell = (labelCell !== labelSpan && labelCell.nextElementSibling)
+        || row.querySelector(".form-input")
+        || null;
+    return { labelSpan, labelCell, controlCell };
+}
