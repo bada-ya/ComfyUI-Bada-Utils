@@ -52,6 +52,21 @@ const AUTO_SCROLL_ARM_FRAMES = 2;
 const NATIVE_LOAD_VERIFY_MS = 500;
 const NATIVE_LOAD_POLL_MS = 20;
 
+/**
+ * A rebuild landing between mousedown and mouseup destroys the row being pressed, and Chromium
+ * only dispatches click while that row is still in the document. Renders requested while a
+ * pointer is down are parked and replayed once it is released; the cap below only covers a
+ * release that never arrives (the tab was switched mid-press), never the normal path.
+ */
+const RENDER_PAUSE_MAX_MS = 1200;
+
+/**
+ * syncNativeWorkflowLocation() writes to ComfyUI's own workflow store, which fires the
+ * subscription set up in setupHooks() and would rebuild the tree right after the click that
+ * caused the write. Those writes open a window this long so their own echo is ignored.
+ */
+const NATIVE_WRITE_SUPPRESS_MS = 300;
+
 function getPresetLabel(preset) {
     if (!preset) return "";
     return BadaI18n.lang === "ko" ? (preset.label_ko || preset.label) : (preset.label_en || preset.label);
@@ -110,6 +125,20 @@ class WorkflowsPlusManager {
         this.justFinishedDrag = false;
         this.hoverExpandTimer = null;
         this.hoveredFolder = null;
+
+        // Render queue: a rebuild requested while the pointer is down is parked
+        // (see setupRenderQueue), because it would destroy the row being clicked.
+        this._renderPaused = false;
+        this._renderPending = false;
+        this._renderPausedAt = 0;
+        this._renderReleasing = false;
+        this._renderQueueAttached = false;
+        // Backup timer: a release event can be lost, and a parked render would wait for it.
+        this._renderFallbackTimer = 0;
+        // Last successful /api/qol/workflows/tree response, for loadTreeIfStale().
+        this._lastTreeLoadAt = 0;
+        // Ignore-window for writes we make to ComfyUI's own workflow store.
+        this._nativeWriteUntil = 0;
 
         // Floating hover preview state
         this.hoverCardEl = null;
@@ -1482,10 +1511,16 @@ class WorkflowsPlusManager {
                     const wfStore = pinia._s.get("workflow") || pinia._s.get("workflowDraft");
                     if (wfStore && typeof wfStore.$subscribe === "function" && !wfStore._qolSubscribed) {
                         wfStore.$subscribe((mutation, state) => {
+                            // Ignore the echo of syncNativeWorkflowLocation() writing to this
+                            // store ourselves: it is not a workflow change from ComfyUI's side.
+                            if (performance.now() < self._nativeWriteUntil) return;
                             const act = state?.activeWorkflow || wfStore?.activeWorkflow;
                             if (act) {
                                 const detected = act.path || act.filename || act.name || "";
-                                if (detected) self.setActiveWorkflow(detected, true);
+                                // autoFocus stays off. ComfyUI's own sidebar never scrolls on
+                                // the user's behalf, and clicking a workspace tab is already
+                                // handled with a scroll by the mousedown interceptor above.
+                                if (detected) self.setActiveWorkflow(detected, false);
                             }
                         });
                         wfStore._qolSubscribed = true;
@@ -1515,7 +1550,10 @@ class WorkflowsPlusManager {
                                 self.loadTree();
                                 self.detectActiveWorkflowFromUI();
                             }, 250);
-                            setTimeout(() => self.loadTree(), 1200);
+                            // Backstop for a slow backend write only. The 250ms pass above has
+                            // usually already fetched the change, and fetching it twice rebuilds
+                            // the tree twice.
+                            setTimeout(() => self.loadTreeIfStale(), 1200);
 
                             // 파일 저장 및 변경 시 실시간 동기화 트리거
                             if (res && res.ok) {
@@ -1539,7 +1577,8 @@ class WorkflowsPlusManager {
                     self.loadTree();
                     self.detectActiveWorkflowFromUI();
                 }, 400);
-                setTimeout(() => self.loadTree(), 1200);
+                // Same backstop as the fetch hook: only re-query if that pass missed it.
+                setTimeout(() => self.loadTreeIfStale(), 1200);
                 // 실시간 동기화: 단축키 저장 시 트리거 (Pinpoint 활성화)
                 setTimeout(() => {
                     const active = self.activeWorkflowPath;
@@ -1741,7 +1780,9 @@ class WorkflowsPlusManager {
             if (detected) {
                 const cleanDetected = detected.split("/").pop().replace(/\.json$/i, "").trim();
                 if (cleanDetected && cleanDetected !== this.activeWorkflowName) {
-                    this.setActiveWorkflow(detected, true);
+                    // Detection only labels the active row. The tree jumping to it behind the
+                    // user is reserved for an explicit focus action or a workspace tab click.
+                    this.setActiveWorkflow(detected, false);
                 }
             }
         } catch (e) { console.debug("[Bada] ignored:", e); }
@@ -1944,6 +1985,11 @@ class WorkflowsPlusManager {
 
         this.plusPanel = plusPanel;
 
+        // Both hooks live on #qol-tree-scroll itself, which renderPlusTree() never replaces,
+        // so a single setup survives every re-render of the rows inside it.
+        this.setupRowClickDelegation(plusPanel.querySelector("#qol-tree-scroll"));
+        this.setupRenderQueue();
+
         // Apply saved font size settings
         this.applyFontSize(this.fontSizeIndex, false);
 
@@ -2042,6 +2088,12 @@ class WorkflowsPlusManager {
         return plusPanel;
     }
 
+    /** loadTree(), unless a tree this fresh already arrived. */
+    async loadTreeIfStale(maxAgeMs = 1500) {
+        if (this._lastTreeLoadAt && performance.now() - this._lastTreeLoadAt < maxAgeMs) return null;
+        return this.loadTree();
+    }
+
     async loadTree() {
         try {
             await this.loadFavorites();
@@ -2050,6 +2102,7 @@ class WorkflowsPlusManager {
                 const data = await res.json();
                 if (data.success) {
                     this.treeData = data.tree;
+                    this._lastTreeLoadAt = performance.now();
 
                     if (this.activeWorkflowPath && this.activeWorkflowPath.includes("/")) {
                         const parts = this.activeWorkflowPath.split("/").slice(0, -1);
@@ -2189,6 +2242,10 @@ class WorkflowsPlusManager {
         if (!cleanName) return;
 
         const resolvedPath = this.resolveActiveWorkflowPath(pathOrName);
+        // One load reports the same workflow several times (the pinia subscription plus the
+        // tab-click retries). The highlight is already correct on those repeats, so only the
+        // first report is allowed to rebuild the tree the user may be clicking in.
+        const sameWorkflow = resolvedPath === this.activeWorkflowPath && cleanName === this.activeWorkflowName;
         this.activeWorkflowPath = resolvedPath;
         this.activeWorkflowName = cleanName;
         localStorage.setItem("qol_active_workflow_path", resolvedPath);
@@ -2209,7 +2266,9 @@ class WorkflowsPlusManager {
             focusBtn.classList.add("has-active");
         }
 
-        this.renderPlusTree();
+        if (!sameWorkflow) {
+            this.renderPlusTree();
+        }
 
         if (autoFocus) {
             setTimeout(() => this.scrollToActiveWorkflow(false), 50);
@@ -2225,12 +2284,17 @@ class WorkflowsPlusManager {
         const resolvedPath = this.resolveActiveWorkflowPath(this.activeWorkflowPath || this.activeWorkflowName);
         if (resolvedPath && resolvedPath.includes("/")) {
             const parts = resolvedPath.split("/").slice(0, -1);
+            const expandedBefore = this.expandedFolders.size;
             let acc = "";
             for (const p of parts) {
                 acc = acc ? `${acc}/${p}` : p;
                 this.expandedFolders.add(acc);
             }
-            this.renderPlusTree();
+            // Nothing was collapsed on the way to the active row in the common case, so the
+            // rows already exist and only the scroll is left to do.
+            if (this.expandedFolders.size !== expandedBefore) {
+                this.renderPlusTree();
+            }
         }
 
         setTimeout(() => {
@@ -2330,6 +2394,11 @@ class WorkflowsPlusManager {
             const slash = withExt.lastIndexOf("/");
             const baseName = (slash >= 0 ? withExt.slice(slash + 1) : withExt).replace(/\.json$/i, "");
             const directory = this.folderToDirectory(slash >= 0 ? withExt.slice(0, slash) : "");
+
+            // The write below trips our own pinia subscription. Open a short window so that
+            // echo cannot rebuild the tree and move the scroll right after the click that
+            // caused it; ComfyUI's own sidebar never does that on its own.
+            this._nativeWriteUntil = performance.now() + NATIVE_WRITE_SUPPRESS_MS;
 
             wf.directory = directory;
             wf.path = `workflows/${withExt}`;
@@ -3068,9 +3137,85 @@ class WorkflowsPlusManager {
         return badgesContainer;
     }
 
+    /**
+     * Parks rebuild requests for as long as a pointer is held down.
+     *
+     * renderPlusTree() throws away every row, so a rebuild that lands between mousedown and
+     * mouseup leaves Chromium with nothing to dispatch click on, and the press is lost without
+     * any error. That was the swallowed second click: loading a workflow notifies pinia, the
+     * subscription below rebuilds the tree, and the next press died inside the window it
+     * opened. Listening on the document in the capture phase is deliberate, because row
+     * handlers call stopPropagation() and would otherwise hide the press.
+     */
+    setupRenderQueue() {
+        if (this._renderQueueAttached) return;
+        this._renderQueueAttached = true;
+
+        const pause = () => {
+            this._renderPaused = true;
+            this._renderPausedAt = performance.now();
+            this._renderReleasing = false;
+        };
+        const release = () => this.releaseRenderQueue();
+
+        document.addEventListener("pointerdown", pause, true);
+        document.addEventListener("pointerup", release, true);
+        document.addEventListener("pointercancel", release, true);
+        window.addEventListener("blur", release);
+    }
+
+    /** Makes sure a parked rebuild happens even if its release event is never seen. */
+    armRenderFallback() {
+        if (this._renderFallbackTimer) return;
+        this._renderFallbackTimer = setTimeout(() => {
+            this._renderFallbackTimer = 0;
+            this.releaseRenderQueue();
+        }, RENDER_PAUSE_MAX_MS);
+    }
+
+    /** Replays one parked rebuild on the next frame, after this release delivered its click. */
+    releaseRenderQueue() {
+        if (!this._renderPaused || this._renderReleasing) return;
+        this._renderReleasing = true;
+        const openedAt = this._renderPausedAt;
+
+        const run = () => {
+            // A press started while this frame was in flight: keep waiting, or replaying now
+            // would destroy the row that press is going to click. The request stays parked.
+            if (this._renderPaused && this._renderPausedAt !== openedAt) {
+                this._renderReleasing = false;
+                this.armRenderFallback();
+                return;
+            }
+            if (this._renderFallbackTimer) {
+                clearTimeout(this._renderFallbackTimer);
+                this._renderFallbackTimer = 0;
+            }
+            this._renderReleasing = false;
+            this._renderPaused = false;
+            this._renderPausedAt = 0;
+            const pending = this._renderPending;
+            this._renderPending = false;
+            if (!pending) return;
+            this.renderPlusTree();
+            this.applySelectionHighlight();
+        };
+        if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
+        else setTimeout(run, 0);
+    }
+
     renderPlusTree() {
         const treeScroll = this.plusPanel?.querySelector("#qol-tree-scroll") || document.querySelector("#qol-tree-scroll");
         if (!treeScroll || !this.treeData) return;
+
+        // Held for a pointer that is still down (see setupRenderQueue). The cap is a safety
+        // net for a release that never arrived, not the normal path.
+        if (this._renderPaused && performance.now() - this._renderPausedAt < RENDER_PAUSE_MAX_MS) {
+            this._renderPending = true;
+            this.armRenderFallback();
+            return;
+        }
+        this._renderPending = false;
 
         treeScroll.innerHTML = "";
 
@@ -3163,10 +3308,7 @@ class WorkflowsPlusManager {
                     this.cancelHoverPreview();
                 });
 
-                // Click to load — Ctrl/Shift clicks only multi-select instead.
-                this.attachRowClickEvents(fileRow, "file", file.path, () => {
-                    this.loadWorkflowToCanvas(file.path);
-                });
+                // Click is delegated to #qol-tree-scroll; see setupRowClickDelegation.
 
                 // Context menu
                 fileRow.addEventListener("contextmenu", (e) => {
@@ -3286,15 +3428,7 @@ class WorkflowsPlusManager {
                 folderRow.appendChild(name);
                 folderRow.appendChild(countBadge);
 
-                // Expand/Collapse Click — Ctrl/Shift clicks only multi-select instead.
-                this.attachRowClickEvents(folderRow, "folder", folderNode.path, () => {
-                    if (this.expandedFolders.has(folderNode.path)) {
-                        this.expandedFolders.delete(folderNode.path);
-                    } else {
-                        this.expandedFolders.add(folderNode.path);
-                    }
-                    this.renderPlusTree();
-                });
+                // Expand/collapse is delegated to #qol-tree-scroll; see runRowDefaultAction.
 
                 // Drag & drop
                 this.attachRowDragEvents(folderRow, folderNode, "folder");
@@ -3372,10 +3506,7 @@ class WorkflowsPlusManager {
                     // Drag & drop
                     this.attachRowDragEvents(fileRow, file, "file");
 
-                    // Click to load — Ctrl/Shift clicks only multi-select instead.
-                    this.attachRowClickEvents(fileRow, "file", file.path, () => {
-                        this.loadWorkflowToCanvas(file.path);
-                    });
+                    // Click is delegated to #qol-tree-scroll; see setupRowClickDelegation.
 
                     // Context Menu
                     fileRow.addEventListener("contextmenu", (e) => {
@@ -4244,7 +4375,7 @@ class WorkflowsPlusManager {
      * some of its own children looks like a bug: the children are dragged out of the
      * folder while the folder itself is dragged too.
      */
-    handleRowClick(e, kind, path, runDefaultAction) {
+    handleRowClick(e, kind, path) {
         e.stopPropagation();
         if (this.justFinishedDrag) return;
 
@@ -4270,11 +4401,54 @@ class WorkflowsPlusManager {
         }
 
         this.setSelection([key], key);
-        if (runDefaultAction) runDefaultAction();
+        this.runRowDefaultAction(kind, path);
     }
 
-    attachRowClickEvents(rowEl, kind, path, runDefaultAction) {
-        rowEl.addEventListener("click", (e) => this.handleRowClick(e, kind, path, runDefaultAction));
+    /**
+     * Default action for a row: folders expand and collapse, files load onto the canvas.
+     *
+     * This used to arrive as a closure from the render pass, which only made sense while every
+     * row owned its own listener. With one delegated listener the action belongs to the row,
+     * so it is rebuilt from the same data-path / data-kind the selection logic reads.
+     */
+    runRowDefaultAction(kind, path) {
+        if (kind === "folder") {
+            if (this.expandedFolders.has(path)) {
+                this.expandedFolders.delete(path);
+            } else {
+                this.expandedFolders.add(path);
+            }
+            this.renderPlusTree();
+            return;
+        }
+        this.loadWorkflowToCanvas(path);
+    }
+
+    /**
+     * One click listener for the whole tree, bound to the scroller instead of to each row.
+     *
+     * renderPlusTree() throws away every row, so a per-row listener could be attached to an
+     * element that no longer exists by the time the pointer was released, and Chromium then had
+     * nothing left to dispatch click on. The scroller is never replaced, so a press always
+     * resolves, and the row it landed on is read from the event path.
+     *
+     * Badges and the favorite star keep their own listeners and call stopPropagation(), so they
+     * still never reach this and never load a workflow.
+     */
+    setupRowClickDelegation(scroller) {
+        if (!scroller || scroller._qolClickDelegated) return;
+        scroller._qolClickDelegated = true;
+
+        scroller.addEventListener("click", (e) => {
+            const row = e.target.closest(".qol-file-row, .qol-folder-row");
+            if (!row || !scroller.contains(row)) return;
+
+            const path = row.getAttribute("data-path");
+            if (!path) return;
+
+            const kind = row.getAttribute("data-kind") === "folder" ? "folder" : "file";
+            this.handleRowClick(e, kind, path);
+        });
     }
 
     setupMultiSelect() {
