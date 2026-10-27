@@ -24,6 +24,34 @@ const FONT_SIZE_PRESETS = [
     { label: "아주 크게 (A⁺⁺ - 18px)", label_ko: "아주 크게 (A⁺⁺ - 18px)", label_en: "Extra Large (A⁺⁺ - 18px)", icon: "A⁺⁺", name: "xlarge", fontSize: "18px", folderHeight: "38px", fileHeight: "37px", folderIcon: "19.5px", fileIcon: "18.5px", badgeFont: "13px", badgeHeight: "22px", chevron: "13px" }
 ];
 
+/**
+ * Drag/click discrimination for the workflow tree.
+ *
+ * A plain click never lands perfectly still: a normal press that drifts 5-9px used to
+ * cross the old 4px threshold, which put the row into drag mode and started edge
+ * auto-scroll at full speed. The click was then swallowed by the drag guard and the tree
+ * slammed to its bottom. 10px sits above normal click jitter and still well below the
+ * distance of an intentional drag.
+ */
+const DRAG_START_PX = 10;
+
+/** How long a finished drag keeps swallowing the trailing click event, in ms. */
+const DRAG_CLICK_GUARD_MS = 70;
+
+/**
+ * Consecutive frames the pointer must stay inside an edge band before auto-scroll may move
+ * the tree. A single frame inside a band (~16ms, e.g. a click ending near an edge) must
+ * never scroll; once armed, the added delay is only ~33ms.
+ */
+const AUTO_SCROLL_ARM_FRAMES = 2;
+
+/**
+ * A native sidebar click reports success even when nothing loaded, so the requested path is
+ * confirmed against ComfyUI's own workflow store before the sidebar skips its loader.
+ */
+const NATIVE_LOAD_VERIFY_MS = 500;
+const NATIVE_LOAD_POLL_MS = 20;
+
 function getPresetLabel(preset) {
     if (!preset) return "";
     return BadaI18n.lang === "ko" ? (preset.label_ko || preset.label) : (preset.label_en || preset.label);
@@ -1314,6 +1342,11 @@ class WorkflowsPlusManager {
     startAutoScroll(treeScroll) {
         if (this.scrollAnimId) return;
 
+        // Edge auto-scroll is armed only after the pointer has held inside a band for
+        // AUTO_SCROLL_ARM_FRAMES consecutive frames - see the constant. Band geometry and
+        // speed are unchanged, so a real drag feels the same.
+        let armedFrames = 0;
+
         const checkScroll = () => {
             if (!this.isCustomDragging || this.lastMouseY === null || !treeScroll) {
                 this.scrollAnimId = null;
@@ -1325,21 +1358,32 @@ class WorkflowsPlusManager {
             const topThreshold = rect.top + 55;
             const bottomThreshold = rect.bottom - 55;
 
+            let direction = 0;
+            let speed = 0;
+
             if (y < topThreshold && y >= rect.top - 60) {
                 // Near top edge of tree view: scroll UP
                 const intensity = Math.min(1, Math.max(0.15, (topThreshold - y) / 55));
-                const speed = Math.max(3, Math.round(intensity * 18));
-                treeScroll.scrollTop -= speed;
-                this.scrollAnimId = requestAnimationFrame(checkScroll);
+                direction = -1;
+                speed = Math.max(3, Math.round(intensity * 18));
             } else if (y > bottomThreshold && y <= rect.bottom + 60) {
                 // Near bottom edge of tree view: scroll DOWN
                 const intensity = Math.min(1, Math.max(0.15, (y - bottomThreshold) / 55));
-                const speed = Math.max(3, Math.round(intensity * 18));
-                treeScroll.scrollTop += speed;
-                this.scrollAnimId = requestAnimationFrame(checkScroll);
-            } else {
-                this.scrollAnimId = null;
+                direction = 1;
+                speed = Math.max(3, Math.round(intensity * 18));
             }
+
+            if (direction === 0) {
+                armedFrames = 0;
+                this.scrollAnimId = null;
+                return;
+            }
+
+            armedFrames += 1;
+            if (armedFrames >= AUTO_SCROLL_ARM_FRAMES) {
+                treeScroll.scrollTop += direction * speed;
+            }
+            this.scrollAnimId = requestAnimationFrame(checkScroll);
         };
 
         this.scrollAnimId = requestAnimationFrame(checkScroll);
@@ -2032,7 +2076,8 @@ class WorkflowsPlusManager {
             const cleanRelPath = workflowPath.replace(/\\/g, "/").replace(/^[/\\]+/, "").trim();
             const filename = cleanRelPath.split("/").pop().replace(/\.json$/i, "");
 
-            let nativeLoaded = false;
+            // Whether a native sidebar row was clicked - not whether anything loaded.
+            let nativeClicked = false;
             try {
                 const nativeSidebar = document.querySelector(".side-bar-panel, .workflows-panel, [aria-label='Workflows']");
                 if (nativeSidebar) {
@@ -2043,7 +2088,7 @@ class WorkflowsPlusManager {
                         if (labelText && (labelText === filename || labelText === `${filename}.json` || labelText === cleanRelPath)) {
                             const clickTarget = node.querySelector(".p-treenode-content, .p-tree-node-content, button, span") || node;
                             clickTarget.click();
-                            nativeLoaded = true;
+                            nativeClicked = true;
                             break;
                         }
                     }
@@ -2052,7 +2097,13 @@ class WorkflowsPlusManager {
                 console.warn("[QoL-Utils] Native node click check:", e);
             }
 
-            if (!nativeLoaded) {
+            // A click only looks successful: the native sidebar is virtualized, so a label
+            // can match a row that is not rendered or interactive and nothing loads.
+            // Confirm it against the workflow ComfyUI itself has open before trusting it -
+            // otherwise the loader below is skipped and a no-op reports success.
+            const nativeVerified = nativeClicked && await this.verifyNativeWorkflowLoad(cleanRelPath);
+
+            if (!nativeVerified) {
                 const res = await fetch(`/api/qol/workflows/content?path=${encodeURIComponent(workflowPath)}`);
                 if (!res.ok) throw new Error("워크플로우 파일을 읽을 수 없습니다.");
                 const json = await res.json();
@@ -2069,6 +2120,11 @@ class WorkflowsPlusManager {
                 } else {
                     throw new Error(json.error || "불러오기 실패");
                 }
+
+                // The canvas now shows this file, but ComfyUI still believes the previously
+                // active workflow is open, so the next Ctrl+S would save this graph over an
+                // unrelated workflow. Re-align the native identity with the loaded file.
+                this.syncNativeWorkflowLocation(cleanRelPath);
             }
 
             this.setActiveWorkflow(workflowPath, false);
@@ -2181,7 +2237,7 @@ class WorkflowsPlusManager {
             const activeNodes = document.querySelectorAll(".qol-file-row.active-workflow");
             if (activeNodes.length > 0) {
                 const targetNode = activeNodes[activeNodes.length - 1] || activeNodes[0];
-                targetNode.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                this.scrollTreeToNode(targetNode);
                 if (showToast) {
                     activeNodes.forEach(node => {
                         node.classList.add("qol-moved-success");
@@ -2193,6 +2249,132 @@ class WorkflowsPlusManager {
                 this.showToast(BadaI18n.lang === "ko" ? `현재 작업: '${this.activeWorkflowName}'` : `Active: '${this.activeWorkflowName}'`);
             }
         }, 40);
+    }
+
+    /**
+     * The workflow ComfyUI itself has open, or null when the store is unreachable.
+     * Same pinia lookup as detectActiveWorkflowFromUI(); this only hands back the object so
+     * the sidebar can compare paths instead of guessing from the DOM.
+     */
+    getNativeActiveWorkflow() {
+        try {
+            const appEls = [
+                document.querySelector("#vue-app"),
+                document.querySelector("#app"),
+                document.querySelector(".comfy-vue-app"),
+                document.body
+            ];
+            let pinia = window.__pinia ||
+                window.__VUE_DEVTOOLS_GLOBAL_HOOK__?.apps?.[0]?.config?.globalProperties?.$pinia;
+            if (!pinia) {
+                for (const el of appEls) {
+                    if (el?.__vue_app__?.config?.globalProperties?.$pinia) {
+                        pinia = el.__vue_app__.config.globalProperties.$pinia;
+                        break;
+                    }
+                }
+            }
+            if (!pinia?._s) return null;
+            const wfStore = pinia._s.get("workflow") || pinia._s.get("workflowDraft") || pinia._s.get("workspace");
+            return wfStore?.activeWorkflow || null;
+        } catch (e) { console.debug("[Bada] ignored:", e); return null; }
+    }
+
+    /**
+     * True when a native workflow path and a sidebar-relative path mean the same file.
+     * Deliberately an exact compare after normalizePath(): a false "already loaded" would
+     * skip the backend loader and leave a different workflow on the canvas.
+     */
+    isSameWorkflowPath(nativePath, sidebarPath) {
+        const keyOf = (value) => this.normalizePath(value).replace(/\.json$/i, "").trim().toLowerCase();
+        const left = keyOf(nativePath);
+        return !!left && left === keyOf(sidebarPath);
+    }
+
+    /**
+     * Confirms that a native sidebar click really changed the loaded workflow.
+     * Resolves as soon as the store reports the requested path, and immediately when that
+     * workflow was already active. A timeout is not an error: the caller then loads the file
+     * through the backend, the same path used when the native tree has no matching row.
+     */
+    async verifyNativeWorkflowLoad(cleanRelPath, timeoutMs = NATIVE_LOAD_VERIFY_MS) {
+        const deadline = performance.now() + timeoutMs;
+        while (true) {
+            const wf = this.getNativeActiveWorkflow();
+            const nativePath = wf ? (wf.path || wf.filename || wf.name || "") : "";
+            if (this.isSameWorkflowPath(nativePath, cleanRelPath)) return true;
+            if (performance.now() >= deadline) return false;
+            await new Promise((resolve) => setTimeout(resolve, NATIVE_LOAD_POLL_MS));
+        }
+    }
+
+    /**
+     * Re-points the native workflow identity after the sidebar loaded a file by itself.
+     *
+     * loadGraphData() paints the canvas but leaves ComfyUI's store pointing at whatever was
+     * active before, so the next Ctrl+S would write this graph into that other file. The
+     * native sidebar click used to be what kept the two in sync; when it never happened,
+     * nothing did. path/directory/name are exactly what the native save path is built from
+     * (directory + "/" + name + ".json"). Failure is non-fatal: the sidebar keeps its own
+     * active-workflow bookkeeping.
+     */
+    syncNativeWorkflowLocation(cleanRelPath) {
+        try {
+            const wf = this.getNativeActiveWorkflow();
+            if (!wf) return false;
+
+            const rel = this.normalizePath(cleanRelPath);
+            if (!rel || this.isSameWorkflowPath(wf.path, rel)) return false;
+
+            const withExt = /\.json$/i.test(rel) ? rel : `${rel}.json`;
+            const slash = withExt.lastIndexOf("/");
+            const baseName = (slash >= 0 ? withExt.slice(slash + 1) : withExt).replace(/\.json$/i, "");
+            const directory = this.folderToDirectory(slash >= 0 ? withExt.slice(0, slash) : "");
+
+            wf.directory = directory;
+            wf.path = `workflows/${withExt}`;
+            if ("name" in wf) wf.name = baseName;
+            console.info("[BadaUtils] Native workflow identity re-pointed to", wf.path);
+            return true;
+        } catch (e) {
+            console.debug("[Bada] native identity re-point skipped:", e);
+            return false;
+        }
+    }
+
+    /**
+     * Scrolls only #qol-tree-scroll so the focused row becomes visible.
+     *
+     * scrollIntoView() walks up every scrollable ancestor, and the tree nests inside further
+     * scrolling containers, so "locate active workflow" also moved the page behind the panel
+     * - the jump looked like the tree scrolling on its own. Only the tree's own scroller is
+     * touched here, so nothing outside it can move.
+     */
+    scrollTreeToNode(targetNode) {
+        if (!targetNode) return;
+
+        const scroller = this.plusPanel?.querySelector("#qol-tree-scroll") || document.querySelector("#qol-tree-scroll");
+        if (!scroller || scroller.scrollHeight <= scroller.clientHeight) return;
+
+        const nodeRect = targetNode.getBoundingClientRect();
+        const scrollerRect = scroller.getBoundingClientRect();
+        const edgePad = 8;
+
+        let delta = 0;
+        if (nodeRect.top < scrollerRect.top + edgePad) {
+            delta = nodeRect.top - scrollerRect.top - edgePad;
+        } else if (nodeRect.bottom > scrollerRect.bottom - edgePad) {
+            delta = nodeRect.bottom - scrollerRect.bottom + edgePad;
+        }
+        if (delta === 0) return;
+
+        const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        const top = Math.max(0, Math.min(maxTop, scroller.scrollTop + delta));
+        if (typeof scroller.scrollTo === "function") {
+            scroller.scrollTo({ top, behavior: "smooth" });
+        } else {
+            scroller.scrollTop = top;
+        }
     }
 
     cycleFontSize() {
@@ -2663,7 +2845,7 @@ class WorkflowsPlusManager {
             const onMouseMove = (moveEv) => {
                 const dist = Math.hypot(moveEv.clientX - startX, moveEv.clientY - startY);
 
-                if (!hasMoved && dist > 4) {
+                if (!hasMoved && dist > DRAG_START_PX) {
                     hasMoved = true;
                     this.isCustomDragging = true;
                     this.draggedPath = itemPath;
@@ -2809,7 +2991,14 @@ class WorkflowsPlusManager {
                 if (this.isCustomDragging) {
                     this.isCustomDragging = false;
                     this.justFinishedDrag = true;
-                    setTimeout(() => { this.justFinishedDrag = false; }, 200);
+                    // Sequence guard: the browser fires click immediately after mouseup, so
+                    // the guard only has to outlast that. A stale timer from an earlier drag
+                    // must not release the guard while a newer drag still owns it.
+                    const dragGuardSeq = (this.dragGuardSeq || 0) + 1;
+                    this.dragGuardSeq = dragGuardSeq;
+                    setTimeout(() => {
+                        if (this.dragGuardSeq === dragGuardSeq) this.justFinishedDrag = false;
+                    }, DRAG_CLICK_GUARD_MS);
 
                     if (targetFolder !== null && targetFolder !== undefined) {
                         const carried = this.resolveDragEntries(kind, itemPath);
