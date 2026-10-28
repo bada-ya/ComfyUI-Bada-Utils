@@ -33,91 +33,91 @@ import { BadaI18n } from "./bada_i18n.js";
 
 // Exact 7 Models matching bada-ya.github.io
 const EXACT_MODELS = [
-    { id: "gemini-3.5-flash-lite", name: "🚀 Gemini 3.5 Flash-Lite (권장 ⭐)", name_en: "🚀 Gemini 3.5 Flash-Lite (Recommended ⭐)", desc: "1,500회/일 • 최신 초고속 영작/실시간 챗", desc_en: "1,500 RPD • Ultra Fast / Live Chat" },
-    { id: "gemini-3.6-flash", name: "⚡ Gemini 3.6 Flash", name_en: "⚡ Gemini 3.6 Flash", desc: "1,500회/일 • 표준 올라운더 Flash", desc_en: "1,500 RPD • Standard Flash Output" },
-    { id: "gemini-3.8-flash", name: "🌟 Gemini 3.8 Flash", name_en: "🌟 Gemini 3.8 Flash", desc: "1,500회/일 • 최신 고성능 Flash", desc_en: "1,500 RPD • High Performance Flash" },
+    { id: "gemini-3.5-flash-lite", nameKey: "gemini_model_flash_lite_name", descKey: "gemini_model_flash_lite_desc" },
+    { id: "gemini-3.6-flash", nameKey: "gemini_model_36_name", descKey: "gemini_model_36_desc" },
+    { id: "gemini-3.8-flash", nameKey: "gemini_model_38_name", descKey: "gemini_model_38_desc" },
 ];
 
 // 8 Engine Tabs Specification (2-row layout: row1 KREA/QWEN/MiniMax/LTX/FLUX3/MOSS, row2 system/uncensored)
 const ENGINES = [
-    { id: "krea", name: "KREA 2", name_en: "KREA 2", tag: "Photorealism", tag_en: "Photorealism", color: "#10b981", row: 1 },
-    { id: "qwen21", name: "QWEN2.1", name_en: "QWEN2.1", tag: "Image Prompt Enhancer", tag_en: "Image Prompt Enhancer", color: "#f59e0b", row: 1 },
-    { id: "minimax", name: "MiniMax H3", name_en: "MiniMax H3", tag: "Omni-Modal Video", tag_en: "Omni-Modal Video", color: "#6366f1", row: 1 },
-    { id: "ltx", name: "LTX-Video", name_en: "LTX-Video", tag: "6-Element DiT", tag_en: "6-Element DiT", color: "#06b6d4", row: 1 },
-    { id: "flux3", name: "FLUX3", name_en: "FLUX3", tag: "FLUX3 Klein", tag_en: "FLUX3 Klein", color: "#f472b6", row: 1 },
-    { id: "moss", name: "MOSS", name_en: "MOSS", tag: "MOSS-Image-SFT", tag_en: "MOSS-Image-SFT", color: "#a3e635", row: 1 },
-    { id: "system_prompt", name: "📜 시스템", name_en: "📜 System", tag: "사용자 시스템 프롬프트", tag_en: "Custom System Prompt", color: "#38bdf8", row: 2 },
-    { id: "uncensored", name: "🔞 제미나이", name_en: "🔞 Gemini", tag: "Zero-Refusal Uncensored Chat", tag_en: "Zero-Refusal Uncensored Chat", color: "#a855f7", row: 2 },
+    { id: "krea", nameKey: "gemini_engine_krea_name", tagKey: "gemini_engine_krea_tag", color: "#10b981", row: 1 },
+    { id: "qwen21", nameKey: "gemini_engine_qwen21_name", tagKey: "gemini_engine_qwen21_tag", color: "#f59e0b", row: 1 },
+    { id: "minimax", nameKey: "gemini_engine_minimax_name", tagKey: "gemini_engine_minimax_tag", color: "#6366f1", row: 1 },
+    { id: "ltx", nameKey: "gemini_engine_ltx_name", tagKey: "gemini_engine_ltx_tag", color: "#06b6d4", row: 1 },
+    { id: "flux3", nameKey: "gemini_engine_flux3_name", tagKey: "gemini_engine_flux3_tag", color: "#f472b6", row: 1 },
+    { id: "moss", nameKey: "gemini_engine_moss_name", tagKey: "gemini_engine_moss_tag", color: "#a3e635", row: 1 },
+    { id: "system_prompt", nameKey: "gemini_engine_system_prompt_name", tagKey: "gemini_engine_system_prompt_tag", color: "#38bdf8", row: 2 },
+    { id: "uncensored", nameKey: "gemini_engine_uncensored_name", tagKey: "gemini_engine_uncensored_tag", color: "#a855f7", row: 2 },
 ];
 
 // Output frame (aspect ratio) choices — "" means "let the AI decide".
 // Keep in sync with server/gemini_api.py::ASPECT_RATIO_CHOICES
 const ASPECT_RATIOS = [
-    { id: "", label: "자동", label_en: "Auto" },
-    { id: "1:1", label: "1:1", label_en: "1:1" },
-    { id: "3:2", label: "3:2", label_en: "3:2" },
-    { id: "2:3", label: "2:3", label_en: "2:3" },
-    { id: "4:3", label: "4:3", label_en: "4:3" },
-    { id: "3:4", label: "3:4", label_en: "3:4" },
-    { id: "5:4", label: "5:4", label_en: "5:4" },
-    { id: "4:5", label: "4:5", label_en: "4:5" },
-    { id: "16:9", label: "16:9", label_en: "16:9" },
-    { id: "9:16", label: "9:16", label_en: "9:16" },
-    { id: "21:9", label: "21:9", label_en: "21:9" },
-    { id: "9:21", label: "9:21", label_en: "9:21" },
-    { id: "2:1", label: "2:1", label_en: "2:1" },
-    { id: "1:2", label: "1:2", label_en: "1:2" },
+    { id: "", labelKey: "gemini_aspect_auto" },
+    { id: "1:1", label: "1:1" },
+    { id: "3:2", label: "3:2" },
+    { id: "2:3", label: "2:3" },
+    { id: "4:3", label: "4:3" },
+    { id: "3:4", label: "3:4" },
+    { id: "5:4", label: "5:4" },
+    { id: "4:5", label: "4:5" },
+    { id: "16:9", label: "16:9" },
+    { id: "9:16", label: "9:16" },
+    { id: "21:9", label: "21:9" },
+    { id: "9:21", label: "9:21" },
+    { id: "2:1", label: "2:1" },
+    { id: "1:2", label: "1:2" },
 ];
 
 // MiniMax H3 Submodes
 const MINIMAX_SUBMODES = [
-    { id: "ref2va", name: "Ref2VA", tag: "전체 참조", tag_en: "Full Ref", desc: "인물/의상/사물/동작/사운드 통합 연출", desc_en: "Character, attire, motion & audio direction" },
-    { id: "t2va", name: "T2VA", tag: "텍스트", tag_en: "Text", desc: "텍스트 프롬프트 기반 24fps 비디오+오디오 생성", desc_en: "24fps video + audio from text prompt" },
-    { id: "i2va", name: "I2VA", tag: "첫 프레임", tag_en: "First Frame", desc: "첫 이미지로부터 유기적 물리 동작 전개", desc_en: "Organic motion expanding from first image" },
-    { id: "fl2va", name: "FL2VA", tag: "첫-끝 루프", tag_en: "First-Last Loop", desc: "시작 프레임과 끝 프레임을 잇는 시퀀스", desc_en: "Seamless transition between start & end frames" },
-    { id: "l2va", name: "L2VA", tag: "끝 착륙", tag_en: "End Target", desc: "지정된 마지막 프레임 이미지로 역산 수렴", desc_en: "Reverse motion converging to final frame" },
+    { id: "ref2va", nameKey: "gemini_submode_minimax_ref2va_name", tagKey: "gemini_submode_minimax_ref2va_tag", descKey: "gemini_submode_minimax_ref2va_desc" },
+    { id: "t2va", nameKey: "gemini_submode_minimax_t2va_name", tagKey: "gemini_submode_minimax_t2va_tag", descKey: "gemini_submode_minimax_t2va_desc" },
+    { id: "i2va", nameKey: "gemini_submode_minimax_i2va_name", tagKey: "gemini_submode_minimax_i2va_tag", descKey: "gemini_submode_minimax_i2va_desc" },
+    { id: "fl2va", nameKey: "gemini_submode_minimax_fl2va_name", tagKey: "gemini_submode_minimax_fl2va_tag", descKey: "gemini_submode_minimax_fl2va_desc" },
+    { id: "l2va", nameKey: "gemini_submode_minimax_l2va_name", tagKey: "gemini_submode_minimax_l2va_tag", descKey: "gemini_submode_minimax_l2va_desc" },
 ];
 
 // LTX-Video Submodes
 const LTX_SUBMODES = [
-    { id: "ltx_2_5", name: "LTX 2.5", tag: "6요소 DiT", tag_en: "6-Element DiT", desc: "샷, 조명, 액션, 인물, 카메라, 사운드 6대 요소 결합", desc_en: "Shot, light, action, character, camera, sound" },
-    { id: "ltx_t2v", name: "LTX T2V", tag: "텍스트 모션", tag_en: "Text Motion", desc: "텍스트 서술 기반 24fps 시네마틱 프롬프트", desc_en: "Text-driven 24fps cinematic motion prompt" },
-    { id: "ltx_i2v", name: "LTX I2V", tag: "첫 프레임", tag_en: "First Frame", desc: "첫 프레임 이미지 기반 모션 역동성 확장", desc_en: "Dynamic motion extension from initial frame" },
-    { id: "voice_audio", name: "Voice & Audio", tag: "대사/음향", tag_en: "Voice & Audio", desc: "캐릭터 음성 대사 및 배경 앰비언스 사운드 동기화", desc_en: "Dialogue synchronization & atmospheric sound" },
-    { id: "camera_master", name: "Camera Master", tag: "3D 카메라", tag_en: "3D Camera", desc: "35mm 아나모픽 렌즈, 슬로우 돌리 인/아웃, 3D 카메라 궤적", desc_en: "35mm anamorphic, dolly in/out, 3D camera trajectory" },
+    { id: "ltx_2_5", nameKey: "gemini_submode_ltx_2_5_name", tagKey: "gemini_submode_ltx_2_5_tag", descKey: "gemini_submode_ltx_2_5_desc" },
+    { id: "ltx_t2v", nameKey: "gemini_submode_ltx_t2v_name", tagKey: "gemini_submode_ltx_t2v_tag", descKey: "gemini_submode_ltx_t2v_desc" },
+    { id: "ltx_i2v", nameKey: "gemini_submode_ltx_i2v_name", tagKey: "gemini_submode_ltx_i2v_tag", descKey: "gemini_submode_ltx_i2v_desc" },
+    { id: "voice_audio", nameKey: "gemini_submode_ltx_voice_audio_name", tagKey: "gemini_submode_ltx_voice_audio_tag", descKey: "gemini_submode_ltx_voice_audio_desc" },
+    { id: "camera_master", nameKey: "gemini_submode_ltx_camera_master_name", tagKey: "gemini_submode_ltx_camera_master_tag", descKey: "gemini_submode_ltx_camera_master_desc" },
 ];
 
 // KREA 2 Submodes & Presets
 // 주의: `id` 는 localStorage 호환을 위해 절대 바꾸지 않는다 (general / storyboard).
 const KREA_SUBMODES = [
-    { id: "general", name: "🖼️ T2I · 이미지 분석", name_en: "🖼️ T2I · Image Analysis", desc: "KREA 2 포토리얼 화풍 렌더링", desc_en: "KREA 2 photorealism rendering" },
-    { id: "storyboard", name: "🎞️ 스토리보드", name_en: "🎞️ Storyboard", desc: "연속 컷 시퀀스 분할 생성", desc_en: "Sequential cut storyboard prompts" },
+    { id: "general", nameKey: "gemini_submode_krea_general_name", descKey: "gemini_submode_krea_general_desc" },
+    { id: "storyboard", nameKey: "gemini_submode_krea_storyboard_name", descKey: "gemini_submode_krea_storyboard_desc" },
 ];
 
 // 주의: `id` 는 localStorage 호환을 위해 절대 바꾸지 않는다 (t2i / i2i).
 const QWEN_SUBMODES = [
-    { id: "t2i", name: "🖼️ T2I · 이미지 분석", name_en: "🖼️ T2I · Image Analysis", desc: "텍스트 기반 이미지 프롬프트 강화", desc_en: "Text-to-image prompt enhancement" },
-    { id: "i2i", name: "🪄 I2I (편집)", name_en: "🪄 I2I (Edit)", desc: "참조 이미지를 바탕으로 편집 프롬프트 생성", desc_en: "Image-edit prompt from reference images" },
+    { id: "t2i", nameKey: "gemini_submode_qwen_t2i_name", descKey: "gemini_submode_qwen_t2i_desc" },
+    { id: "i2i", nameKey: "gemini_submode_qwen_i2i_name", descKey: "gemini_submode_qwen_i2i_desc" },
 ];
 
 // FLUX3 Submodes — engines_registry.json targets[flux3].submenus 와 1:1 대응 (t2i / i2i).
 const FLUX3_SUBMODES = [
-    { id: "t2i", name: "🖼️ T2I · 이미지 분석", name_en: "🖼️ T2I · Image Analysis", desc: "FLUX3 Klein 상세 묘사 확장", desc_en: "FLUX3 Klein detailed prompt expansion" },
-    { id: "i2i", name: "🪄 I2I (편집)", name_en: "🪄 I2I (Edit)", desc: "참조 이미지 기반 정밀 편집 프롬프트", desc_en: "Precise edit prompt from reference images" },
+    { id: "t2i", nameKey: "gemini_submode_flux3_t2i_name", descKey: "gemini_submode_flux3_t2i_desc" },
+    { id: "i2i", nameKey: "gemini_submode_flux3_i2i_name", descKey: "gemini_submode_flux3_i2i_desc" },
 ];
 
 // MOSS Submodes — engines_registry.json targets[moss].submenus 와 1:1 대응 (t2i / i2i).
 const MOSS_SUBMODES = [
-    { id: "t2i", name: "🖼️ T2I · 이미지 분석", name_en: "🖼️ T2I · Image Analysis", desc: "MOSS 서사형 장면 묘사 확장", desc_en: "MOSS narrative scene expansion" },
-    { id: "i2i", name: "🪄 I2I (편집)", name_en: "🪄 I2I (Edit)", desc: "참조 이미지 기반 구조화 편집 프롬프트", desc_en: "Structured edit prompt from reference images" },
+    { id: "t2i", nameKey: "gemini_submode_moss_t2i_name", descKey: "gemini_submode_moss_t2i_desc" },
+    { id: "i2i", nameKey: "gemini_submode_moss_i2i_name", descKey: "gemini_submode_moss_i2i_desc" },
 ];
 
 // Gem Personas for Uncensored Gemini Chat
 const GEM_PERSONAS_LIST = [
-    { id: "universal", name: "⚡ 만능 무검열 제미나이", name_en: "⚡ All-Round Uncensored Gemini" },
-    { id: "cinematic_director", name: "🎬 시네마틱 프롬프트 디렉터", name_en: "🎬 Cinematic Prompt Director" },
-    { id: "fashion_lookbook", name: "👗 하이패션 & 룩북 마스터", name_en: "👗 High-Fashion & Lookbook Master" },
-    { id: "scenario_writer", name: "🧠 심층 기획 & 시나리오 작가", name_en: "🧠 Deep Scenario & Narrative Writer" },
+    { id: "universal", nameKey: "gemini_persona_universal_name" },
+    { id: "cinematic_director", nameKey: "gemini_persona_cinematic_director_name" },
+    { id: "fashion_lookbook", nameKey: "gemini_persona_fashion_lookbook_name" },
+    { id: "scenario_writer", nameKey: "gemini_persona_scenario_writer_name" },
 ];
 
 // ============================================================================
@@ -184,29 +184,19 @@ function composePlaceholder(layers) {
 }
 
 // ── 이미지 분석 안내 (KREA2 일반 · QWEN2.1 T2I 공통) ─────────────────────────
-function imageAnalysisHint(isKo) {
-    return isKo
-        ? [
-            "🖼️ 이미지만 첨부하면 이미지를 분석해 프롬프트를 생성합니다.",
-            "🖼️ 이미지 첨부(최대 1장)와 요청사항을 텍스트로 입력하면 함께 반영하여 프롬프트를 생성합니다.",
-        ]
-        : [
-            "🖼️ Attach an image only and the prompt is generated from analyzing it.",
-            "🖼️ Attach an image (up to 1) plus a text request and both are combined into the prompt.",
-        ];
+function imageAnalysisHint() {
+    return [
+        BadaI18n.t("gemini_hint_image_only"),
+        BadaI18n.t("gemini_hint_image_and_text"),
+    ];
 }
 
 // ── 다중 참조 이미지 안내 (QWEN2.1 I2I) ─────────────────────────────────────
-function multiImageHint(isKo) {
-    return isKo
-        ? [
-            "🪄 참조 이미지는 최대 6장까지 첨부할 수 있습니다.",
-            "📐 참고 이미지는 전송 효율을 위해 자동으로 1024px로 리사이즈되어 전송된 후 분석됩니다.",
-        ]
-        : [
-            "🪄 Up to 6 reference images can be attached.",
-            "📐 Reference images are automatically resized to 1024px for efficient transmission, then analyzed.",
-        ];
+function multiImageHint() {
+    return [
+        BadaI18n.t("gemini_hint_multi_images"),
+        BadaI18n.t("gemini_hint_multi_resize"),
+    ];
 }
 
 app.registerExtension({
@@ -275,7 +265,6 @@ app.registerExtension({
             let isTranslate = localStorage.getItem("bada_is_translate") !== "false";
             let aspectRatio = localStorage.getItem("bada_aspect_ratio") || "";
             if (!ASPECT_RATIOS.some(ratio => ratio.id === aspectRatio)) aspectRatio = "";
-            let isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
 
             let uploadedImages = [];
             let isGenerating = false;
@@ -340,10 +329,10 @@ let refreshChatLengthNotice = () => {};
             // 1024 matches IMAGE_ANALYSIS_MAX_EDGE, i.e. what the model already sees, so it
             // is the default and costs nothing in answer quality.
             const CHAT_IMAGE_SAVE_OPTIONS = {
-                original: { edge: 0, label: "원본", approx: "1~8 MB" },
-                large: { edge: 2048, label: "2048px", approx: "~350 KB" },
-                small: { edge: 1024, label: "1024px", approx: "~100 KB" },
-                none: { edge: -1, label: "저장 안 함", approx: "0 KB" },
+                original: { edge: 0, labelKey: "gemini_chat_image_original", approx: "1~8 MB" },
+                large: { edge: 2048, labelKey: "gemini_chat_image_2048", approx: "~350 KB" },
+                small: { edge: 1024, labelKey: "gemini_chat_image_1024", approx: "~100 KB" },
+                none: { edge: -1, labelKey: "gemini_chat_image_none", approx: "0 KB" },
             };
             let chatImageSaveMode = localStorage.getItem("bada_gem_chat_image_mode") || "small";
             if (!CHAT_IMAGE_SAVE_OPTIONS[chatImageSaveMode]) chatImageSaveMode = "small";
@@ -373,11 +362,11 @@ let refreshChatLengthNotice = () => {};
                     <div class="bada-error-modal-header">
                         <div class="bada-error-modal-title">
                             <span>🔔</span>
-                            <span id="bada-err-title">${isKo ? "오류 알림 내역" : "Error Notification Log"}</span>
+                            <span id="bada-err-title">${BadaI18n.t("gemini_error_log_title")}</span>
                         </div>
                         <div class="bada-error-modal-actions">
-                            <button type="button" id="bada-err-clear-btn" class="bada-error-modal-btn">🗑️ ${isKo ? "비우기" : "Clear"}</button>
-                            <button type="button" id="bada-err-close-btn" class="bada-error-modal-close" title="${isKo ? "닫기" : "Close"}">✖️</button>
+                            <button type="button" id="bada-err-clear-btn" class="bada-error-modal-btn">🗑️ ${BadaI18n.t("gemini_error_clear")}</button>
+                            <button type="button" id="bada-err-close-btn" class="bada-error-modal-close" title="${BadaI18n.t("gemini_close")}">✖️</button>
                         </div>
                     </div>
                     <div class="bada-error-modal-body" id="bada-err-list">
@@ -389,12 +378,11 @@ let refreshChatLengthNotice = () => {};
             function renderErrorList() {
                 const listEl = errorModalOverlay.querySelector("#bada-err-list");
                 if (!listEl) return;
-                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                 if (errorLogs.length === 0) {
                     listEl.innerHTML = `
                         <div class="bada-error-empty">
                             <span style="font-size: 24px;">🎉</span>
-                            <span>${isKoNow ? "기록된 오류가 없습니다." : "No errors recorded."}</span>
+                            <span>${BadaI18n.t("gemini_error_log_empty")}</span>
                         </div>
                     `;
                     return;
@@ -480,18 +468,18 @@ function updateBellBadge() {
             configSection.innerHTML = `
                 <div class="bada-label bada-config-label" style="margin-bottom: 4px;">
                     <div class="bada-config-title-group">
-                        <span class="bada-config-title-text">${isKo ? "🔑 API Key & 우선순위 모델 선택" : "🔑 API Key & Priority Model"}</span>
+                        <span class="bada-config-title-text">${BadaI18n.t("gemini_config_title")}</span>
                         <div class="bada-key-actions">
-                            <button type="button" id="bada-btn-get-key" class="bada-key-action-btn" title="${isKo ? "Google AI Studio API 키 발급 페이지 열기" : "Open Google AI Studio API Key page"}">
-                                <span class="bada-action-icon">↗️</span><span class="bada-action-text">${isKo ? "발급" : "Get Key"}</span>
+                            <button type="button" id="bada-btn-get-key" class="bada-key-action-btn" title="${BadaI18n.t("gemini_get_key_tooltip")}">
+                                <span class="bada-action-icon">↗️</span><span class="bada-action-text">${BadaI18n.t("gemini_get_key")}</span>
                             </button>
-                            <button type="button" id="bada-btn-test-key" class="bada-key-action-btn" title="${isKo ? "Gemini API 연결 및 키 유효성 테스트" : "Test Gemini API connection and key validity"}">
-                                <span class="bada-action-icon">🔌</span><span class="bada-action-text">${isKo ? "연결확인" : "Check"}</span>
+                            <button type="button" id="bada-btn-test-key" class="bada-key-action-btn" title="${BadaI18n.t("gemini_test_key_tooltip")}">
+                                <span class="bada-action-icon">🔌</span><span class="bada-action-text">${BadaI18n.t("gemini_check")}</span>
                             </button>
                         </div>
                     </div>
                     <span class="bada-config-bell-slot">
-                        <button type="button" id="bada-error-bell" class="bada-bell-btn" title="${isKo ? "오류 알림 내역" : "Error Notification Log"}">
+                        <button type="button" id="bada-error-bell" class="bada-bell-btn" title="${BadaI18n.t("gemini_error_log_title")}">
                             <span class="bada-bell-icon">🔔</span>
                             <span class="bada-bell-badge" id="bada-bell-badge" style="display: none;">0</span>
                         </button>
@@ -530,7 +518,7 @@ function updateBellBadge() {
             EXACT_MODELS.forEach(m => {
                 const opt = document.createElement("option");
                 opt.value = m.id;
-                opt.textContent = isKo ? m.name : (m.name_en || m.name);
+                opt.textContent = BadaI18n.t(m.nameKey);
                 modelSelect.appendChild(opt);
             });
             const rawSaved = localStorage.getItem("bada_gemini_model") || "gemini-3.5-flash-lite";
@@ -580,7 +568,6 @@ function updateBellBadge() {
                     e.stopPropagation();
                     if (testKeyBtn.dataset.busy === "true") return;
 
-                    const isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                     let curKey = (apiKeyInput.value || localStorage.getItem("bada_gemini_api_key") || "").trim();
 
                     // If input box was empty but localStorage had it, sync into input box
@@ -589,7 +576,7 @@ function updateBellBadge() {
                     }
 
                     if (!curKey) {
-                        showToast(isKo ? "Gemini API 키를 먼저 입력해 주세요." : "Please enter Gemini API Key first.", "error", 3500);
+                        showToast(BadaI18n.t("gemini_key_required"), "error", 3500);
                         apiKeyInput.focus();
                         return;
                     }
@@ -603,7 +590,7 @@ function updateBellBadge() {
                     const textSpan = testKeyBtn.querySelector(".bada-action-text");
 
                     if (iconSpan) iconSpan.innerHTML = '<span class="bada-spinner-tiny">⏳</span>';
-                    if (textSpan) textSpan.textContent = isKo ? "확인중..." : "Testing...";
+                    if (textSpan) textSpan.textContent = BadaI18n.t("gemini_testing");
 
                     const startTime = Date.now();
                     const testAbort = new AbortController();
@@ -633,9 +620,7 @@ function updateBellBadge() {
                             if (iconSpan) iconSpan.textContent = "✅";
                             if (textSpan) textSpan.textContent = `${latency}ms`;
                             showToast(
-                                isKo
-                                    ? `✅ Google Gemini API 정상 연결 확인 완료! (${latency}ms)`
-                                    : `✅ Google Gemini API Connected! (${latency}ms)`,
+                                BadaI18n.t("gemini_test_success", { latency }),
                                 "success",
                                 3500
                             );
@@ -643,38 +628,38 @@ function updateBellBadge() {
                             const errMsg = data?.error?.message || `HTTP ${res.status}`;
                             testKeyBtn.classList.add("error");
                             if (iconSpan) iconSpan.textContent = "❌";
-                            if (textSpan) textSpan.textContent = isKo ? "오류" : "Error";
+                            if (textSpan) textSpan.textContent = BadaI18n.t("gemini_error");
                             showToast(
-                                (isKo ? "❌ Gemini API 인증 실패: " : "❌ Gemini API auth failed: ") + errMsg,
+                                (BadaI18n.t("gemini_auth_failed")) + errMsg,
                                 "error",
                                 5000
                             );
-                            addErrorLog(isKo ? "API 연결 테스트" : "API Connection Test", errMsg);
+                            addErrorLog(BadaI18n.t("gemini_api_connection_test"), errMsg);
                         }
                     } catch (err) {
                         clearTimeout(timeoutTimer);
                         testKeyBtn.classList.remove("testing");
                         testKeyBtn.classList.add("error");
                         if (iconSpan) iconSpan.textContent = "❌";
-                        if (textSpan) textSpan.textContent = isKo ? "오류" : "Error";
+                        if (textSpan) textSpan.textContent = BadaI18n.t("gemini_error");
 
                         const errDesc = err.name === "AbortError"
-                            ? (isKo ? "응답 시간 초과 (6초)" : "Timeout (6s)")
+                            ? (BadaI18n.t("gemini_timeout_6s"))
                             : (err.message || "Network error");
 
                         showToast(
-                            (isKo ? "❌ Gemini 연결 오류: " : "❌ Connection error: ") + errDesc,
+                            (BadaI18n.t("gemini_connection_error")) + errDesc,
                             "error",
                             5000
                         );
-                        addErrorLog(isKo ? "API 연결 테스트" : "API Connection Test", errDesc);
+                        addErrorLog(BadaI18n.t("gemini_api_connection_test"), errDesc);
                     } finally {
                         clearTimeout(timeoutTimer);
                         setTimeout(() => {
                             testKeyBtn.dataset.busy = "false";
                             testKeyBtn.classList.remove("success", "error", "testing");
                             if (iconSpan) iconSpan.textContent = origIcon;
-                            if (textSpan) textSpan.textContent = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko") ? "연결확인" : "Check";
+                            if (textSpan) textSpan.textContent = BadaI18n.t("gemini_check");
                         }, 3500);
                     }
                 });
@@ -696,14 +681,13 @@ function updateBellBadge() {
 
             function renderEngineNav() {
                 engineNav.innerHTML = "";
-                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                 ENGINES.forEach(eng => {
                     const btn = document.createElement("button");
                     btn.type = "button";
                     btn.className = `bada-engine-btn ${activeEngine === eng.id ? "active" : ""}`;
                     btn.setAttribute("data-engine", eng.id);
-                    btn.textContent = isKoNow ? eng.name : (eng.name_en || eng.name);
-                    btn.title = isKoNow ? `${eng.name} (${eng.tag})` : `${eng.name_en || eng.name} (${eng.tag_en || eng.tag})`;
+                    btn.textContent = BadaI18n.t(eng.nameKey);
+                    btn.title = `${BadaI18n.t(eng.nameKey)} (${BadaI18n.t(eng.tagKey)})`;
                     btn.onclick = () => {
                         activeEngine = eng.id;
                         localStorage.setItem("bada_active_engine", activeEngine);
@@ -759,16 +743,16 @@ function updateBellBadge() {
             optionsGrid.className = "bada-options-row";
             optionsGrid.innerHTML = `
                 <div class="bada-options-toggles">
-                    <div class="bada-toggle-card${isNSFW ? ' on' : ''}" id="bada-toggle-nsfw" role="button" tabindex="0" aria-pressed="${isNSFW ? 'true' : 'false'}" aria-label="${isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content"}" title="${isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes"}">
-                        <span class="bada-toggle-title">${isKo ? "성인용 콘텐츠 (NSFW)" : "Allow NSFW"}</span>
+                    <div class="bada-toggle-card${isNSFW ? ' on' : ''}" id="bada-toggle-nsfw" role="button" tabindex="0" aria-pressed="${isNSFW ? 'true' : 'false'}" aria-label="${BadaI18n.t("gemini_nsfw_aria")}" title="${BadaI18n.t("gemini_nsfw_tooltip")}">
+                        <span class="bada-toggle-title">${BadaI18n.t("gemini_nsfw_toggle")}</span>
                     </div>
-                    <div class="bada-toggle-card${isTranslate ? ' on' : ''}" id="bada-toggle-trans" role="button" tabindex="0" aria-pressed="${isTranslate ? 'true' : 'false'}" aria-label="${isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes"}" title="${isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes"}">
-                        <span class="bada-toggle-title">${isKo ? "한국어 번역" : "Korean Translation"}</span>
+                    <div class="bada-toggle-card${isTranslate ? ' on' : ''}" id="bada-toggle-trans" role="button" tabindex="0" aria-pressed="${isTranslate ? 'true' : 'false'}" aria-label="${BadaI18n.t("gemini_translate_aria")}" title="${BadaI18n.t("gemini_translate_tooltip")}">
+                        <span class="bada-toggle-title">${BadaI18n.t("gemini_translate_toggle")}</span>
                     </div>
                 </div>
                 <div class="bada-aspect-picker" id="bada-aspect-picker">
                     <button type="button" class="bada-aspect-trigger" id="bada-aspect-trigger" aria-expanded="false" aria-haspopup="listbox">
-                        <span class="bada-aspect-trigger-label" id="bada-aspect-label">${isKo ? "화면 비율 선택" : "Aspect Ratio"}</span>
+                        <span class="bada-aspect-trigger-label" id="bada-aspect-label">${BadaI18n.t("gemini_aspect_ratio")}</span>
                         <span class="bada-aspect-trigger-value" id="bada-aspect-value">${activeAspectLabel()}</span>
                         <span class="bada-aspect-arrow" id="bada-aspect-arrow">▼</span>
                     </button>
@@ -785,22 +769,20 @@ function updateBellBadge() {
             const aspectMenu = optionsGrid.querySelector("#bada-aspect-menu");
 
             function activeAspectLabel() {
-                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                 const found = ASPECT_RATIOS.find(ratio => ratio.id === aspectRatio) || ASPECT_RATIOS[0];
-                return isKoNow ? found.label : (found.label_en || found.label);
+                return found.labelKey ? BadaI18n.t(found.labelKey) : found.label;
             }
 
             function renderAspectChips() {
-                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                 aspectMenu.innerHTML = "";
                 ASPECT_RATIOS.forEach(ratio => {
                     const chip = document.createElement("button");
                     chip.type = "button";
                     chip.className = `bada-aspect-chip ${aspectRatio === ratio.id ? "active" : ""}`;
-                    chip.textContent = isKoNow ? ratio.label : (ratio.label_en || ratio.label);
+                    chip.textContent = ratio.labelKey ? BadaI18n.t(ratio.labelKey) : ratio.label;
                     chip.title = ratio.id
-                        ? (isKoNow ? `${ratio.id} 비율로 프레임을 구성합니다` : `Compose the frame at ${ratio.id}`)
-                        : (isKoNow ? "AI가 장면에 맞는 비율을 직접 선택합니다" : "Let the AI pick the ratio for the scene");
+                        ? BadaI18n.t("gemini_aspect_chip_tooltip", { ratio: ratio.id })
+                        : (BadaI18n.t("gemini_aspect_auto_tooltip"));
                     chip.onclick = () => {
                         aspectRatio = ratio.id;
                         localStorage.setItem("bada_aspect_ratio", aspectRatio);
@@ -812,10 +794,9 @@ function updateBellBadge() {
             }
 
             function syncAspectPicker() {
-                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                 const labelEl = optionsGrid.querySelector("#bada-aspect-label");
                 const valueEl = optionsGrid.querySelector("#bada-aspect-value");
-                if (labelEl) labelEl.textContent = isKoNow ? "화면 비율 선택" : "Aspect Ratio";
+                if (labelEl) labelEl.textContent = BadaI18n.t("gemini_aspect_ratio");
                 if (valueEl) valueEl.textContent = activeAspectLabel();
                 renderAspectChips();
             }
@@ -920,20 +901,17 @@ function updateBellBadge() {
             promptSection.className = "bada-section";
             promptSection.innerHTML = `
                 <div class="bada-label">
-                    <span id="bada-input-label">${isKo ? "✍️ 씬 연출 지시사항" : "✍️ Scene & Character Directives"}</span>
-                    <span class="bada-subtext" id="bada-char-counter">${isKo ? "0자" : "0 chars"}</span>
+                    <span id="bada-input-label">${BadaI18n.t("gemini_input_label")}</span>
+                    <span class="bada-subtext" id="bada-char-counter">${BadaI18n.t("gemini_char_counter", { count: 0 })}</span>
                 </div>
             `;
             const instructionTextarea = document.createElement("textarea");
             instructionTextarea.className = "bada-textarea";
             instructionTextarea.rows = 5;
-            instructionTextarea.placeholder = isKo 
-                ? "생성하고자 하는 장면, 인물, 구도, 조명 등을 자세히 적어보세요..." 
-                : "Describe the scene, character, composition, lighting in detail...";
+            instructionTextarea.placeholder = BadaI18n.t("gemini_describe_scene_character_composition_lighting");
             instructionTextarea.addEventListener("input", () => {
                 const counter = promptSection.querySelector("#bada-char-counter");
-                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
-                if (counter) counter.textContent = isKoNow ? `${instructionTextarea.value.length}자` : `${instructionTextarea.value.length} chars`;
+                if (counter) counter.textContent = BadaI18n.t("gemini_char_counter", { count: instructionTextarea.value.length });
             });
             promptSection.appendChild(instructionTextarea);
 
@@ -945,7 +923,7 @@ function updateBellBadge() {
             const imgLabelRow = document.createElement("div");
             imgLabelRow.className = "bada-label";
             imgLabelRow.innerHTML = `
-                <span id="bada-img-label">${isKo ? "🖼️ 참고 이미지 (멀티모달 비전)" : "🖼️ Reference Images (Multimodal Vision)"}</span>
+                <span id="bada-img-label">${BadaI18n.t("gemini_images_label")}</span>
                 <span class="bada-subtext" id="bada-img-counter">0 attached</span>
             `;
             imgSection.appendChild(imgLabelRow);
@@ -961,8 +939,8 @@ function updateBellBadge() {
             dropzone.className = "bada-dropzone";
             dropzone.innerHTML = `
                 <div class="bada-drop-icon">📁</div>
-                <div class="bada-drop-text" id="bada-drop-text">${isKo ? "드래그하거나 <b>Ctrl+V</b>로 이미지 붙여넣기" : "Drag images or paste with <b>Ctrl+V</b>"}</div>
-                <div class="bada-drop-subtext" id="bada-drop-subtext">${isKo ? "PNG, JPG, WEBP 지원" : "PNG, JPG, WEBP supported"}</div>
+                <div class="bada-drop-text" id="bada-drop-text">${BadaI18n.t("gemini_dropzone_text")}</div>
+                <div class="bada-drop-subtext" id="bada-drop-subtext">${BadaI18n.t("gemini_dropzone_subtext")}</div>
             `;
             dropzone.onclick = () => fileInput.click();
 
@@ -1003,8 +981,8 @@ function updateBellBadge() {
             const thumbActions = document.createElement("div");
             thumbActions.className = "bada-thumb-actions";
             thumbActions.innerHTML = `
-                <span id="bada-thumb-hint">${isKo ? "이미지 클릭/호버하여 삭제" : "Click / hover image to delete"}</span>
-                <button type="button" class="bada-btn-text" id="bada-clear-all">${isKo ? "🗑️ 전체 삭제" : "🗑️ Clear All"}</button>
+                <span id="bada-thumb-hint">${BadaI18n.t("gemini_thumbs_hint")}</span>
+                <button type="button" class="bada-btn-text" id="bada-clear-all">${BadaI18n.t("gemini_clear_all")}</button>
             `;
             thumbContainer.appendChild(thumbActions);
             imgSection.appendChild(thumbContainer);
@@ -1021,9 +999,12 @@ function updateBellBadge() {
                 for (const file of incoming) {
                     if (uploadedImages.length >= limit) {
                         showToast(
-                            isKo
-                                ? `⚠️ ${activeEngine === "qwen21" && qwenSub === "i2i" ? "I2I" : "현재 모드"}는 최대 ${limit}장까지 첨부할 수 있습니다.`
-                                : `⚠️ This mode accepts up to ${limit} image(s).`,
+                            BadaI18n.t("gemini_image_limit_reached", {
+                                mode: activeEngine === "qwen21" && qwenSub === "i2i"
+                                    ? "I2I"
+                                    : BadaI18n.t("gemini_current_mode"),
+                                limit,
+                            }),
                             "error", 3500,
                         );
                         break;
@@ -1034,7 +1015,7 @@ function updateBellBadge() {
                         uploadedImages.push(dataUrl);
                     } catch (err) {
                         console.warn("[BadaAsyncGemini] image attach failed:", err);
-                        showToast(isKo ? "⚠️ 이미지를 읽을 수 없습니다." : "⚠️ Could not read the image.", "error", 2500);
+                        showToast(BadaI18n.t("gemini_image_read_failed"), "error", 2500);
                     }
                 }
 
@@ -1063,9 +1044,7 @@ function updateBellBadge() {
 
                 for (const file of incoming) {
                     if (chatUploadedImages.length >= MAX_CHAT_IMAGES) {
-                        showToast(isKo
-                            ? `⚠️ 채팅 첨부 이미지는 최대 ${MAX_CHAT_IMAGES}장까지입니다.`
-                            : `⚠️ Chat attachments are limited to ${MAX_CHAT_IMAGES} image(s).`, "error", 3000);
+                        showToast(BadaI18n.t("gemini_chat_image_limit", { limit: MAX_CHAT_IMAGES }), "error", 3000);
                         break;
                     }
                     try {
@@ -1081,7 +1060,7 @@ function updateBellBadge() {
                         // Roll back the half-pushed original so the two arrays stay aligned.
                         chatOriginalImages.pop();
                         console.warn("[BadaAsyncGemini] chat image attach failed:", err);
-                        showToast(isKo ? "⚠️ 이미지를 읽을 수 없습니다." : "⚠️ Could not read the image.", "error", 2500);
+                        showToast(BadaI18n.t("gemini_image_read_failed"), "error", 2500);
                     }
                 }
 
@@ -1173,7 +1152,7 @@ function updateBellBadge() {
                 closeBtn.type = "button";
                 closeBtn.className = "bada-img-viewer-btn bada-img-viewer-close";
                 closeBtn.textContent = "✕";
-                closeBtn.title = isKo ? "닫기 (Esc)" : "Close (Esc)";
+                closeBtn.title = BadaI18n.t("gemini_lightbox_close");
 
                 let index = Math.min(Math.max(0, startIndex | 0), list.length - 1);
                 const show = (next) => {
@@ -1186,12 +1165,12 @@ function updateBellBadge() {
                 prevBtn.type = "button";
                 prevBtn.className = "bada-img-viewer-btn bada-img-viewer-prev";
                 prevBtn.textContent = "‹";
-                prevBtn.title = isKo ? "이전 이미지" : "Previous image";
+                prevBtn.title = BadaI18n.t("gemini_lightbox_prev");
                 const nextBtn = document.createElement("button");
                 nextBtn.type = "button";
                 nextBtn.className = "bada-img-viewer-btn bada-img-viewer-next";
                 nextBtn.textContent = "›";
-                nextBtn.title = isKo ? "다음 이미지" : "Next image";
+                nextBtn.title = BadaI18n.t("gemini_lightbox_next");
                 // 한 장뿐이면 화살표를 숨긴다 — 눌려도 아무 일도 하지 않을 버튼은 노이즈다.
                 const multi = list.length > 1;
                 prevBtn.style.display = multi ? "" : "none";
@@ -1265,7 +1244,7 @@ function updateBellBadge() {
                 });
                 const data = await resp.json().catch(() => ({}));
                 if (!resp.ok || !data.success) {
-                    throw new Error(data.error || `요청 실패 (${resp.status})`);
+                    throw new Error(data.error || BadaI18n.t("gemini_request_failed", { status: resp.status }));
                 }
                 return data;
             }
@@ -1387,7 +1366,7 @@ function updateBellBadge() {
                     item.className = "bada-thumbnail-item";
                     item.innerHTML = `
                         <img class="bada-thumbnail-img" src="${imgData}" />
-                        <button type="button" class="bada-thumbnail-del" title="${isKo ? "삭제" : "Delete"}">×</button>
+                        <button type="button" class="bada-thumbnail-del" title="${BadaI18n.t("gemini_delete")}">×</button>
                         <div class="bada-thumbnail-num">#${idx + 1}</div>
                     `;
                     item.querySelector(".bada-thumbnail-del").onclick = (e) => {
@@ -1402,14 +1381,14 @@ function updateBellBadge() {
             thumbActions.querySelector("#bada-clear-all").onclick = () => {
                 uploadedImages = [];
                 renderThumbnails();
-                showToast(isKo ? "모든 참고 이미지를 삭제했습니다." : "All reference images cleared.", "info", 1500);
+                showToast(BadaI18n.t("gemini_images_cleared"), "info", 1500);
             };
 
             // Main Generate Button
             const generateBtn = document.createElement("button");
             generateBtn.type = "button";
             generateBtn.className = "bada-btn-generate";
-            generateBtn.innerHTML = `<span>🚀</span> <span>${isKo ? "프롬프트 생성 (비동기)" : "Generate Prompt (Async)"}</span>`;
+            generateBtn.innerHTML = `<span>🚀</span> <span>${BadaI18n.t("gemini_generate_btn")}</span>`;
             promptStudioContainer.appendChild(generateBtn);
 
             // Output Section (Standard & Storyboard)
@@ -1417,7 +1396,7 @@ function updateBellBadge() {
             outputSection.className = "bada-section";
             outputSection.innerHTML = `
                 <div class="bada-label">
-                    <span id="bada-output-title">${isKo ? "✨ 생성된 프롬프트 결과" : "✨ Generated Output"}</span>
+                    <span id="bada-output-title">${BadaI18n.t("gemini_output_title")}</span>
                 </div>
             `;
             const tabsHeader = document.createElement("div");
@@ -1425,17 +1404,17 @@ function updateBellBadge() {
             const tabEng = document.createElement("button");
             tabEng.type = "button";
             tabEng.className = "bada-tab-btn active";
-            tabEng.textContent = isKo ? "🇺🇸 영문 마스터" : "🔤 English Master";
+            tabEng.textContent = BadaI18n.t("gemini_tab_english");
 
             const tabKor = document.createElement("button");
             tabKor.type = "button";
             tabKor.className = "bada-tab-btn";
-            tabKor.textContent = isKo ? "🇰🇷 한국어 번역" : "🇰🇷 Korean Translation";
+            tabKor.textContent = BadaI18n.t("gemini_tab_korean");
 
             const tabAll = document.createElement("button");
             tabAll.type = "button";
             tabAll.className = "bada-tab-btn";
-            tabAll.textContent = isKo ? "📜 통합본" : "📜 Combined";
+            tabAll.textContent = BadaI18n.t("gemini_tab_combined");
 
             tabsHeader.appendChild(tabEng);
             tabsHeader.appendChild(tabKor);
@@ -1445,7 +1424,7 @@ function updateBellBadge() {
             const outputTextarea = document.createElement("textarea");
             outputTextarea.className = "bada-textarea output";
             outputTextarea.rows = 4;
-            outputTextarea.placeholder = isKo ? "생성된 프롬프트가 여기에 표시됩니다. 자유롭게 직접 수정할 수도 있습니다." : "Generated prompt will appear here. You can also edit it directly.";
+            outputTextarea.placeholder = BadaI18n.t("gemini_output_placeholder");
             outputSection.appendChild(outputTextarea);
 
             // Clipboard button: it shares the tab bar but is styled as a separate group.
@@ -1454,35 +1433,29 @@ function updateBellBadge() {
             copyBtn.type = "button";
             copyBtn.className = "bada-tab-copy";
             const COPY_TAB_META = {
-                english: { ko: "영문 마스터", en: "English Master", chip: { ko: "📋 영문", en: "📋 English" } },
-                korean: { ko: "한국어 번역", en: "Korean Translation", chip: { ko: "📋 한국어", en: "📋 Korean" } },
-                all: { ko: "통합본", en: "Combined", chip: { ko: "📋 통합본", en: "📋 Combined" } },
+                english: { nameKey: "gemini_tab_name_english", chipKey: "gemini_copy_chip_english" },
+                korean: { nameKey: "gemini_tab_name_korean", chipKey: "gemini_copy_chip_korean" },
+                all: { nameKey: "gemini_tab_name_combined", chipKey: "gemini_copy_chip_combined" },
             };
             function refreshCopyButton() {
-                const langKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                 const meta = COPY_TAB_META[currentTab] || COPY_TAB_META.english;
-                copyBtn.textContent = langKo ? meta.chip.ko : meta.chip.en;
-                copyBtn.title = langKo
-                    ? `지금 화면에 보이는 [${meta.ko}] 내용을 클립보드에 복사합니다 (탭을 바꾸면 대상도 바뀝니다)`
-                    : `Copies the visible [${meta.en}] text to the clipboard (follows the active tab)`;
+                copyBtn.textContent = BadaI18n.t(meta.chipKey);
+                copyBtn.title = BadaI18n.t("gemini_copy_button_tooltip", { tab: BadaI18n.t(meta.nameKey) });
             }
             copyBtn.onclick = async () => {
-                const langKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                 const meta = COPY_TAB_META[currentTab] || COPY_TAB_META.english;
                 const text = (outputTextarea.value || "").trim();
                 if (!text) {
-                    showToast(langKo ? "⚠️ 복사할 생성된 프롬프트가 없습니다." : "⚠️ No generated prompt to copy.", "error", 2000);
+                    showToast(BadaI18n.t("gemini_copy_empty"), "error", 2000);
                     return;
                 }
                 try {
                     await navigator.clipboard.writeText(text);
                     copyBtn.classList.add("active");
-                    showToast(langKo
-                        ? `📋 ${meta.ko} 내용을 클립보드에 복사했습니다!`
-                        : `📋 Copied the ${meta.en} text to the clipboard!`, "success", 2000);
+                    showToast(BadaI18n.t("gemini_copy_done", { tab: BadaI18n.t(meta.nameKey) }), "success", 2000);
                     setTimeout(() => copyBtn.classList.remove("active"), 1200);
                 } catch (err) {
-                    showToast((langKo ? "클립보드 복사 실패: " : "Clipboard copy failed: ") + err, "error", 2500);
+                    showToast((BadaI18n.t("gemini_copy_failed")) + err, "error", 2500);
                 }
             };
             tabsHeader.appendChild(copyBtn);
@@ -1505,7 +1478,7 @@ function updateBellBadge() {
                 if (tabName === "english") {
                     outputTextarea.value = lastEnglishPrompt;
                 } else if (tabName === "korean") {
-                    outputTextarea.value = lastKoreanTranslation || (isKo ? "(한국어 해설이 없습니다)" : "(No translation available)");
+                    outputTextarea.value = lastKoreanTranslation || (BadaI18n.t("gemini_no_translation"));
                 } else if (tabName === "all") {
                     if (lastKoreanTranslation) {
                         outputTextarea.value = `${lastEnglishPrompt}\n\n--- KOREAN TRANSLATION ---\n${lastKoreanTranslation}`;
@@ -1577,12 +1550,12 @@ function updateBellBadge() {
                             targetNode.onWidgetChanged(textWidget.name, text, textWidget.value, textWidget);
                         }
                         canvas.setDirty(true, true);
-                        showToast(isKo ? `➡️ '${targetNode.title || targetNode.type}' 노드로 프롬프트 주입 완료!` : `➡️ Injected prompt into '${targetNode.title || targetNode.type}'!`, "success", 3000);
+                        showToast(BadaI18n.t("gemini_clip_injected", { node: targetNode.title || targetNode.type }), "success", 3000);
                         return true;
                     }
                 }
 
-                showToast(isKo ? "⚠️ 프롬프트를 전송할 CLIPTextEncode 노드를 캔버스에서 먼저 클릭해 주세요!" : "⚠️ Please select a CLIPTextEncode node on canvas first!", "error", 4000);
+                showToast(BadaI18n.t("gemini_clip_select_first"), "error", 4000);
                 return false;
             }
 
@@ -1628,7 +1601,7 @@ function updateBellBadge() {
                     });
                 } catch (error) {
                     console.error("[BadaAsyncGemini] system prompt manager failed:", error);
-                    showToast(isKo ? "시스템 프롬프트 관리자를 열지 못했습니다." : "Could not open the system prompt manager.", "error", 4000);
+                    showToast(BadaI18n.t("gemini_prompt_manager_open_failed"), "error", 4000);
                 } finally {
                     button.disabled = false;
                 }
@@ -1712,7 +1685,7 @@ function updateBellBadge() {
                     // a toggle that only opens can never recover from a failed import.
                     chatHistoryHandle = null;
                     console.error("[BadaAsyncGemini] chat history popup failed:", error);
-                    showToast(isKo ? "채팅 기록을 열지 못했습니다." : "Could not open the chat history.", "error", 4000);
+                    showToast(BadaI18n.t("gemini_chat_history_open_failed"), "error", 4000);
                 }
             }
 
@@ -1728,7 +1701,7 @@ function updateBellBadge() {
                     });
                 } catch (error) {
                     console.error("[BadaAsyncGemini] gemini prompt manager failed:", error);
-                    showToast(isKo ? "제미나이 프롬프트 관리자를 열지 못했습니다." : "Could not open the Gemini prompt manager.", "error", 4000);
+                    showToast(BadaI18n.t("gemini_gem_prompt_manager_open_failed"), "error", 4000);
                 } finally {
                     button.disabled = false;
                 }
@@ -1745,7 +1718,7 @@ function updateBellBadge() {
                     headerRow.className = "bada-submode-header";
                     headerRow.innerHTML = `
                         <div class="bada-submode-title">
-                            <span>🎬</span> <span>${isKo ? "MiniMax H3 세부 모드" : "MiniMax H3 Submodes"}</span>
+                            <span>🎬</span> <span>${BadaI18n.t("gemini_submode_minimax")}</span>
                         </div>
                         <span class="bada-engine-tag">Omni-Modal Video + Audio</span>
                     `;
@@ -1757,8 +1730,8 @@ function updateBellBadge() {
                         const card = document.createElement("div");
                         card.className = `bada-sub-card compact minimax-card ${minimaxSub === sub.id ? "active" : ""}`;
                         card.innerHTML = `
-                            <span class="bada-sub-name">${isKo ? sub.name : (sub.name_en || sub.name)}</span>
-                            <span class="bada-sub-tag">${isKo ? sub.tag : (sub.tag_en || sub.tag)}</span>
+                            <span class="bada-sub-name">${BadaI18n.t(sub.nameKey)}</span>
+                            <span class="bada-sub-tag">${BadaI18n.t(sub.tagKey)}</span>
                         `;
                         card.onclick = () => {
                             minimaxSub = sub.id;
@@ -1777,7 +1750,7 @@ function updateBellBadge() {
                     headerRow.className = "bada-submode-header";
                     headerRow.innerHTML = `
                         <div class="bada-submode-title">
-                            <span>🎥</span> <span>${isKo ? "LTX-Video 2.5 세부 모드" : "LTX-Video 2.5 Submodes"}</span>
+                            <span>🎥</span> <span>${BadaI18n.t("gemini_submode_ltx")}</span>
                         </div>
                         <span class="bada-engine-tag">6-Element DiT Architecture</span>
                     `;
@@ -1789,8 +1762,8 @@ function updateBellBadge() {
                         const card = document.createElement("div");
                         card.className = `bada-sub-card compact ltx-card ${ltxSub === sub.id ? "active" : ""}`;
                         card.innerHTML = `
-                            <span class="bada-sub-name">${isKo ? sub.name : (sub.name_en || sub.name)}</span>
-                            <span class="bada-sub-tag">${isKo ? sub.tag : (sub.tag_en || sub.tag)}</span>
+                            <span class="bada-sub-name">${BadaI18n.t(sub.nameKey)}</span>
+                            <span class="bada-sub-tag">${BadaI18n.t(sub.tagKey)}</span>
                         `;
                         card.onclick = () => {
                             ltxSub = sub.id;
@@ -1809,7 +1782,7 @@ function updateBellBadge() {
                     headerRow.className = "bada-submode-header";
                     headerRow.innerHTML = `
                         <div class="bada-submode-title">
-                            <span>🟢</span> <span>${isKo ? "KREA 2 세부 모드 선택" : "KREA 2 Submodes"}</span>
+                            <span>🟢</span> <span>${BadaI18n.t("gemini_submode_krea")}</span>
                         </div>
                         <span class="bada-engine-tag">krea-ai-v2 Photorealism</span>
                     `;
@@ -1821,8 +1794,8 @@ function updateBellBadge() {
                         const card = document.createElement("div");
                         card.className = `bada-sub-card ${kreaSub === sub.id ? "active" : ""}`;
                         card.innerHTML = `
-                            <span class="bada-sub-name">${isKo ? sub.name : (sub.name_en || sub.name)}</span>
-                            <span class="bada-sub-tag">${isKo ? sub.desc : (sub.desc_en || sub.desc)}</span>
+                            <span class="bada-sub-name">${BadaI18n.t(sub.nameKey)}</span>
+                            <span class="bada-sub-tag">${BadaI18n.t(sub.descKey)}</span>
                         `;
                         card.onclick = () => {
                             kreaSub = sub.id;
@@ -1839,8 +1812,8 @@ function updateBellBadge() {
                         cutSliderRow.className = "bada-duration-row";
                         cutSliderRow.innerHTML = `
                             <div class="bada-duration-label">
-                                <span>🎬 ${isKo ? "스토리 컷 수:" : "Story Cuts:"}</span>
-                                <span><b id="bada-cut-num">${storyboardCutCount}</b>${isKo ? "컷" : " Cuts"}</span>
+                                <span>🎬 ${BadaI18n.t("gemini_story_cuts_label")}</span>
+                                <span><b id="bada-cut-num">${storyboardCutCount}</b>${BadaI18n.t("gemini_story_cuts_suffix")}</span>
                             </div>
                             <input type="range" class="bada-duration-slider" min="2" max="15" step="1" value="${storyboardCutCount}">
                             <span class="bada-duration-badge" id="bada-cut-badge">${storyboardCutCount} Cuts</span>
@@ -1858,7 +1831,7 @@ function updateBellBadge() {
                     const headerRow = document.createElement("div");
                     headerRow.className = "bada-submode-header";
                     headerRow.innerHTML = `
-                        <div class="bada-submode-title"><span>🖼️</span><span>${isKo ? "QWEN2.1 세부 모드 선택" : "QWEN2.1 Submodes"}</span></div>
+                        <div class="bada-submode-title"><span>🖼️</span><span>${BadaI18n.t("gemini_submode_qwen")}</span></div>
                         <span class="bada-engine-tag">Official Prompt Enhancer</span>
                     `;
                     submodePanel.appendChild(headerRow);
@@ -1868,7 +1841,7 @@ function updateBellBadge() {
                     QWEN_SUBMODES.forEach(sub => {
                         const card = document.createElement("div");
                         card.className = `bada-sub-card qwen-card ${qwenSub === sub.id ? "active" : ""}`;
-                        card.innerHTML = `<span class="bada-sub-name">${isKo ? sub.name : sub.name_en}</span><span class="bada-sub-tag">${isKo ? sub.desc : sub.desc_en}</span>`;
+                        card.innerHTML = `<span class="bada-sub-name">${BadaI18n.t(sub.nameKey)}</span><span class="bada-sub-tag">${BadaI18n.t(sub.descKey)}</span>`;
                         card.onclick = () => {
                             qwenSub = sub.id;
                             localStorage.setItem("bada_qwen_sub", qwenSub);
@@ -1881,7 +1854,7 @@ function updateBellBadge() {
                 } else if (activeEngine === "flux3") {
                     const headerRow = document.createElement("div");
                     headerRow.className = "bada-submode-header";
-                    headerRow.innerHTML = `\n                        <div class="bada-submode-title"><span>🟣</span><span>${isKo ? "FLUX3 세부 모드 선택" : "FLUX3 Submodes"}</span></div>\n                        <span class="bada-engine-tag">FLUX3 Klein T2I / I2I</span>\n                    `;
+                    headerRow.innerHTML = `\n                        <div class="bada-submode-title"><span>🟣</span><span>${BadaI18n.t("gemini_submode_flux3")}</span></div>\n                        <span class="bada-engine-tag">FLUX3 Klein T2I / I2I</span>\n                    `;
                     submodePanel.appendChild(headerRow);
 
                     const grid = document.createElement("div");
@@ -1889,7 +1862,7 @@ function updateBellBadge() {
                     FLUX3_SUBMODES.forEach(sub => {
                         const card = document.createElement("div");
                         card.className = `bada-sub-card flux3-card ${flux3Sub === sub.id ? "active" : ""}`;
-                        card.innerHTML = `<span class="bada-sub-name">${isKo ? sub.name : sub.name_en}</span><span class="bada-sub-tag">${isKo ? sub.desc : sub.desc_en}</span>`;
+                        card.innerHTML = `<span class="bada-sub-name">${BadaI18n.t(sub.nameKey)}</span><span class="bada-sub-tag">${BadaI18n.t(sub.descKey)}</span>`;
                         card.onclick = () => {
                             flux3Sub = sub.id;
                             localStorage.setItem("bada_flux3_sub", flux3Sub);
@@ -1902,7 +1875,7 @@ function updateBellBadge() {
                 } else if (activeEngine === "moss") {
                     const headerRow = document.createElement("div");
                     headerRow.className = "bada-submode-header";
-                    headerRow.innerHTML = `\n                        <div class="bada-submode-title"><span>🟢</span><span>${isKo ? "MOSS 세부 모드 선택" : "MOSS Submodes"}</span></div>\n                        <span class="bada-engine-tag">MOSS-Image-SFT T2I / I2I</span>\n                    `;
+                    headerRow.innerHTML = `\n                        <div class="bada-submode-title"><span>🟢</span><span>${BadaI18n.t("gemini_submode_moss")}</span></div>\n                        <span class="bada-engine-tag">MOSS-Image-SFT T2I / I2I</span>\n                    `;
                     submodePanel.appendChild(headerRow);
 
                     const grid = document.createElement("div");
@@ -1910,7 +1883,7 @@ function updateBellBadge() {
                     MOSS_SUBMODES.forEach(sub => {
                         const card = document.createElement("div");
                         card.className = `bada-sub-card moss-card ${mossSub === sub.id ? "active" : ""}`;
-                        card.innerHTML = `<span class="bada-sub-name">${isKo ? sub.name : sub.name_en}</span><span class="bada-sub-tag">${isKo ? sub.desc : sub.desc_en}</span>`;
+                        card.innerHTML = `<span class="bada-sub-name">${BadaI18n.t(sub.nameKey)}</span><span class="bada-sub-tag">${BadaI18n.t(sub.descKey)}</span>`;
                         card.onclick = () => {
                             mossSub = sub.id;
                             localStorage.setItem("bada_moss_sub", mossSub);
@@ -1923,18 +1896,18 @@ function updateBellBadge() {
                 } else if (activeEngine === "system_prompt") {
                     const headerRow = document.createElement("div");
                     headerRow.className = "bada-submode-header";
-                    headerRow.innerHTML = `<div class="bada-submode-title"><span>📜</span><span>${isKo ? "시스템 프롬프트 선택" : "System Prompt"}</span></div><span class="bada-engine-tag">Custom Instructions</span>`;
+                    headerRow.innerHTML = `<div class="bada-submode-title"><span>📜</span><span>${BadaI18n.t("gemini_system_prompt_title")}</span></div><span class="bada-engine-tag">Custom Instructions</span>`;
                     submodePanel.appendChild(headerRow);
 
                     const controls = document.createElement("div");
                     controls.className = "bada-preset-row";
                     const promptSelect = document.createElement("select");
                     promptSelect.className = "bada-select";
-                    promptSelect.setAttribute("aria-label", isKo ? "시스템 프롬프트 선택" : "Select system prompt");
+                    promptSelect.setAttribute("aria-label", BadaI18n.t("gemini_system_prompt_aria"));
                     const manageButton = document.createElement("button");
                     manageButton.type = "button";
                     manageButton.className = "bada-btn-text bada-system-prompt-manage";
-                    manageButton.textContent = isKo ? "⚙️ 프롬프트 관리" : "⚙️ Manage Prompts";
+                    manageButton.textContent = BadaI18n.t("gemini_manage_prompts");
                     manageButton.onclick = () => openSystemPromptManager(manageButton);
                     controls.append(promptSelect, manageButton);
                     submodePanel.appendChild(controls);
@@ -1951,17 +1924,15 @@ function updateBellBadge() {
                             const option = document.createElement("option");
                             option.value = "";
                             option.textContent = systemPromptsLoaded
-                                ? (isKo ? "등록된 시스템 프롬프트가 없습니다" : "No system prompts registered")
-                                : (isKo ? "시스템 프롬프트 불러오는 중..." : "Loading system prompts...");
+                                ? (BadaI18n.t("gemini_system_prompts_empty"))
+                                : (BadaI18n.t("gemini_system_prompts_loading"));
                             promptSelect.appendChild(option);
                             promptSelect.disabled = !systemPromptsLoaded;
                             if (systemPromptsLoaded) {
                                 selectedSystemPromptId = "";
                                 localStorage.removeItem("bada_async_system_prompt");
                             }
-                            setSystemHint(isKo
-                                ? "프롬프트 관리에서 새 시스템 프롬프트를 등록하세요."
-                                : "Register a system prompt with Manage Prompts to get started.");
+                            setSystemHint(BadaI18n.t("gemini_system_prompts_hint_empty"));
                             return;
                         }
 
@@ -1978,9 +1949,7 @@ function updateBellBadge() {
                         selectedSystemPromptId = String(selected.id || selected.name);
                         promptSelect.value = selectedSystemPromptId;
                         localStorage.setItem("bada_async_system_prompt", selectedSystemPromptId);
-                        setSystemHint(selected.description || (isKo
-                            ? "선택한 사용자 시스템 프롬프트로 생성합니다."
-                            : "Generation uses the selected custom system prompt."));
+                        setSystemHint(selected.description || (BadaI18n.t("gemini_system_prompts_hint_selected")));
                     };
 
                     promptSelect.addEventListener("change", () => {
@@ -1997,9 +1966,7 @@ function updateBellBadge() {
                                 if (activeEngine === "system_prompt") renderSubmodePanel();
                             })
                             .catch(() => {
-                                setSystemHint(isKo
-                                    ? "시스템 프롬프트를 불러오지 못했습니다. 관리 버튼을 눌러 다시 시도하세요."
-                                    : "Could not load system prompts. Open the manager to retry.");
+                                setSystemHint(BadaI18n.t("gemini_system_prompts_load_failed"));
                             });
                     }
                 }
@@ -2012,8 +1979,8 @@ function updateBellBadge() {
 
                 durRow.innerHTML = `
                     <div class="bada-duration-label">
-                        <span>⏱️ ${isKo ? "목표 시간:" : "Target Duration:"}</span>
-                        <span><b id="bada-dur-num">${durationSec}</b>${isKo ? "초" : "s"}</span>
+                        <span>⏱️ ${BadaI18n.t("gemini_duration_label")}</span>
+                        <span><b id="bada-dur-num">${durationSec}</b>${BadaI18n.t("gemini_duration_suffix")}</span>
                     </div>
                     <input type="range" class="bada-duration-slider" min="1" max="30" step="1" value="${durationSec}">
                     <span class="bada-duration-badge" id="bada-frame-badge">${calcFrames(durationSec)} frames</span>
@@ -2038,151 +2005,119 @@ function updateBellBadge() {
                 const label = promptSection.querySelector("#bada-input-label");
                 if (activeEngine === "minimax") {
                     const sub = MINIMAX_SUBMODES.find(s => s.id === minimaxSub) || MINIMAX_SUBMODES[0];
-                    label.textContent = isKo
-                        ? `✍️ MiniMax H3 요청 (${minimaxSub.toUpperCase()} • ${durationSec}초)`
-                        : `✍️ MiniMax H3 Prompt (${minimaxSub.toUpperCase()} • ${durationSec}s)`;
+                    label.textContent = BadaI18n.t("gemini_label_minimax", { sub: minimaxSub.toUpperCase(), sec: durationSec });
                     instructionTextarea.placeholder = composePlaceholder([
-                        isKo
-                            ? `⚡ ${sub.name} (${sub.tag}): ${sub.desc}`
-                            : `⚡ ${sub.name_en || sub.name} (${sub.tag_en || sub.tag}): ${sub.desc_en || sub.desc}`,
-                        isKo
-                            ? "MiniMax H3로 생성할 영상 씬과 동작을 입력하세요."
-                            : "Describe the video scene and motion for MiniMax H3.",
-                        isKo
-                            ? "예: 사이버펑크 네온 비를 맞으며 걷는 여성, 35mm 영화 필름 룩, 자연스러운 카메라 트래킹"
-                            : "e.g. Woman walking in cyberpunk neon rain, 35mm film aesthetic, fluid tracking shot",
+                        BadaI18n.t("gemini_submode_line", {
+                            name: BadaI18n.t(sub.nameKey),
+                            tag: BadaI18n.t(sub.tagKey),
+                            desc: BadaI18n.t(sub.descKey),
+                        }),
+                        BadaI18n.t("gemini_hint_minimax_input"),
+                        BadaI18n.t("gemini_hint_minimax_example"),
                     ]);
                     generateBtn.className = "bada-btn-generate minimax";
-                    generateBtn.innerHTML = `<span>🎬</span> <span>${isKo ? "MiniMax H3 프롬프트 생성 🚀" : "Generate MiniMax H3 Prompt 🚀"}</span>`;
+                    generateBtn.innerHTML = `<span>🎬</span> <span>${BadaI18n.t("gemini_generate_minimax")}</span>`;
                 } else if (activeEngine === "ltx") {
                     const sub = LTX_SUBMODES.find(s => s.id === ltxSub) || LTX_SUBMODES[0];
-                    label.textContent = isKo
-                        ? `✍️ LTX-Video 요청 (${ltxSub.toUpperCase()} • ${durationSec}초)`
-                        : `✍️ LTX-Video Prompt (${ltxSub.toUpperCase()} • ${durationSec}s)`;
+                    label.textContent = BadaI18n.t("gemini_label_ltx", { sub: ltxSub.toUpperCase(), sec: durationSec });
                     instructionTextarea.placeholder = composePlaceholder([
-                        isKo
-                            ? `⚡ ${sub.name} (${sub.tag}): ${sub.desc}`
-                            : `⚡ ${sub.name_en || sub.name} (${sub.tag_en || sub.tag}): ${sub.desc_en || sub.desc}`,
-                        isKo
-                            ? "LTX-Video 2.5로 생성할 비디오 씬을 입력하세요."
-                            : "Describe the video scene for LTX-Video 2.5.",
-                        isKo
-                            ? "예: 천천히 돌리 인하는 카메라, 인물의 감정적인 표정 변화, 따뜻한 림 라이트와 앰비언트 사운드"
-                            : "e.g. Slow camera dolly in, subtle facial emotions, warm rim lighting and ambient sound",
+                        BadaI18n.t("gemini_submode_line", {
+                            name: BadaI18n.t(sub.nameKey),
+                            tag: BadaI18n.t(sub.tagKey),
+                            desc: BadaI18n.t(sub.descKey),
+                        }),
+                        BadaI18n.t("gemini_hint_ltx_input"),
+                        BadaI18n.t("gemini_hint_ltx_example"),
                     ]);
                     generateBtn.className = "bada-btn-generate ltx";
-                    generateBtn.innerHTML = `<span>🎥</span> <span>${isKo ? "LTX-Video 프롬프트 생성 🚀" : "Generate LTX-Video Prompt 🚀"}</span>`;
+                    generateBtn.innerHTML = `<span>🎥</span> <span>${BadaI18n.t("gemini_generate_ltx")}</span>`;
                 } else if (activeEngine === "krea") {
                     if (kreaSub === "storyboard") {
-                        label.textContent = isKo
-                            ? `✍️ KREA 2 스토리보드 요청 (${storyboardCutCount}컷)`
-                            : `✍️ KREA 2 Storyboard Prompt (${storyboardCutCount} Cuts)`;
+                        label.textContent = BadaI18n.t("gemini_label_krea_storyboard", { cuts: storyboardCutCount });
                         instructionTextarea.placeholder = composePlaceholder([
-                            isKo
-                                ? "🎞️ 상황을 분석하여 일관된 인물/공간을 유지하는 연속 컷 시퀀스를 작성합니다."
-                                : "🎞️ Generates sequential cut prompts maintaining character & scene consistency.",
-                            isKo
-                                ? "스토리보드로 분할할 전체 시나리오나 스토리 개요를 입력하세요."
-                                : "Enter narrative or scenario outline to divide into storyboard cuts.",
-                            isKo
-                                ? "예: 골목길에서 버려진 안드로이드를 수리하는 소녀, 기동 후 서로 미소를 짓는 4단계 시퀀스"
-                                : "e.g. Girl repairing an android in an alleyway, 4-step sequence ending in a shared smile",
+                            BadaI18n.t("gemini_hint_storyboard_consistency"),
+                            BadaI18n.t("gemini_hint_storyboard_input"),
+                            BadaI18n.t("gemini_hint_storyboard_example"),
                         ]);
                         generateBtn.className = "bada-btn-generate";
-                        generateBtn.innerHTML = `<span>🎞️</span> <span>${isKo ? `${storyboardCutCount}컷 스토리보드 생성 🚀` : `Generate ${storyboardCutCount}-Cut Storyboard 🚀`}</span>`;
+                        generateBtn.innerHTML = `<span>🎞️</span> <span>${BadaI18n.t("gemini_generate_storyboard", { cuts: storyboardCutCount })}</span>`;
                     } else {
-                        label.textContent = isKo ? "✍️ KREA 2 요청" : "✍️ KREA 2 Prompt";
+                        label.textContent = BadaI18n.t("gemini_label_krea");
                         instructionTextarea.placeholder = composePlaceholder([
-                            isKo
-                                ? "ℹ️ KREA 2의 최신 포토리얼 화풍 렌더링 규칙을 적용합니다."
-                                : "ℹ️ Applies KREA 2 photorealism rendering rules.",
-                            isKo
-                                ? "KREA 2로 생성할 씬의 아이디어나 스토리텔을 자유롭게 입력하세요."
-                                : "Enter the idea or storyline you want to generate with KREA 2.",
-                            isKo
-                                ? "예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감"
-                                : "e.g. Cyberpunk city with wet asphalt reflecting neon lights, photorealistic texture",
-                            ...imageAnalysisHint(isKo),
+                            BadaI18n.t("gemini_hint_krea_rules"),
+                            BadaI18n.t("gemini_hint_krea_input"),
+                            BadaI18n.t("gemini_hint_cyberpunk_example"),
+                            ...imageAnalysisHint(),
                         ]);
                         generateBtn.className = "bada-btn-generate";
-                        generateBtn.innerHTML = `<span>🟢</span> <span>${isKo ? "KREA 2 프롬프트 생성 🚀" : "Generate KREA 2 Prompt 🚀"}</span>`;
+                        generateBtn.innerHTML = `<span>🟢</span> <span>${BadaI18n.t("gemini_generate_krea")}</span>`;
                     }
                 } else if (activeEngine === "qwen21") {
                     const modeName = qwenSub === "i2i" ? "I2I" : "T2I";
-                    label.textContent = isKo ? `✍️ QWEN2.1 ${modeName} 프롬프트 요청` : `✍️ QWEN2.1 ${modeName} Prompt Request`;
+                    label.textContent = BadaI18n.t("gemini_label_qwen", { mode: modeName });
                     instructionTextarea.placeholder = qwenSub === "i2i"
                         ? composePlaceholder([
-                            isKo
-                                ? "ℹ️ Qwen-Image-2.1 편집 지침을 적용합니다."
-                                : "ℹ️ Applies Qwen-Image-2.1 edit instructions.",
-                            isKo
-                                ? "참조 이미지를 첨부하고 원하는 편집 내용을 입력하세요."
-                                : "Attach reference images and describe the desired edit.",
-                            ...multiImageHint(isKo),
+                            BadaI18n.t("gemini_hint_qwen_edit"),
+                            BadaI18n.t("gemini_hint_attach_edit"),
+                            ...multiImageHint(),
                         ])
                         : composePlaceholder([
-                            isKo
-                                ? "ℹ️ Qwen-Image-2.1 공식 T2I 프롬프트 강화 지침과 권장 화면 비율을 적용합니다."
-                                : "ℹ️ Applies the official Qwen-Image-2.1 T2I prompt enhancer and returns a suggested aspect ratio.",
-                            isKo
-                                ? "QWEN2.1로 생성할 씬의 아이디어나 스토리텔을 자유롭게 입력하세요."
-                                : "Enter the idea or storyline you want to generate with QWEN2.1.",
-                            isKo
-                                ? "예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감"
-                                : "e.g. Cyberpunk city with wet asphalt reflecting neon lights, photorealistic texture",
-                            ...imageAnalysisHint(isKo),
+                            BadaI18n.t("gemini_hint_qwen_t2i"),
+                            BadaI18n.t("gemini_hint_qwen_input"),
+                            BadaI18n.t("gemini_hint_cyberpunk_example"),
+                            ...imageAnalysisHint(),
                         ]);
                     generateBtn.className = "bada-btn-generate qwen";
                     // 버튼 라벨에서 모드 접미사는 뺀다 (세부분등 카드에서 이미 T2I/I2I 가 표시됨)
-                    generateBtn.innerHTML = `<span>🖼️</span> <span>${isKo ? "QWEN2.1 프롬프트 생성 🚀" : "Generate QWEN2.1 Prompt 🚀"}</span>`;
+                    generateBtn.innerHTML = `<span>🖼️</span> <span>${BadaI18n.t("gemini_generate_qwen")}</span>`;
                 } else if (activeEngine === "flux3") {
                     const modeName = flux3Sub === "i2i" ? "I2I" : "T2I";
-                    label.textContent = isKo ? `✍️ FLUX3 ${modeName} 프롬프트 요청` : `✍️ FLUX3 ${modeName} Prompt Request`;
+                    label.textContent = BadaI18n.t("gemini_label_flux3", { mode: modeName });
                     instructionTextarea.placeholder = flux3Sub === "i2i"
                         ? composePlaceholder([
-                            isKo ? "ℹ️ FLUX3 Klein 편집 지침을 적용합니다." : "ℹ️ Applies FLUX3 Klein edit instructions.",
-                            isKo ? "참조 이미지를 첨부하고 원하는 편집 내용을 입력하세요." : "Attach reference images and describe the desired edit.",
-                            ...multiImageHint(isKo),
+                            BadaI18n.t("gemini_hint_flux3_edit"),
+                            BadaI18n.t("gemini_hint_attach_edit"),
+                            ...multiImageHint(),
                         ])
                         : composePlaceholder([
-                            isKo ? "ℹ️ FLUX3 Klein 상세 묘사 프롬프트 지침을 적용합니다." : "ℹ️ Applies FLUX3 Klein detailed description instructions.",
-                            isKo ? "FLUX3로 생성할 씬의 아이디어나 스토리텔링을 자유롭게 입력하세요." : "Enter the idea or storyline you want to generate with FLUX3.",
-                            isKo ? "예: 비에 젖은 아스팔트와 네온 조명이 반사되는 사이버펑크 도시, 포토리얼리스틱 질감" : "e.g. Cyberpunk city with wet asphalt reflecting neon lights, photorealistic texture",
-                            ...imageAnalysisHint(isKo),
+                            BadaI18n.t("gemini_hint_flux3_t2i"),
+                            BadaI18n.t("gemini_hint_flux3_input"),
+                            BadaI18n.t("gemini_hint_cyberpunk_example"),
+                            ...imageAnalysisHint(),
                         ]);
                     generateBtn.className = "bada-btn-generate flux3";
-                    generateBtn.innerHTML = `<span>🟣</span> <span>${isKo ? "FLUX3 프롬프트 생성 🚀" : "Generate FLUX3 Prompt 🚀"}</span>`;
+                    generateBtn.innerHTML = `<span>🟣</span> <span>${BadaI18n.t("gemini_generate_flux3")}</span>`;
                 } else if (activeEngine === "moss") {
                     const modeName = mossSub === "i2i" ? "I2I" : "T2I";
-                    label.textContent = isKo ? `✍️ MOSS ${modeName} 프롬프트 요청` : `✍️ MOSS ${modeName} Prompt Request`;
+                    label.textContent = BadaI18n.t("gemini_label_moss", { mode: modeName });
                     instructionTextarea.placeholder = mossSub === "i2i"
                         ? composePlaceholder([
-                            isKo ? "ℹ️ MOSS-Image-SFT 서사형 편집 지침을 적용합니다." : "ℹ️ Applies MOSS-Image-SFT narrative edit instructions.",
-                            isKo ? "참조 이미지를 첨부하고 원하는 편집 내용을 입력하세요." : "Attach reference images and describe the desired edit.",
-                            ...multiImageHint(isKo),
+                            BadaI18n.t("gemini_hint_moss_edit"),
+                            BadaI18n.t("gemini_hint_attach_edit"),
+                            ...multiImageHint(),
                         ])
                         : composePlaceholder([
-                            isKo ? "ℹ️ MOSS-Image-SFT 서사적 장면 묘사 지침을 적용합니다." : "ℹ️ Applies MOSS-Image-SFT narrative scene expansion instructions.",
-                            isKo ? "MOSS로 생성할 씬의 아이디어나 스토리텔링을 자유롭게 입력하세요." : "Enter the idea or storyline you want to generate with MOSS.",
-                            isKo ? "예: 신비로운 숲속에서 빛나는 유물을 발견한 모험가의 클로즈업, 영화적 조명" : "e.g. Close-up of an adventurer discovering a glowing artifact in a mystical forest, cinematic lighting",
-                            ...imageAnalysisHint(isKo),
+                            BadaI18n.t("gemini_hint_moss_t2i"),
+                            BadaI18n.t("gemini_hint_moss_input"),
+                            BadaI18n.t("gemini_hint_moss_example"),
+                            ...imageAnalysisHint(),
                         ]);
                     generateBtn.className = "bada-btn-generate moss";
-                    generateBtn.innerHTML = `<span>🟢</span> <span>${isKo ? "MOSS 프롬프트 생성 🚀" : "Generate MOSS Prompt 🚀"}</span>`;
+                    generateBtn.innerHTML = `<span>🟢</span> <span>${BadaI18n.t("gemini_generate_moss")}</span>`;
                 } else if (activeEngine === "system_prompt") {
                     const selected = userSystemPrompts.find(prompt =>
                         String(prompt.id || prompt.name) === selectedSystemPromptId
                     );
-                    label.textContent = isKo
-                        ? `✍️ 시스템 프롬프트 요청${selected ? ` (${selected.name})` : ""}`
-                        : `✍️ System Prompt Request${selected ? ` (${selected.name})` : ""}`;
+                    label.textContent = selected
+                        ? BadaI18n.t("gemini_label_system_selected", { name: selected.name })
+                        : BadaI18n.t("gemini_label_system");
                     instructionTextarea.placeholder = composePlaceholder([
-                        isKo ? "ℹ️ 선택한 사용자 시스템 프롬프트로 생성합니다." : "ℹ️ Generation uses the selected custom system prompt.",
+                        BadaI18n.t("gemini_hint_system_selected"),
                         systemHintText,
-                        isKo ? "생성할 내용을 입력하세요." : "Describe what to generate with the selected system prompt.",
+                        BadaI18n.t("gemini_hint_system_input"),
                     ]);
                     generateBtn.className = "bada-btn-generate system-prompt";
-                    generateBtn.innerHTML = `<span>📜</span> <span>${isKo ? "시스템 프롬프트로 생성 🚀" : "Generate with System Prompt 🚀"}</span>`;
+                    generateBtn.innerHTML = `<span>📜</span> <span>${BadaI18n.t("gemini_generate_system")}</span>`;
                 }
             }
 
@@ -2222,19 +2157,19 @@ function updateBellBadge() {
                 const model = modelSelect.value;
 
                 if (!instruction && uploadedImages.length === 0) {
-                    showToast(isKo ? "⚠️ 프롬프트 지시사항 또는 참고 이미지를 입력해 주세요." : "⚠️ Please enter prompt directives or attach a reference image.", "error", 3000);
+                    showToast(BadaI18n.t("gemini_generate_need_input"), "error", 3000);
                     instructionTextarea.focus();
                     return;
                 }
 
                 if (activeEngine === "qwen21" && qwenSub === "i2i" && uploadedImages.length === 0) {
-                    showToast(isKo ? "QWEN2.1 I2I 편집용 참조 이미지를 첨부해 주세요." : "Attach at least one reference image for QWEN2.1 I2I.", "error", 3000);
+                    showToast(BadaI18n.t("gemini_generate_need_i2i_image"), "error", 3000);
                     return;
                 }
                 if (activeEngine === "system_prompt" && !userSystemPrompts.some(prompt =>
                     String(prompt.id || prompt.name) === selectedSystemPromptId
                 )) {
-                    showToast(isKo ? "먼저 시스템 프롬프트를 등록하고 선택해 주세요." : "Register and select a system prompt first.", "error", 3000);
+                    showToast(BadaI18n.t("gemini_generate_need_system_prompt"), "error", 3000);
                     return;
                 }
 
@@ -2245,13 +2180,12 @@ function updateBellBadge() {
                 let dataSuccess = false;
                 const startTime = Date.now();
                 const btnOriginalHtml = generateBtn.innerHTML;
-                const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
-                const genLoadingText = isKoNow ? "작업 중..." : "Working...";
-                generateBtn.innerHTML = `<span class="bada-spinner"></span> <span>${genLoadingText} ⏱️ 0.0s <b style="margin-left:6px;background:rgba(0,0,0,0.35);padding:1.5px 6px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);">⏹️ ${isKoNow ? "중단" : "Stop"}</b></span>`;
+                const genLoadingText = BadaI18n.t("gemini_working");
+                generateBtn.innerHTML = `<span class="bada-spinner"></span> <span>${genLoadingText} ⏱️ 0.0s <b style="margin-left:6px;background:rgba(0,0,0,0.35);padding:1.5px 6px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);">⏹️ ${BadaI18n.t("gemini_stop")}</b></span>`;
 
                 timerInterval = setInterval(() => {
                     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-                    generateBtn.innerHTML = `<span class="bada-spinner"></span> <span>${genLoadingText} ⏱️ ${elapsed}s <b style="margin-left:6px;background:rgba(0,0,0,0.35);padding:1.5px 6px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);">⏹️ ${isKoNow ? "중단" : "Stop"}</b></span>`;
+                    generateBtn.innerHTML = `<span class="bada-spinner"></span> <span>${genLoadingText} ⏱️ ${elapsed}s <b style="margin-left:6px;background:rgba(0,0,0,0.35);padding:1.5px 6px;border-radius:4px;border:1px solid rgba(255,255,255,0.2);">⏹️ ${BadaI18n.t("gemini_stop")}</b></span>`;
                 }, 100);
 
             // No "working" toast here on purpose: like the completion banner,
@@ -2311,7 +2245,7 @@ function updateBellBadge() {
                         }
 
                         // Completed state with elapsed time
-                        generateBtn.innerHTML = `<span>✨</span> <span>${isKoNow ? `생성 완료! (${duration}초)` : `Completed! (${duration}s)`}</span>`;
+                        generateBtn.innerHTML = `<span>✨</span> <span>${BadaI18n.t("gemini_generate_completed", { sec: duration })}</span>`;
                         setTimeout(() => {
                             if (!isGenerating) updateInputPlaceholders();
                         }, 3500);
@@ -2321,17 +2255,17 @@ function updateBellBadge() {
                         // config section and shoved the whole panel — every engine tab included —
                         // downwards. The generate button already reads "생성 완료! (N초)".
                     } else {
-                        const errMsg = data.error || (isKoNow ? "알 수 없는 오류가 발생했습니다." : "An unknown error occurred.");
-                        showToast(`❌ ${isKoNow ? "오류" : "Error"}: ${errMsg}`, "error", 5000);
-                        addErrorLog(isKoNow ? `${activeEngine.toUpperCase()} 생성` : `${activeEngine.toUpperCase()} Generation`, errMsg);
+                        const errMsg = data.error || (BadaI18n.t("gemini_generate_unknown_error"));
+                        showToast(`❌ ${BadaI18n.t("gemini_error")}: ${errMsg}`, "error", 5000);
+                        addErrorLog(BadaI18n.t("gemini_error_log_engine", { engine: activeEngine.toUpperCase() }), errMsg);
                     }
                 } catch (err) {
                     if (err.name === "AbortError") {
-                        showToast(isKoNow ? "⏹️ 생성이 사용자에 의해 중단되었습니다." : "⏹️ Generation cancelled by user.", "info", 3000);
+                        showToast(BadaI18n.t("gemini_generate_cancelled"), "info", 3000);
                     } else {
                         const errDesc = err.message || "Network error";
-                        showToast((isKoNow ? "❌ 네트워크 오류: " : "❌ Network error: ") + errDesc, "error", 5000);
-                        addErrorLog(isKoNow ? `${activeEngine.toUpperCase()} 생성` : `${activeEngine.toUpperCase()} Generation`, errDesc);
+                        showToast((BadaI18n.t("gemini_network_error")) + errDesc, "error", 5000);
+                        addErrorLog(BadaI18n.t("gemini_error_log_engine", { engine: activeEngine.toUpperCase() }), errDesc);
                     }
                 } finally {
                     isGenerating = false;
@@ -2355,16 +2289,16 @@ function updateBellBadge() {
                 const toolbar = document.createElement("div");
                 toolbar.className = "bada-story-toolbar";
                 toolbar.innerHTML = `
-                    <span class="bada-story-badge">🎞️ ${isKo ? `스토리보드 (${sbData.cuts.length}컷 생성 완료)` : `Storyboard (${sbData.cuts.length} Cuts Generated)`}</span>
+                    <span class="bada-story-badge">🎞️ ${BadaI18n.t("gemini_story_badge", { cuts: sbData.cuts.length })}</span>
                     <div style="display: flex; gap: 4px;">
-                        <button type="button" class="bada-btn-cut-action" id="bada-copy-all-cuts">${isKo ? "📋 전체 컷 복사" : "📋 Copy All Cuts"}</button>
-                        <button type="button" class="bada-btn-cut-action" id="bada-send-all-cuts">${isKo ? "➡️ 1번 컷 CLIP 전송" : "➡️ Send Cut #1 to CLIP"}</button>
+                        <button type="button" class="bada-btn-cut-action" id="bada-copy-all-cuts">${BadaI18n.t("gemini_story_copy_all")}</button>
+                        <button type="button" class="bada-btn-cut-action" id="bada-send-all-cuts">${BadaI18n.t("gemini_story_send_first")}</button>
                     </div>
                 `;
                 toolbar.querySelector("#bada-copy-all-cuts").onclick = async () => {
                     const allText = sbData.cuts.map(c => `[Cut ${c.cutNumber}: ${c.cameraAngle}]\n${c.englishPrompt}\n(${c.koreanTranslation})`).join("\n\n");
                     await navigator.clipboard.writeText(allText);
-                    showToast(isKo ? "전체 스토리보드 컷이 복사되었습니다! 📋" : "All storyboard cuts copied to clipboard! 📋", "success", 2000);
+                    showToast(BadaI18n.t("gemini_story_copy_all_done"), "success", 2000);
                 };
                 toolbar.querySelector("#bada-send-all-cuts").onclick = () => {
                     if (sbData.cuts.length > 0) {
@@ -2377,7 +2311,7 @@ function updateBellBadge() {
                     const sumBox = document.createElement("div");
                     sumBox.className = "bada-callout";
                     const summaryTitle = document.createElement("b");
-                    summaryTitle.textContent = isKo ? "전체 줄거리" : "Overall Synopsis";
+                    summaryTitle.textContent = BadaI18n.t("gemini_story_synopsis");
                     sumBox.append(summaryTitle, document.createTextNode(`: ${String(sbData.summary)}`));
                     storyboardOutputContainer.appendChild(sumBox);
                 }
@@ -2415,17 +2349,17 @@ function updateBellBadge() {
                     const copyButton = document.createElement("button");
                     copyButton.type = "button";
                     copyButton.className = "bada-btn-cut-action bada-copy-cut";
-                    copyButton.textContent = isKo ? "📋 복사" : "📋 Copy";
+                    copyButton.textContent = BadaI18n.t("gemini_copy");
                     const clipButton = document.createElement("button");
                     clipButton.type = "button";
                     clipButton.className = "bada-btn-cut-action bada-clip-cut";
-                    clipButton.textContent = isKo ? "➡️ CLIP 전송" : "➡️ Send to CLIP";
+                    clipButton.textContent = BadaI18n.t("gemini_send_to_clip");
                     actions.append(copyButton, clipButton);
                     card.appendChild(actions);
 
                     copyButton.onclick = async () => {
                         await navigator.clipboard.writeText(englishPrompt);
-                        showToast(isKo ? `Cut #${cut.cutNumber} 영문 프롬프트 복사 완료!` : `Cut #${cut.cutNumber} English prompt copied!`, "success", 1500);
+                        showToast(BadaI18n.t("gemini_story_cut_copied", { n: cut.cutNumber }), "success", 1500);
                     };
                     clipButton.onclick = () => {
                         sendTextToActiveClip(englishPrompt);
@@ -2468,7 +2402,7 @@ function updateBellBadge() {
                 const newChatBtn = document.createElement("button");
                 newChatBtn.type = "button";
                 newChatBtn.className = "bada-pill bada-gem-new-chat";
-                newChatBtn.innerHTML = isKo ? "✏️ 새 채팅" : "✏️ New Chat";
+                newChatBtn.innerHTML = BadaI18n.t("gemini_new_chat");
                 newChatBtn.onclick = async () => {
                     // A fresh conversation must NOT keep writing into the entry the user just
                     // came from — clear the id so the next send mints a NEW row, and flush the
@@ -2503,10 +2437,8 @@ function updateBellBadge() {
                 const managePromptsBtn = document.createElement("button");
                 managePromptsBtn.type = "button";
                 managePromptsBtn.className = "bada-pill bada-gem-prompt-manage";
-                managePromptsBtn.textContent = isKo ? "⚙️ 프롬프트 관리" : "⚙️ Manage Prompts";
-                managePromptsBtn.title = isKo
-                    ? "제미나이 탭 전용 시스템 프롬프트 작성 · 수정 · 삭제 · 순서 이동"
-                    : "Create / edit / delete / reorder Gemini-only system prompts";
+                managePromptsBtn.textContent = BadaI18n.t("gemini_manage_prompts");
+                managePromptsBtn.title = BadaI18n.t("gemini_manage_prompts_title");
                 managePromptsBtn.onclick = () => openGemPromptManager(managePromptsBtn);
 
                 personaPicker.append(personaTrigger, personaMenu);
@@ -2521,20 +2453,19 @@ function updateBellBadge() {
                 historyBtn.type = "button";
                 historyBtn.className = "bada-pill bada-gem-history-btn";
                 historyBtn.textContent = "🕐";
-                historyBtn.title = isKo ? "채팅 기록" : "Chat history";
+                historyBtn.title = BadaI18n.t("gemini_chat_history");
                 historyBtn.onclick = () => openChatHistory(historyBtn);
                 chatTopbar.appendChild(historyBtn);
                 chatStudioContainer.appendChild(chatTopbar);
 
                 // 현재 선택된 항목의 표시 이름
                 function activeGemPromptLabel() {
-                    const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                     if (selectedGemPromptId) {
                         const found = gemChatPrompts.find(p => String(p.id) === selectedGemPromptId);
                         if (found) return `📜 ${found.name || found.id}`;
                     }
                     const persona = GEM_PERSONAS_LIST.find(p => p.id === selectedGemPersona) || GEM_PERSONAS_LIST[0];
-                    return isKoNow ? persona.name : (persona.name_en || persona.name);
+                    return BadaI18n.t(persona.nameKey);
                 }
 
                 function setPersonaMenuOpen(open) {
@@ -2567,7 +2498,6 @@ function updateBellBadge() {
                 }
 
                 function renderPersonaMenu() {
-                    const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                     personaMenu.innerHTML = "";
 
                     // 1) 내장 Gem 페르소나
@@ -2578,7 +2508,7 @@ function updateBellBadge() {
                         item.type = "button";
                         const isActive = !selectedGemPromptId && p.id === selectedGemPersona;
                         item.className = `bada-gem-picker-item persona ${isActive ? "active" : ""}`;
-                        item.textContent = isKoNow ? p.name : (p.name_en || p.name);
+                        item.textContent = BadaI18n.t(p.nameKey);
                         item.onclick = () => applyGemPromptSelection({ personaId: p.id });
                         personaGroup.appendChild(item);
                     });
@@ -2589,19 +2519,15 @@ function updateBellBadge() {
                     userGroup.className = "bada-gem-picker-group";
                     const userHead = document.createElement("div");
                     userHead.className = "bada-gem-picker-group-title";
-                    userHead.textContent = isKoNow
-                        ? "📜 제미나이 전용 시스템 프롬프트"
-                        : "📜 Gemini-only System Prompts";
+                    userHead.textContent = BadaI18n.t("gemini_persona_user_group");
                     userGroup.appendChild(userHead);
 
                     if (!gemChatPrompts.length) {
                         const empty = document.createElement("div");
                         empty.className = "bada-gem-picker-empty";
                         empty.textContent = gemChatPromptsLoaded
-                            ? (isKoNow
-                                ? "등록된 프롬프트가 없습니다. 「⚙️ 프롬프트 관리」로 추가하세요."
-                                : "No prompts yet. Use “⚙️ Manage Prompts” to add one.")
-                            : (isKoNow ? "불러오는 중..." : "Loading...");
+                            ? (BadaI18n.t("gemini_persona_no_prompts"))
+                            : (BadaI18n.t("gemini_loading"));
                         userGroup.appendChild(empty);
                     } else {
                         gemChatPrompts.forEach(prompt => {
@@ -2699,16 +2625,17 @@ function updateBellBadge() {
 
                     const text = document.createElement("span");
                     text.className = "bada-chat-length-text";
-                    text.textContent = isKo
-                        ? `${isAlert ? "⚠️" : "📊"} 대화가 ${kb}KB로 길어졌어요. 새 채팅을 시작하면 훨씬 정확해집니다.`
-                        : `${isAlert ? "⚠️" : "📊"} This chat is ${kb} KB — a new one keeps answers sharp.`;
+                    text.textContent = BadaI18n.t("gemini_chat_length_notice", {
+                        icon: isAlert ? "⚠️" : "📊",
+                        kb,
+                    });
                     chatLengthNotice.innerHTML = "";
                     chatLengthNotice.appendChild(text);
 
                     const btn = document.createElement("button");
                     btn.type = "button";
                     btn.className = "bada-chat-length-btn";
-                    btn.textContent = isKo ? "✏️ 새 채팅" : "✏️ New Chat";
+                    btn.textContent = BadaI18n.t("gemini_new_chat");
                     // Reuse the real handler so a fresh chat resets the id and flushes the
                     // old conversation exactly like clicking 「✏️ 새 채팅」 does.
                     btn.onclick = () => newChatBtn.click();
@@ -2734,7 +2661,7 @@ function updateBellBadge() {
                 chatAttachBtn.type = "button";
                 chatAttachBtn.className = "bada-pill";
                 chatAttachBtn.innerHTML = "🖼️";
-                chatAttachBtn.title = isKo ? "이미지 첨부" : "Attach Image";
+                chatAttachBtn.title = BadaI18n.t("gemini_attach_image");
                 chatAttachBtn.onclick = () => chatFileInput.click();
                 chatInputBar.appendChild(chatAttachBtn);
 
@@ -2749,9 +2676,7 @@ function updateBellBadge() {
                 const chatTextarea = document.createElement("textarea");
                 chatTextarea.className = "bada-chat-textarea";
                 chatTextarea.rows = 3;
-                chatTextarea.placeholder = isKo 
-                    ? "무검열 제미나이에게 메시지 보내기... (Enter로 전송, Shift+Enter 줄바꿈)"
-                    : "Send message to Uncensored Gemini... (Enter to send, Shift+Enter for newline)";
+                chatTextarea.placeholder = BadaI18n.t("gemini_chat_placeholder");
 
                 // Auto-grow composer: starts at 3 lines and grows upward as you type, up to
                 // CHAT_TEXTAREA_MAX_LINES. Past that it stops growing and scrolls internally, so
@@ -2820,7 +2745,7 @@ function updateBellBadge() {
                         // × 버튼은 이벤트를 막아야 지우기가 대신 실행된다.
                         const thumbImg = item.querySelector(".bada-thumbnail-img");
                         thumbImg.classList.add("bada-thumbnail-img-zoomable");
-                        thumbImg.title = isKo ? "이미지를 눌러 크게 보기" : "Click to view larger";
+                        thumbImg.title = BadaI18n.t("gemini_view_larger");
                         thumbImg.onclick = (e) => {
                             e.stopPropagation();
                             const originals = chatOriginalImages[idx] ? [...chatOriginalImages] : chatUploadedImages.slice();
@@ -2909,14 +2834,13 @@ function updateBellBadge() {
                 function renderChatMessages() {
                     thread.innerHTML = "";
                     if (chatMessages.length === 0) {
-                        const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                         const emptyState = document.createElement("div");
                         emptyState.className = "bada-chat-empty-state";
                         emptyState.style.cssText = "display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 180px; text-align: center; color: var(--bada-text-dim); padding: 24px 16px; user-select: none;";
                         emptyState.innerHTML = `
                             <div style="font-size: 28px; margin-bottom: 8px;">🔞</div>
-                            <div style="font-size: 13px; font-weight: 700; color: var(--bada-text-main); margin-bottom: 4px;">${isKoNow ? "🔞 무검열 제미나이 자유 대화" : "🔞 Uncensored Gemini Studio"}</div>
-                            <div style="font-size: 11px; line-height: 1.5; max-width: 260px; color: var(--bada-text-muted);">${isKoNow ? "질문을 입력하거나 이미지를 첨부(Ctrl+V)하여 대화 및 프롬프트 기획을 시작하세요." : "Type a prompt or attach images (Ctrl+V) to start planning."}</div>
+                            <div style="font-size: 13px; font-weight: 700; color: var(--bada-text-main); margin-bottom: 4px;">${BadaI18n.t("gemini_chat_empty_title")}</div>
+                            <div style="font-size: 11px; line-height: 1.5; max-width: 260px; color: var(--bada-text-muted);">${BadaI18n.t("gemini_chat_empty_desc")}</div>
                         `;
                         thread.appendChild(emptyState);
                         return;
@@ -2941,7 +2865,7 @@ function updateBellBadge() {
                                 const th = document.createElement("img");
                                 th.className = "bada-msg-thumb bada-msg-thumb-zoomable";
                                 th.src = im;
-                                th.title = isKo ? "이미지를 눌러 크게 보기" : "Click to view larger";
+                                th.title = BadaI18n.t("gemini_view_larger");
                                 th.onclick = () => openChatImageViewer(viewList, i);
                                 imgWrap.appendChild(th);
                             });
@@ -2958,7 +2882,7 @@ function updateBellBadge() {
                             for (let i = 0; i < Math.min(count, 8); i++) {
                                 const box = document.createElement("div");
                                 box.className = "bada-msg-thumb bada-msg-thumb-placeholder";
-                                box.textContent = "🖼️ 이미지";
+                                box.textContent = BadaI18n.t("gemini_image_placeholder");
                                 ph.appendChild(box);
                             }
                             if (count > 8) {
@@ -2967,9 +2891,7 @@ function updateBellBadge() {
                                 more.textContent = `+${count - 8}`;
                                 ph.appendChild(more);
                             }
-                            ph.title = isKo
-                                ? "이미지를 저장하지 않아 표시만 남습니다 (대화 내용은 그대로입니다)"
-                                : "Images were not saved; only the fact they were attached remains";
+                            ph.title = BadaI18n.t("gemini_chat_image_omitted_tooltip");
                             bubble.appendChild(ph);
                         }
 
@@ -2986,20 +2908,19 @@ function updateBellBadge() {
                             actRow.style.alignItems = "center";
                             actRow.style.gap = "6px";
 
-                            const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
                             const copyMBtn = document.createElement("button");
                             copyMBtn.type = "button";
                             copyMBtn.className = "bada-btn-msg-act";
-                            copyMBtn.innerHTML = isKoNow ? "📋 복사" : "📋 Copy";
+                            copyMBtn.innerHTML = BadaI18n.t("gemini_copy");
                             copyMBtn.onclick = async () => {
                                 await navigator.clipboard.writeText(msg.text);
-                                showToast(isKoNow ? "답변 텍스트가 복사되었습니다! 📋" : "Reply copied to clipboard! 📋", "success", 1500);
+                                showToast(BadaI18n.t("gemini_chat_copy_done"), "success", 1500);
                             };
 
                             const clipMBtn = document.createElement("button");
                             clipMBtn.type = "button";
                             clipMBtn.className = "bada-btn-msg-act";
-                            clipMBtn.innerHTML = isKoNow ? "➡️ CLIP 전송" : "➡️ Send to CLIP";
+                            clipMBtn.innerHTML = BadaI18n.t("gemini_send_to_clip");
                             clipMBtn.onclick = () => {
                                 sendTextToActiveClip(msg.text);
                             };
@@ -3010,7 +2931,7 @@ function updateBellBadge() {
                             if (msg.duration) {
                                 const durSpan = document.createElement("span");
                                 durSpan.style.cssText = "font-size: 10.5px; color: var(--bada-text-dim); margin-left: auto; font-family: monospace; font-weight: 600;";
-                                durSpan.textContent = `⏱️ ${msg.duration}${isKoNow ? "초 완료" : "s done"}`;
+                                durSpan.textContent = `⏱️ ${msg.duration}${BadaI18n.t("gemini_chat_done_suffix")}`;
                                 actRow.appendChild(durSpan);
                             }
 
@@ -3081,11 +3002,10 @@ function updateBellBadge() {
                     chatSendBtn.disabled = false;
                     chatSendBtn.className = "bada-chat-send-btn bada-stop-state";
                     chatSendBtn.innerHTML = "⏹️";
-                    chatSendBtn.title = isKo ? "채팅 응답 생성 중단" : "Stop generation";
+                    chatSendBtn.title = BadaI18n.t("gemini_chat_stop");
 
                     const chatStartTime = Date.now();
-                    const isKoNow = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
-                    const chatWorkingText = isKoNow ? "작업 중..." : "Working...";
+                    const chatWorkingText = BadaI18n.t("gemini_working");
 
                     // Add typing status bubble to thread with Stop button
                     const typingRow = document.createElement("div");
@@ -3095,7 +3015,7 @@ function updateBellBadge() {
                             <span class="bada-spinner"></span>
                             <span style="font-size: 12px; font-weight: 600; color: #a5b4fc;">${chatWorkingText}</span>
                             <span class="bada-typing-timer" style="font-size: 11px; font-weight: 700; color: #38bdf8;">⏱️ 0.0s</span>
-                            <button type="button" class="bada-typing-stop-btn" id="bada-chat-bubble-stop">⏹️ ${isKoNow ? "중단" : "Stop"}</button>
+                            <button type="button" class="bada-typing-stop-btn" id="bada-chat-bubble-stop">⏹️ ${BadaI18n.t("gemini_stop")}</button>
                         </div>
                     `;
                     const bubbleStop = typingRow.querySelector("#bada-chat-bubble-stop");
@@ -3153,19 +3073,19 @@ function updateBellBadge() {
                         // banner above the API-key row and pushed the panel down. The
                         // reply bubble already renders "⏱️ N.N초 완료" inline.
                         } else {
-                            const errDesc = data.error || (isKoNow ? '응답 실패' : 'No response');
-                            showToast((isKoNow ? "❌ 채팅 오류: " : "❌ Chat error: ") + errDesc, "error", 4000);
-                            addErrorLog(isKoNow ? "무검열 제미나이 채팅" : "Gemini Chat", errDesc);
+                            const errDesc = data.error || (BadaI18n.t("gemini_chat_no_response"));
+                            showToast((BadaI18n.t("gemini_chat_error")) + errDesc, "error", 4000);
+                            addErrorLog(BadaI18n.t("gemini_chat_log_title"), errDesc);
                         }
                     } catch (err) {
                         clearInterval(chatTimerInterval);
                         if (typingRow.parentNode) typingRow.remove();
                         if (err.name === "AbortError") {
-                            showToast(isKoNow ? "⏹️ 채팅 생성이 사용자에 의해 중단되었습니다." : "⏹️ Chat response cancelled by user.", "info", 3000);
+                            showToast(BadaI18n.t("gemini_chat_cancelled"), "info", 3000);
                         } else {
                             const errDesc = err.message || "Network error";
-                            showToast((isKoNow ? "❌ 네트워크 오류: " : "❌ Network error: ") + errDesc, "error", 4000);
-                            addErrorLog(isKoNow ? "무검열 제미나이 채팅" : "Gemini Chat", errDesc);
+                            showToast((BadaI18n.t("gemini_network_error")) + errDesc, "error", 4000);
+                            addErrorLog(BadaI18n.t("gemini_chat_log_title"), errDesc);
                         }
                     } finally {
                         clearInterval(chatTimerInterval);
@@ -3174,7 +3094,7 @@ function updateBellBadge() {
                         chatSendBtn.disabled = false;
                         chatSendBtn.className = "bada-chat-send-btn";
                         chatSendBtn.innerHTML = "🚀";
-                        chatSendBtn.title = isKoNow ? "메시지 보내기" : "Send message";
+                        chatSendBtn.title = BadaI18n.t("gemini_chat_send");
                     }
                 }
 
@@ -3230,37 +3150,35 @@ function updateBellBadge() {
 
             // Dynamic live bilingual updater when BadaUtils.Language changes
             function updateAllStaticLabels() {
-                isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
-
                 // Options row (slim toggles + aspect ratio picker)
                 const nsfwTitle = optionsGrid.querySelector("#bada-toggle-nsfw .bada-toggle-title");
-                if (nsfwTitle) nsfwTitle.textContent = isKo ? "성인용 콘텐츠 (NSFW)" : "Allow NSFW";
-                nsfwToggle.setAttribute("aria-label", isKo ? "성인용 콘텐츠 허용 (NSFW)" : "Allow NSFW Content");
-                nsfwToggle.title = isKo ? "관능적/친밀한 장면 무검열 묘사" : "Uncensored sensual & intimate scenes";
+                if (nsfwTitle) nsfwTitle.textContent = BadaI18n.t("gemini_nsfw_toggle");
+                nsfwToggle.setAttribute("aria-label", BadaI18n.t("gemini_nsfw_aria"));
+                nsfwToggle.title = BadaI18n.t("gemini_nsfw_tooltip");
 
                 const transTitle = optionsGrid.querySelector("#bada-toggle-trans .bada-toggle-title");
-                if (transTitle) transTitle.textContent = isKo ? "한국어 번역" : "Korean Translation";
-                transToggle.setAttribute("aria-label", isKo ? "한국어 번역 및 해설" : "Korean Translation & Notes");
-                transToggle.title = isKo ? "영문 프롬프트와 연출 해설 분할" : "Separate English prompt and director notes";
+                if (transTitle) transTitle.textContent = BadaI18n.t("gemini_translate_toggle");
+                transToggle.setAttribute("aria-label", BadaI18n.t("gemini_translate_aria"));
+                transToggle.title = BadaI18n.t("gemini_translate_tooltip");
 
                 // Aspect ratio picker labels + chips (rebuild for the active language)
                 syncAspectPicker();
 
                 // Config section
                 const cfgTitle = configSection.querySelector(".bada-config-title-text");
-                if (cfgTitle) cfgTitle.textContent = isKo ? "🔑 API Key & 우선순위 모델 선택" : "🔑 API Key & Priority Model";
+                if (cfgTitle) cfgTitle.textContent = BadaI18n.t("gemini_config_title");
 
                 const curGetKeyBtn = configSection.querySelector("#bada-btn-get-key");
                 const curTestKeyBtn = configSection.querySelector("#bada-btn-test-key");
                 if (curGetKeyBtn) {
                     const textSpan = curGetKeyBtn.querySelector(".bada-action-text");
-                    if (textSpan) textSpan.textContent = isKo ? "발급" : "Get Key";
-                    curGetKeyBtn.title = isKo ? "Google AI Studio API 키 발급 페이지 열기" : "Open Google AI Studio API Key page";
+                    if (textSpan) textSpan.textContent = BadaI18n.t("gemini_get_key");
+                    curGetKeyBtn.title = BadaI18n.t("gemini_get_key_tooltip");
                 }
                 if (curTestKeyBtn && curTestKeyBtn.dataset.busy !== "true") {
                     const textSpan = curTestKeyBtn.querySelector(".bada-action-text");
-                    if (textSpan) textSpan.textContent = isKo ? "연결확인" : "Check";
-                    curTestKeyBtn.title = isKo ? "Gemini API 연결 및 키 유효성 테스트" : "Test Gemini API connection and key validity";
+                    if (textSpan) textSpan.textContent = BadaI18n.t("gemini_check");
+                    curTestKeyBtn.title = BadaI18n.t("gemini_test_key_tooltip");
                 }
 
                 // Model select options
@@ -3269,38 +3187,38 @@ function updateBellBadge() {
                 EXACT_MODELS.forEach(m => {
                     const opt = document.createElement("option");
                     opt.value = m.id;
-                    opt.textContent = isKo ? m.name : (m.name_en || m.name);
+                    opt.textContent = BadaI18n.t(m.nameKey);
                     modelSelect.appendChild(opt);
                 });
                 modelSelect.value = currentModelVal;
 
                 // Dropzone & Image hints
                 const imgLabel = imgLabelRow.querySelector("#bada-img-label");
-                if (imgLabel) imgLabel.textContent = isKo ? "🖼️ 참고 이미지 (멀티모달 비전)" : "🖼️ Reference Images (Multimodal Vision)";
+                if (imgLabel) imgLabel.textContent = BadaI18n.t("gemini_images_label");
                 const dropText = dropzone.querySelector("#bada-drop-text");
-                if (dropText) dropText.innerHTML = isKo ? "드래그하거나 <b>Ctrl+V</b>로 이미지 붙여넣기" : "Drag images or paste with <b>Ctrl+V</b>";
+                if (dropText) dropText.innerHTML = BadaI18n.t("gemini_dropzone_text");
                 const dropSub = dropzone.querySelector("#bada-drop-subtext");
-                if (dropSub) dropSub.textContent = isKo ? "PNG, JPG, WEBP 지원" : "PNG, JPG, WEBP supported";
+                if (dropSub) dropSub.textContent = BadaI18n.t("gemini_dropzone_subtext");
                 const thumbHint = thumbActions.querySelector("#bada-thumb-hint");
-                if (thumbHint) thumbHint.textContent = isKo ? "이미지 클릭/호버하여 삭제" : "Click / hover image to delete";
+                if (thumbHint) thumbHint.textContent = BadaI18n.t("gemini_thumbs_hint");
                 const clearAllBtn = thumbActions.querySelector("#bada-clear-all");
-                if (clearAllBtn) clearAllBtn.textContent = isKo ? "🗑️ 전체 삭제" : "🗑️ Clear All";
+                if (clearAllBtn) clearAllBtn.textContent = BadaI18n.t("gemini_clear_all");
 
                 // Clipboard button label follows the active tab
                 refreshCopyButton();
-                outputTextarea.placeholder = isKo ? "생성된 프롬프트가 여기에 표시됩니다. 자유롭게 직접 수정할 수도 있습니다." : "Generated prompt will appear here. You can also edit it directly.";
+                outputTextarea.placeholder = BadaI18n.t("gemini_output_placeholder");
 
                 // Output section header & tabs
                 const outputTitle = outputSection.querySelector("#bada-output-title");
-                if (outputTitle) outputTitle.textContent = isKo ? "✨ 생성된 프롬프트 결과" : "✨ Generated Output";
-                tabEng.textContent = isKo ? "🇺🇸 영문 마스터" : "🔤 English Master";
-                tabKor.textContent = isKo ? "🇰🇷 한국어 번역" : "🇰🇷 Korean Translation";
-                tabAll.textContent = isKo ? "📜 통합본" : "📜 Combined";
+                if (outputTitle) outputTitle.textContent = BadaI18n.t("gemini_output_title");
+                tabEng.textContent = BadaI18n.t("gemini_tab_english");
+                tabKor.textContent = BadaI18n.t("gemini_tab_korean");
+                tabAll.textContent = BadaI18n.t("gemini_tab_combined");
 
                 // Character counter
                 const charCounter = promptSection.querySelector("#bada-char-counter");
                 if (charCounter) {
-                    charCounter.textContent = isKo ? `${instructionTextarea.value.length}자` : `${instructionTextarea.value.length} chars`;
+                    charCounter.textContent = BadaI18n.t("gemini_char_counter", { count: instructionTextarea.value.length });
                 }
 
                 // Error modal & bell labels
@@ -3308,21 +3226,19 @@ function updateBellBadge() {
                 const errClearBtnEl = errorModalOverlay.querySelector("#bada-err-clear-btn");
                 const errCloseBtnEl = errorModalOverlay.querySelector("#bada-err-close-btn");
                 const errorBellBtnEl = root.querySelector("#bada-error-bell");
-                if (errTitleEl) errTitleEl.textContent = isKo ? "오류 알림 내역" : "Error Notification Log";
-                if (errClearBtnEl) errClearBtnEl.textContent = isKo ? "🗑️ 비우기" : "🗑️ Clear";
-                if (errCloseBtnEl) errCloseBtnEl.title = isKo ? "닫기" : "Close";
-                if (errorBellBtnEl) errorBellBtnEl.title = isKo ? "오류 알림 내역" : "Error Notifications";
+                if (errTitleEl) errTitleEl.textContent = BadaI18n.t("gemini_error_log_title");
+                if (errClearBtnEl) errClearBtnEl.textContent = BadaI18n.t("gemini_error_clear_btn");
+                if (errCloseBtnEl) errCloseBtnEl.title = BadaI18n.t("gemini_close");
+                if (errorBellBtnEl) errorBellBtnEl.title = BadaI18n.t("gemini_error_bell_tooltip");
 
                 // Gemini chat topbar (페르소나/프롬프트 드롭다운 · 프롬프트 관리 · 새 채팅)
                 const gemManageBtn = chatStudioContainer.querySelector(".bada-gem-prompt-manage");
                 if (gemManageBtn) {
-                    gemManageBtn.textContent = isKo ? "⚙️ 프롬프트 관리" : "⚙️ Manage Prompts";
-                    gemManageBtn.title = isKo
-                        ? "제미나이 탭 전용 시스템 프롬프트 작성 · 수정 · 삭제 · 순서 이동"
-                        : "Create / edit / delete / reorder Gemini-only system prompts";
+                    gemManageBtn.textContent = BadaI18n.t("gemini_manage_prompts");
+                    gemManageBtn.title = BadaI18n.t("gemini_manage_prompts_title");
                 }
                 const gemNewChatBtn = chatStudioContainer.querySelector(".bada-gem-new-chat");
-                if (gemNewChatBtn) gemNewChatBtn.innerHTML = isKo ? "✏️ 새 채팅" : "✏️ New Chat";
+                if (gemNewChatBtn) gemNewChatBtn.innerHTML = BadaI18n.t("gemini_new_chat");
                 const gemTriggerLabel = chatStudioContainer.querySelector(".bada-gem-picker-label");
                 if (gemTriggerLabel) {
                     const persona = GEM_PERSONAS_LIST.find(p => p.id === selectedGemPersona) || GEM_PERSONAS_LIST[0];
@@ -3331,7 +3247,7 @@ function updateBellBadge() {
                         : null;
                     gemTriggerLabel.textContent = picked
                         ? `📜 ${picked.name || picked.id}`
-                        : (isKo ? persona.name : (persona.name_en || persona.name));
+                        : BadaI18n.t(persona.nameKey);
                 }
 
                 renderEngineNav();
