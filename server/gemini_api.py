@@ -427,50 +427,6 @@ def build_engine_system_instruction(engine_mode, submode, style, duration, is_ns
     )
 
 
-def build_qwen_system_instruction(submode, image_count, aspect_ratio=""):
-    prompt_key = {"t2i": "qwen_t2i", "i2i": "qwen_i2i"}.get(submode)
-    if not prompt_key:
-        raise ValueError("QWEN2.1 submode must be 't2i' or 'i2i'.")
-    with open(REGISTRY_FILE, "r", encoding="utf-8") as handle:
-        registry = json.load(handle)
-    official = (registry.get("official_prompts") or {}).get(prompt_key) or {}
-    target = next((item for item in registry.get("targets", []) if item.get("id") == "qwen21"), {})
-    submenu = next((item for item in target.get("submenus", []) if item.get("id") == submode), {})
-    system_text = str(official.get("text") or "").strip()
-    output_fields = submenu.get("output_fields") or ["rewritten_prompt", "wh_ratio"]
-    if not system_text:
-        raise RuntimeError(f"Official QWEN2.1 prompt '{prompt_key}' is missing.")
-
-    image_options = submenu.get("images") or {}
-    if image_count and image_options.get("inject_refs"):
-        slots = ", ".join(f"<image{index}>" for index in range(1, image_count + 1))
-        system_text += (
-            "\n\n[REFERENCE IMAGE BINDING]\n"
-            f"{image_count} reference image(s) are attached in this slot order: {slots}. "
-            "Refer to each image using its exact slot tag and preserve these tags verbatim."
-        )
-    elif image_count and image_options.get("vision"):
-        system_text += (
-            "\n\n[ATTACHED REFERENCE IMAGE ANALYSIS]\n"
-            f"{image_count} source image(s) are attached as visual evidence. Analyze only visible details and do not invent unsupported content."
-        )
-
-    fields = ", ".join(f'"{field}"' for field in output_fields)
-    system_text += (
-        "\n\nReturn exactly one valid JSON object and no markdown fences or commentary. "
-        f"Required keys and order: {fields}. All fields must be strings."
-    )
-    ratio_field = next((field for field in ("wh_ratio", "ratio_follow") if field in output_fields), "")
-    system_text += build_aspect_ratio_directive(aspect_ratio, ratio_field)
-    schema = {
-        "type": "object",
-        "properties": {field: {"type": "string"} for field in output_fields},
-        "required": ["rewritten_prompt"],
-        "propertyOrdering": output_fields,
-    }
-    return system_text, schema
-
-
 def _extract_json_object(raw_text):
     """Fence-strip + brace-extract + json.loads — shared core of every structured-output parser.
 
@@ -529,14 +485,6 @@ def parse_qwen_output(raw_text):
         return (prompt or str(raw_text or "").strip(), ratio)
     return str(raw_text or "").strip(), ""
 
-
-def parse_user_system_output(raw_text):
-    """Parse a user-system-prompt JSON response. Returns `(prompt, ratio)` or None."""
-    data = _extract_json_object(raw_text)
-    if data is None:
-        return None
-    prompt, ratio = _prompt_and_ratio(data)
-    return (prompt, ratio) if prompt else None
 
 def _int_field(body: dict, key: str, default: int) -> int:
     """Read an integer field from user-supplied JSON without a bare ValueError 500.

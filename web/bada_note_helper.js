@@ -1267,7 +1267,11 @@ function ensureBadaDomObserver() {
         const raf = window.requestAnimationFrame || (cb => setTimeout(cb, 0));
         raf(() => { BadaDomRafPending = false; refreshAllBadaDomButtons(); });
     });
-    BadaDomObserver.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "data-node-id"] });
+    // `attributes` is narrowed to data-node-id on purpose: watching class/style on a
+    // subtree fires on every hover/drag repaint of every node, while the only attribute
+    // this button layer actually reacts to is a node's identity changing (re-render).
+    // The 1.2s timer below is the safety net for everything else.
+    BadaDomObserver.observe(target, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-node-id"] });
 }
 
 function startBadaDomSyncTimer() {
@@ -1277,8 +1281,11 @@ function startBadaDomSyncTimer() {
 
 function refreshAllBadaDomButtons() {
     const nodes = app.graph && app.graph._nodes;
+    // Set lookup: this runs on every canvas mutation, and `Array.includes` inside the
+    // loop made it O(nodes × tracked) on large workflows.
+    const nodeSet = nodes ? new Set(nodes) : null;
     for (const node of Array.from(BadaDomNodes)) {
-        const gone = !nodes || !nodes.includes(node);
+        const gone = !nodeSet || !nodeSet.has(node);
         if (gone) { removeBadaDomButton(node); BadaDomNodes.delete(node); continue; }
         if (!isNoteHelperEnabled() || (node.flags && node.flags.collapsed) || !node.badaNoteState) { removeBadaDomButton(node); continue; }
         attachBadaDomHeaderButton(node);

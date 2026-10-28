@@ -30,8 +30,7 @@ import { registerBadaV2Settings } from "./bada_settings_v2.js";
 //  SVG Vector Icons for Settings UI (100% Native Vector Matches)
 // ──────────────────────────────────────────────────────────────────────────────
 const BADA_ICONS = {
-    workflow: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="15" height="15" style="display:inline-block; vertical-align:-2px; filter:drop-shadow(0 0 3px rgba(0,240,255,0.85));"><path fill="none" stroke="#00f0ff" stroke-linecap="round" stroke-width="1.35" d="M9.186 3.1H6.814m2.372 9.8H7.553C4.466 12.9 2.2 9.904 2.95 6.812l.305-1.262M14.75 2.172l-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Zm-8.304 0-.593 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.772 0-1.338-.749-1.15-1.522l.592-2.45A1.194 1.194 0 012.995.65h2.3c.771 0 1.337.749 1.15 1.522Zm8.304 9.8-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Z"/></svg>`,
-    terminal: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#00e5ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block; vertical-align:-3px; filter:drop-shadow(0 0 4px rgba(0,229,255,0.85));"><rect x="2" y="4" width="20" height="16" rx="3"/><polyline points="6 9 10 12 6 15"/><line x1="12" y1="15" x2="17" y2="15"/></svg>`
+    workflow: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="15" height="15" style="display:inline-block; vertical-align:-2px; filter:drop-shadow(0 0 3px rgba(0,240,255,0.85));"><path fill="none" stroke="#00f0ff" stroke-linecap="round" stroke-width="1.35" d="M9.186 3.1H6.814m2.372 9.8H7.553C4.466 12.9 2.2 9.904 2.95 6.812l.305-1.262M14.75 2.172l-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Zm-8.304 0-.593 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.772 0-1.338-.749-1.15-1.522l.592-2.45A1.194 1.194 0 012.995.65h2.3c.771 0 1.337.749 1.15 1.522Zm8.304 9.8-.594 2.45a1.194 1.194 0 01-1.15.928h-2.3c-.771 0-1.338-.749-1.15-1.522l.593-2.45a1.194 1.194 0 011.15-.928h2.3c.771 0 1.338.749 1.15 1.522Z"/></svg>`
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -78,10 +77,6 @@ const BADA_SETTINGS_TEXTS = {
 
         loadImageName: "📋 Clipboard & LoadImage Auto-Error Fixer",
         loadImageDesc: "Automatically fixes red border and input validation errors caused by pasting clipboard images (Ctrl+V) or subfolder paths in LoadImage nodes.",
-
-        terminalHubPlain: "Bada Terminal Hub",
-        terminalHubTitle: `${BADA_ICONS.terminal} Bada Terminal Hub`,
-        terminalHubDesc: "Show or hide the Bada Terminal Hub shortcut icon at the bottom of the left sidebar.",
 
         detectiveName: "⚓ Node Smart Care (Missing Node Resolver & Model Assigner)",
         detectiveDesc: "Smartly resolves uninstalled missing nodes (red X) and missing models/LoRAs via right-click menu, providing one-click installation and smart auto-assignment.",
@@ -132,10 +127,6 @@ const BADA_SETTINGS_TEXTS = {
 
         loadImageName: "📋 클립보드 & LoadImage 자동 에러 해결사",
         loadImageDesc: "LoadImage 노드에 클립보드 이미지(Ctrl+V)를 붙여넣거나 하위 경로 로드 시 발생하는 빨간 테두리 에러를 자동으로 치료합니다.",
-
-        terminalHubPlain: "바다 터미널 허브",
-        terminalHubTitle: `${BADA_ICONS.terminal} 바다 터미널 허브`,
-        terminalHubDesc: "좌측 사이드바 하단에 Bada Terminal Hub 바로가기 탭 아이콘을 표시합니다.",
 
         detectiveName: "⚓ 노드 스마트 케어 (미싱 노드 복구 & 모델 자동 장착)",
         detectiveDesc: "캔버스 빈 공간 또는 노드 우클릭 시, 미설치 미싱 노드(빨간 X) 탐색/설치 및 누락된 모델/LoRA를 탭별로 한눈에 케어하고 스마트 자동 장착합니다.",
@@ -1061,9 +1052,6 @@ function applyBilingualSettingsUI(targetLang) {
             } else if (id === BADA_UNIFIED_SETTINGS.translationWhitelist.id) {
                 targetTitle = texts.translationWhitelistName;
                 targetDesc = texts.translationWhitelistDesc;
-            } else if (BADA_UNIFIED_SETTINGS.terminalHub && id === BADA_UNIFIED_SETTINGS.terminalHub.id) {
-                targetTitle = texts.terminalHubTitle;
-                targetDesc = texts.terminalHubDesc;
             } else if (id === BADA_UNIFIED_SETTINGS.legacyManagerCache.id) {
                 targetTitle = texts.legacyManagerCacheName;
                 targetDesc = texts.legacyManagerCacheDesc;

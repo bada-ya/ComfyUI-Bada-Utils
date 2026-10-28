@@ -777,16 +777,6 @@ def get_drive_service():
         return service, "OK"
 
 
-def invalidate_drive_service_cache() -> None:
-    """인증 상태가 바뀌면(로그아웃·토큰 삭제) 모든 스레드의 캐시를 무효화한다.
-
-    스레드별 캐시를 직접 지우는 대신 generation 을 올린다. 다음 호출부터 각 스레드는
-    자기 캐시의 generation 이 구식이므로 새로 빌드한다.
-    """
-    global _DRIVE_GENERATION
-    _DRIVE_GENERATION += 1
-
-
 WORKFLOWS_NS = "workflows/"
 _CONFIG_NS = ".configs/"
 # 커스텀 동기화 대상 네임스페이스 — 사용자가 등록한 로컬 폴더/파일 (ComfyUI 루트 내부만 허용).
