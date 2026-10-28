@@ -387,7 +387,6 @@ export function openComfyUiManager(searchTerm = "") {
 export async function showMissingNodeModal(node) {
     if (!node) return;
 
-    const isKo = (BadaI18n.lang === "ko");
     const realType = String(node.type || "Unknown").trim();
     const displayTitle = String(node.title || realType).trim();
     const nodeId = node.id != null ? String(node.id) : "?";
@@ -406,7 +405,7 @@ export async function showMissingNodeModal(node) {
         <div class="bada-detective-header">
             <div class="bada-detective-title">
                 <span class="bada-detective-title-icon">🕵️</span>
-                <span>${isKo ? "바다 미싱 노드 탐정 & 깃허브 해결사" : "Bada Missing Node Detective"}</span>
+                <span>${BadaI18n.t("detective_title")}</span>
                 <span class="bada-detective-badge">#${nodeId} MISSING</span>
             </div>
             <button class="bada-detective-close" title="Close">✕</button>
@@ -415,14 +414,14 @@ export async function showMissingNodeModal(node) {
             <!-- Node Identity Card -->
             <div class="bada-detective-card">
                 <div class="bada-detective-field-row">
-                    <span class="bada-detective-label">${isKo ? "진짜 노드 이름 (Type)" : "Real Class (Type)"}:</span>
+                    <span class="bada-detective-label">${BadaI18n.t("detective_real_class")}:</span>
                     <div class="bada-detective-value-box">
                         <span id="bada-det-type">${realType}</span>
-                        <button class="bada-detective-copy-btn" id="bada-det-copy-type">📋 ${isKo ? "복사" : "Copy"}</button>
+                        <button class="bada-detective-copy-btn" id="bada-det-copy-type">📋 ${BadaI18n.t("detective_copy")}</button>
                     </div>
                 </div>
                 <div class="bada-detective-field-row">
-                    <span class="bada-detective-label">${isKo ? "표시된 이름 (Title)" : "Display Title"}:</span>
+                    <span class="bada-detective-label">${BadaI18n.t("detective_display_title")}:</span>
                     <div class="bada-detective-value-box" style="color: #94a3b8;">
                         <span>${displayTitle}</span>
                     </div>
@@ -433,7 +432,7 @@ export async function showMissingNodeModal(node) {
             <div id="bada-det-repo-section" class="bada-detective-repo-card" style="background: #1e2230; border: 1px dashed #374158;">
                 <div style="display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: #94a3b8;">
                     <span style="display: inline-block; animation: spin 1s linear infinite;">⏳</span>
-                    <span>${isKo ? "ComfyUI 매니저 데이터베이스에서 저장소 조회 중..." : "Searching ComfyUI Manager database..."}</span>
+                    <span>${BadaI18n.t("detective_searching")}</span>
                 </div>
             </div>
 
@@ -441,7 +440,7 @@ export async function showMissingNodeModal(node) {
             <div class="bada-detective-card bada-detective-slots-summary">
                 <div style="font-size: 13px; font-weight: 700; color: #cbd5e1; display: flex; align-items: center; gap: 6px;">
                     <span>🔌</span>
-                    <span>${isKo ? "원래 연결 슬롯 정보 (대체 노드 교체 가이드)" : "Original Sockets & Parameters Guide"}</span>
+                    <span>${BadaI18n.t("detective_slots_guide")}</span>
                 </div>
                 <div class="bada-detective-slots-grid">
                     <div class="bada-detective-slot-column">
@@ -474,7 +473,7 @@ export async function showMissingNodeModal(node) {
             </div>
         </div>
         <div class="bada-detective-footer">
-            <button class="bada-btn-secondary" id="bada-det-close-btn">${isKo ? "닫기" : "Close"}</button>
+            <button class="bada-btn-secondary" id="bada-det-close-btn">${BadaI18n.t("detective_close")}</button>
         </div>
     `;
 
@@ -506,7 +505,7 @@ export async function showMissingNodeModal(node) {
 
     // Copy Type Button
     modal.querySelector("#bada-det-copy-type").addEventListener("click", () => {
-        copyToClipboard(realType, isKo ? "진짜 노드 이름(Type)이 복사되었습니다!" : "Real node class type copied!");
+        copyToClipboard(realType, BadaI18n.t("detective_copy_type_toast"));
     });
 
     // 2. Perform Deep Lookup (1. Bada Multi-Tier Engine -> 2. Client-side Manager Mapping Fallback)
@@ -528,9 +527,9 @@ export async function showMissingNodeModal(node) {
                 <div class="bada-detective-repo-header found" style="display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span>🟢</span>
-                        <span>${isKo ? "ComfyUI 매니저 공식 등록 노드 확인!" : "ComfyUI Manager Registered Node!"}</span>
+                        <span>${BadaI18n.t("detective_registered")}</span>
                     </div>
-                    <span class="bada-priority-badge p1">${isKo ? "1순위: 매니저 설치 권장" : "Priority 1: Manager"}</span>
+                    <span class="bada-priority-badge p1">${BadaI18n.t("detective_priority_manager")}</span>
                 </div>
 
                 <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -543,16 +542,16 @@ export async function showMissingNodeModal(node) {
                 <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 6px;">
                     <div style="font-size: 12px; font-weight: 700; color: #34d399; display: flex; align-items: center; gap: 5px;">
                         <span>⚡</span>
-                        <span>${isKo ? "1순위 추천: ComfyUI 매니저로 설치" : "Priority 1: Install via ComfyUI Manager"}</span>
+                        <span>${BadaI18n.t("detective_priority_install")}</span>
                     </div>
                     <div class="bada-detective-actions">
                         <button class="bada-btn-manager" id="bada-det-install-btn">
                             <span>📦</span>
-                            <span>${isKo ? "ComfyUI 매니저로 설치 (원클릭)" : "Install via Manager (One-Click)"}</span>
+                            <span>${BadaI18n.t("detective_install_oneclick")}</span>
                         </button>
                         <button class="bada-btn-manager-open" id="bada-det-open-mgr">
                             <span>🔍</span>
-                            <span>${isKo ? "매니저 창에서 보기" : "Open in Manager"}</span>
+                            <span>${BadaI18n.t("detective_open_manager")}</span>
                         </button>
                     </div>
                 </div>
@@ -560,20 +559,20 @@ export async function showMissingNodeModal(node) {
                 <!-- 2순위 & 3순위: 깃허브 및 구글 검색 보조 액션 영역 -->
                 <div style="margin-top: 6px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 6px;">
                     <div style="font-size: 11.5px; color: #94a3b8; font-weight: 600;">
-                        ${isKo ? "보조 수동 옵션 (2순위 깃허브 / 3순위 구글)" : "Alternative Options (GitHub / Google)"}
+                        ${BadaI18n.t("detective_alt_options")}
                     </div>
                     <div class="bada-detective-actions">
                         <a href="${repoUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-primary">
                             <span>🐙</span>
-                            <span>${isKo ? "GitHub 저장소 열기 (2순위)" : "Open GitHub Repo"}</span>
+                            <span>${BadaI18n.t("detective_open_github")}</span>
                         </a>
                         <a href="https://www.google.com/search?q=${encodeURIComponent('"' + packTitle + '" ComfyUI')}" target="_blank" rel="noopener noreferrer" class="bada-btn-secondary">
                             <span>🔍</span>
-                            <span>${isKo ? "Google 검색 (3순위)" : "Google Search"}</span>
+                            <span>${BadaI18n.t("detective_google_search")}</span>
                         </a>
                         <button class="bada-btn-secondary" id="bada-det-copy-clone">
                             <span>📋</span>
-                            <span>${isKo ? "Git Clone 복사" : "Copy Clone Cmd"}</span>
+                            <span>${BadaI18n.t("detective_copy_clone")}</span>
                         </button>
                     </div>
                 </div>
@@ -585,7 +584,7 @@ export async function showMissingNodeModal(node) {
             // Clone command copy
             repoSection.querySelector("#bada-det-copy-clone")?.addEventListener("click", () => {
                 const cmd = `git clone ${repoUrl}`;
-                copyToClipboard(cmd, isKo ? "git clone 명령어가 복사되었습니다!" : "git clone command copied!");
+                copyToClipboard(cmd, BadaI18n.t("detective_clone_copied"));
             });
 
             // Manager GUI Open button
@@ -600,21 +599,19 @@ export async function showMissingNodeModal(node) {
             const statusBox = repoSection.querySelector("#bada-det-install-status-box");
 
             installBtn?.addEventListener("click", async () => {
-                if (!confirm(isKo 
-                    ? `📦 [ComfyUI 매니저 연동 설치]\n\n'${packTitle}' 커스텀 노드를 ComfyUI에 설치하시겠습니까?\n\n저장소: ${repoUrl}` 
-                    : `Install '${packTitle}' into ComfyUI custom_nodes?\n\nRepo: ${repoUrl}`)) {
+                if (!confirm(BadaI18n.t("detective_confirm_install", { packTitle, repoUrl }))) {
                     return;
                 }
 
                 installBtn.disabled = true;
-                installBtn.innerHTML = `<span>⏳</span><span>${isKo ? "설치 진행 중... (Git clone & pip 패키지)" : "Installing..."}</span>`;
+                installBtn.innerHTML = `<span>⏳</span><span>${BadaI18n.t("detective_installing")}</span>`;
 
                 statusBox.style.display = "block";
                 statusBox.className = "bada-install-card";
                 statusBox.innerHTML = `
                     <div style="color: #38bdf8; display: flex; align-items: center; gap: 8px;">
                         <span style="display: inline-block; animation: spin 1s linear infinite;">⏳</span>
-                        <span>${isKo ? "저장소를 다운로드하고 필요한 파이썬 패키지(requirements.txt)를 설치하고 있습니다..." : "Cloning repository and installing dependencies..."}</span>
+                        <span>${BadaI18n.t("detective_cloning")}</span>
                     </div>
                 `;
 
@@ -626,21 +623,21 @@ export async function showMissingNodeModal(node) {
                         statusBox.innerHTML = `
                             <div style="color: #34d399; font-weight: 700; font-size: 13.5px; display: flex; align-items: center; gap: 6px;">
                                 <span>✅</span>
-                                <span>${isKo ? `'${packTitle}' 설치가 완료되었습니다!` : `'${packTitle}' installed successfully!`}</span>
+                                <span>${BadaI18n.t("detective_installed_done", { packTitle })}</span>
                             </div>
                             <div style="color: #cbd5e1; font-size: 12px; line-height: 1.4;">
-                                ${isKo ? "ComfyUI 서버를 재시작하시면 워크플로우에서 이 노드를 즉시 사용하실 수 있습니다." : "Restart ComfyUI server to load and use the newly installed nodes."}
+                                ${BadaI18n.t("detective_restart_hint")}
                             </div>
                             <div style="margin-top: 4px;">
                                 <button class="bada-btn-restart" id="bada-det-restart-btn">
                                     <span>🔄</span>
-                                    <span>${isKo ? "ComfyUI 지금 재시작" : "Restart ComfyUI Now"}</span>
+                                    <span>${BadaI18n.t("detective_restart_now")}</span>
                                 </button>
                             </div>
                         `;
 
                         statusBox.querySelector("#bada-det-restart-btn")?.addEventListener("click", async () => {
-                            showToast(isKo ? "🔄 ComfyUI 서버 재시작 중... 잠시 후 새로고침 됩니다." : "Restarting ComfyUI...");
+                            showToast(BadaI18n.t("detective_restart_toast"));
                             try {
                                 await api.fetchApi("/manager/reboot", { method: "POST" });
                             } catch (_) { console.debug("[Bada] ignored:", _); }
@@ -648,15 +645,15 @@ export async function showMissingNodeModal(node) {
                         });
                     } else {
                         installBtn.disabled = false;
-                        installBtn.innerHTML = `<span>📦</span><span>${isKo ? "ComfyUI 매니저로 다시 설치" : "Retry Install via Manager"}</span>`;
+                        installBtn.innerHTML = `<span>📦</span><span>${BadaI18n.t("detective_retry_install")}</span>`;
                         statusBox.innerHTML = `
-                            <div style="color: #f87171; font-weight: 700;">❌ ${isKo ? "설치 실패" : "Installation Failed"}</div>
+                            <div style="color: #f87171; font-weight: 700;">❌ ${BadaI18n.t("detective_install_failed")}</div>
                             <div style="color: #94a3b8; font-size: 11.5px; word-break: break-all;">${result.error || "Unknown error"}</div>
                         `;
                     }
                 } catch (err) {
                     installBtn.disabled = false;
-                    installBtn.innerHTML = `<span>📦</span><span>${isKo ? "ComfyUI 매니저로 다시 설치" : "Retry Install via Manager"}</span>`;
+                    installBtn.innerHTML = `<span>📦</span><span>${BadaI18n.t("detective_retry_install")}</span>`;
                     statusBox.innerHTML = `<div style="color: #f87171;">❌ ${err.message}</div>`;
                 }
             });
@@ -679,27 +676,25 @@ export async function showMissingNodeModal(node) {
             <div class="bada-detective-repo-header not-found" style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     <span>🟡</span>
-                    <span>${isKo ? "ComfyUI 매니저 미등록 노드 (독립 커스텀 노드)" : "Unindexed / Independent Node"}</span>
+                    <span>${BadaI18n.t("detective_unindexed")}</span>
                 </div>
-                <span class="bada-priority-badge p2">${isKo ? "1순위: Google & GitHub 검색" : "Priority 1: Google & GitHub"}</span>
+                <span class="bada-priority-badge p2">${BadaI18n.t("detective_priority_google")}</span>
             </div>
 
             <div style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
-                ${isKo 
-                    ? `이 노드는 ComfyUI 매니저 공식 DB에 등록되어 있지 않은 개인/독립 노드입니다.<br>아래 <b>1순위 Google 검색</b> 및 <b>2순위 GitHub 코드 검색</b>을 누르면 원작자 저장소를 즉시 찾으실 수 있습니다.` 
-                    : `This node is not indexed in ComfyUI Manager DB. Use Google Search (Priority 1) or GitHub Code Search to find the author's repo:`}
+                ${BadaI18n.t("detective_not_indexed_body")}
             </div>
 
             <!-- 1순위: Google 검색 (가장 정확한 저장소 발굴) -->
             <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 6px;">
                 <div style="font-size: 12px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 5px;">
                     <span>🔍</span>
-                    <span>${isKo ? "1순위 추천: Google에서 저장소 찾기 ⭐" : "Priority 1: Google Search"}</span>
+                    <span>${BadaI18n.t("detective_google_priority")}</span>
                 </div>
                 <div class="bada-detective-actions">
                     <a href="${googleSearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-primary">
                         <span>🔍</span>
-                        <span>${isKo ? "Google에서 저장소 검색 (1순위 추천)" : "Google Search (Best Match)"}</span>
+                        <span>${BadaI18n.t("detective_google_best")}</span>
                     </a>
                 </div>
             </div>
@@ -707,16 +702,16 @@ export async function showMissingNodeModal(node) {
             <!-- 2순위: GitHub 코드 & 저장소 검색 -->
             <div style="margin-top: 6px; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 6px;">
                 <div style="font-size: 11.5px; color: #94a3b8; font-weight: 600;">
-                    ${isKo ? "2순위: GitHub 직접 검색" : "Priority 2: GitHub Search"}
+                    ${BadaI18n.t("detective_priority2")}
                 </div>
                 <div class="bada-detective-actions">
                     <a href="${ghCodeSearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-secondary">
                         <span>🐙</span>
-                        <span>${isKo ? "GitHub 코드 정확 일치 검색" : "GitHub Code Search"}</span>
+                        <span>${BadaI18n.t("detective_gh_code")}</span>
                     </a>
                     <a href="${ghRepoSearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-secondary">
                         <span>📂</span>
-                        <span>${isKo ? "GitHub 저장소 검색" : "GitHub Repos"}</span>
+                        <span>${BadaI18n.t("detective_gh_repos")}</span>
                     </a>
                     <a href="${registrySearchUrl}" target="_blank" rel="noopener noreferrer" class="bada-btn-secondary">
                         <span>📦</span>
@@ -724,19 +719,17 @@ export async function showMissingNodeModal(node) {
                     </a>
                     <button class="bada-btn-secondary" id="bada-det-copy-type-sub">
                         <span>📋</span>
-                        <span>${isKo ? "노드 이름 복사" : "Copy Node Name"}</span>
+                        <span>${BadaI18n.t("detective_copy_name")}</span>
                     </button>
                 </div>
                 <div style="font-size: 11px; color: #38bdf8; background: rgba(56, 189, 248, 0.08); padding: 6px 10px; border-radius: 6px; border-left: 3px solid #38bdf8; margin-top: 4px; line-height: 1.4;">
-                    ${isKo 
-                        ? "💡 <b>GitHub 코드 검색 팁</b>: 검색 결과 창에서 각 소스 파일 상단에 파란색으로 표시되는 <b>'작성자/저장소명'</b>(예: AlnVFX/ComfyUI-SeedVR2_VideoUpscaler)을 클릭하시면 해당 노드의 원작자 메인 저장소로 바로 이동합니다."
-                        : "💡 <b>Tip</b>: On GitHub Code Search, click the repository name (e.g. author/repo) at the top of the file snippet to visit the main repo."}
+                    ${BadaI18n.t("detective_github_tip")}
                 </div>
             </div>
         `;
 
         repoSection.querySelector("#bada-det-copy-type-sub")?.addEventListener("click", () => {
-            copyToClipboard(realType, isKo ? "진짜 노드 이름(Type)이 복사되었습니다!" : "Real node class type copied!");
+            copyToClipboard(realType, BadaI18n.t("detective_copy_type_toast"));
         });
     } catch (err) {
         console.warn("[Bada-Detective] Lookup request failed:", err);
