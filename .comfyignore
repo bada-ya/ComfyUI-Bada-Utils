@@ -39,6 +39,19 @@ token.json
 # 커스텀 동기화 대상 레지스트리 — 설치 환경별 개인 등록 정보 (Drive 동기화 파일)
 custom_targets.json
 
+# 개인 데이터 — 설치 환경별 사용자 내용. `Includes` 화이트리스트가 이미 막지만,
+# 화이트리스트를 나중에 넓혀도 새지 않도록 여기서도 이중으로 제외한다.
+presets_data.json
+engines_registry.json
+gemini_chat_history.json
+favorites_data.json
+.gdrive_manifest.json
+.gdrive_sync_state.json
+.gdrive_settings.json
+.gdrive_snapshot.json
+.gdrive_deletion_queue.json
+_deleted_custom/
+
 # 테스트/임시
 test/
 tests/

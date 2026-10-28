@@ -10,6 +10,11 @@ license = { text = "MIT" }
 dependencies = [
     "aiohttp>=3.8.0",
     "Pillow>=9.0.0",
+    # Cloud Sync. Also listed in requirements.txt, and __init__.py keeps a
+    # first-boot `pip install` fallback for manual git-clone installs where
+    # nothing reads requirements.txt. Both paths are intentional.
+    "google-api-python-client>=2.100.0",
+    "google-auth-oauthlib>=1.1.0",
 ]
 
 [project.urls]
@@ -27,7 +32,9 @@ Includes = [
     "web",
     "workflows",
     "assets",
-    "docs",
+    # "docs" is deliberately NOT packaged: every README/banner image is referenced
+    # through raw.githubusercontent.com, so shipping 12MB of screenshots only bloats
+    # node.zip (~12.9MB → ~1MB) without changing what users see.
     "__init__.py",
     "translation_runtime.py",
     "presets_default.json",

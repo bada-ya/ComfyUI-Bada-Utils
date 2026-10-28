@@ -97,3 +97,7 @@ _vault/
 # tools/bada_tmpclean.js clears the scratch files an agent leaves behind in
 # %TEMP% without a shell delete verb (which the app policy blocks).
 tools/
+
+# ── AI-agent rules file, NOT part of the shipped pack ──
+# Untracked on purpose (rules §4-[3]-3). The local copy stays; only git tracking goes.
+.clinerules
