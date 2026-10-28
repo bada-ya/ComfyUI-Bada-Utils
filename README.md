@@ -10,9 +10,10 @@
 
 ### 💡 "A pragmatic collection of utilities crafted to fix small, annoying friction points discovered while building workflows in ComfyUI every single day."
 
-**📦 Current release: `v1.0.2`** — [release notes (EN)](RELEASE_NOTES_v1.0.2.md) · [한국어](RELEASE_NOTES_v1.0.2_ko.md)
-Maintenance release: three maintainer-only files are no longer shipped, and the
-install instructions match what the repository actually contains. Everything from
+**📦 Current release: `v1.0.3`** — [release notes (EN)](RELEASE_NOTES_v1.0.3.md) · [한국어](RELEASE_NOTES_v1.0.3_ko.md)
+Compatibility fix: the LoadImage fixer no longer hooks `LGraphNode.prototype.configure`,
+so workflows load normally when **ComfyUI-Impact-Pack** is installed instead of failing
+with `findInputSlot is not a function`. Everything from
 [`v1.0.1`](RELEASE_NOTES_v1.0.1.md) still applies — Save-As folder picker, one-click
 workflow translator, Gemini-backed prompt generator, Gemini chat history with
 thumbnails, and sidebar multi-select moves.
@@ -410,7 +411,7 @@ Open the ComfyUI Settings dialog (**`⚙️ Settings`**) and select the **`🌊 
 
 ## 📂 Included Example Workflow
 
-Drag and drop [`workflows/bada_utils_workflow_V1.0.1.json`](workflows/bada_utils_workflow_V1.0.1.json) directly onto your ComfyUI canvas to immediately test the full ComfyUI-Bada-Utils all-in-one flagship suite (`BadaPresetHub`, `BadaPromptGenerator`, `BadaGoogleTranslator`, `BadaRegionalPrompt`, and `BadaAsyncGeminiStudio`).
+Drag and drop [`workflows/bada_utils_workflow.json`](workflows/bada_utils_workflow.json) directly onto your ComfyUI canvas to immediately test the full ComfyUI-Bada-Utils all-in-one flagship suite (`BadaPresetHub`, `BadaPromptGenerator`, `BadaGoogleTranslator`, `BadaRegionalPrompt`, and `BadaAsyncGeminiStudio`).
 
 ---
 

@@ -10,9 +10,10 @@
 
 ### 💡 "ComfyUI를 매일 사용하면서 느꼈던 소소하지만 답답했던 불편점들을 하나씩 직접 고치고 다듬어 만든 실전 유틸리티 모음집입니다."
 
-**📦 현재 배포 버전: `v1.0.2`** — 전체 변경 사항은 [릴리즈 노트 (한국어)](RELEASE_NOTES_v1.0.2_ko.md) · [English](RELEASE_NOTES_v1.0.2.md)를 확인하세요.
-유지보수 버전으로, 개발자 전용 파일 3개가 더 이상 배포되지 않으며 설치 안내도 실제 저장소
-내용에 맞게 정리되었습니다. [`v1.0.1`](RELEASE_NOTES_v1.0.1_ko.md)의 주요 기능은 그대로입니다 —
+**📦 현재 배포 버전: `v1.0.3`** — 전체 변경 사항은 [릴리즈 노트 (한국어)](RELEASE_NOTES_v1.0.3_ko.md) · [English](RELEASE_NOTES_v1.0.3.md)를 확인하세요.
+호환성 수정 버전으로, LoadImage 해결사가 더 이상 `LGraphNode.prototype.configure`를
+가로채지 않아 **ComfyUI-Impact-Pack** 설치 환경에서도 `findInputSlot is not a function`
+오류 없이 워크플로우가 정상 로드됩니다. [`v1.0.1`](RELEASE_NOTES_v1.0.1_ko.md)의 주요 기능은 그대로입니다 —
 저장 시 폴더 선택, 워크플로우 원클릭 번역기, 제미나이 기반 프롬프트 생성기,
 제미나이 채팅 기록(썸네일 포함), 사이드바 다중 선택 이동.
 
@@ -410,7 +411,7 @@ ComfyUI 우측 상단 톱니바퀴(**`⚙️ Settings`**) 메뉴에서 **`🌊 B
 
 ## 📂 기본 제공 예제 워크플로우
 
-저장소의 [`workflows/bada_utils_workflow_V1.0.1.json`](workflows/bada_utils_workflow_V1.0.1.json) 파일을 ComfyUI 화면으로 **드래그 & 드롭**하시면 ComfyUI-Bada-Utils의 5대 핵심 노드(`BadaPresetHub`, `BadaPromptGenerator`, `BadaGoogleTranslator`, `BadaRegionalPrompt`, `BadaAsyncGeminiStudio`)가 모두 배치된 올인원 통합 워크플로우를 즉시 테스트하실 수 있습니다.
+저장소의 [`workflows/bada_utils_workflow.json`](workflows/bada_utils_workflow.json) 파일을 ComfyUI 화면으로 **드래그 & 드롭**하시면 ComfyUI-Bada-Utils의 5대 핵심 노드(`BadaPresetHub`, `BadaPromptGenerator`, `BadaGoogleTranslator`, `BadaRegionalPrompt`, `BadaAsyncGeminiStudio`)가 모두 배치된 올인원 통합 워크플로우를 즉시 테스트하실 수 있습니다.
 
 ---
 
