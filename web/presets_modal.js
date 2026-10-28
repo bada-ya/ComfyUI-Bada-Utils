@@ -70,16 +70,14 @@ export function showGuideModal() {
         document.body.appendChild(guideElement);
     }
 
-    const isKo = BadaI18n.lang === "ko";
-
     guideElement.innerHTML = `
         <div class="usp-guide-container">
             <div class="usp-guide-header">
                 <div class="usp-guide-title-box">
                     <div class="usp-guide-icon">💡</div>
                     <div>
-                        <h3 class="usp-guide-title">${isKo ? "Bada 프리셋 허브 백업 & 타 워크플로우 적용 가이드" : "Bada Preset Hub Backup & Cross-Workflow Guide"}</h3>
-                        <p class="usp-guide-subtitle">${isKo ? "다른 컴퓨터나 새로운 워크플로우로 프리셋을 안전하게 공유하는 방법" : "How to securely share and migrate presets across workflows and systems"}</p>
+                        <h3 class="usp-guide-title">${BadaI18n.t("presets_modal_guide_title")}</h3>
+                        <p class="usp-guide-subtitle">${BadaI18n.t("presets_modal_guide_subtitle")}</p>
                     </div>
                 </div>
                 <button class="usp-btn-close" id="usp-guide-btn-close" title="Close">✕</button>
@@ -89,54 +87,36 @@ export function showGuideModal() {
                 <!-- Section 0: Storage Notice -->
                 <div class="usp-guide-section" style="border: 1px solid rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.08); border-radius: 8px; padding: 12px 14px;">
                     <div class="usp-guide-section-title" style="color: #fbbf24; margin-bottom: 6px;">
-                        <span>📌</span> ${isKo ? "유니버셜 프리셋 허브 저장 위치 & 타 워크플로우 적용 안내" : "Storage Location & Cross-Workflow Migration"}
+                        <span>📌</span> ${BadaI18n.t("presets_modal_guide_storage_title")}
                     </div>
                     <p class="usp-guide-text" style="line-height: 1.5;">
-                        ${isKo ? `
-                            • <b>유니버셜 프리셋</b>은 개별 노드의 글로벌 프리셋과 달리 <b>현재 워크플로우(Hub 노드 데이터) 내부에만 저장</b>됩니다.<br>
-                            • 워크플로우를 저장하거나 이미지를 생성하면 메타데이터에 유니버셜 프리셋이 함께 자동 저장됩니다.<br>
-                            • <b>다른 워크플로우나 다른 PC에 동일한 유니버셜 프리셋을 복사/적용</b>하려면, 하단의 <b>[📤 백업 (Export)]</b> 버튼으로 <code style="color:#fde68a;">.json</code> 파일을 내보낸 후 대상 워크플로우에서 <b>[📥 불러오기 (Import)]</b>를 이용해 주세요.<br>
-                            • (※ <b>개별 노드의 글로벌 프리셋</b>은 ComfyUI 시스템에 영구 저장되므로 내보내기/가져오기 없이도 모든 워크플로우에서 즉시 공유됩니다.)
-                        ` : `
-                            • <b>Universal Presets</b> are stored <b>only inside the current workflow</b> (embedded within the Hub node and PNG metadata).<br>
-                            • Saving the workflow or generating images automatically packages your universal presets.<br>
-                            • To share or copy presets to <b>another workflow or PC</b>, click <b>[📤 Backup (Export)]</b> to export a <code style="color:#fde68a;">.json</code> file, and use <b>[📥 Load (Import)]</b> in your target workflow.<br>
-                            • (※ Single-node <b>Global Presets</b> are saved permanently in ComfyUI and available across all workflows automatically.)
-                        `}
+                        ${BadaI18n.t("presets_modal_guide_storage_body")}
                     </p>
                 </div>
 
                 <!-- Section 1 -->
                 <div class="usp-guide-section">
                     <div class="usp-guide-section-title">
-                        <span>🎯</span> ${isKo ? "1. 스마트 노드 매칭 3단계 작동 원리" : "1. Smart 3-Tier Node Matching Engine"}
+                        <span>🎯</span> ${BadaI18n.t("presets_modal_guide_match_title")}
                     </div>
                     <p class="usp-guide-text">
-                        ${isKo ? "유니버셜 프리셋을 적용할 때, 시스템은 캔버스 상의 노드를 아래 3단계 우선순위로 자동 탐색하여 1:1로 안전하게 매칭합니다:" : "When applying a universal preset, the system locates canvas nodes using a 3-tier priority sequence:"}
+                        ${BadaI18n.t("presets_modal_guide_match_intro")}
                     </p>
                     <div class="usp-guide-code-example">
-                        ${isKo ? `
-                            1단계: 노드 고유 번호 (node.id) ➔ 동일 워크플로우 내에서 100% 완벽 매칭<br>
-                            2단계: 노드 제목 (title) + 노드 종류 (nodeType) ➔ 타 워크플로우 전용 제목 매칭<br>
-                            3단계: 캔버스 좌측 ➔ 우측 배치 순서 1:1 순차 배정 (중복 배정 원천 차단)
-                        ` : `
-                            Tier 1: Unique Node ID (node.id) ➔ 100% exact match within the same workflow<br>
-                            Tier 2: Node Title + Node Type ➔ Cross-workflow title-based targeting<br>
-                            Tier 3: Spatial Canvas Order (Left to Right) ➔ 1:1 ordered pairing
-                        `}
+                        ${BadaI18n.t("presets_modal_guide_match_tiers")}
                     </div>
                 </div>
 
                 <!-- Section 2: Critical Tip -->
                 <div class="usp-guide-section">
                     <div class="usp-guide-section-title emerald">
-                        <span>⚠️</span> ${isKo ? "2. 가장 중요한 핵심 꿀팁 (동일 노드 다중 사용 시)" : "2. Pro-Tip: Differentiating Multiple Nodes"}
+                        <span>⚠️</span> ${BadaI18n.t("presets_modal_guide_tip_title")}
                     </div>
                     <p class="usp-guide-text">
-                        ${isKo ? "한 워크플로우에 <b>KSampler 2개</b>, <b>Load VAE 2개</b>, <b>디테일러 5개</b> 등 같은 종류의 노드를 여러 개 사용 중이라면, <b>노드를 더블 클릭하여 이름을 다르게 지정</b>해 주세요!" : "If your workflow uses multiple nodes of the same type (e.g. 2 KSamplers, 3 Detailers), <b>double-click each node and give it a unique title</b>!"}
+                        ${BadaI18n.t("presets_modal_guide_tip_text")}
                     </p>
                     <div class="usp-guide-tip-box">
-                        <div class="usp-guide-tip-title">${isKo ? "💡 노드 제목(Title) 구분 권장 예시:" : "💡 Recommended Title Examples:"}</div>
+                        <div class="usp-guide-tip-title">${BadaI18n.t("presets_modal_guide_examples_title")}</div>
                         <div>• <b>KSampler:</b> <code style="color:#ffffff; background:rgba(0,0,0,0.3); padding:1px 5px; border-radius:3px;">[Base KSampler]</code> / <code style="color:#ffffff; background:rgba(0,0,0,0.3); padding:1px 5px; border-radius:3px;">[Hires KSampler]</code></div>
                         <div>• <b>Detailer:</b> <code style="color:#ffffff; background:rgba(0,0,0,0.3); padding:1px 5px; border-radius:3px;">[Face Detailer]</code> / <code style="color:#ffffff; background:rgba(0,0,0,0.3); padding:1px 5px; border-radius:3px;">[Hand Detailer]</code></div>
                     </div>
@@ -145,23 +125,17 @@ export function showGuideModal() {
                 <!-- Section 3 -->
                 <div class="usp-guide-section">
                     <div class="usp-guide-section-title">
-                        <span>🔄</span> ${isKo ? "3. 백업(Export) & 불러오기(Import) 활용법" : "3. Backup (Export) & Import"}
+                        <span>🔄</span> ${BadaI18n.t("presets_modal_guide_backup_title")}
                     </div>
                     <p class="usp-guide-text">
-                        ${isKo ? `
-                            • <b>📤 백업 (Export):</b> 현재 저장된 모든 프리셋을 <code style="color:#fde68a;">.json</code> 단일 파일로 다운로드하여 안전하게 백업합니다.<br>
-                            • <b>📥 불러오기 (Import):</b> 다운로드받은 <code style="color:#fde68a;">.json</code> 프리셋 파일을 선택하면 기존 프리셋 목록에 즉시 병합되어 바로 사용하실 수 있습니다.
-                        ` : `
-                            • <b>📤 Backup (Export):</b> Downloads all presets as a single <code style="color:#fde68a;">.json</code> backup file.<br>
-                            • <b>📥 Load (Import):</b> Select any previously exported <code style="color:#fde68a;">.json</code> file to merge presets into your workflow instantly.
-                        `}
+                        ${BadaI18n.t("presets_modal_guide_backup_body")}
                     </p>
                 </div>
             </div>
 
             <div class="usp-guide-footer">
                 <button class="usp-btn usp-btn-gold" id="usp-guide-btn-confirm">
-                    <span>✓</span> ${isKo ? "가이드 확인 완료 (닫기)" : "Close Guide"}
+                    <span>✓</span> ${BadaI18n.t("presets_modal_guide_close")}
                 </button>
             </div>
         </div>
@@ -294,9 +268,9 @@ function createModalDOM() {
                     const data = JSON.parse(event.target.result);
                     onImportCallback(data);
                     renderPresetList();
-                    showToast("📥 글로벌 프리셋을 성공적으로 불러왔습니다!", "success");
+                    showToast(BadaI18n.t("presets_modal_toast_import_success"), "success");
                 } catch (err) {
-                    showToast("⚠️ JSON 파일을 읽는 중 오류가 발생했습니다: " + err.message, "warning");
+                    showToast(BadaI18n.t("presets_modal_toast_import_error", { error: err.message }), "warning");
                 }
             };
             reader.readAsText(file);
@@ -375,7 +349,7 @@ function handleSaveCurrent() {
     const input = document.getElementById("usp-preset-name-input");
     const name = input.value.trim();
     if (!name) {
-        showToast("⚠️ 프리셋 이름을 입력해 주세요!", "warning");
+        showToast(BadaI18n.t("presets_modal_toast_name_required"), "warning");
         input.focus();
         return;
     }
@@ -384,7 +358,7 @@ function handleSaveCurrent() {
         onSaveCallback(currentTargetNode, name);
         input.value = "";
         renderPresetList();
-        showToast(`💾 [${name}] 프리셋이 저장되었습니다!`, "info");
+        showToast(BadaI18n.t("presets_modal_toast_saved", { name }), "info");
     }
 }
 
@@ -477,7 +451,7 @@ function createPresetCard(presetName, presetData, index, totalCount) {
         if (onApplyCallback && currentTargetNode) {
             closeModal();
             onApplyCallback(currentTargetNode, presetName, presetData);
-            showToast(`✨ [${presetName}] 프리셋 즉시 적용 완료!`, "success");
+            showToast(BadaI18n.t("presets_modal_toast_applied", { name: presetName }), "success");
         }
     });
 
@@ -510,7 +484,7 @@ function createPresetCard(presetName, presetData, index, totalCount) {
                     expandedState.add(newName);
                 }
                 renderPresetList();
-                showToast(`✏️ 프리셋 이름이 [${newName}] (으)로 변경되었습니다.`, "info");
+                showToast(BadaI18n.t("presets_modal_toast_renamed", { name: newName }), "info");
             }
         });
     };
@@ -523,7 +497,7 @@ function createPresetCard(presetName, presetData, index, totalCount) {
         if (onReorderCallback && currentTargetNode && index > 0) {
             onReorderCallback(currentTargetNode, index, index - 1);
             renderPresetList();
-            showToast(`↕️ 프리셋 순서가 변경되었습니다.`, "info");
+            showToast(BadaI18n.t("presets_modal_toast_reordered"), "info");
         }
     });
 
@@ -531,18 +505,18 @@ function createPresetCard(presetName, presetData, index, totalCount) {
         if (onReorderCallback && currentTargetNode && index < totalCount - 1) {
             onReorderCallback(currentTargetNode, index, index + 1);
             renderPresetList();
-            showToast(`↕️ 프리셋 순서가 변경되었습니다.`, "info");
+            showToast(BadaI18n.t("presets_modal_toast_reordered"), "info");
         }
     });
 
     // 5. Delete
     card.querySelector('[data-action="delete"]').addEventListener("click", () => {
-        if (confirm(`'${presetName}' 프리셋을 정말 삭제하시겠습니까?`)) {
+        if (confirm(BadaI18n.t("presets_modal_confirm_delete", { name: presetName }))) {
             if (onDeleteCallback && currentTargetNode) {
                 onDeleteCallback(currentTargetNode, presetName);
                 expandedState.delete(presetName);
                 renderPresetList();
-                showToast(`🗑️ [${presetName}] 프리셋이 삭제되었습니다.`, "warning");
+                showToast(BadaI18n.t("presets_modal_toast_deleted", { name: presetName }), "warning");
             }
         }
     });
@@ -569,7 +543,7 @@ function createPresetCard(presetName, presetData, index, totalCount) {
             tag.classList.toggle("disabled", nowDisabled);
             const icon = tag.querySelector(".usp-tag-status-icon");
             if (icon) icon.textContent = nowDisabled ? "⊘" : "●";
-            tag.title = `클릭하여 ${nowDisabled ? "적용(ON)" : "제외(OFF)"}`;
+            tag.title = BadaI18n.t("presets_modal_click_to", { state: BadaI18n.t(nowDisabled ? "presets_modal_on" : "presets_modal_off") });
         }
 
         // Sync expanded row
@@ -585,7 +559,7 @@ function createPresetCard(presetName, presetData, index, totalCount) {
             onUpdateCallback(currentTargetNode, presetName, presetData);
         }
 
-        showToast(nowDisabled ? `⚡ [${key}] 옵션 제외 (적용 시 무시)` : `⚡ [${key}] 옵션 포함 (적용 ON)`, "info", 1600);
+        showToast(BadaI18n.t(nowDisabled ? "presets_modal_toast_opt_excluded" : "presets_modal_toast_opt_included", { key }), "info", 1600);
     };
 
     // Shared helper to toggle a LoRA item
@@ -602,7 +576,7 @@ function createPresetCard(presetName, presetData, index, totalCount) {
             tag.classList.toggle("disabled", !nowOn);
             const icon = tag.querySelector(".usp-tag-status-icon");
             if (icon) icon.textContent = nowOn ? "🟣" : "⚪";
-            tag.title = `클릭하여 ${nowOn ? "제외(OFF)" : "적용(ON)"}`;
+            tag.title = BadaI18n.t("presets_modal_click_to", { state: BadaI18n.t(nowOn ? "presets_modal_off" : "presets_modal_on") });
         }
 
         // Sync expanded row
@@ -618,7 +592,7 @@ function createPresetCard(presetName, presetData, index, totalCount) {
             onUpdateCallback(currentTargetNode, presetName, presetData);
         }
 
-        showToast(nowOn ? `🟣 LoRA #${loraIdx + 1} 적용 ON` : `⚪ LoRA #${loraIdx + 1} 제외 OFF`, "info", 1600);
+        showToast(BadaI18n.t(nowOn ? "presets_modal_toast_lora_on" : "presets_modal_toast_lora_off", { index: loraIdx + 1 }), "info", 1600);
     };
 
     // A. Collapsed Preview Tag Clicks
@@ -841,21 +815,21 @@ function setupDragAndDrop(container) {
             if (onReorderCallback && currentTargetNode && fromIndex !== toIndex) {
                 onReorderCallback(currentTargetNode, fromIndex, toIndex);
                 renderPresetList();
-                showToast(`↕️ 프리셋 순서가 변경되었습니다.`, "info");
+                showToast(BadaI18n.t("presets_modal_toast_reordered"), "info");
             }
         });
     });
 }
 
 function generatePreviewTags(presetData, presetName) {
-    if (!presetData) return '<span class="usp-tag">데이터 없음</span>';
+    if (!presetData) return `<span class="usp-tag">${BadaI18n.t("presets_modal_no_data")}</span>`;
 
     const disabledWidgets = Array.isArray(presetData._disabledWidgets) ? presetData._disabledWidgets : [];
 
     // 1. Dynamic LoRA Stack (Render ALL LoRAs with click-to-toggle)
     if (presetData._isLoraStack && Array.isArray(presetData.loras)) {
         if (presetData.loras.length === 0) {
-            return '<span class="usp-tag">LoRA 없음 (비어있음)</span>';
+            return `<span class="usp-tag">${BadaI18n.t("presets_modal_no_lora")}</span>`;
         }
         return presetData.loras.map((item, idx) => {
             const isOn = item.on !== false;
@@ -863,7 +837,7 @@ function generatePreviewTags(presetData, presetName) {
             const strengthStr = typeof item.strength === "number" ? item.strength.toFixed(2) : (item.strength ?? "1.0");
             const stateIcon = isOn ? "🟣" : "⚪";
             return `
-                <span class="usp-tag usp-tag-lora ${isOn ? "" : "disabled"}" data-lora-idx="${idx}" title="클릭하여 ${isOn ? "제외(OFF)" : "적용(ON)"}">
+                <span class="usp-tag usp-tag-lora ${isOn ? "" : "disabled"}" data-lora-idx="${idx}" title="${BadaI18n.t("presets_modal_click_to", { state: BadaI18n.t(isOn ? "presets_modal_off" : "presets_modal_on") })}">
                     <span class="usp-tag-status-icon">${stateIcon}</span>
                     <span class="usp-tag-lora-name">${escapeHtml(shortName)}</span>
                     <b class="usp-tag-val">${strengthStr}</b>
@@ -875,7 +849,7 @@ function generatePreviewTags(presetData, presetName) {
     // 2. Standard Widgets (Render ALL widgets without truncation)
     const widgets = presetData.widgets || presetData;
     const keys = Object.keys(widgets).filter((k) => !k.startsWith("_"));
-    if (keys.length === 0) return '<span class="usp-tag">기본 설정값</span>';
+    if (keys.length === 0) return `<span class="usp-tag">${BadaI18n.t("presets_modal_default_values")}</span>`;
 
     return keys.map((k) => {
         const isDisabled = disabledWidgets.includes(k);
@@ -888,7 +862,7 @@ function generatePreviewTags(presetData, presetName) {
         }
         const stateIcon = isDisabled ? "⊘" : "●";
         return `
-            <span class="usp-tag ${isDisabled ? "disabled" : ""}" data-key="${escapeHtml(k)}" title="클릭하여 ${isDisabled ? "적용(ON)" : "제외(OFF)"}">
+            <span class="usp-tag ${isDisabled ? "disabled" : ""}" data-key="${escapeHtml(k)}" title="${BadaI18n.t("presets_modal_click_to", { state: BadaI18n.t(isDisabled ? "presets_modal_on" : "presets_modal_off") })}">
                 <span class="usp-tag-status-icon">${stateIcon}</span>
                 <span class="usp-tag-key">${escapeHtml(k)}:</span>
                 <span class="usp-tag-val">${escapeHtml(String(displayVal))}</span>
@@ -898,7 +872,7 @@ function generatePreviewTags(presetData, presetName) {
 }
 
 function generateDeepDetailsHtml(presetData, presetName, targetNode) {
-    if (!presetData) return '<div class="usp-empty-notice">상세 데이터가 없습니다.</div>';
+    if (!presetData) return `<div class="usp-empty-notice">${BadaI18n.t("presets_modal_no_detail_data")}</div>`;
 
     const disabledWidgets = Array.isArray(presetData._disabledWidgets) ? presetData._disabledWidgets : [];
     const items = [];
@@ -906,7 +880,7 @@ function generateDeepDetailsHtml(presetData, presetName, targetNode) {
     // 1. LoRA Stack Deep Table
     if (presetData._isLoraStack && Array.isArray(presetData.loras)) {
         if (presetData.loras.length === 0) {
-            items.push('<div class="usp-expanded-param-item"><span class="usp-param-key">등록된 LoRA가 없습니다.</span></div>');
+            items.push(`<div class="usp-expanded-param-item"><span class="usp-param-key">${BadaI18n.t("presets_modal_no_lora_registered")}</span></div>`);
         } else {
             presetData.loras.forEach((item, idx) => {
                 const cleanName = (item.lora || "None").split(/[\/\\]/).pop();
@@ -914,7 +888,7 @@ function generateDeepDetailsHtml(presetData, presetName, targetNode) {
                 const isOn = item.on !== false;
                 items.push(`
                     <div class="usp-expanded-param-item usp-lora-row ${isOn ? "" : "disabled"}" data-lora-idx="${idx}">
-                        <label class="usp-toggle-switch" title="LoRA 적용 여부 켜기/끄기">
+                        <label class="usp-toggle-switch" title="${BadaI18n.t("presets_modal_lora_toggle_title")}">
                             <input type="checkbox" class="usp-toggle-checkbox usp-lora-toggle" data-lora-idx="${idx}" ${isOn ? "checked" : ""}>
                             <span class="usp-toggle-slider"></span>
                         </label>
@@ -922,11 +896,11 @@ function generateDeepDetailsHtml(presetData, presetName, targetNode) {
                         <span class="usp-lora-name" title="${escapeHtml(item.lora || "None")}">${escapeHtml(cleanName)}</span>
                         <div class="usp-lora-inputs">
                             <div class="usp-lora-strength-wrap">
-                                <span class="usp-lora-strength-label">가중치:</span>
+                                <span class="usp-lora-strength-label">${BadaI18n.t("presets_modal_lora_weight")}</span>
                                 <div class="usp-number-stepper">
-                                    <button type="button" class="usp-stepper-btn usp-lora-stepper-minus" data-lora-idx="${idx}" data-step="0.05" title="0.05 감소">−</button>
-                                    <input type="number" step="0.05" class="usp-inline-widget-num usp-lora-strength-input" data-lora-idx="${idx}" value="${str}" title="가중치 조절" />
-                                    <button type="button" class="usp-stepper-btn usp-lora-stepper-plus" data-lora-idx="${idx}" data-step="0.05" title="0.05 증가">+</button>
+                                    <button type="button" class="usp-stepper-btn usp-lora-stepper-minus" data-lora-idx="${idx}" data-step="0.05" title="${BadaI18n.t("presets_modal_step_decrease", { step: 0.05 })}">−</button>
+                                    <input type="number" step="0.05" class="usp-inline-widget-num usp-lora-strength-input" data-lora-idx="${idx}" value="${str}" title="${BadaI18n.t("presets_modal_lora_weight_title")}" />
+                                    <button type="button" class="usp-stepper-btn usp-lora-stepper-plus" data-lora-idx="${idx}" data-step="0.05" title="${BadaI18n.t("presets_modal_step_increase", { step: 0.05 })}">+</button>
                                 </div>
                             </div>
                         </div>
@@ -957,7 +931,7 @@ function generateDeepDetailsHtml(presetData, presetName, targetNode) {
                     return `<option value="${escapeHtml(opt)}" ${isSelected ? "selected" : ""}>${escapeHtml(opt)}</option>`;
                 }).join("");
 
-                const extraOpt = (!hasCurrent && val !== undefined && val !== null) ? `<option value="${escapeHtml(val)}" selected>${escapeHtml(val)} (현재값)</option>` : "";
+                const extraOpt = (!hasCurrent && val !== undefined && val !== null) ? `<option value="${escapeHtml(val)}" selected>${escapeHtml(val)}${BadaI18n.t("presets_modal_current_suffix")}</option>` : "";
                 inputHtml = `<select class="usp-inline-widget-select" data-key="${escapeHtml(key)}">${extraOpt}${optsHtml}</select>`;
             }
             // B. Number Stepper: [-] [ value ] [+]
@@ -978,16 +952,16 @@ function generateDeepDetailsHtml(presetData, presetName, targetNode) {
                 }
                 inputHtml = `
                     <div class="usp-number-stepper">
-                        <button type="button" class="usp-stepper-btn usp-stepper-btn-minus" data-key="${escapeHtml(key)}" data-step="${stepVal}" title="${stepVal} 감소">−</button>
+                        <button type="button" class="usp-stepper-btn usp-stepper-btn-minus" data-key="${escapeHtml(key)}" data-step="${stepVal}" title="${BadaI18n.t("presets_modal_step_decrease", { step: stepVal })}">−</button>
                         <input type="number" class="usp-inline-widget-num" data-key="${escapeHtml(key)}" value="${val}" ${minAttr} ${maxAttr} ${stepAttr} />
-                        <button type="button" class="usp-stepper-btn usp-stepper-btn-plus" data-key="${escapeHtml(key)}" data-step="${stepVal}" title="${stepVal} 증가">+</button>
+                        <button type="button" class="usp-stepper-btn usp-stepper-btn-plus" data-key="${escapeHtml(key)}" data-step="${stepVal}" title="${BadaI18n.t("presets_modal_step_increase", { step: stepVal })}">+</button>
                     </div>
                 `;
             }
             // C. Boolean Input
             else if (typeof val === "boolean") {
                 inputHtml = `
-                    <label class="usp-toggle-switch" title="값 변경">
+                    <label class="usp-toggle-switch" title="${BadaI18n.t("presets_modal_value_toggle_title")}">
                         <input type="checkbox" class="usp-inline-widget-bool" data-key="${escapeHtml(key)}" ${val ? "checked" : ""} />
                         <span class="usp-toggle-slider"></span>
                     </label>
@@ -1000,7 +974,7 @@ function generateDeepDetailsHtml(presetData, presetName, targetNode) {
 
             items.push(`
                 <div class="usp-expanded-param-item ${isDisabled ? "disabled" : ""}" data-key="${escapeHtml(key)}">
-                    <label class="usp-toggle-switch" title="적용 여부 켜기/끄기">
+                    <label class="usp-toggle-switch" title="${BadaI18n.t("presets_modal_apply_toggle_title")}">
                         <input type="checkbox" class="usp-toggle-checkbox usp-widget-toggle" data-key="${escapeHtml(key)}" ${!isDisabled ? "checked" : ""}>
                         <span class="usp-toggle-slider"></span>
                     </label>
@@ -1014,14 +988,14 @@ function generateDeepDetailsHtml(presetData, presetName, targetNode) {
     }
 
     if (items.length === 0) {
-        return '<div class="usp-empty-notice">상세 설정값이 비어있습니다.</div>';
+        return `<div class="usp-empty-notice">${BadaI18n.t("presets_modal_no_detail_values")}</div>`;
     }
 
     return `
         <div style="font-weight: 700; color: #f1f5f9; margin-bottom: 14px; font-size: 1.38rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-            <span>📋 상세 파라미터 제어 & 인라인 수정:</span>
+            <span>${BadaI18n.t("presets_modal_detail_header")}</span>
             <span style="font-size: 1.05rem; font-weight: 500; color: #38bdf8; background: rgba(56, 189, 248, 0.08); padding: 4px 12px; border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.22);">
-                💡 스위치로 옵션을 켜고 끄거나 값을 수정한 뒤 저장/적용할 수 있습니다 (실시간 자동 저장)
+                ${BadaI18n.t("presets_modal_detail_hint")}
             </span>
         </div>
         <div class="usp-expanded-params-list">
