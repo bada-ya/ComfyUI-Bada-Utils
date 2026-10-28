@@ -69,6 +69,22 @@ export function isCloudDetailModalOpen() {
     return !!(detailModalEl && detailModalEl.classList.contains("active"));
 }
 
+// ── Drive 잔해 상태 — 동기화에서 제외한 대상이 Drive 에 남긴 복사본(용량) 추적.
+// 서버는 최근 동기화가 수집한 캐시를 바로 돌려주고, 아직 스캔 전이면 읽기 전용 스캔을 1회 돈다.
+let customResidue = [];           // [{name, folder_id, files, bytes}] — 등록 대상에 속하지 않는 고아 트리
+let customResidueScannedAt = 0;   // 0 = 이번 세션에서 아직 스캔 전
+let customResidueLoading = false;
+let customResidueError = "";
+let customResidueTruncated = false;
+
+// ── 삭제 보관함(_deleted_custom) 상태 — 다른 PC 에서 삭제되어 이 PC 에서 물러난 파일들.
+// 원래는 넣기만 하고 버리는 수단이 없었다. 보관 기간이 지난 항목은 동기화 후처리가 자동
+// 정리하고, 이 모달에서 직접 고어서 영구 삭제할 수도 있다.
+let customTrash = null;        // 서버 scan_custom_trash 응답 (null = 이번 세션 조회 전)
+let customTrashLoading = false;
+let customTrashError = "";
+let customTrashBusy = false;   // 정리/보관기간 저장 진행 중 — 중복 클릭 방지
+
 export function openCloudDetailModal(files, lastSync) {
     detailFilesSnapshot = Array.isArray(files) ? files : [];
     detailFilesLastSig = null; // 모달 재오픈 시 렌더 가드 초기화
@@ -89,6 +105,15 @@ export function openCloudDetailModal(files, lastSync) {
     customBrowseCache = {};
     customBrowseLoading = null;
     customBrowseError = "";
+    customResidue = [];
+    customResidueScannedAt = 0;
+    customResidueLoading = false;
+    customResidueError = "";
+    customResidueTruncated = false;
+    customTrash = null;
+    customTrashLoading = false;
+    customTrashError = "";
+    customTrashBusy = false;
     if (!detailModalEl) {
         detailModalEl = document.createElement("div");
         detailModalEl.id = "bada-cloud-detail-modal";
@@ -102,6 +127,10 @@ export function openCloudDetailModal(files, lastSync) {
     fetchRemoteSnapshot();
     // 커스텀 폴더 목록 + 폴더별 개수도 동일하게 열 때 1회.
     fetchCustomFolders();
+    // Drive 잔해(제외된 대상의 Drive 복사본) 도 열 때 1회 확인.
+    fetchCustomResidue();
+    // 삭제 보관함 규모도 열 때 1회 (로컬 폴더를 세기만 한다 — 삭제 없음).
+    fetchCustomTrash();
     // Bada PRO 상태 — 미발급이면 커스텀 동기화 섹션(토글·추가) 비활성화 + 발급 안내.
     // 조회 실패 시 미발급 상태로 유지 (안전측). 상태 변경 시에만 재렌더.
     fetch("/api/bada/cloud/pro/status").then((r) => r.json()).then((s) => {
@@ -390,6 +419,177 @@ async function fetchCustomCounts(name) {
         }
     } catch (_) {}
 }
+
+// Drive 잔해 조회 — 캐시(저렴한 즉답) → 이번 세션 첫 조회면 읽기 전용 스캔을 1회 시도한다.
+async function fetchCustomResidue() {
+    if (customResidueLoading) return;
+    customResidueLoading = true;
+    customResidueError = "";
+    paintDetailFiles();
+    try {
+        const r = await fetch("/api/bada/cloud/custom-residue");
+        const s = await r.json();
+        if (s && s.success) {
+            customResidue = Array.isArray(s.orphans) ? s.orphans : [];
+            customResidueScannedAt = Number(s.scanned_at || 0);
+            customResidueTruncated = !!s.truncated;
+        } else {
+            customResidueError = String((s && s.error) || "unknown");
+        }
+    } catch (_) {
+        customResidueError = "network";
+    }
+    customResidueLoading = false;
+    paintDetailFiles();
+    if (!customResidueScannedAt && !customResidueError) scanCustomResidue();
+}
+
+// Drive Custom/ 트리를 직접 훑는 재스캔 — 읽기 전용(휴지통 이동 없음), 대상 트리가 깊으면 수 초 걸린다.
+async function scanCustomResidue() {
+    if (customResidueLoading) return;
+    customResidueLoading = true;
+    customResidueError = "";
+    paintDetailFiles();
+    try {
+        const r = await fetch("/api/bada/cloud/custom-residue-scan", { method: "POST" });
+        const s = await r.json();
+        if (s && s.success) {
+            customResidue = Array.isArray(s.orphans) ? s.orphans : [];
+            customResidueScannedAt = Number(s.scanned_at || 0);
+            customResidueTruncated = !!s.truncated;
+        } else {
+            customResidueError = String((s && s.error) || "unknown");
+        }
+    } catch (_) {
+        customResidueError = "network";
+    }
+    customResidueLoading = false;
+    paintDetailFiles();
+}
+
+// 잔해 1개를 Drive 휴지통으로 이동 — 영구 파기 아님(30일 복원). 동기화 대상은 서버가 거부한다.
+async function purgeCustomResidue(name, btn, isKo) {
+    if (!btn || btn.disabled) return;
+    const msg = isKo
+        ? `Drive 의 'Custom/${name}' 을 정리할까요?\n\n이 대상은 이미 동기화에서 제외되어 어느 PC 의 파일에도 영향을 주지 않습니다.\nDrive 휴지통으로만 이동하며 30일 안에 복원할 수 있습니다.`
+        : `Move 'Custom/${name}' to the Drive trash?\n\nThis target is already excluded from sync — no PC's files are affected.\nIt is only moved to the Drive trash (restorable for 30 days).`;
+    if (!confirm(msg)) return;
+    btn.disabled = true;
+    btn.textContent = isKo ? "정리 중…" : "Moving…";
+    try {
+        const r = await fetch("/api/bada/cloud/custom-residue-purge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: name }),
+        });
+        const s = await r.json();
+        if (s && s.success) {
+            customResidue = customResidue.filter((o) => String(o.name) !== String(name));
+            paintDetailFiles();
+            return;
+        }
+        btn.title = String((s && s.error) || "");
+        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+    } catch (err) {
+        btn.title = String(err || "");
+        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+    }
+    scheduleOpenButtonRevert(btn, isKo ? "🗑 Drive에서 정리" : "🗑 Purge from Drive",
+        isKo ? "이 폴더를 Drive 휴지통으로 (30일 복원 가능)" : "Move this folder to the Drive trash (30-day restore)");
+}
+
+// ── Drive 잔해 섹션 — 제외된 대상이 Drive 에 남긴 파일을 눈으로 확인시키고 정리한다.
+// 동기화 대상 목록이 비어 있어도 그려야 한다 — 대상을 전부 해제한 뒤가 바로 그 상황이다.
+function paintCustomResidue(sec, isKo) {
+    if (!customProActive) return; // 미발급이면 커스텀 동기화 자체가 존재하지 않는다
+    if (!customResidue.length && !customResidueLoading && !customResidueError && !customResidueScannedAt) return;
+
+    const box = document.createElement("div");
+    box.style.cssText = "margin-top:10px; border:1px solid rgba(245,158,11,0.35); border-radius:8px; background:rgba(245,158,11,0.07); padding:8px 10px; font-size:12px;";
+
+    const head = document.createElement("div");
+    head.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px; font-weight:700; color:#fcd34d;";
+    const totalMB = (customResidue.reduce((n, o) => n + (Number(o.bytes) || 0), 0) / 1048576).toFixed(1);
+    const title = document.createElement("span");
+    title.textContent = customResidue.length
+        ? (isKo ? `🧹 Drive에 남은 잔해 ${customResidue.length}건 · ${totalMB}MB`
+                : `🧹 Drive leftovers ${customResidue.length} · ${totalMB}MB`)
+        : (isKo ? "🧹 Drive 잔해" : "🧹 Drive leftovers");
+    head.appendChild(title);
+    const again = document.createElement("button");
+    again.type = "button";
+    again.style.cssText = "flex-shrink:0; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#bae6fd; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
+    again.textContent = customResidueLoading ? (isKo ? "확인 중…" : "Scanning…") : (isKo ? "🔄 다시 확인" : "🔄 Re-scan");
+    again.title = isKo ? "Drive Custom/ 트리를 다시 훑습니다 (읽기 전용 — 아무것도 지우지 않음)"
+                       : "Re-scan the Drive Custom/ tree (read-only — nothing is deleted)";
+    again.disabled = customResidueLoading;
+    again.addEventListener("click", () => scanCustomResidue());
+    head.appendChild(again);
+    box.appendChild(head);
+
+    // 마지막 확인 시각을 항상 보여준다 — 재스캔이 실제로 돌아갔다는 눈으로 보이는 증거.
+    // (스캔이 5초 남짓 걸려도 버튼 상태만 바뀌면 알아채기 어렵다.)
+    if (customResidueScannedAt) {
+        const when = document.createElement("div");
+        when.style.cssText = "margin-top:2px; font-size:11px; color:#94a3b8;";
+        const ts = new Date(customResidueScannedAt * 1000).toLocaleTimeString();
+        when.textContent = (isKo ? "마지막 확인: " : "Last checked: ") + ts
+            + (customResidueLoading ? (isKo ? " (확인 중…)" : " (scanning…)") : "");
+        box.appendChild(when);
+    }
+
+    if (customResidueError) {
+        const err = document.createElement("div");
+        err.style.cssText = "margin-top:4px; color:#fca5a5;";
+        err.textContent = (isKo ? "잔해 확인 실패: " : "Residue scan failed: ") + customResidueError;
+        box.appendChild(err);
+    }
+    if (customResidueTruncated) {
+        const warn = document.createElement("div");
+        warn.style.cssText = "margin-top:4px; color:#fbbf24;";
+        warn.textContent = isKo
+            ? "⚠️ 폴더 수가 많아 일부만 확인했습니다 — 목록이 실제보다 짧을 수 있습니다."
+            : "⚠️ Too many folders — only part of the tree was scanned.";
+        box.appendChild(warn);
+    }
+    if (!customResidue.length) {
+        const ok = document.createElement("div");
+        ok.style.cssText = "margin-top:4px; color:#86efac;";
+        ok.textContent = isKo
+            ? "✅ 동기화 범위 밖의 Drive 잔해가 없습니다."
+            : "✅ No Drive copies outside the sync scope.";
+        box.appendChild(ok);
+    }
+    for (const o of customResidue) {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex; align-items:center; gap:8px; margin-top:5px; color:#e2e8f0; word-break:break-all;";
+        const mb = ((Number(o.bytes) || 0) / 1048576).toFixed(1);
+        const info = document.createElement("span");
+        info.textContent = `☁️ Custom/${o.name} — ` + (isKo
+            ? `파일 ${Number(o.files) || 0}개 · ${mb}MB`
+            : `${Number(o.files) || 0} files · ${mb}MB`);
+        info.title = isKo ? "동기화에서 제외되었지만 Drive 에 남아 용량을 차지합니다"
+                          : "Excluded from sync but still stored in Drive";
+        row.appendChild(info);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.style.cssText = "flex-shrink:0; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
+        btn.textContent = isKo ? "🗑 Drive에서 정리" : "🗑 Purge from Drive";
+        btn.title = isKo ? "Drive 휴지통으로 이동 (30일 복원 가능)" : "Move to the Drive trash (restorable for 30 days)";
+        btn.addEventListener("click", () => purgeCustomResidue(String(o.name || ""), btn, isKo));
+        row.appendChild(btn);
+        box.appendChild(row);
+    }
+
+    const note = document.createElement("div");
+    note.style.cssText = "margin-top:6px; font-size:11px; color:#94a3b8;";
+    note.textContent = isKo
+        ? "정리는 Drive 휴지통으로 이동만 합니다 (30일 복원 가능) — 현재 동기화 대상은 이 목록에 나타나지 않습니다."
+        : "Purging only moves folders to the Drive trash (30-day restore) — active targets never appear here.";
+    box.appendChild(note);
+    sec.appendChild(box);
+}
+
 
 // 미니 트리 박스 ① — 헤더(breadcrumb + 현재 폴더 선택 버튼).
 function paintCustomBrowseTree(sec, isKo) {
@@ -864,23 +1064,31 @@ function paintCustomSection(body, isKo) {
         rmBtn.addEventListener("click", async (e) => {
             e.stopPropagation();
             if (rmBtn.disabled) return;
-            // 제거는 데이터 삭제가 아님(로컬·Drive 보존, 타 PC 전파) — 오클릭 방지용 확인 절차.
+            // 제거 = 동기화 범위에서만 제외 (오클릭 방지 확인). Drive 복사본 정리는 사용자가 직접 고른다.
             const msg = isKo
-                ? `'${f.name}' 대상을 동기화에서 제거할까요?\n\n로컬 파일과 Drive 복사본은 삭제되지 않고, 모든 PC의 동기화 범위에서만 제외됩니다.`
-                : `Remove '${f.name}' from sync targets?\n\nLocal files and the Drive copy are NOT deleted — it is only excluded from sync on all PCs.`;
+                ? `'${f.name}' 대상을 동기화에서 제거할까요?\n\n모든 PC의 동기화 범위에서만 제외되고, 로컬 파일은 그대로 남습니다.`
+                : `Remove '${f.name}' from sync targets?\n\nIt is only excluded from sync on all PCs — local files stay untouched.`;
             if (!confirm(msg)) return;
+            const purgeMsg = isKo
+                ? `이어서 Drive 복사본을 정할까요?\n\n[예] Drive 복사본도 정리 — Drive 휴지통으로 이동 (30일 복원 가능)\n[아니오] 등록만 해제 — Drive 복사본은 Drive 에 그대로 남음`
+                : `Next: what about the Drive copy?\n\n[Yes] Also purge the Drive copy — moved to the Drive trash (30-day restore)\n[No] Unregister only — the Drive copy stays in Drive`;
+            const purgeRemote = confirm(purgeMsg);
             rmBtn.disabled = true;
             try {
                 const r = await fetch("/api/bada/cloud/custom-folder-remove", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name: f.name }),
+                    body: JSON.stringify({ name: f.name, purge_remote: purgeRemote }),
                 });
                 const s = await r.json();
                 if (s.success) {
-                    rmBtn.textContent = isKo ? "✅ 제거됨" : "✅ Removed";
+                    rmBtn.textContent = s.remote_purged
+                        ? (isKo ? "✅ 제거됨 · Drive 정리됨" : "✅ Removed · Drive purged")
+                        : (isKo ? "✅ 제거됨" : "✅ Removed");
+                    if (!s.remote_purged && s.remote_note) rmBtn.title = String(s.remote_note);
                     delete customCounts[f.name];
                     fetchCustomFolders(); // 목록 갱신
+                    scanCustomResidue();  // 제거 직후 잔해/정리 결과 반영
                 } else {
                     rmBtn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
                     rmBtn.title = s.error || "";
@@ -917,6 +1125,10 @@ function paintCustomSection(body, isKo) {
         sec.appendChild(wrap);
     }
 
+    // 동기화 대상 아래에 Drive 잔해 섹션 — 대상을 전부 해제한 뒤에도 보인다.
+    paintCustomResidue(sec, isKo);
+    // Drive 잔해 아래 — 이번 PC 에 쌓인 삭제 보관함 정리가 이어서 나온다.
+    paintCustomTrash(sec, isKo);
     body.appendChild(sec);
 }
 
@@ -960,16 +1172,319 @@ function paintProSectionHeader(body, isKo) {
     body.appendChild(notice);
 }
 
+// ── 삭제 보관함(_deleted_custom) — 다른 PC 에서 삭제되어 이 PC 에서 물러난 파일들의 격리소.
+// 백엔드가 동기화 후처리로 보관 기간이 지난 항목만 자동 정리하고(1일 1회), 이 섹션은
+// 사람이 직접 비울 때 쓴다. 모든 정리는 이 PC 의 보관함만 건드리며 Drive 는 건드리지 않는다.
+const TRASH_BTN = "flex-shrink:0; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); "
+    + "color:#fca5a5; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
+
+// 보관함 API 응답 해석 — 서버가 이 라우트를 아직 모르면 본문이 "404: Not Found" 같은
+// 일반 텍스트라서 r.json() 이 파서 오류를 던진다. 그 원문을 보여주기엔 너무 거칠다.
+async function readTrashApi(r) {
+    if (r.status === 404 || r.status === 405) return { success: false, error: "http-" + r.status, restart: true };
+    if (!r.ok) return { success: false, error: "http-" + r.status };
+    try {
+        return await r.json();
+    } catch (_) {
+        return { success: false, error: "network" };
+    }
+}
+
+// 실패 사유를 사람이 읽는 문장으로 — 재시작으로 풀리는 문제는 그렇게 안내한다.
+function trashApiFault(s, isKo) {
+    if (s && s.restart) {
+        return isKo
+            ? "ComfyUI 를 다시 시작하면 사용할 수 있습니다 — 서버가 이 기능을 얹기 전 코드로 떠 있습니다."
+            : "Restart ComfyUI to use this — the server is still running code from before this feature.";
+    }
+    return String((s && s.error) || "");
+}
+
+async function fetchCustomTrash() {
+    if (customTrashLoading) return;
+    customTrashLoading = true;
+    customTrashError = "";
+    paintDetailFiles();
+    try {
+        const r = await fetch("/api/bada/cloud/custom-trash");
+        const s = await readTrashApi(r);
+        if (s && s.success) customTrash = s;
+        else customTrashError = (s && s.restart) ? "restart" : String((s && s.error) || "unknown");
+    } catch (_) {
+        customTrashError = "network";
+    }
+    customTrashLoading = false;
+    paintDetailFiles();
+}
+
+// mode="older" = 보관 기간이 지난 항목만, mode="all" = 보관함 전체를 영구 삭제한다.
+async function purgeCustomTrash(mode, btn, isKo) {
+    const all = mode === "all";
+    const files = Number(((all ? customTrash && customTrash.files : customTrash && customTrash.expired_files)) || 0);
+    const bytes = Number(((all ? customTrash && customTrash.bytes : customTrash && customTrash.expired_bytes)) || 0);
+    const days = Number((customTrash && customTrash.retention_days) || 0);
+    if (!files) return;
+    const mb = (bytes / 1048576).toFixed(1);
+    const scope = all
+        ? (isKo ? "보관 기간과 상관없이 보관함 전체를 지웁니다.\n"
+                : "This empties the whole retention folder, newer items included.\n")
+        : (isKo ? `'${days}일' 보다 오래된 항목만 지우고, 그보다 최신은 그대로 남습니다.\n`
+                : `Only items older than ${days} days go; newer items stay.\n`);
+    const msg = isKo
+        ? `삭제 보관함에서 ${files}개 · ${mb}MB 를 지금 영구 삭제할까요?\n\n` + scope
+          + "대상은 이 PC 의 _deleted_custom 폴더뿐이며 구글 드라이브에는 영향이 없습니다.\n"
+          + "한번 지우면 되돌릴 수 없습니다. 계속할까요?"
+        : `Permanently delete ${files} files · ${mb}MB from the local trash folder now?\n\n` + scope
+          + `Only this PC's _deleted_custom folder is affected — Google Drive is untouched.\n`
+          + "This cannot be undone. Continue?";
+    if (!window.confirm(msg)) return;
+    const keep = btn.textContent;
+    customTrashBusy = true;
+    btn.disabled = true;
+    btn.textContent = isKo ? "정리 중…" : "Cleaning…";
+    paintDetailFiles();
+    try {
+        const r = await fetch("/api/bada/cloud/custom-trash-purge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: all ? "all" : "older" }),
+        });
+        const s = await readTrashApi(r);
+        if (s && s.success) {
+            customTrashBusy = false;
+            fetchCustomTrash(); // 디스크를 다시 세어 실제 남은 양만 보여준다.
+            return;
+        }
+        const why = trashApiFault(s, isKo);
+        btn.title = why;
+        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+        window.alert(isKo ? `보관함을 정리하지 못했습니다.
+
+${why}`
+                          : `Could not clean the trash folder.
+
+${why}`);
+    } catch (err) {
+        btn.title = String(err || "");
+        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+        window.alert(isKo ? "보관함을 정리하지 못했습니다: " + String(err || "")
+                          : "Could not clean the trash folder: " + String(err || ""));
+    }
+    customTrashBusy = false;
+    btn.disabled = false;
+    btn.textContent = keep;
+    paintDetailFiles();
+}
+
+// 보관 기간 저장 — 값만 바꾼다 (이 시점에 아무것도 지우지 않는다).
+async function setCustomTrashRetention(days, isKo) {
+    customTrashBusy = true;
+    paintDetailFiles();
+    try {
+        const r = await fetch("/api/bada/cloud/custom-trash-retention", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ days: Number(days) }),
+        });
+        const s = await readTrashApi(r);
+        if (s && s.success) {
+            customTrashBusy = false;
+            fetchCustomTrash(); // 바뀐 기준으로 자동 정리 대상 개수를 다시 센다.
+            return;
+        }
+        const why = trashApiFault(s, isKo);
+        window.alert(isKo ? `보관 기간을 저장하지 못했습니다.
+
+${why}`
+                          : `Could not save the retention period.
+
+${why}`);
+    } catch (err) {
+        window.alert(isKo ? "보관 기간을 저장하지 못했습니다: " + String(err || "")
+                          : "Could not save the retention period: " + String(err || ""));
+    }
+    customTrashBusy = false;
+    paintDetailFiles();
+}
+
+function paintCustomTrash(sec, isKo) {
+    const d = customTrash;
+    const files = Number((d && d.files) || 0);
+    // 보관함이 비어 있어도 남긴다 — 보관 기간을 고르는 자리가 여기뿐이라 사라지면 만질 거리가 없다.
+    // (위의 Drive 잔해 섹션과 같은 규칙 — 조회를 아예 못 한 경우에만 조용히 숨긴다.)
+    if (!d && !customTrashLoading && !customTrashError) return;
+
+    const box = document.createElement("div");
+    box.style.cssText = "margin-top:10px; border:1px solid rgba(148,163,184,0.35); border-radius:8px; background:rgba(148,163,184,0.07); padding:8px 10px; font-size:12px;";
+
+    const head = document.createElement("div");
+    head.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px; font-weight:700; color:#cbd5e1;";
+    const title = document.createElement("span");
+    const mb = ((Number((d && d.bytes) || 0)) / 1048576).toFixed(1);
+    const KO_NAME = "🗃 이 PC의 삭제 보관함";
+    const EN_NAME = "🗃 Local trash folder";
+    // 세어 보지 않은 것과 세어 두고 없는 것을 같은 '0개'로 묶어 말하지 않는다.
+    if (!d) title.textContent = isKo ? KO_NAME : EN_NAME;
+    else if (files <= 0) title.textContent = isKo ? `${KO_NAME} · 비어 있음` : `${EN_NAME} · empty`;
+    else title.textContent = isKo ? `${KO_NAME} ${files}개 · ${mb}MB` : `${EN_NAME} ${files} · ${mb}MB`;
+    title.title = isKo
+        ? "동기화 중에 다른 PC 에서 사라져 이 PC 에서도 물러난 파일들 (_deleted_custom 폴더)"
+        : "Files that were deleted on another PC and moved out of this one (_deleted_custom)";
+    head.appendChild(title);
+    box.appendChild(head);
+
+    const age = Number((d && d.oldest_age_days) || 0);
+    const sub = document.createElement("div");
+    sub.style.cssText = "margin-top:2px; font-size:11px; color:#94a3b8;";
+    sub.textContent = files > 0
+        ? (isKo
+            ? `제일 오래된 항목 ${age}일 전 · 보관 기간이 지나면 동기화 때 자동으로 지웁니다.`
+            : `Oldest item ${age} days ago · items past the retention period are pruned during sync.`)
+        : (isKo
+            ? `다른 PC 에서 사라진 파일이 이 PC 에서도 물러나면 이곳에 쌓입니다 — 지금은 모아 둔 것이 없습니다.`
+            : "Files removed on other PCs and on this one pile up here — nothing is held right now.");
+    if (d) box.appendChild(sub);
+
+    if (customTrashError) {
+        const err = document.createElement("div");
+        err.style.cssText = "margin-top:4px; color:#fca5a5;";
+        err.textContent = customTrashError === "restart"
+            ? (isKo ? "ComfyUI 를 다시 시작하면 나타나는 새 기능입니다."
+                    : "Restart ComfyUI to load this feature.")
+            : (isKo ? "보관함 확인 실패: " : "Trash scan failed: ") + customTrashError;
+        box.appendChild(err);
+    }
+    if (customTrashLoading || customTrashBusy) {
+        const busy = document.createElement("div");
+        busy.style.cssText = "margin-top:4px; color:#93c5fd;";
+        busy.textContent = isKo ? "⏳ 확인·정리 중…" : "⏳ Working…";
+        box.appendChild(busy);
+    }
+    if (d && d.truncated) {
+        const warn = document.createElement("div");
+        warn.style.cssText = "margin-top:4px; color:#fbbf24;";
+        warn.textContent = isKo
+            ? "⚠️ 항목이 너무 많아 일부만 세었습니다 — 실제가 더 많을 수 있습니다."
+            : "⚠️ Too many items — the count is a partial scan.";
+        box.appendChild(warn);
+    }
+
+    // 보유량 상위 항목 — 무엇을 채우는지 눈으로 확인시키고 정리 판단을 돕는다.
+    const top = (d && Array.isArray(d.by_target)) ? d.by_target.slice(0, 3) : [];
+    for (const t of top) {
+        const row = document.createElement("div");
+        row.style.cssText = "margin-top:3px; font-size:11px; color:#94a3b8; word-break:break-all;";
+        row.textContent = `└ ${t.name} — ` + (isKo
+            ? `파일 ${Number(t.files) || 0}개 · ${((Number(t.bytes) || 0) / 1048576).toFixed(1)}MB`
+            : `${Number(t.files) || 0} files · ${((Number(t.bytes) || 0) / 1048576).toFixed(1)}MB`);
+        box.appendChild(row);
+    }
+
+    const days = Number((d && d.retention_days) || 0);
+    const expFiles = Number((d && d.expired_files) || 0);
+    const expMB = ((Number((d && d.expired_bytes) || 0)) / 1048576).toFixed(1);
+
+    // 만료분만 정리 버튼이 꺼진 이유를 적어 둔다 — 개수 0 이 고장처럼 보이는 막는다.
+    if (!customTrashError && files > 0 && days > 0 && expFiles <= 0) {
+        const why = document.createElement("div");
+        why.style.cssText = "margin-top:4px; font-size:11px; color:#93c5fd;";
+        why.textContent = isKo
+            ? "ℹ️ 자동 정리 대상이 아직 0개입니다 — 보관함 나이 기준이 새로 잡혀 모든 항목이 보관 기간 안에 있습니다. 바로 비우려면 '모두 비우기'를 쓰세요."
+            : "ℹ️ Nothing is due yet — every item is inside the retention period. Use 'Empty now' to clear the folder right away.";
+        box.appendChild(why);
+    }
+
+    const row2 = document.createElement("div");
+    row2.style.cssText = "display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:7px;";
+
+    // 보관함은 비어 있어도 다시 세어 볼 거리가 남아야 한다 — 지금 보이는 0개가 낡은 값일 수 있다.
+    // (위 Drive 잔해 섹션의 [다시 확인] 과 같은 규칙. 세기만 하고 아무것도 지우지 않는다.)
+    const again = document.createElement("button");
+    again.type = "button";
+    again.style.cssText = "flex-shrink:0; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); "
+        + "color:#bae6fd; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
+    again.textContent = (customTrashLoading || customTrashBusy)
+        ? (isKo ? "⏳ 확인 중…" : "⏳ Checking…")
+        : (isKo ? "🔄 다시 확인" : "🔄 Re-check");
+    again.title = isKo
+        ? "보관함 디스크를 다시 세어 개수와 보관 기간을 갱신합니다 (아무것도 지우지 않음)"
+        : "Count the trash folder again (deletes nothing)";
+    again.disabled = customTrashLoading || customTrashBusy;
+    again.addEventListener("click", () => fetchCustomTrash());
+    row2.appendChild(again);
+
+    if (files > 0) {
+        if (days > 0) {
+            const older = document.createElement("button");
+            older.type = "button";
+            older.style.cssText = TRASH_BTN;
+            older.textContent = isKo ? `🧹 ${days}일 지난 항목만 정리 (${expFiles}개 · ${expMB}MB)`
+                                    : `🧹 Older than ${days}d (${expFiles} · ${expMB}MB)`;
+            older.title = isKo
+                ? "보관 기간을 넘긴 항목만 영구 삭제 — 최신 항목은 그대로 남습니다 (Drive 영향 없음)"
+                : "Permanently delete only items past the retention period (Drive untouched)";
+            older.disabled = customTrashBusy || customTrashLoading || expFiles <= 0;
+            older.addEventListener("click", () => purgeCustomTrash("older", older, isKo));
+            row2.appendChild(older);
+        }
+        const all = document.createElement("button");
+        all.type = "button";
+        all.style.cssText = TRASH_BTN + "background:rgba(220,38,38,0.22);";
+        all.textContent = isKo ? "🗑 모두 비우기" : "🗑 Empty now";
+        all.title = isKo
+            ? "보관 기간과 상관없이 보관함 전체를 영구 삭제 — 되돌릴 수 없습니다"
+            : "Permanently delete everything in the trash folder — irreversible";
+        all.disabled = customTrashBusy || customTrashLoading || files <= 0;
+        all.addEventListener("click", () => purgeCustomTrash("all", all, isKo));
+        row2.appendChild(all);
+    }
+
+    const lbl = document.createElement("span");
+    lbl.textContent = isKo ? "보관 기간" : "Retain";
+    lbl.style.cssText = "font-size:11px; color:#94a3b8;";
+    const sel = document.createElement("select");
+    sel.style.cssText = "background:rgba(15,23,42,0.8); border:1px solid rgba(148,163,184,0.4); color:#e2e8f0; border-radius:6px; padding:2px 6px; font-size:11px; font-weight:700; cursor:pointer;";
+    sel.disabled = customTrashBusy;
+    const choices = (d && Array.isArray(d.retention_choices) && d.retention_choices.length)
+        ? d.retention_choices : [0, 7, 30, 90];
+    for (const c of choices) {
+        const op = document.createElement("option");
+        op.value = String(c);
+        op.textContent = c > 0
+            ? (isKo ? `${c}일 후 자동 삭제` : `${c} days`)
+            : (isKo ? "자동 정리 없음" : "Never auto-clean");
+        if (c === days) op.selected = true;
+        sel.appendChild(op);
+    }
+    sel.title = isKo
+        ? "보관 기간이 지난 항목만 동기화 중에 자동으로 지웁니다 (기본 30일)"
+        : "Only items older than this are auto-pruned during sync (default 30 days)";
+    sel.addEventListener("change", () => setCustomTrashRetention(sel.value, isKo));
+    // 현재값을 못 얻은 상태에서 선택지를 보여주면 '자동 정리 없음'으로 오해한다.
+    if (d) { row2.appendChild(lbl); row2.appendChild(sel); }
+    if (row2.childNodes.length) box.appendChild(row2);
+
+    const note = document.createElement("div");
+    note.style.cssText = "margin-top:6px; font-size:11px; color:#94a3b8;";
+    note.textContent = isKo
+        ? "정리는 이 PC 의 보관함에서만 지워지며 구글 드라이브와 다른 PC 는 영향받지 않습니다. '자동 정리 없음' 을 고르면 자동으로 지워지는 것은 없고 버튼으로만 비우게 됩니다."
+        : "Cleaning only deletes from this PC's trash folder (Google Drive and other PCs untouched).";
+    if (d) box.appendChild(note);
+
+    sec.appendChild(box);
+}
+
 function paintDetailFiles() {
     if (!detailModalEl) return;
     const isKo = (BadaI18n.lang === "ko");
     const body = detailModalEl.querySelector("#bada-detail-files-body");
     if (!body) return;
-    // 동일 스냅샷+상태면 재렌더 생략 — 파일·원격·커스텀·PRO·트리 상태를 함께 비교
+    // 동일 스냅샷+상태면 재렌더 생략 — 파일·원격·커스텀·PRO·트리·잔해 상태를 함께 비교
     // (파일만 비교하면 PRO 전환 시 잠금이 안 풀리고, 트리 상태를 빼면
-    //  browse-tree 응답 후에도 "불러오는 중…"에서 멈추는 버그 발생).
+    //  browse-tree 응답 후에도 "불러오는 중…"에서 멈추며, 잔해 상태를 빼면
+    //  "다시 확인" 버튼이 확인 중에도 갱신되지 않아 무반응으로 보인다).
     try {
-        const sig = JSON.stringify([detailFilesSnapshot, detailRemoteSnapshot, customFolders, customSyncEnabled, customProActive, customCounts, customAddOpen, customAddDraft, customAddName, customAddError, customBrowseOpen, customBrowseRel, customBrowseLoading, customBrowseError, customBrowseCache]);
+        const sig = JSON.stringify([detailFilesSnapshot, detailRemoteSnapshot, customFolders, customSyncEnabled, customProActive, customCounts, customAddOpen, customAddDraft, customAddName, customAddError, customBrowseOpen, customBrowseRel, customBrowseLoading, customBrowseError, customBrowseCache, customResidue, customResidueScannedAt, customResidueLoading, customResidueError, customResidueTruncated, customTrash, customTrashLoading, customTrashError, customTrashBusy]);
         if (sig === detailFilesLastSig) return;
         detailFilesLastSig = sig;
     } catch (_) { /* 시그니처 실패 시 그냥 렌더 */ }

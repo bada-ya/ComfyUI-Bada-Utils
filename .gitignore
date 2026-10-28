@@ -27,6 +27,11 @@ credentials_pro.json
 .gdrive_sync_state.json
 .gdrive_settings.json
 .gdrive_snapshot.json
+
+# 커스텀 동기화 삭제 전파 대기 큐(tombstone)와 안전 보관함 — 개인 데이터라 배포 금지.
+# 특히 _deleted_custom/ 은 삭제 전 회사 파일 사본이라 커밋 시 800MB급 개인 데이터가 유출된다.
+.gdrive_deletion_queue.json
+_deleted_custom/
 # 커스텀 동기화 대상 레지스트리 — 설치 환경별 개인 등록 정보.
 # Drive 로 동기화되는 파일이라 git 에 커밋되면 타인의 등록 정보가 새어 나간다.
 custom_targets.json

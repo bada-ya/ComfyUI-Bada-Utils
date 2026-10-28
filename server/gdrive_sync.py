@@ -212,6 +212,19 @@ WORKFLOW_EXCLUDE_NAMES = {
 # 워크플로우 폴더를 재귀 스캔할 때 건너뛸 디렉터리 (휴지통 폴더 포함).
 WORKFLOW_EXCLUDE_DIRS = {'__pycache__', '_deleted_workflows'}
 
+# 동기화 영구 제외 파일명 접미사 — Google Drive for Desktop 은 다운로드 중 같은 이름에
+# '.fdmdownload' 을 붙인 미완 파일을 만든다 (완성되면 사라지거나 이어받기용으로 쓰인다).
+# 올려도 의미가 없고 용량만 먹은 채 Drive 잔해로 남고, 반대편에서 내려받으면 로컬이 더러워진다.
+# 규칙은 '로컬 스캔과 원격 열거 양쪽에서 동일하게 제외' — 한쪽만 빼면 CASE 2/3 이 발동해
+# 반대편 파일이 안전 보관함으로 간다. 이 규칙은 로컬 파일을 절대 삭제하지 않는다.
+SYNC_JUNK_SUFFIXES = (".fdmdownload",)
+
+
+def _is_sync_junk_name(name):
+    """Drive 클라이언트가 만든 미완/임시 파일명인지 판정 (확장자 대소문자 무시)."""
+    return bool(name) and str(name).lower().endswith(SYNC_JUNK_SUFFIXES)
+
+
 # 1차 버전의 로컬 캐시 매니페스트 경로 (워크플로우 폴더를 더럽히지 않도록 노드 루트).
 LOCAL_MANIFEST_CACHE = os.path.join(PARENT_DIR, '.gdrive_manifest.json')
 
@@ -370,7 +383,7 @@ def trash_local_custom(rel_path):
         if not os.path.exists(full_path):
             return True
         sub_rel = rel_path[len(CUSTOM_NS):]  # <name> 또는 <name>/<subpath>
-        trash_dir = os.path.join(PARENT_DIR, "_deleted_custom", os.path.dirname(sub_rel))
+        trash_dir = os.path.join(CUSTOM_TRASH_DIR, os.path.dirname(sub_rel))
         os.makedirs(trash_dir, exist_ok=True)
         trash_target = os.path.join(trash_dir, os.path.basename(sub_rel))
         # 만약 휴지통에 이미 동명 파일이 있다면 타임스탬프 부여
@@ -379,11 +392,252 @@ def trash_local_custom(rel_path):
             trash_target = os.path.join(trash_dir, f"{base_n}_{int(time.time())}{ext}")
         import shutil
         shutil.move(full_path, trash_target)
+        _stamp_trash_entry(trash_target)  # 보관 기간의 시계는 이 순간부터 돈다.
         logger.info(f"[GDrive] Local custom file safely moved to trash: {rel_path} -> {trash_target}")
         return True
     except Exception as e:
         logger.error(f"[GDrive] Failed to move local custom file to trash ({rel_path}): {e}")
         return False
+
+
+# ── 커스텀 안전 보관함(_deleted_custom) 정리 ─────────────────────────────────────
+# 삭제 전파로 이 PC 에서 물러난 파일들의 격리소인데, 원래는 넣기만 하고 버리는 방법이
+# 없었다 (실측 377개 · 818MB). 보관 기간이 지난 항목만 지우는 자동 정리와 수동 비우기를
+# 제공한다. 자동 정리는 동기화 후처리에서 최대 1일 1회 돈다.
+CUSTOM_TRASH_DIR = os.path.join(PARENT_DIR, "_deleted_custom")
+CUSTOM_TRASH_RETENTION_DEFAULT_DAYS = 30
+CUSTOM_TRASH_RETENTION_CHOICES = (0, 7, 30, 90)
+CUSTOM_TRASH_PRUNE_INTERVAL_SEC = 24 * 3600
+CUSTOM_TRASH_MAX_FILES = 200000
+_TRASH_BASELINE_MEMO = 0.0  # 보관함 나이 재기의 시작점 (프로세스당 1회 계산)
+
+
+def _custom_sync_settings(settings=None) -> dict:
+    current = settings if settings is not None else get_gdrive_settings()
+    cs = current.get("custom_sync")
+    return dict(cs) if isinstance(cs, dict) else {}
+
+
+def _custom_trash_retention_days() -> int:
+    """보관 기간(일) — 0 은 자동 정리 없음. 알려진 선택지 밖의 값은 기본값으로 되돌린다."""
+    try:
+        days = int(_custom_sync_settings().get("trash_retention_days",
+                                              CUSTOM_TRASH_RETENTION_DEFAULT_DAYS))
+    except (TypeError, ValueError):
+        return CUSTOM_TRASH_RETENTION_DEFAULT_DAYS
+    return days if days in CUSTOM_TRASH_RETENTION_CHOICES else CUSTOM_TRASH_RETENTION_DEFAULT_DAYS
+
+
+def set_custom_trash_retention(days) -> dict:
+    """보관 기간을 영속 저장한다 (0 = 자동 정리 끔)."""
+    try:
+        want = int(days)
+    except (TypeError, ValueError):
+        return {"success": False, "error": "잘못된 보관 기간 값입니다"}
+    if want not in CUSTOM_TRASH_RETENTION_CHOICES:
+        return {"success": False,
+                "error": "보관 기간은 0(자동 정리 없음), 7, 30, 90 중 하나여야 합니다"}
+    settings = get_gdrive_settings()
+    cs = _custom_sync_settings(settings)
+    cs["trash_retention_days"] = want
+    set_gdrive_settings({"custom_sync": cs})
+    logger.info(f"[GDrive] 커스텀 보관함 보관 기간을 {want}일 로 설정"
+                if want else "[GDrive] 커스텀 보관함 자동 정리를 껐습니다")
+    return {"success": True, "days": want}
+
+
+def _custom_trash_baseline() -> float:
+    """이 보관함 기능으로 나기를 재개한 기준 시각 — 그 이전 mtime 은 이 값으로 소급한다.
+
+    기능 도입 전에 쌓인 파일들은 mtime 이 보관함 밖의 과거(원본을 마지막으로 손본 날)라서
+    그 값만 보면 설치 직후 한꺼번에 만료로 보여 즉시 삭제된다. 그래서 "기준선 이후"에만
+    삭제를 허용한다 — 늦게 지우는 방향으로는 틀릴 수 있어도 일찍 지르지는 않는다.
+    """
+    global _TRASH_BASELINE_MEMO
+    if _TRASH_BASELINE_MEMO:
+        return _TRASH_BASELINE_MEMO
+    cs = _custom_sync_settings()
+    try:
+        baseline = float(cs.get("trash_stamped_at", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        baseline = 0.0
+    if baseline <= 0.0:
+        baseline = time.time()
+        cs["trash_stamped_at"] = baseline
+        try:
+            set_gdrive_settings({"custom_sync": cs})
+        except Exception as e:  # noqa: BLE001 — 기준선 저장이 실패해도 이번 판은 계속 유효하다.
+            logger.warning(f"[GDrive] 보관함 기준선 저장 실패: {e}")
+    _TRASH_BASELINE_MEMO = baseline
+    return baseline
+
+
+def _stamp_trash_entry(path: str) -> None:
+    """보관함으로 들어온 시각을 항목 자체에 기록한다 (항상 지금).
+
+    shutil.move 는 원본 수정시각을 그대로 들고 온다. 그 값은 "원본을 마지막으로 손본
+    날"이라 보관 기간의 기준이 될 수 없다 — 2년 전에 받은 모델을 오늘 격리하면 즉시
+    만료로 보여 다음 동기화에서 사라진다. 폴더 mtime 을 대안으로 쓰면 새 항목이 들어올
+    때마다 같은 폴더의 나이 시계가 리셋되어 만료가 영원히 오지 않는다 (실측 377개가
+    전부 0일로 보였던 원인). 그래서 항목마다 직접 박는다 — 메타데이터만 바뀌고
+    내용은 그대로다. 폴더 단위로 들어온 항목은 하위 파일까지 다 깐다.
+    """
+    now = time.time()
+    try:
+        targets = []
+        if os.path.isdir(path):
+            for dirpath, dirnames, filenames in os.walk(path):
+                dirnames[:] = [d for d in dirnames
+                               if not _is_reparse_dir(os.path.join(dirpath, d))]
+                targets.extend(os.path.join(dirpath, f) for f in filenames)
+        else:
+            targets.append(path)
+        for one in targets:
+            try:
+                os.utime(one, (now, now))
+            except OSError:
+                pass  # 시간이 안 박힌 항목은 기준선까지 살게 되므로 안전측으로 넘긴다.
+    except OSError:
+        pass
+
+
+def scan_custom_trash(days=None) -> dict:
+    """보관함 규모를 센다 (읽기 전용 — 아무것도 지우지 않는다).
+
+    days 는 "이보다 오래된 항목이 자동 정리 대상" 기준이며 생략하면 설정값을 쓴다.
+    """
+    configured = _custom_trash_retention_days()
+    if days is None:
+        days = configured
+    days = int(days)
+    root = CUSTOM_TRASH_DIR
+    out = {"success": True, "exists": os.path.isdir(root), "files": 0, "bytes": 0,
+           "expired_files": 0, "expired_bytes": 0, "days": days,
+           "oldest_age_days": 0.0, "by_target": [], "truncated": False,
+           "retention_days": configured, "retention_choices": list(CUSTOM_TRASH_RETENTION_CHOICES)}
+    if not out["exists"]:
+        return out
+    root_real = os.path.realpath(root)
+    now = time.time()
+    cutoff = (now - days * 86400) if days > 0 else None
+    per_target = {}
+    scanned = 0
+    baseline = _custom_trash_baseline()
+    for dirpath, dirnames, filenames in os.walk(root):
+        # 보관함 안에 다른 위치로 나가는 junction 이 있으면 들어가지 않는다.
+        dirnames[:] = [d for d in dirnames
+                       if not _is_reparse_dir(os.path.join(dirpath, d))]
+        for fname in filenames:
+            full_path = os.path.join(dirpath, fname)
+            try:
+                real = os.path.realpath(full_path)
+                if os.path.islink(full_path) or not real.startswith(root_real + os.sep):
+                    continue
+                st = os.stat(full_path)
+            except OSError:
+                continue
+            size = int(st.st_size)
+            mtime = max(float(st.st_mtime), baseline)
+            scanned += 1
+            rel_dir = os.path.relpath(dirpath, root)
+            top = fname if rel_dir == "." else rel_dir.split(os.sep)[0]
+            agg = per_target.setdefault(top, {"name": top, "files": 0, "bytes": 0})
+            agg["files"] += 1
+            agg["bytes"] += size
+            out["files"] += 1
+            out["bytes"] += size
+            if (now - mtime) / 86400.0 > out["oldest_age_days"]:
+                out["oldest_age_days"] = (now - mtime) / 86400.0
+            if cutoff is not None and mtime <= cutoff:
+                out["expired_files"] += 1
+                out["expired_bytes"] += size
+            if scanned >= CUSTOM_TRASH_MAX_FILES:
+                out["truncated"] = True
+                break
+    out["oldest_age_days"] = round(out["oldest_age_days"], 1)
+    out["by_target"] = sorted(per_target.values(), key=lambda a: -a["bytes"])[:20]
+    return out
+
+
+def prune_custom_trash(days=None, purge_all=False) -> dict:
+    """보관함 정리 — 기본은 보관 기간이 지난 항목만 삭제한다 (되돌릴 수 없는 삭제).
+
+    purge_all=True 면 전체를 비운다. days<=0 은 "자동 정리 끔" 이므로 purge_all 없이
+    호출되면 아무것도 지우지 않고 돌아온다 (설정 0 을 전체 삭제으로 오해하지 않게).
+    하위만 순회하며 junction 은 추적하지 않고, 빈 폴더는 자식 → 부모 순으로 함께 정리한다.
+    """
+    root = CUSTOM_TRASH_DIR
+    if not os.path.isdir(root):
+        return {"success": True, "removed_files": 0, "removed_bytes": 0,
+                "removed_dirs": 0, "freed_mb": 0.0, "errors": []}
+    purge_all = bool(purge_all)
+    if days is None:
+        days = _custom_trash_retention_days()
+    days = int(days)
+    if not purge_all and days <= 0:
+        # 보관 기간 0 은 "자동 정리 끔" — 전체 삭제로 오해하지 않고 아무것도 지우지 않는다.
+        return {"success": True, "removed_files": 0, "removed_bytes": 0,
+                "removed_dirs": 0, "freed_mb": 0.0, "days": days,
+                "purge_all": False, "errors": [], "skipped": "자동 정리 꺼짐"}
+    root_real = os.path.realpath(root)
+    cutoff = 0.0 if purge_all else (time.time() - days * 86400)
+    removed_files = 0
+    removed_bytes = 0
+    errors = []
+    baseline = _custom_trash_baseline()
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames
+                       if not _is_reparse_dir(os.path.join(dirpath, d))]
+        for fname in filenames:
+            full_path = os.path.join(dirpath, fname)
+            try:
+                real = os.path.realpath(full_path)
+                if os.path.islink(full_path) or not real.startswith(root_real + os.sep):
+                    continue
+                st = os.stat(full_path)
+                size = int(st.st_size)
+                age_ref = max(float(st.st_mtime), baseline)
+                if cutoff and age_ref > cutoff:
+                    continue
+                os.remove(full_path)
+            except OSError as e:
+                errors.append(f"{fname}: {e}")
+                continue
+            removed_files += 1
+            removed_bytes += size
+    # 방금 파일을 지운 부모 폴더는 mtime 이 갱신되어 유예 시간면 정리 후보로 안 보인다 —
+    # 보관함은 이 노드만 쓰므로 유예 없이 즉시 빈 폴더까지 정리한다.
+    removed_dirs = len(_prune_empty_local_dirs(root, grace_sec=0))
+    if removed_files or removed_dirs:
+        logger.warning(f"[GDrive] 커스텀 안전 보관함 정리: 파일 {removed_files}개 "
+                       f"({round(removed_bytes / 1048576, 1)}MB) 영구 삭제, "
+                       f"빈 폴더 {removed_dirs}개 제거")
+    return {"success": not errors, "removed_files": removed_files,
+            "removed_bytes": removed_bytes, "removed_dirs": removed_dirs,
+            "freed_mb": round(removed_bytes / 1048576, 1), "days": days,
+            "purge_all": purge_all, "errors": errors[:10]}
+
+
+def auto_prune_custom_trash(force=False) -> dict:
+    """동기화 후처리용 자동 정리 — 보관 기간을 넘긴 항목만, 최대 1일 1회."""
+    days = _custom_trash_retention_days()
+    if days <= 0:
+        return {"success": True, "skipped": "자동 정리 꺼짐"}
+    settings = get_gdrive_settings()
+    cs = _custom_sync_settings(settings)
+    try:
+        last = float(cs.get("trash_last_pruned_at", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        last = 0.0
+    if not force and (time.time() - last) < CUSTOM_TRASH_PRUNE_INTERVAL_SEC:
+        return {"success": True, "skipped": "최근 정리됨"}
+    result = prune_custom_trash(days=days)
+    cs["trash_last_pruned_at"] = time.time()
+    try:
+        set_gdrive_settings({"custom_sync": cs})
+    except Exception as e:  # noqa: BLE001 — 정리는 끝났다, 기록 실패로 되돌릴 수는 없다.
+        logger.warning(f"[GDrive] 보관함 정리 시각 저장 실패: {e}")
+    return result
 
 
 def trash_remote_file(service, file_id, file_name=""):
@@ -724,6 +978,7 @@ def _iter_custom_rel_paths():
       (OFF 일 때 양쪽(로컬+원격) 모두에서 제외 → base 스냅샷 키는 CASE 4 로 자연 소멸,
        OFF 전환은 절대 데이터를 삭제하지 않는다.)
     - 파일 대상: `custom/<name>` (존재 시). 폴더 대상: 재귀 스캔 (WORKFLOW_EXCLUDE_DIRS 제외).
+    - '.fdmdownload' 등 미완 파일은 제외 (_is_sync_junk_name) — 로컬·원격 동일 규칙.
     - '___' 포함 경로 구성요소는 스킵 — 내부 지도 키가 '/'→'___' 인코딩이라 이런 이름은
       라운트립이 깨져 오삭제 위험이 있다. 로컬+원격 양쪽에서 동일하게 스킵하므로 안전 no-op.
     """
@@ -738,6 +993,8 @@ def _iter_custom_rel_paths():
             continue
         try:
             if f["is_file"]:
+                if _is_sync_junk_name(name):
+                    continue  # 등록 대상 자체가 미완 파일 — 동기화 의미가 없다
                 yield f"{CUSTOM_NS}{name}"
                 continue
             root_real = os.path.realpath(path)
@@ -745,8 +1002,8 @@ def _iter_custom_rel_paths():
                 dirnames[:] = [d for d in dirnames
                                if d not in WORKFLOW_EXCLUDE_DIRS and "___" not in d]
                 for fname in filenames:
-                    if "___" in fname:
-                        continue
+                    if "___" in fname or _is_sync_junk_name(fname):
+                        continue  # '___' 는 내부 키 구분자 / 미완 파일은 양쪽 스킵 정책
                     full_path = os.path.join(dirpath, fname)
                     if not os.path.isfile(full_path):
                         continue
@@ -1152,6 +1409,7 @@ def _list_custom_remote_files(service, custom_root_id):
 
     - 파일 대상: `Custom/<name>` (루트 바로 아래), 폴더 대상: `Custom/<name>/<subpath>`.
     - 이름에 '___' 가 포함된 항목은 스킵 — 키 라운트립 깨짐 방지 (로컬 매니페스트와 동일한 정책).
+    - '.fdmdownload' 등 미완 파일도 스킵 — 로컬 스캔이 보지 않으므로 양쪽 대칭이 유지된다.
       해당 폴더의 하위 트리는 통째로 건너뛴다.
     - 미등록 대상의 파일도 열거되지만, 동기화 쪽 `_resolve_local_path` 검증에서
       ValueError → 조용히 스킵된다 (제거된 대상의 Drive 데이터는 절대 삭제되지 않음).
@@ -1170,6 +1428,8 @@ def _list_custom_remote_files(service, custom_root_id):
                 name, item_id = entry["name"], entry["id"]
                 if "___" in name:
                     continue  # 키 라운트립 깨짐 — 파일은 스킵, 폴더는 하위 트리 통째로 스킵
+                if _is_sync_junk_name(name):
+                    continue  # Drive 미완 파일 — 로컬 스캔과 같은 규칙으로 양쪽 스킵 (CASE 2/3 방지)
                 if entry["is_folder"]:
                     sub_rel = f"{rdir}/{name}" if rdir else name
                     next_level.append((item_id, sub_rel))
@@ -1916,116 +2176,343 @@ def _cleanup_deleted_remote_workflow_folders(service, wf_root_id):
         logger.debug(f"[GDrive] Remote workflow folder cleanup error (ignored): {e}")
 
 
-def _cleanup_deleted_remote_custom_folders(service, custom_root_id):
+# ── 커스텀 동기화 잔해 정리 (빈 폴더 · 제외된 고아 트리) ──────────────────────
+# 탐색기나 Drive 에서 지운 뒤에 남는 '빈 껍데기 폴더'와, 동기화 대상에서 제외한
+# 대상의 Drive 복사본(고아 트리)을 안전하게 정리한다.
+#
+# 데이터 안전 대원칙 — 정리가 덜 되어도 반드시 지킨다:
+#   1) Drive 폴더는 재귀 기준으로 파일이 1개라도 남아 있으면 절대 휴지통으로 옮기지 않는다.
+#   2) 로컬은 등록 루트 폴더 자체는 건드리지 않고, 그 자리에서
+#      비어있음을 다시 확인한 디렉터리만 os.rmdir 한다.
+#   3) 순회는 항상 자식 → 부모. 부모가 언제 비는지 정확히 알 수 있어 1패스에 다단계 정리된다.
+
+_CUSTOM_RESIDUE_MAX_DIRS = 400    # 원격 폴더 열거 상한 (API 호출 보호)
+_CUSTOM_PRUNE_MAX_DIRS = 5000     # 로컬 순회 상한 (폭주 방지)
+_CUSTOM_PRUNE_GRACE_SEC = 60      # 방금 생성/수정된 폴더 보호 — 동기화 경합 방지
+_CUSTOM_PRUNE_SKIP_DIRS = {"__pycache__", ".git", "node_modules", ".venv", "venv"}
+
+# 최근 잔해 스캔 결과 — 상태 API 로 노출해 "제외했는데 Drive 에 남은 파일" 을 눈으로 확인시킨다.
+_CUSTOM_RESIDUE_STATE = {"scanned_at": 0.0, "orphans": [], "truncated": False}
+
+
+def _is_reparse_dir(path: str) -> bool:
+    """junction / symlink 로 다른 위치를 가리키는 폴더 여부 — 정리 대상에서 항상 제외한다."""
+    try:
+        if os.path.islink(path):
+            return True
+    except OSError:
+        return True
+    if os.name != "nt":
+        return False
+    try:
+        st = os.stat(path, follow_symlinks=False)
+    except (OSError, TypeError):
+        return True
+    return bool(int(getattr(st, "st_file_attributes", 0)) & 0x00000400)  # FILE_ATTRIBUTE_REPARSE_POINT
+
+
+def _dir_has_local_files(folder_path: str) -> bool:
+    """폴더 재귀 기준으로 동기화 대상 파일이 1개라도 남아있는지 (캐시 디렉터리는 무시)."""
+    try:
+        if not os.path.isdir(folder_path):
+            return False
+    except OSError:
+        return False
+    for dirpath, dirnames, filenames in os.walk(folder_path):
+        dirnames[:] = [d for d in dirnames
+                       if d not in WORKFLOW_EXCLUDE_DIRS and d not in _CUSTOM_PRUNE_SKIP_DIRS]
+        if filenames:
+            return True
+    return False
+
+
+def _prune_empty_local_dirs(root_path: str, grace_sec: int = _CUSTOM_PRUNE_GRACE_SEC) -> list:
+    """root_path 하위(자신은 제외)의 빈 폴더만 자식 → 부모 순으로 제거하고 경로를 돌려준다.
+
+    등록 루트 자신을 삭제하지 않는 이유: 대상이 타사 노드 폴더
+    (예: custom_nodes/comfyui-impact-pack/custom_wildcards) 인 경우가 많아, 비었다고
+    지우면 노드 동작에 손상이 갈 수 있다. 루트 정리는 의도된 제거 절차에 맡긴다.
     """
-    Drive 의 Custom/ 하위 폴더 중 로컬에서 삭제되었거나
-    내부 파일이 모두 비어있는 폴더를 찾아 원격 휴지통으로 이동한다.
-    커스텀 동기화 대상 폴더만 처리한다.
+    removed = []
+    try:
+        if not os.path.isdir(root_path):
+            return removed
+    except OSError:
+        return removed
+    # 등록 루트 자체가 junction 인 경우가 실제로 있다 (와일드카드를 다른 디스크로
+    # 옮겨두고 링크해 쓰는 환경). 루트 자신은 애초에 삭제 후보가 아니므로 reparse 라는
+    # 이유로 전체 순회를 포기하지 않는다. 하위 수집·삭제 단계에서 reparse 를 계속 막는다.
+
+    # 탐색 시점의 mtime 을 고정해 수집한다 — 자식을 지우면 부모 mtime 이 갱신되어
+    # 같은 패스의 부모 유예 판정이 왜곡되는 것을 막는다.
+    candidates = []
+    stack = [root_path]
+    while stack and len(candidates) < _CUSTOM_PRUNE_MAX_DIRS:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as it:
+                children = list(it)
+        except OSError:
+            continue
+        for entry in children:
+            try:
+                if not entry.is_dir(follow_symlinks=False):
+                    continue
+                if entry.name in _CUSTOM_PRUNE_SKIP_DIRS or _is_reparse_dir(entry.path):
+                    continue
+                mtime = entry.stat(follow_symlinks=False).st_mtime
+            except OSError:
+                continue
+            stack.append(entry.path)
+            candidates.append((entry.path, mtime))
+
+    cutoff = time.time() - max(0, int(grace_sec))
+    # 경로가 긴 폴더 = 자손 → 부모보다 항상 먼저 처리된다.
+    for path, mtime in sorted(candidates, key=lambda item: len(item[0]), reverse=True):
+        if mtime > cutoff:
+            continue  # 방금 생성/수정 — 다운로드가 진행 중일 수 있어 건드리지 않는다
+        try:
+            if _is_reparse_dir(path):
+                continue
+            with os.scandir(path) as it:
+                if any(True for _ in it):
+                    continue  # 정리 시점에 내용물이 생겼다
+            os.rmdir(path)
+            removed.append(path)
+        except OSError:
+            continue
+    return removed
+
+
+def _cleanup_empty_local_custom_folders() -> int:
+    """등록된 커스텀 대상 하위의 빈 폴더 잔해를 재귀 제거한다.
+
+    Drive 에서 폴더를 지우면 로컬 파일은 `_deleted_custom/` 으로 안전 이동하지만
+    빈 껍데기 폴더만 남는 문제가 있었다. 기존 구현은 등록 루트 1단계만 검사해
+    하위에 중첩된 좀비 폴더가 영구 잔존했고, 파일 개수만 세는 상태 배지에는
+    드러나지 않았다. 이제 등록 루트 하위 전체를 bottom-up 로 가지치기한다.
     """
+    try:
+        regs = [f for f in get_custom_folders() if not f.get("is_file") and f.get("exists")]
+        if not regs:
+            return 0
+        total = 0
+        for reg in regs:
+            gone = _prune_empty_local_dirs(reg["path"])
+            if gone:
+                total += len(gone)
+                logger.info(f"[GDrive] Local empty custom subfolders pruned: "
+                            f"{reg['name']} (-{len(gone)})")
+        if total:
+            _CUSTOM_FOLDER_CACHE.clear()
+        return total
+    except Exception as e:  # noqa: BLE001 — 정리가 동기화 본류를 막지 않는다
+        logger.warning(f"[GDrive] Local custom folder cleanup failed (sync continues): {e}")
+        return 0
+
+
+def _list_custom_remote_tree(service, custom_root_id):
+    """Custom/ 하위 폴더 트리 전체를 한 번 열거해 폴더별 직하 파일 수/용량을 수집한다.
+
+    반환: (folders, truncated)
+      folders = {folder_id: {id, name, parent_id, rel_path, own_files, own_bytes, child_ids}}
+      Custom/ 루트 노드도 집계에 포함되지만 rel_path 가 "" 이므로 정리 대상에서 빠진다.
+    """
+    root_node = {"id": custom_root_id, "name": "", "parent_id": None, "rel_path": "",
+                 "own_files": 0, "own_bytes": 0, "child_ids": []}
+    folders = {custom_root_id: root_node}
+    truncated = False
+    queue = [custom_root_id]
+    while queue and not truncated:
+        parent_id = queue.pop(0)
+        node = folders[parent_id]
+        page_token = None
+        while True:
+            params = {
+                "q": f"'{parent_id}' in parents and trashed = false",
+                "fields": "nextPageToken, files(id, name, mimeType, size)",
+                "pageSize": 1000,
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            res = service.files().list(**params).execute(num_retries=3)
+            for item in res.get("files", []):
+                if item.get("mimeType") != "application/vnd.google-apps.folder":
+                    node["own_files"] += 1
+                    node["own_bytes"] += int(item.get("size", 0) or 0)
+                    continue
+                if len(folders) >= _CUSTOM_RESIDUE_MAX_DIRS:
+                    truncated = True
+                    break
+                fid = item.get("id")
+                if not fid or fid in folders:
+                    continue
+                fname = item.get("name", "")
+                folders[fid] = {"id": fid, "name": fname, "parent_id": parent_id,
+                                "rel_path": f"{node['rel_path']}/{fname}".strip("/"),
+                                "own_files": 0, "own_bytes": 0, "child_ids": []}
+                node["child_ids"].append(fid)
+                queue.append(fid)
+            page_token = res.get("nextPageToken")
+            if truncated or not page_token:
+                break
+    return folders, truncated
+
+
+def _rollup_custom_remote_tree(folders):
+    """각 폴더의 '재귀 기준 파일 수/용량' 을 자식 → 부모 역순으로 계산해 붙인다."""
+    # 자식 rel_path 는 부모 rel_path 뒤에 이어 붙으므로, 경로가 긴 쪽이 반드시 자식이다.
+    # depth 카운트는 루트(rel_path "")와 최상위 형제가 같은 값이 되어 순서가 무너진다.
+    for node in sorted(folders.values(), key=lambda n: len(n["rel_path"]), reverse=True):
+        files = node["own_files"]
+        size = node["own_bytes"]
+        for cid in node["child_ids"]:
+            child = folders.get(cid)
+            if child:
+                files += child["subtree_files"]
+                size += child["subtree_bytes"]
+        node["subtree_files"] = files
+        node["subtree_bytes"] = size
+    return folders
+
+
+def _cleanup_deleted_remote_custom_folders(service, custom_root_id,
+                                           dry_run=False, include_registered=True):
+    """Drive Custom/ 하위의 빈 폴더를 재귀 판정으로 휴지통에 보낸다 (파일 있으면 절대 미조사).
+
+    처리 대상은 두 종류다.
+      • 등록된 커스텀 대상 — 로컬 대응 폴더가 없거나 비었고 원격도 재귀 기준 파일 0개인 경우.
+      • 동기화에서 제외된 고아 트리 — 재귀 기준 파일 0개면 껍데기만 정리하고, 파일이
+        남아 있으면 절대 지우지 않고 잔해 목록으로 보고한다.
+    기존 구현은 직하 내용물만 봐서 빈 하위 폴더를 '내용물 있음' 으로 오판했고 top-down
+    1회 순회라 단계가 겹치면 영구 정체되었다. 자식 → 부모 순회로 1패스에 해소된다.
+    """
+    summary = {"trashed": 0, "trashed_paths": [], "orphans": [], "truncated": False}
     if not custom_root_id:
-        return
-    try:
-        # 등록된 커스텀 폴더 대상 매핑: name -> {path, ...}
-        folder_regs = {}
-        for f in get_custom_folders():
-            if not f.get("is_file"):
-                folder_regs[f["name"]] = f
-
-        if not folder_regs:
-            return
-
-        queue = [(custom_root_id, "")]
-        folders_to_trash = []
-
-        while queue:
-            parent_id, rel_prefix = queue.pop(0)
-            q = f"'{parent_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-            res = service.files().list(q=q, fields="files(id, name)").execute()
-            for f in res.get("files", []):
-                f_name = f["name"]
-                f_id = f["id"]
-                sub_rel = f"{rel_prefix}/{f_name}".strip("/")
-
-                # 최상위 이름이 등록된 커스텀 대상 이름인지 확인
-                parts = sub_rel.split("/")
-                top_name = parts[0] if parts else ""
-
-                if top_name in folder_regs:
-                    reg = folder_regs[top_name]
-                    # 로컬 경로: reg["path"] + 하위 서브경로
-                    if len(parts) > 1:
-                        local_active = os.path.join(reg["path"], *parts[1:])
-                    else:
-                        local_active = reg["path"]
-
-                    # 로컬에 없거나 비어있으면 원격도 비워야 함 (빈 폴더 방치 방지)
-                    should_trash_remote = False
-                    if not os.path.exists(local_active):
-                        # 로컬 폴더 삭제됨 — 원격 폴더가 비어있는지 확인 후 휴지통 이동
-                        should_trash_remote = True
-                    else:
-                        # 로컬 폴더가 비어있으면 원격도 비워야 함
-                        try:
-                            local_entries = os.listdir(local_active)
-                            if not local_entries:
-                                should_trash_remote = True
-                        except OSError:
-                            pass
-
-                    if should_trash_remote:
-                        q_empty = f"'{f_id}' in parents and trashed = false"
-                        res_empty = service.files().list(q=q_empty, pageSize=1, fields="files(id)").execute()
-                        if not res_empty.get("files"):
-                            folders_to_trash.append((f_id, f_name, sub_rel))
-                            continue
-
-                    # 하위 폴더 계속 탐색
-                    queue.append((f_id, sub_rel))
-                else:
-                    # 등록된 대상이 아닌 폴더도 탐색 계속 (중첩 구조 대응)
-                    queue.append((f_id, sub_rel))
-
-        for f_id, f_name, sub_rel in folders_to_trash:
-            trash_remote_file(service, f_id, f_name)
-            logger.info(f"[GDrive] Remote empty/deleted custom folder moved to Drive trash: Custom/{sub_rel}")
-
-        if folders_to_trash:
-            _CUSTOM_FOLDER_CACHE.clear()
-    except Exception as e:
-        logger.debug(f"[GDrive] Remote custom folder cleanup error (ignored): {e}")
-
-
-def _cleanup_empty_local_custom_folders():
-    """
-    로컬에 빈 커스텀 폴더가 있으면 삭제한다.
-    구글 드라이브에서 폴더를 직접 삭제한 후 동기화 시,
-    로컬 파일은 휴지통으로 가지만 빈 폴더가 남는 문제를 방지한다.
-    """
+        return summary
     try:
         folder_regs = {}
         for f in get_custom_folders():
             if not f.get("is_file"):
                 folder_regs[f["name"]] = f
 
-        if not folder_regs:
-            return
+        folders, truncated = _list_custom_remote_tree(service, custom_root_id)
+        _rollup_custom_remote_tree(folders)
+        summary["truncated"] = truncated
 
-        removed_count = 0
-        for name, reg in folder_regs.items():
-            if os.path.isdir(reg["path"]):
-                try:
-                    entries = os.listdir(reg["path"])
-                    if not entries:
-                        os.rmdir(reg["path"])
-                        removed_count += 1
-                        logger.info(f"[GDrive] Local empty custom folder removed: {reg['path']}")
-                except OSError:
-                    pass
+        nodes = [n for n in folders.values() if n["rel_path"]]
+        nodes.sort(key=lambda n: len(n["rel_path"]), reverse=True)  # 깊은 폴더 먼저 (자식 → 부모)
 
-        if removed_count > 0:
+        for node in nodes:
+            if node["subtree_files"] > 0:
+                continue  # 재귀 기준으로 파일이 있다 — 원격 데이터는 어떤 경우에도 보존
+            rel = node["rel_path"]
+            reg = folder_regs.get(rel.split("/", 1)[0])
+            if reg is not None:
+                if not include_registered:
+                    continue
+                parts = rel.split("/")
+                local_active = (os.path.join(reg["path"], *parts[1:])
+                                if len(parts) > 1 else reg["path"])
+                if _dir_has_local_files(local_active):
+                    continue  # 로컬에 파일이 남아있다면 빈 폴더라도 둔다 (대칭 유지)
+            if dry_run:
+                summary["trashed"] += 1
+                summary["trashed_paths"].append(rel)
+                continue
+            if trash_remote_file(service, node["id"], node["name"]):
+                summary["trashed"] += 1
+                summary["trashed_paths"].append(rel)
+                logger.info(f"[GDrive] Remote empty custom folder moved to Drive trash: Custom/{rel}")
+
+        # 잔해 보고 — 정리 후에도 파일이 남아 드라이브 용량을 차지하는 고아 트리.
+        for fid in folders[custom_root_id]["child_ids"]:
+            node = folders.get(fid)
+            if not node or not node["rel_path"]:
+                continue
+            if node["rel_path"] in folder_regs or node["subtree_files"] <= 0:
+                continue
+            summary["orphans"].append({"name": node["rel_path"], "folder_id": fid,
+                                       "files": node["subtree_files"],
+                                       "bytes": node["subtree_bytes"]})
+        summary["orphans"].sort(key=lambda x: -int(x.get("bytes", 0)))
+
+        _CUSTOM_RESIDUE_STATE.update({"scanned_at": time.time(),
+                                      "orphans": summary["orphans"],
+                                      "truncated": truncated})
+        if summary["trashed"] and not dry_run:
             _CUSTOM_FOLDER_CACHE.clear()
-    except Exception as e:
-        logger.debug(f"[GDrive] Local custom folder cleanup error (ignored): {e}")
+    except Exception as e:  # noqa: BLE001
+        # 조용히 삼키면 정리가 매번 실패해도 흔적이 남지 않는다 (과거 KeyError 무력화 사건).
+        logger.warning(f"[GDrive] Custom remote tree cleanup failed (sync continues): {e}")
+    return summary
+
+
+def _custom_remote_root_id(service):
+    """Custom/ 폴더 ID 조회만 한다 — 스캔이 Drive 를 오염시키지 않도록 생성하지 않는다."""
+    root_id = _find_remote_folder_by_name(service, FOLDER_NAME)
+    if not root_id:
+        return None
+    return _find_remote_folder_by_name(service, CUSTOM_REMOTE_ROOT, parent_id=root_id)
+
+
+def get_custom_residue() -> dict:
+    """최근 동기화가 수집한 잔해 상태를 반환한다 (Drive API 호출 없음 — 즉답)."""
+    return {"success": True,
+            "orphans": list(_CUSTOM_RESIDUE_STATE.get("orphans", [])),
+            "scanned_at": float(_CUSTOM_RESIDUE_STATE.get("scanned_at", 0.0)),
+            "truncated": bool(_CUSTOM_RESIDUE_STATE.get("truncated", False))}
+
+
+def scan_custom_residue() -> dict:
+    """Drive Custom/ 을 바로 훑어 제외된 고아 트리를 보고한다 (등록 대상은 건드리지 않음)."""
+    service, msg = get_drive_service()
+    if not service:
+        return {"success": False, "error": msg}
+    try:
+        custom_root_id = _custom_remote_root_id(service)
+        if not custom_root_id:
+            return {"success": True, "orphans": [], "truncated": False, "scanned_at": time.time()}
+        summary = _cleanup_deleted_remote_custom_folders(service, custom_root_id,
+                                                        dry_run=True, include_registered=False)
+        return {"success": True, "orphans": summary["orphans"],
+                "empty_husks": summary["trashed_paths"],
+                "truncated": summary["truncated"], "scanned_at": time.time()}
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"[GDrive] Custom residue scan failed: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def purge_custom_residue(name) -> dict:
+    """동기화에서 제외된 Drive 고아 폴더를 Drive 휴지통으로 보낸다 (휴지통에서 복원 가능).
+
+    현재 동기화 중인 대상 이름은 거부한다 — 진행 중인 데이터를 실수로 지우는 것을 막는다.
+    """
+    n = str(name or "").strip()
+    if not n or "/" in n or "\\" in n or n in (".", ".."):
+        return {"success": False, "error": "잘못된 대상 이름입니다"}
+    if any(str(f.get("name", "")).strip() == n for f in get_custom_folders()):
+        return {"success": False, "error": "동기화 중인 대상입니다 — 먼저 제거한 뒤 정리할 수 있습니다"}
+    service, msg = get_drive_service()
+    if not service:
+        return {"success": False, "error": msg}
+    try:
+        custom_root_id = _custom_remote_root_id(service)
+        if not custom_root_id:
+            return {"success": False, "error": "Drive 에 Custom 폴더가 없습니다"}
+        fid = _find_remote_folder_by_name(service, n, parent_id=custom_root_id)
+        if not fid:
+            return {"success": False, "error": "Drive 에서 해당 폴더를 찾을 수 없습니다"}
+        if not trash_remote_file(service, fid, n):
+            return {"success": False, "error": "Drive 휴지통 이동에 실패했습니다"}
+        logger.info(f"[GDrive] Excluded custom residue moved to Drive trash: Custom/{n}")
+        _CUSTOM_RESIDUE_STATE["orphans"] = [
+            o for o in _CUSTOM_RESIDUE_STATE.get("orphans", [])
+            if str(o.get("name", "")) != n]
+        return {"success": True, "name": n, "trashed": True}
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"[GDrive] Custom residue purge failed: {e}")
+        return {"success": False, "error": str(e)}
 
 
 def _perform_sync_blocking():
@@ -2073,11 +2560,10 @@ def _perform_sync_blocking():
         # OFF 일 때는 로컬 매니페스트+원격 열거 양쪽에서 제외되므로 base 스냅샷 키는
         # CASE 4(양쪽 모두 없음)로 자연 소멸 — OFF 전환은 절대 데이터를 삭제하지 않는다.
         custom_enabled, custom_targets = _custom_sync_state()
+        custom_root_id = None
         if custom_enabled and custom_targets:
             custom_root_id = _get_or_create_custom_root(service, root_id)
             remote_files.update(_list_custom_remote_files(service, custom_root_id))
-            # 커스텀 대상 폴더 중 로컬 삭제·빈 폴더를 Drive 휴지통으로 전파
-            _cleanup_deleted_remote_custom_folders(service, custom_root_id)
 
         uploaded_count = 1 if (ct_up or pd_up) else 0
         downloaded_count = 1 if (ct_down or pd_down) else 0
@@ -2270,9 +2756,9 @@ def _perform_sync_blocking():
                     subdir.replace("\\", "/"))
                 if legacy.get("name") == basename and legacy.get("folder_id") == target_id:
                     continue
-                # 중첩 위치에同名 파일이 이미 있으면 (다른 PC 가 먼저 업로드/수동 복사)
+                # 중첩 위치에 같은 이름의 파일이 이미 있으면 (다른 PC 가 먼저 업로드/수동 복사)
                 # modifiedTime 으로 신규 쪽을 유지하고 낡은 쪽만 삭제.
-                # (그냥 rename 하면 같은 폴더에同名 파일 2개가 만들어진다.)
+                # (그냥 rename 하면 같은 폴더에 같은 이름의 파일 2개가 만들어진다.)
                 nested_meta = remote_files.get(legacy["key"])
                 if nested_meta and nested_meta.get("id") != legacy["id"]:
                     try:
@@ -2307,8 +2793,29 @@ def _perform_sync_blocking():
         # 원격 잔재 빈 폴더 / 삭제된 폴더 정리
         _cleanup_deleted_remote_workflow_folders(service, subfolder_ids.get(REMOTE_WORKFLOWS_FOLDER))
 
-        # 로컬 빈 커스텀 폴더 정리 (구글 드라이브에서 폴더 직접 삭제 후 남은 빈 폴더 방지)
-        _cleanup_empty_local_custom_folders()
+        # ── 커스텀 잔해 후처리 — 파일 단위 휴지통 이동을 마친 뒤 한 번에 수행 ──
+        if custom_root_id:
+            residue = _cleanup_deleted_remote_custom_folders(service, custom_root_id)
+            if residue["trashed"]:
+                logger.info(f"[GDrive] Remote empty custom folders moved to Drive trash: "
+                            f"{residue['trashed']}개 ({', '.join(residue['trashed_paths'][:6])})")
+            for o in residue["orphans"]:
+                logger.warning(f"[GDrive] 동기화에서 제외된 대상의 Drive 복사본이 남아 용량을 "
+                               f"차지합니다 — Custom/{o['name']}: 파일 {o['files']}개 "
+                               f"({round(int(o.get('bytes', 0)) / 1048576, 1)}MB)")
+        # 로컬 빈 커스텀 폴더 잔해 — 등록 루트 하위를 재귀 가지치기한다.
+        local_pruned = _cleanup_empty_local_custom_folders()
+        if local_pruned:
+            logger.info(f"[GDrive] Local empty custom subfolders pruned: {local_pruned}개")
+
+        # 커스텀 안전 보관함 자동 정리 — 보관 기간을 넘긴 항목만 삭제 (1일 1회 이하).
+        try:
+            pruned = auto_prune_custom_trash()
+            if pruned.get("removed_files"):
+                logger.info(f"[GDrive] Custom trash auto-pruned: "
+                            f"{pruned['removed_files']}개 · {pruned['freed_mb']}MB 해금")
+        except Exception as e:  # noqa: BLE001 — 정리가 실패해도 동기화 결과는 망치지 않는다.
+            logger.warning(f"[GDrive] Custom trash auto-prune failed: {e}")
 
         # 마지막 동기화 결과 영속 저장 → 설정창 status API 가 읽어 표시.
         # (취소된 경우에도 이번에 실제로 옮긴 개수는 정확하므로 그대로 기록)
@@ -2563,7 +3070,12 @@ def _is_out_of_sync_scope(rel_path):
     로컬 스캔(_iter_workflow_rel_paths)과 동일한 규칙을 쓴다. 이 경로를 Pinpoint 에
     그대로 넘기면 _ensure_workflow_folder 가 원격에 해당 폴더를 '생성'한 뒤 미발견으로
     실패하고 무의미한 전체 스캔 폴백까지 발생해 드라이브에 빈 폴더만 잔재한다.
+
+    네임스페이스와 무관하게 미완 파일('.fdmdownload') 도 제외 — 로컬 스캔이 만들지 않는
+    키라 Pinpoint 에 넘기면 원격에 없는 파일을 올려 잔해로 남는다.
     """
+    if rel_path and _is_sync_junk_name(rel_path.rsplit("/", 1)[-1]):
+        return True
     if not rel_path.startswith(WORKFLOWS_NS):
         return False
     segments = rel_path[len(WORKFLOWS_NS):].split("/")
@@ -2858,7 +3370,7 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
                 t_rel = normalize_sync_rel_path(itm.get("target") or itm.get("newPath") or "")
                 if not s_rel or not t_rel or s_rel == t_rel:
                     continue
-                # MOVE 분기와 동일 — 공용 경로 해석으로 세 네임스페이스 모두正确处理 (workflows 전용 슬라이싱 제거).
+                # MOVE 분기와 동일 — 공용 경로 해석으로 세 네임스페이스 모두 정상 처리 (workflows 전용 슬라이싱 제거).
                 old_fid = _resolve_target_folder_id(service, root_id, subfolder_ids, s_rel)
                 new_fid = _resolve_target_folder_id(service, root_id, subfolder_ids, t_rel)
                 if not old_fid or not new_fid:
@@ -3037,6 +3549,8 @@ def _custom_targets_signature():
         name, path = f["name"], f["path"]
         try:
             if f["is_file"]:
+                if _is_sync_junk_name(name):
+                    continue  # 미완 파일은 매초 size 가 변한다 — 시그니처에 넣으면 동기화 폭주
                 st = os.stat(path)
                 sig[f"{CUSTOM_NS}{name}"] = (st.st_size, int(st.st_mtime))
             else:
@@ -3045,7 +3559,7 @@ def _custom_targets_signature():
                     dirnames[:] = [d for d in dirnames
                                    if d not in WORKFLOW_EXCLUDE_DIRS and "___" not in d]
                     for fname in filenames:
-                        if "___" in fname:
+                        if "___" in fname or _is_sync_junk_name(fname):
                             continue
                         full_path = os.path.join(dirpath, fname)
                         try:
@@ -3446,7 +3960,12 @@ def get_remote_counts_snapshot(target: str = None):
                 # Workflows 폴더만 타깃 배치 조회
                 wf_folder_id = subfolder_ids.get(REMOTE_WORKFLOWS_FOLDER)
                 remote_files, _ = _list_remote_files(service, {REMOTE_WORKFLOWS_FOLDER: wf_folder_id})
-                wf_remote_count = sum(1 for rn in remote_files if rn.startswith("workflows___"))
+                # 미완 파일은 로컬 스캔이 만들지 않는 키 — 개수에서도 빼야 양쪽 숫자가 맞는다.
+                wf_remote_count = sum(
+                    1 for rn in remote_files
+                    if rn.startswith("workflows___")
+                    and not _is_sync_junk_name(rn.rsplit("___", 1)[-1])
+                )
             except Exception as e:
                 logger.warning(f"[GDrive] workflows remote count failed: {e}")
 
@@ -3561,7 +4080,7 @@ def get_remote_counts_snapshot(target: str = None):
                     t["remote_count"] = _count_remote_config_by_id(meta["id"], t["name"])
         else:
             for rn in remote_files:
-                if rn.startswith("workflows___"):
+                if rn.startswith("workflows___") and not _is_sync_junk_name(rn.rsplit("___", 1)[-1]):
                     wf_remote_count += 1
             t["remote_count"] = wf_remote_count
             t["remote_exists"] = wf_remote_count > 0
@@ -4011,11 +4530,15 @@ def add_custom_folder(local_path, drive_name=None) -> dict:
     return {"success": True, "name": name, "path": target, "rel_path": rel_path, "is_file": is_file}
 
 
-def remove_custom_folder(name) -> dict:
-    """커스텀 동기화 대상 제거 — 로컬 파일/폴더와 Drive 복사본은 삭제하지 않음.
+def remove_custom_folder(name, purge_remote=False) -> dict:
+    """커스텀 동기화 대상 제거 — 기본값은 등록 해제만 (로컬 파일·Drive 복사본 모두 보존).
 
     공유 레지스트리에서 항목만 제거한다 (Drive 동기화로 타 PC 에도 전파).
     미등록 이름의 원격 파일은 설계상 절대 자동 삭제되지 않으므로 양쪽 데이터가 보존된다.
+
+    purge_remote=True 일 때만 Drive 의 Custom/<name> 을 **휴지통**으로 보낸다
+    (영구 파기 아님 — Drive 휴지통에서 30일 복원 가능). 다른 등록 대상이 같은
+    Drive 폴더명을 쓰면 공용 폴더이므로 원격 정리를 건너뛴다.
     """
     n = str(name or "").strip()
     targets = _load_custom_targets_registry()
@@ -4031,13 +4554,43 @@ def remove_custom_folder(name) -> dict:
         _save_custom_targets_registry(kept)
     except Exception as e:  # noqa: BLE001
         return {"success": False, "error": f"레지스트리 저장 실패: {e}"}
-    logger.info(f"[GDrive] 커스텀 대상 해제: {n} (로컬·Drive 데이터 보존)")
+    logger.info(f"[GDrive] 커스텀 대상 해제: {n} (로컬 데이터 보존)")
     # 워커 시그니처는 다음 사이클에 갱신 — 제외된 대상의 로컬 변경은 더 이상 트리거하지 않는다.
     try:
         trigger_realtime_sync(None)
     except Exception as e:  # noqa: BLE001
         logger.debug(f"[GDrive] post-remove sync trigger failed: {e}")
-    return {"success": True, "name": n}
+
+    remote_purged = False
+    remote_note = ""
+    if purge_remote:
+        if any(str(t.get("name", "")).strip() == n for t in kept if isinstance(t, dict)):
+            remote_note = "같은 이름의 다른 등록 대상이 있어 Drive 정리를 건너뛰었습니다"
+        else:
+            service, msg = get_drive_service()
+            if not service:
+                remote_note = f"Drive 연결 실패로 정리를 건너뛰었습니다 ({msg})"
+            else:
+                try:
+                    custom_root_id = _custom_remote_root_id(service)
+                    fid = _find_remote_folder_by_name(
+                        service, n, parent_id=custom_root_id) if custom_root_id else None
+                    if not fid:
+                        remote_note = "Drive 에서 정리할 폴더를 찾지 못했습니다"
+                    elif not trash_remote_file(service, fid, f"Custom/{n}"):
+                        remote_note = "Drive 휴지통 이동에 실패했습니다"
+                    else:
+                        remote_purged = True
+                        _CUSTOM_RESIDUE_STATE["orphans"] = [
+                            o for o in _CUSTOM_RESIDUE_STATE.get("orphans", [])
+                            if str(o.get("name", "")) != n]
+                except Exception as e:  # noqa: BLE001
+                    logger.error(f"[GDrive] 커스텀 대상 Drive 정리 실패: {n}: {e}")
+                    remote_note = f"Drive 정리 실패: {e}"
+        logger.info(f"[GDrive] 커스텀 대상 Drive 정리: Custom/{n} → "
+                    f"{'휴지통 이동 완료' if remote_purged else remote_note}")
+    return {"success": True, "name": n, "remote_purged": remote_purged,
+            "remote_note": remote_note}
 
 
 def set_custom_sync_enabled(enabled) -> dict:
@@ -4060,11 +4613,15 @@ def set_custom_sync_enabled(enabled) -> dict:
 
 
 def _count_local_files(folder_path: str):
-    """로컬 폴더 재귀 파일 수 (동기화 상태 파일·__pycache__ 제외)."""
+    """로컬 폴더 재귀 파일 수 (동기화 상태 파일·__pycache__·미완 파일 제외).
+
+    미완 파일을 세면 Drive 개수와 맞지 않는 순간적으로 'N개 차이' 가 표시된다 — 동기화
+    대상에서 빠지는 항목은 개수에서도 빠져야 사용자가 화면 숫자를 믿을 수 있다.
+    """
     total = 0
     for dirpath, dirnames, filenames in os.walk(folder_path):
         dirnames[:] = [d for d in dirnames if d not in WORKFLOW_EXCLUDE_DIRS]
-        total += len(filenames)
+        total += sum(1 for name in filenames if not _is_sync_junk_name(name))
     return total
 
 
@@ -4094,8 +4651,8 @@ def _count_remote_folder_tree(service, folder_id: str) -> int:
                 for item in res.get("files", []):
                     if item.get("mimeType") == "application/vnd.google-apps.folder":
                         next_level.append(item["id"])
-                    else:
-                        total += 1
+                    elif not _is_sync_junk_name(item.get("name", "")):
+                        total += 1  # Drive 에 남은 미완 파일은 로컬 집계와 같은 규칙으로 제외
                 page_token = res.get("nextPageToken")
                 if not page_token:
                     break

@@ -2120,13 +2120,100 @@ def register_cloud_routes():
             return web.json_response(result)
 
         async def cloud_custom_folder_remove_handler(request):
-            """POST /api/bada/cloud/custom-folder-remove — 커스텀 폴더 제거 (JSON {name})."""
+            """POST /api/bada/cloud/custom-folder-remove — 커스텀 폴더 제거 (JSON {name, purge_remote?}).
+
+            purge_remote 가 참일 때만 Drive 복사본을 휴지통으로 보낸다 (기본: 등록 해제만).
+            """
             try:
                 data = await request.json()
             except Exception:
                 data = {}
             name = data.get("name", "") if isinstance(data, dict) else ""
-            result = await asyncio.to_thread(gdrive_sync.remove_custom_folder, name)
+            purge = bool(data.get("purge_remote", False)) if isinstance(data, dict) else False
+            result = await asyncio.to_thread(gdrive_sync.remove_custom_folder, name, purge)
+            return web.json_response(result)
+
+        async def cloud_custom_residue_handler(request):
+            """GET /api/bada/cloud/custom-residue — 제외된 대상의 Drive 잔해 (캐시 상태만 읽는 즉답)."""
+            try:
+                return web.json_response(gdrive_sync.get_custom_residue())
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud custom-residue error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def cloud_custom_residue_scan_handler(request):
+            """POST /api/bada/cloud/custom-residue-scan — Drive 를 직접 훑어 잔해 재스캔 (읽기 전용)."""
+            try:
+                result = await asyncio.to_thread(gdrive_sync.scan_custom_residue)
+                return web.json_response(result)
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud custom-residue-scan error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def cloud_custom_residue_purge_handler(request):
+            """POST /api/bada/cloud/custom-residue-purge — 잔해 폴더 1개를 Drive 휴지통으로 (JSON {name}).
+
+            동기화에서 제외된(등록 대상에 속하지 않는) Drive 폴더만 대상이며,
+            항상 휴지통 이동만 한다 — 영구 파기(delete)는 절대 하지 않는다.
+            """
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+            name = data.get("name", "") if isinstance(data, dict) else ""
+            try:
+                result = await asyncio.to_thread(gdrive_sync.purge_custom_residue, name)
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud custom-residue-purge error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+            return web.json_response(result)
+
+
+        async def cloud_custom_trash_handler(request):
+            """GET /api/bada/cloud/custom-trash — 커스텀 안전 보관함 규모 (읽기 전용)."""
+            try:
+                result = await asyncio.to_thread(gdrive_sync.scan_custom_trash)
+                return web.json_response(result)
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud custom-trash error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def cloud_custom_trash_purge_handler(request):
+            """POST /api/bada/cloud/custom-trash-purge — 보관함 정리 (JSON {mode: "older"|"all"}).
+
+            mode=older 는 보관 기간을 넘긴 항목만, mode=all 은 보관함 전체를 영구 삭제한다.
+            어느 쪽이든 구글 드라이브에는 영향이 없다 — 이 PC 의 보관함만 지운다.
+            """
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+            mode = str(data.get("mode", "older")) if isinstance(data, dict) else "older"
+            try:
+                if mode == "all":
+                    result = await asyncio.to_thread(gdrive_sync.prune_custom_trash, None, True)
+                else:
+                    result = await asyncio.to_thread(gdrive_sync.prune_custom_trash)
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud custom-trash-purge error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+            return web.json_response(result)
+
+        async def cloud_custom_trash_retention_handler(request):
+            """POST /api/bada/cloud/custom-trash-retention — 보관 기간 저장 (JSON {days}).
+
+            days 는 0(자동 정리 끔) · 7 · 30 · 90 중 하나. 보관함을 지우지는 않는다.
+            """
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+            days = data.get("days") if isinstance(data, dict) else None
+            try:
+                result = await asyncio.to_thread(gdrive_sync.set_custom_trash_retention, days)
+            except Exception as e:
+                logger.error(f"[ComfyUI-Bada-Utils] Cloud custom-trash-retention error: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
             return web.json_response(result)
 
         async def cloud_custom_sync_toggle_handler(request):
@@ -2159,6 +2246,12 @@ def register_cloud_routes():
         routes.get("/api/bada/cloud/browse-tree")(cloud_browse_tree_handler)
         routes.post("/api/bada/cloud/custom-folder-add")(cloud_custom_folder_add_handler)
         routes.post("/api/bada/cloud/custom-folder-remove")(cloud_custom_folder_remove_handler)
+        routes.get("/api/bada/cloud/custom-residue")(cloud_custom_residue_handler)
+        routes.post("/api/bada/cloud/custom-residue-scan")(cloud_custom_residue_scan_handler)
+        routes.post("/api/bada/cloud/custom-residue-purge")(cloud_custom_residue_purge_handler)
+        routes.get("/api/bada/cloud/custom-trash")(cloud_custom_trash_handler)
+        routes.post("/api/bada/cloud/custom-trash-purge")(cloud_custom_trash_purge_handler)
+        routes.post("/api/bada/cloud/custom-trash-retention")(cloud_custom_trash_retention_handler)
         routes.post("/api/bada/cloud/custom-sync-toggle")(cloud_custom_sync_toggle_handler)
 
         logger.info("[ComfyUI-Bada-Utils] Cloud Sync (Google Drive) routes registered ☁️")
