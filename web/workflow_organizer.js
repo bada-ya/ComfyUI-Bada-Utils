@@ -1572,8 +1572,8 @@ class WorkflowsPlusManager {
                 const method = (args[1]?.method || "GET").toUpperCase();
 
                 // Cloud Sync 및 Bada 자체 API(이동, 삭제, 이름변경 등)는 직접 전용 핀포인트를 호출하므로 가짜 save 트리거 방지를 위해 제외
-                if (!url.includes("/api/bada/")) {
-                    if (url.includes("userdata") || url.includes("workflow") || url.includes("graph") || url.includes("/api/qol")) {
+                if (!url.includes("/api/bada/") && !url.includes("/api/qol/")) {
+                    if (url.includes("userdata") || url.includes("workflow") || url.includes("graph")) {
                         if (method === "POST" || method === "PUT" || method === "DELETE") {
                             setTimeout(() => {
                                 self.loadTree();
@@ -1587,8 +1587,30 @@ class WorkflowsPlusManager {
                             // 파일 저장 및 변경 시 실시간 동기화 트리거
                             if (res && res.ok) {
                                 setTimeout(() => {
-                                    const active = self.activeWorkflowPath;
-                                    const details = active ? { action: "save", path: active } : null;
+                                    // 1. url 에서 실제 저장된 파일 경로 추출 시도 (예: /userdata/workflows/sub/name.json)
+                                    let savedPath = "";
+                                    try {
+                                        const decoded = decodeURIComponent(url);
+                                        const m = decoded.match(/userdata\/(?:workflows\/)?([^\?#]+)/i);
+                                        if (m && m[1]) {
+                                            savedPath = m[1].replace(/^\/+/, "");
+                                        }
+                                    } catch (_) {}
+
+                                    // 2. url 추출 실패 시 현재 활성 워크플로우 경로 사용
+                                    if (!savedPath) {
+                                        savedPath = self.activeWorkflowPath;
+                                    }
+
+                                    // 3. 만약 파일명이 .json 이 없고 clean name 만 있다면 resolve 시도
+                                    if (savedPath && !savedPath.toLowerCase().endsWith(".json")) {
+                                        const resolved = self.resolveActiveWorkflowPath(savedPath);
+                                        if (resolved && resolved.toLowerCase().endsWith(".json")) {
+                                            savedPath = resolved;
+                                        }
+                                    }
+
+                                    const details = savedPath ? { action: "save", path: savedPath } : null;
                                     self.triggerRealtimeCloudSync("fetch_" + method.toLowerCase(), details);
                                 }, 500);
                             }
@@ -1610,7 +1632,13 @@ class WorkflowsPlusManager {
                 setTimeout(() => self.loadTreeIfStale(), 1200);
                 // 실시간 동기화: 단축키 저장 시 트리거 (Pinpoint 활성화)
                 setTimeout(() => {
-                    const active = self.activeWorkflowPath;
+                    let active = self.activeWorkflowPath;
+                    if (active && !active.toLowerCase().endsWith(".json")) {
+                        const resolved = self.resolveActiveWorkflowPath(active);
+                        if (resolved && resolved.toLowerCase().endsWith(".json")) {
+                            active = resolved;
+                        }
+                    }
                     const details = active ? { action: "save", path: active } : null;
                     self.triggerRealtimeCloudSync("ctrl_s", details);
                 }, 600);
@@ -1642,13 +1670,22 @@ class WorkflowsPlusManager {
             return;
         }
 
-        // 3. 디바운스: 300ms 이내에 연달아 들어오는 트리거는 1회로 통합하며 가장 구체적인 details 보존
-        if (details) window.__BADA_LATEST_SYNC_DETAILS__ = details;
+        // 3. 디바운스: 300ms 이내에 다른 파일 경로의 저장이 연달아 들어오면 단일 핀포인트 대신 전체 스마트 동기화로 통합
+        if (details) {
+            if (window.__BADA_LATEST_SYNC_DETAILS__ &&
+                window.__BADA_LATEST_SYNC_DETAILS__.path &&
+                details.path &&
+                window.__BADA_LATEST_SYNC_DETAILS__.path !== details.path) {
+                window.__BADA_LATEST_SYNC_DETAILS__ = null; // 복수 변경 -> Full sync 전환
+            } else if (window.__BADA_LATEST_SYNC_DETAILS__ !== null) {
+                window.__BADA_LATEST_SYNC_DETAILS__ = details;
+            }
+        }
         clearTimeout(window.__BADA_DEBOUNCE_TIMER__);
         window.__BADA_DEBOUNCE_TIMER__ = setTimeout(() => {
-            const finalDetails = window.__BADA_LATEST_SYNC_DETAILS__ || details;
-            window.__BADA_LATEST_SYNC_DETAILS__ = null;
-            this._executeRealtimeCloudSync(reason, finalDetails);
+            const finalDetails = window.__BADA_LATEST_SYNC_DETAILS__;
+            window.__BADA_LATEST_SYNC_DETAILS__ = undefined;
+            this._executeRealtimeCloudSync(reason, finalDetails !== undefined ? finalDetails : details);
         }, 300);
     }
 
@@ -1685,7 +1722,14 @@ class WorkflowsPlusManager {
     async _executeRealtimeCloudSync(reason, details = null) {
         if (window.__BADA_SYNC_IN_PROGRESS__) {
             window.__BADA_SYNC_PENDING__ = true;
-            if (details) window.__BADA_PENDING_SYNC_DETAILS__ = details;
+            // 이미 다른 파일에 대한 동기화가 대기 중이거나 진행 중이면 단일 핀포인트를 덮어쓰지 않고
+            // 다음 회차는 스마트 전체 동기화(details = null)로 전환하여 모든 누적 변경을 안전하게 처리
+            if (window.__BADA_PENDING_SYNC_DETAILS__ && details &&
+                window.__BADA_PENDING_SYNC_DETAILS__.path !== details.path) {
+                window.__BADA_PENDING_SYNC_DETAILS__ = null;
+            } else if (details) {
+                window.__BADA_PENDING_SYNC_DETAILS__ = details;
+            }
             console.debug(`[Bada] Realtime sync pending (${reason}): sync already in progress`);
             return;
         }
@@ -4368,6 +4412,7 @@ class WorkflowsPlusManager {
                     close();
                     if (parent !== "/") this.expandedFolders.add(parent);
                     await this.loadTree();
+                    this.triggerRealtimeCloudSync("create_folder");
                 } else {
                     this.showToast(data.error || (BadaI18n.lang === "ko" ? "생성 실패" : "Failed to create folder"), true);
                 }
@@ -4968,7 +5013,10 @@ class WorkflowsPlusManager {
                         this.showToast(isKo ? `'${name}' 휴지통으로 이동 완료!` : `'${name}' moved to Trash!`);
                     }
                     close();
-                    if (this.activeWorkflowPath === targetPath) {
+                    const cleanTarget = (targetPath || "").split("/").pop().replace(/\.json$/i, "");
+                    const cleanActive = (this.activeWorkflowPath || "").split("/").pop().replace(/\.json$/i, "");
+                    const cleanActiveName = (this.activeWorkflowName || "").replace(/\.json$/i, "");
+                    if (cleanTarget && (cleanActive === cleanTarget || cleanActiveName === cleanTarget || this.activeWorkflowPath === targetPath)) {
                         this.activeWorkflowPath = "";
                         this.activeWorkflowName = "";
                         localStorage.removeItem("qol_active_workflow_path");
@@ -4982,7 +5030,8 @@ class WorkflowsPlusManager {
                     await this.loadTree();
                     this.triggerRealtimeCloudSync("delete", {
                         action: "delete",
-                        path: targetPath
+                        path: targetPath,
+                        is_folder: isFolder
                     });
                 } else {
                     this.showToast(data.error || (isKo ? "삭제 실패" : "Failed to delete"), true);

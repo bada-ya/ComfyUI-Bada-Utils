@@ -1789,6 +1789,92 @@ def _sync_and_merge_personal_data(service, root_id, subfolder_ids, remote_files)
     return (up, down)
 
 
+def _is_workflow_in_local_trash(rel_path: str) -> bool:
+    """
+    원격에만 존재하는 워크플로우 파일이 로컬의 _deleted_workflows 에 보관되어 있는지 확인.
+    휴지통에 존재한다면 사용자가 로컬에서 의도적으로 삭제/휴지통 이동한 것이므로,
+    원격에서 로컬로 다시 다운로드(좀비 부활)하지 않고 원격에서도 안전 휴지통 처리하도록 판정.
+    """
+    if not rel_path.startswith(WORKFLOWS_NS):
+        return False
+    sub = rel_path[len(WORKFLOWS_NS):].lstrip("/\\")
+    if not sub:
+        return False
+    try:
+        root = _resolve_workflows_root()
+        trash_root = os.path.join(root, "_deleted_workflows")
+        if not os.path.isdir(trash_root):
+            return False
+
+        # 1. 원본 동일 상대경로 확인 (_deleted_workflows/sub)
+        exact_trash_path = os.path.join(trash_root, sub)
+        if os.path.exists(exact_trash_path):
+            return True
+
+        # 2. 타임스탬프가 붙은 파일명 확인 (예: name_1793149240.json)
+        sub_dir = os.path.dirname(sub)
+        target_trash_dir = os.path.join(trash_root, sub_dir) if sub_dir else trash_root
+        if os.path.isdir(target_trash_dir):
+            base_name, ext = os.path.splitext(os.path.basename(sub))
+            for item in os.listdir(target_trash_dir):
+                if item.startswith(base_name + "_") and item.endswith(ext):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def _cleanup_deleted_remote_workflow_folders(service, wf_root_id):
+    """
+    Drive 의 Workflows/ 하위 폴더 중 로컬에서 삭제되어 _deleted_workflows 에 보관 중이거나
+    내부 파일이 모두 비어있는 폴더를 찾아 원격 휴지통으로 이동한다.
+    """
+    if not wf_root_id:
+        return
+    try:
+        root = _resolve_workflows_root()
+        trash_root = os.path.join(root, "_deleted_workflows")
+
+        # 1-level 및 중첩 폴더 검사 (BFS)
+        queue = [(wf_root_id, "")]
+        folders_to_trash = []
+
+        while queue:
+            parent_id, rel_prefix = queue.pop(0)
+            q = f"'{parent_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            res = service.files().list(q=q, fields="files(id, name)").execute()
+            for f in res.get("files", []):
+                f_name = f["name"]
+                f_id = f["id"]
+                sub_rel = f"{rel_prefix}/{f_name}".strip("/")
+                local_active = os.path.join(root, sub_rel)
+                local_trash = os.path.join(trash_root, sub_rel)
+
+                # 로컬 본 폴더에는 없고, 로컬 휴지통에 있거나
+                # 또는 원격 폴더 내부에 활성 파일/폴더가 0개인 경우
+                if not os.path.exists(local_active):
+                    if os.path.exists(local_trash):
+                        folders_to_trash.append((f_id, f_name, sub_rel))
+                        continue
+                    # 원격 폴더가 비어있는지 확인
+                    q_empty = f"'{f_id}' in parents and trashed = false"
+                    res_empty = service.files().list(q=q_empty, pageSize=1, fields="files(id)").execute()
+                    if not res_empty.get("files"):
+                        folders_to_trash.append((f_id, f_name, sub_rel))
+                        continue
+
+                queue.append((f_id, sub_rel))
+
+        for f_id, f_name, sub_rel in folders_to_trash:
+            trash_remote_file(service, f_id, f_name)
+            logger.info(f"[GDrive] Remote empty/deleted folder moved to Drive trash: workflows/{sub_rel}")
+
+        if folders_to_trash:
+            _WORKFLOW_FOLDER_CACHE.clear()
+    except Exception as e:
+        logger.debug(f"[GDrive] Remote workflow folder cleanup error (ignored): {e}")
+
+
 def _perform_sync_blocking():
     """
     실제 동기화(차단) 작업.
@@ -1902,8 +1988,9 @@ def _perform_sync_blocking():
 
             # [CASE 3: 원격에만 있음] — 커스텀 대상도 워크플로우와 동일한 삭제 전파 정책.
             elif in_remote and not in_local:
-                if (is_workflow or is_custom) and in_base:
-                    # 직전엔 있었는데 로컬에서 사라짐 -> 현재 PC에서 사용자가 삭제/이동한 것으로 판정
+                in_trash = _is_workflow_in_local_trash(rel_path) if is_workflow else False
+                if (is_workflow or is_custom) and (in_base or in_trash):
+                    # 직전엔 있었는데 로컬에서 사라짐(Base 일치) 또는 로컬 휴지통에 존재 -> 현재 PC에서 사용자가 삭제/이동한 것으로 판정
                     to_trash_remote.append((rel_path, r_meta.get("id"), r_meta.get("name", "")))
                 else:
                     # 직전에 없었거나 Base 없음 -> 원격(타 PC)에서 새로 만든 파일 -> 로컬 다운로드
@@ -2038,6 +2125,9 @@ def _perform_sync_blocking():
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.warning(f"[GDrive] workflow migration failed ({legacy['name']}): {e}")
+
+        # 원격 잔재 빈 폴더 / 삭제된 폴더 정리
+        _cleanup_deleted_remote_workflow_folders(service, subfolder_ids.get(REMOTE_WORKFLOWS_FOLDER))
 
         # 마지막 동기화 결과 영속 저장 → 설정창 status API 가 읽어 표시.
         # (취소된 경우에도 이번에 실제로 옮긴 개수는 정확하므로 그대로 기록)
@@ -2325,15 +2415,30 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
         if action == "save":
             raw_path = details.get("path")
             if not raw_path:
-                return True
+                logger.info("[GDrive Pinpoint Save] 경로 미지정 -> Full sync 폴백 위임")
+                return False
             rel_path = normalize_sync_rel_path(raw_path)
             try:
                 full_path = _resolve_local_path(rel_path)
-            except Exception:
-                return True
+            except Exception as e:
+                logger.warning(f"[GDrive Pinpoint Save] 경로 해석 실패({rel_path}) -> Full sync 폴백 위임: {e}")
+                return False
+
+            # .json 확장자 자동 보정 시도: 확장자 없이 전달되었으나 .json 파일이 로컬에 존재하는 경우
             if not os.path.exists(full_path):
-                logger.debug(f"[GDrive Pinpoint Save] Local file does not exist (skip): {full_path}")
-                return True
+                if not rel_path.endswith(".json") and not full_path.endswith(".json"):
+                    cand_full = full_path + ".json"
+                    if os.path.exists(cand_full):
+                        full_path = cand_full
+                        rel_path = rel_path + ".json"
+
+            if not os.path.exists(full_path):
+                logger.info(f"[GDrive Pinpoint Save] 로컬 파일 미존재({full_path}) -> Full sync 폴백 위임")
+                return False
+
+            if os.path.isdir(full_path):
+                logger.info(f"[GDrive Pinpoint Save] 대상이 폴더임({full_path}) -> Full sync 폴백 위임")
+                return False
 
             local_meta = {
                 "size": os.path.getsize(full_path),
@@ -2343,6 +2448,7 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
             target_folder_id = _resolve_target_folder_id(
                 service, root_id, subfolder_ids, rel_path)
             if not target_folder_id:
+                logger.warning(f"[GDrive Pinpoint Save] 대상 폴더 ID 해석 실패({rel_path}) -> Full sync 폴백 위임")
                 return False
 
             if rel_path in PERSONAL_CONFIG_RELS:
@@ -2377,7 +2483,63 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
             raw_path = details.get("path")
             if not raw_path:
                 return False
+
+            is_folder = bool(details.get("is_folder"))
+            if not is_folder and not raw_path.lower().endswith(".json"):
+                clean_p = raw_path.replace("\\", "/").strip().lstrip("/")
+                if clean_p.startswith(WORKFLOWS_NS):
+                    clean_p = clean_p[len(WORKFLOWS_NS):]
+                root = _resolve_workflows_root()
+                if (os.path.isdir(os.path.join(root, clean_p)) or
+                    os.path.isdir(os.path.join(root, "_deleted_workflows", clean_p))):
+                    is_folder = True
+
+            if is_folder:
+                # --- 폴더 삭제 (폴더 및 내부 항목 통째로 Drive 휴지통 이동) ---
+                rel_path = normalize_sync_rel_path(raw_path)
+                if rel_path.endswith(".json") and not raw_path.endswith(".json"):
+                    rel_path = rel_path[:-5]
+
+                if not rel_path.startswith(WORKFLOWS_NS):
+                    return False
+
+                folder_sub = rel_path[len(WORKFLOWS_NS):].strip("/\\")
+                if not folder_sub:
+                    return False
+
+                parent_sub = os.path.dirname(folder_sub).replace("\\", "/")
+                folder_name = os.path.basename(folder_sub)
+
+                wf_root_id = subfolder_ids.get(REMOTE_WORKFLOWS_FOLDER)
+                parent_folder_id = _ensure_workflow_folder(service, wf_root_id, parent_sub) if parent_sub else wf_root_id
+
+                remote_folder_id = _find_remote_folder_by_name(service, folder_name, parent_id=parent_folder_id)
+                if not remote_folder_id:
+                    logger.info(f"[GDrive Pinpoint Delete] 원격 폴더 미발견({folder_name}) -> Full sync 폴백 위임")
+                    return False
+
+                if not trash_remote_file(service, remote_folder_id, folder_name):
+                    logger.warning(f"[GDrive Pinpoint Delete] 원격 폴더 휴지통 이동 실패: {rel_path}")
+                    return False
+
+                logger.info(f"[GDrive Pinpoint Delete] Trashed remote folder: {rel_path} (ID: {remote_folder_id})")
+
+                _WORKFLOW_FOLDER_CACHE.clear()
+                snapshot = get_base_snapshot()
+                if snapshot:
+                    prefix = f"{rel_path}/"
+                    keys_to_del = [k for k in snapshot if k == rel_path or k.startswith(prefix)]
+                    for k in keys_to_del:
+                        del snapshot[k]
+                    save_base_snapshot(snapshot)
+
+                _save_last_sync_state(0, 0)
+                return True
+
             rel_path = normalize_sync_rel_path(raw_path)
+            # .json 확장자 자동 보정
+            if not rel_path.endswith(".json") and not rel_path.startswith(_CONFIG_NS):
+                rel_path = rel_path + ".json"
 
             # 네임스페이스별 폴더 ID — 커스텀 대상(외부 폴더/파일)도 동일 경로로 처리.
             folder_id = _resolve_target_folder_id(
@@ -2391,10 +2553,9 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
 
             remote_name = _stored_remote_name(rel_path)
             file_id = _find_remote_file_in_folder(service, folder_id, remote_name)
+            if not file_id and not remote_name.endswith(".json"):
+                file_id = _find_remote_file_in_folder(service, folder_id, remote_name + ".json")
             if not file_id:
-                # 미발견 = 폴더 경로 삭제(자식 다수) 또는 원격 조회 실패다. 여기서 True 를
-                # 반환하면 호출측의 Full sync 폴백이 영원히 돌지 않아 원격에 영구 잔재한다.
-                # 폴더 경로는 부모 폴더 + basename 조회이므로 구조적으로 항상 미발견이다.
                 logger.info(
                     f"[GDrive Pinpoint Delete] 원격 대상 미발견({remote_name}) -> Full sync 폴백 위임: {rel_path}"
                 )
@@ -2406,9 +2567,7 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
 
             logger.info(f"[GDrive Pinpoint Delete] Trashed remote file: {rel_path} (ID: {file_id})")
 
-            # 3-Way Snapshot 에서 제거 (좀비 방지) — 원격 휴지통이 실제로 성공한 뒤에만.
-            # 미발견/실패 시 키를 지우면 다음 Full sync 가 "원격에만 존재 + Base 없음"으로
-            # 판정해 재다운로드한다 (CASE 3 else -> 좀비 부활).
+            # 3-Way Snapshot 에서 제거 (좀비 방지)
             snapshot = get_base_snapshot()
             if snapshot and rel_path in snapshot:
                 del snapshot[rel_path]
