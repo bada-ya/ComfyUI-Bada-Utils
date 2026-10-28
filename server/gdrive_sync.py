@@ -218,6 +218,8 @@ LOCAL_MANIFEST_CACHE = os.path.join(PARENT_DIR, '.gdrive_manifest.json')
 # 마지막 동기화 결과(시각/업·다운로드 수) 영속 파일.
 # status API 가 매번 이걸 읽어 설정창에 "언제·무엇을" 보여준다. 새로고침 후에도 유지.
 LAST_SYNC_STATE_FILE = os.path.join(PARENT_DIR, '.gdrive_sync_state.json')
+# 대기 삭제 큐 — 탐색기 직접 삭제 등 삭제 의도를 명시적으로 기록해 좀비 부활을 원천 차단.
+DELETION_QUEUE_FILE = os.path.join(PARENT_DIR, '.gdrive_deletion_queue.json')
 
 # 3-Way Snapshot 파일 (삭제 및 이동 추적을 통한 좀비 파일 방지용).
 SNAPSHOT_STATE_FILE = os.path.join(PARENT_DIR, '.gdrive_snapshot.json')
@@ -287,6 +289,32 @@ def save_base_snapshot(snapshot_dict):
             json.dump(snapshot_dict, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.error(f"[GDrive] Failed to save base snapshot: {e}")
+
+
+def _record_deletion_intent(rel_path, is_remote=False, is_local=False):
+    """삭제 의도를 대기 삭제 큐에 기록한다.
+
+    탐색기에서 직접 삭제한 파일·폴더, Drive 휴지통 이동 실패 대상 등을
+    다음 동기화에서 삭제 의도로 재판단할 수 있도록 보존한다.
+    """
+    try:
+        queue = {}
+        if os.path.exists(DELETION_QUEUE_FILE):
+            with open(DELETION_QUEUE_FILE, 'r', encoding='utf-8') as f:
+                loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    queue = loaded
+        queue[rel_path] = {
+            "rel_path": rel_path,
+            "is_remote": bool(is_remote),
+            "is_local": bool(is_local),
+            "recorded_at": time.time(),
+        }
+        with open(DELETION_QUEUE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(queue, f, ensure_ascii=False, indent=2)
+        logger.info(f"[GDrive] Deletion intent recorded: {rel_path} (remote={is_remote}, local={is_local})")
+    except Exception as e:
+        logger.warning(f"[GDrive] Failed to record deletion intent ({rel_path}): {e}")
 
 
 def trash_local_workflow(rel_path):
@@ -1994,7 +2022,11 @@ def _perform_sync_blocking():
                     to_trash_remote.append((rel_path, r_meta.get("id"), r_meta.get("name", "")))
                 else:
                     # 직전에 없었거나 Base 없음 -> 원격(타 PC)에서 새로 만든 파일 -> 로컬 다운로드
-                    to_download.append(rel_path)
+                    # [개선 P0] 첫 동기화(스냅샷 부재) 시 삭제 전파 보류: 원격 파일을 함부로 다운로드하지 않음
+                    if base_snapshot is None:
+                        logger.info(f"[GDrive] CASE3 보류 (스냅샷 부재): {rel_path} — 다음 동기화에서 삭제 의도 재판단")
+                    else:
+                        to_download.append(rel_path)
 
             # [CASE 4: 양쪽 다 없음 (Base에만 잔재)]
             # 둘 다 이미 삭제된 상태 -> Base에서 자연 소멸 (아무 조치 불필요)
@@ -2005,6 +2037,9 @@ def _perform_sync_blocking():
         )
 
         # --- 1) 안전 휴지통 처리: 원격 및 로컬 ---
+        failed_remote_trash = []  # 휴지통 이동 실패로 재시도 대상인 원격 경로
+        failed_local_trash = []   # 휴지통 이동 실패로 재시도 대상인 로컬 경로
+
         for rel_path, f_id, f_name in to_trash_remote:
             if _CANCEL_EVENT.is_set():
                 cancelled = True
@@ -2012,6 +2047,10 @@ def _perform_sync_blocking():
             if f_id and trash_remote_file(service, f_id, f_name):
                 trashed_remote_count += 1
                 logger.info(f"[GDrive] Remote trash: {rel_path}")
+            else:
+                failed_remote_trash.append(rel_path)
+                _record_deletion_intent(rel_path, is_remote=True)
+                logger.warning(f"[GDrive] Remote trash FAILED (retry next sync): {rel_path}")
 
         for rel_path in to_trash_local:
             if _CANCEL_EVENT.is_set():
@@ -2023,6 +2062,10 @@ def _perform_sync_blocking():
             if trashed_ok:
                 trashed_local_count += 1
                 logger.info(f"[GDrive] Local trash: {rel_path}")
+            else:
+                failed_local_trash.append(rel_path)
+                _record_deletion_intent(rel_path, is_local=True)
+                logger.warning(f"[GDrive] Local trash FAILED (retry next sync): {rel_path}")
 
         # --- 2) 로컬 기준: 업로드 ---
         total_upload = len(to_upload)
@@ -2138,11 +2181,22 @@ def _perform_sync_blocking():
         # 단 취소된 동기화는 루프가 중간에 빠져나와 반영 대상이 아직 남아있으므로 캡처하지
         # 않는다. 미반영 삭제 파일의 Base 키가 먼저 사라지면 다음 동기화에서 CASE 3 else 로
         # 재다운로드되어 삭제 전파가 영구히 불가능해진다.
+        # [개선 P0] 삭제 성공 확인 전에는 스냅샷의 삭제 기록을 지우지 않음.
+        # 삭제 실패 경로의 키는 이전 스냅샷에서 보존해 다음 동기화에서 재시도 대상으로 남김.
         if cancelled:
             logger.info("[GDrive] Base snapshot left unchanged (sync cancelled) - 재시도 대기.")
         else:
             try:
                 latest_local = build_local_manifest()
+                # 삭제 실패 경로의 키를 이전 스냅샷에서 보존 (좀비 부활 방지)
+                failed_delete_keys = failed_remote_trash + failed_local_trash
+                if failed_delete_keys and base_snapshot:
+                    for rel_path in failed_delete_keys:
+                        if rel_path in base_snapshot:
+                            latest_local[rel_path] = base_snapshot[rel_path]
+                    logger.info(
+                        f"[GDrive] Snapshot preserved {len(failed_delete_keys)} failed-delete keys for retry."
+                    )
                 save_base_snapshot(latest_local)
                 logger.info(f"[GDrive] Base snapshot updated with {len(latest_local)} files.")
             except Exception as e:
@@ -2858,7 +2912,8 @@ def _custom_targets_signature():
                         full_path = os.path.join(dirpath, fname)
                         try:
                             st = os.stat(full_path)
-                        except OSError:
+                        except OSError as e:
+                            logger.debug(f"[GDrive] Custom watcher stat failed (보류): {full_path} — {e}")
                             continue
                         rel = os.path.relpath(os.path.realpath(full_path), root_real).replace("\\", "/")
                         if any("___" in part for part in rel.split("/")):
