@@ -291,6 +291,19 @@ def save_base_snapshot(snapshot_dict):
         logger.error(f"[GDrive] Failed to save base snapshot: {e}")
 
 
+def _load_deletion_queue() -> dict:
+    """대기 삭제 큐를 로드한다. 파일이 없거나 손상되면 빈 dict 반환."""
+    try:
+        if os.path.exists(DELETION_QUEUE_FILE):
+            with open(DELETION_QUEUE_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+    except Exception:
+        pass
+    return {}
+
+
 def _record_deletion_intent(rel_path, is_remote=False, is_local=False):
     """삭제 의도를 대기 삭제 큐에 기록한다.
 
@@ -1903,6 +1916,118 @@ def _cleanup_deleted_remote_workflow_folders(service, wf_root_id):
         logger.debug(f"[GDrive] Remote workflow folder cleanup error (ignored): {e}")
 
 
+def _cleanup_deleted_remote_custom_folders(service, custom_root_id):
+    """
+    Drive 의 Custom/ 하위 폴더 중 로컬에서 삭제되었거나
+    내부 파일이 모두 비어있는 폴더를 찾아 원격 휴지통으로 이동한다.
+    커스텀 동기화 대상 폴더만 처리한다.
+    """
+    if not custom_root_id:
+        return
+    try:
+        # 등록된 커스텀 폴더 대상 매핑: name -> {path, ...}
+        folder_regs = {}
+        for f in get_custom_folders():
+            if not f.get("is_file"):
+                folder_regs[f["name"]] = f
+
+        if not folder_regs:
+            return
+
+        queue = [(custom_root_id, "")]
+        folders_to_trash = []
+
+        while queue:
+            parent_id, rel_prefix = queue.pop(0)
+            q = f"'{parent_id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            res = service.files().list(q=q, fields="files(id, name)").execute()
+            for f in res.get("files", []):
+                f_name = f["name"]
+                f_id = f["id"]
+                sub_rel = f"{rel_prefix}/{f_name}".strip("/")
+
+                # 최상위 이름이 등록된 커스텀 대상 이름인지 확인
+                parts = sub_rel.split("/")
+                top_name = parts[0] if parts else ""
+
+                if top_name in folder_regs:
+                    reg = folder_regs[top_name]
+                    # 로컬 경로: reg["path"] + 하위 서브경로
+                    if len(parts) > 1:
+                        local_active = os.path.join(reg["path"], *parts[1:])
+                    else:
+                        local_active = reg["path"]
+
+                    # 로컬에 없거나 비어있으면 원격도 비워야 함 (빈 폴더 방치 방지)
+                    should_trash_remote = False
+                    if not os.path.exists(local_active):
+                        # 로컬 폴더 삭제됨 — 원격 폴더가 비어있는지 확인 후 휴지통 이동
+                        should_trash_remote = True
+                    else:
+                        # 로컬 폴더가 비어있으면 원격도 비워야 함
+                        try:
+                            local_entries = os.listdir(local_active)
+                            if not local_entries:
+                                should_trash_remote = True
+                        except OSError:
+                            pass
+
+                    if should_trash_remote:
+                        q_empty = f"'{f_id}' in parents and trashed = false"
+                        res_empty = service.files().list(q=q_empty, pageSize=1, fields="files(id)").execute()
+                        if not res_empty.get("files"):
+                            folders_to_trash.append((f_id, f_name, sub_rel))
+                            continue
+
+                    # 하위 폴더 계속 탐색
+                    queue.append((f_id, sub_rel))
+                else:
+                    # 등록된 대상이 아닌 폴더도 탐색 계속 (중첩 구조 대응)
+                    queue.append((f_id, sub_rel))
+
+        for f_id, f_name, sub_rel in folders_to_trash:
+            trash_remote_file(service, f_id, f_name)
+            logger.info(f"[GDrive] Remote empty/deleted custom folder moved to Drive trash: Custom/{sub_rel}")
+
+        if folders_to_trash:
+            _CUSTOM_FOLDER_CACHE.clear()
+    except Exception as e:
+        logger.debug(f"[GDrive] Remote custom folder cleanup error (ignored): {e}")
+
+
+def _cleanup_empty_local_custom_folders():
+    """
+    로컬에 빈 커스텀 폴더가 있으면 삭제한다.
+    구글 드라이브에서 폴더를 직접 삭제한 후 동기화 시,
+    로컬 파일은 휴지통으로 가지만 빈 폴더가 남는 문제를 방지한다.
+    """
+    try:
+        folder_regs = {}
+        for f in get_custom_folders():
+            if not f.get("is_file"):
+                folder_regs[f["name"]] = f
+
+        if not folder_regs:
+            return
+
+        removed_count = 0
+        for name, reg in folder_regs.items():
+            if os.path.isdir(reg["path"]):
+                try:
+                    entries = os.listdir(reg["path"])
+                    if not entries:
+                        os.rmdir(reg["path"])
+                        removed_count += 1
+                        logger.info(f"[GDrive] Local empty custom folder removed: {reg['path']}")
+                except OSError:
+                    pass
+
+        if removed_count > 0:
+            _CUSTOM_FOLDER_CACHE.clear()
+    except Exception as e:
+        logger.debug(f"[GDrive] Local custom folder cleanup error (ignored): {e}")
+
+
 def _perform_sync_blocking():
     """
     실제 동기화(차단) 작업.
@@ -1951,6 +2076,8 @@ def _perform_sync_blocking():
         if custom_enabled and custom_targets:
             custom_root_id = _get_or_create_custom_root(service, root_id)
             remote_files.update(_list_custom_remote_files(service, custom_root_id))
+            # 커스텀 대상 폴더 중 로컬 삭제·빈 폴더를 Drive 휴지통으로 전파
+            _cleanup_deleted_remote_custom_folders(service, custom_root_id)
 
         uploaded_count = 1 if (ct_up or pd_up) else 0
         downloaded_count = 1 if (ct_down or pd_down) else 0
@@ -2010,9 +2137,17 @@ def _perform_sync_blocking():
                 if (is_workflow or is_custom) and in_base:
                     # 직전엔 있었는데 원격에서 사라짐 -> 원격(타 PC)에서 삭제된 것으로 판정
                     to_trash_local.append(rel_path)
+                    _record_deletion_intent(rel_path, is_local=True)
                 else:
-                    # 직전에 없었거나 Base 없음 -> 로컬에서 새로 만든 파일 -> 원격 업로드
-                    to_upload.append(rel_path)
+                    # 직전에 없었거나 Base 없음
+                    # [개선] 삭제 대기 큐에 있으면 구글 드라이브에서 삭제된 것으로 간주해 로컬 휴지통 이동
+                    deletion_queue = _load_deletion_queue()
+                    if rel_path in deletion_queue:
+                        to_trash_local.append(rel_path)
+                        _record_deletion_intent(rel_path, is_local=True)
+                    else:
+                        # 직전에 없었던 파일 -> 로컬에서 새로 만든 파일 -> 원격 업로드
+                        to_upload.append(rel_path)
 
             # [CASE 3: 원격에만 있음] — 커스텀 대상도 워크플로우와 동일한 삭제 전파 정책.
             elif in_remote and not in_local:
@@ -2171,6 +2306,9 @@ def _perform_sync_blocking():
 
         # 원격 잔재 빈 폴더 / 삭제된 폴더 정리
         _cleanup_deleted_remote_workflow_folders(service, subfolder_ids.get(REMOTE_WORKFLOWS_FOLDER))
+
+        # 로컬 빈 커스텀 폴더 정리 (구글 드라이브에서 폴더 직접 삭제 후 남은 빈 폴더 방지)
+        _cleanup_empty_local_custom_folders()
 
         # 마지막 동기화 결과 영속 저장 → 설정창 status API 가 읽어 표시.
         # (취소된 경우에도 이번에 실제로 옮긴 개수는 정확하므로 그대로 기록)
