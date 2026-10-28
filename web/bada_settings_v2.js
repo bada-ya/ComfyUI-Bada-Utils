@@ -179,7 +179,7 @@ const SAVE_BTN_CSS = [
 const SAVE_BTN_OK_EXTRA = "background: rgba(16, 185, 129, 0.18); border-color: #10b981; color: #34d399;";
 
 /** Reusable row decorator: Save button + a hint line, both idempotent. */
-function decorateTranslatorRow(rowId, isKo, onChange) {
+function decorateTranslatorRow(rowId, onChange) {
     const row = document.querySelector(`[data-setting-id="${rowId}"]`);
     if (!row) return null;
     // 2026-10-27: frontend 1.57.4 removed .form-input. Legacy stays first because it
@@ -198,7 +198,7 @@ function decorateTranslatorRow(rowId, isKo, onChange) {
         btn.type = "button";
         btn.className = "bada-v2-save-btn";
         btn.textContent = "💾";
-        const label = isKo ? "저장 및 노드에 반영" : "Save and apply to nodes";
+        const label = BadaI18n.t("settings_v2_save_apply");
         btn.setAttribute("aria-label", label);
         btn.title = label;
         btn.addEventListener("click", (e) => {
@@ -236,7 +236,7 @@ function decorateTranslatorRow(rowId, isKo, onChange) {
 }
 
 /** Repaint both hint lines from the current input values. Cheap: string work only. */
-function refreshTranslatorHints(isKo) {
+function refreshTranslatorHints() {
     const bl = document.querySelector('[data-setting-id="BadaUtils.TranslationBlacklist"] input');
     const wl = document.querySelector('[data-setting-id="BadaUtils.TranslationWhitelist"] input');
     if (!bl || !wl) return;
@@ -263,18 +263,18 @@ function refreshTranslatorHints(isKo) {
         input.style.boxShadow = "";
     };
 
-    const dup = (names) => (isKo ? `중복: ${names.join(", ")}` : `Duplicate: ${names.join(", ")}`);
+    const dup = (names) => BadaI18n.t("settings_v2_dup", { names: names.join(", ") });
     const blParts = [];
     if (dupBlacklist.length) blParts.push(dup(dupBlacklist));
     for (const c of conflicts) {
-        blParts.push(isKo ? `"${c}"는 추가에도 있음 — 제외 우선` : `"${c}" is also in Add — Exclude wins`);
+        blParts.push(BadaI18n.t("settings_v2_conflict_blacklist", { name: c }));
     }
     paint("BadaUtils.TranslationBlacklist", blParts.map((p) => `⛔ ${p}`), conflicts.length > 0);
 
     const wlParts = [];
     if (dupWhitelist.length) wlParts.push(dup(dupWhitelist));
     for (const c of conflicts) {
-        wlParts.push(isKo ? `"${c}"는 제외에도 있음 — 제외 우선` : `"${c}" is also in Exclude — Exclude wins`);
+        wlParts.push(BadaI18n.t("settings_v2_conflict_whitelist", { name: c }));
     }
     paint("BadaUtils.TranslationWhitelist", wlParts.map((p) => `⛔ ${p}`), conflicts.length > 0);
 }
@@ -288,9 +288,8 @@ function refreshTranslatorHints(isKo) {
  * Both are no-ops when their target is not on screen.
  */
 export function mountLocalizedRows() {
-    const isKo = BadaI18n.lang === "ko";
-    const refresh = () => refreshTranslatorHints(isKo);
-    for (const id of TRANSLATOR_ROW_IDS) decorateTranslatorRow(id, isKo, refresh);
+    const refresh = () => refreshTranslatorHints();
+    for (const id of TRANSLATOR_ROW_IDS) decorateTranslatorRow(id, refresh);
     refresh();
     refreshPresetsRowLanguage();
     refreshCloudSyncRowLanguage();
@@ -312,7 +311,6 @@ window.__BADA_MOUNT_LOCALIZED_ROWS__ = mountLocalizedRows;
  * imported JSON backup — so every interpolated name goes through escapeHtml().
  */
 function buildPresetsRow() {
-    const isKo = BadaI18n.lang === "ko";
     const summary = getGlobalPresetsSummary();
 
     const row = document.createElement("div");
@@ -326,10 +324,10 @@ function buildPresetsRow() {
     // Localized strings, kept in one place so the in-place language refresh below can reuse
     // exactly the same wording.
     const texts = {
-        empty: isKo ? "저장된 글로벌 프리셋이 없습니다" : "No global presets saved yet",
-        export: isKo ? "📤 전체 백업 (JSON)" : "📤 Backup All (JSON)",
-        import: isKo ? "📥 불러오기" : "📥 Import",
-        open: isKo ? "🌐 프리셋 관리자 열기" : "🌐 Open Presets Manager",
+        empty: BadaI18n.t("settings_v2_presets_empty"),
+        export: BadaI18n.t("settings_v2_presets_export"),
+        import: BadaI18n.t("settings_v2_presets_import"),
+        open: BadaI18n.t("settings_v2_presets_open"),
     };
 
     const renderList = () => {
@@ -386,15 +384,14 @@ function buildPresetsRow() {
     // In place rather than replaceWith(), because ComfyUI still holds a reference to this
     // element as the row's rendered content.
     row._badaRefreshLanguage = () => {
-        const ko = BadaI18n.lang === "ko";
-        texts.empty = ko ? "저장된 글로벌 프리셋이 없습니다" : "No global presets saved yet";
+        texts.empty = BadaI18n.t("settings_v2_presets_empty");
         const set = (id, label) => {
             const el = row.querySelector("#" + id);
             if (el) el.textContent = label;
         };
-        set("bada-v2-presets-export-btn", ko ? "📤 전체 백업 (JSON)" : "📤 Backup All (JSON)");
-        set("bada-v2-presets-import-btn", ko ? "📥 불러오기" : "📥 Import");
-        set("bada-v2-presets-open-btn", ko ? "🌐 프리셋 관리자 열기" : "🌐 Open Presets Manager");
+        set("bada-v2-presets-export-btn", BadaI18n.t("settings_v2_presets_export"));
+        set("bada-v2-presets-import-btn", BadaI18n.t("settings_v2_presets_import"));
+        set("bada-v2-presets-open-btn", BadaI18n.t("settings_v2_presets_open"));
         renderList();
     };
 
@@ -414,58 +411,33 @@ function buildCloudSyncRow() {
     row.id = "bada-v2-cloudsync-row";
     row.style.cssText = "width:100%; display:flex; flex-direction:column; align-items:stretch; gap:10px; box-sizing:border-box; padding:4px 0;";
 
-    const texts = {
-        title: "☁️ 클라우드 동기화 (Google Drive)",
-        desc: "컴피유아이 워크플로우와 설정을 구글 드라이브와 자동으로 동기화합니다.",
-        masterTitle: "마스터 동기화 ON/OFF",
-        optStartup: "시작 시 자동 동기화",
-        optRealtime: "실시간 변경 시 자동 동기화",
-        statusIdle: "⏸️ Google Drive 연동 대기",
-        statusOk: "✅ Google Drive 연동됨",
-        statusNoLibs: "⚠️ google-api-python-client 설치 필요",
-        statusNoCreds: "⚠️ credentials.json 없음",
-        statusAuth: "🔑 인증 필요",
-        syncNow: "☁️ 지금 동기화",
-        syncing: "⏳ 동기화 중… (누르면 중단)",
-        cancelling: "⏳ 중단 중…",
-        detailBtn: "🔍 동기화 상세 보기",
-        proTitle: "👑 Bada PRO",
-        proGuideBtn: "📄 발급",
-        proGuideTip: "발급 방법 안내 열기 (새 탭)",
-        proHint: '원하는 파일·폴더와 제미나이 채팅 기록을 <b style="color:#fbbf24">무료로</b>, 용량에 상관없이 동기화하세요<br>발급받은 JSON 파일을 드래그&드롭하면 PRO가 활성화됩니다',
-        proPickFile: "📎 파일 선택",
-        proActive: "👑 Bada PRO 활성화됨 ✓ · 무제한 용량",
-        proErrNotCred: "⚠️ PRO 자격증명이 아닙니다 (client_id 없음)",
-        proErrInvalid: "⚠️ 올바른 JSON 자격증명 파일이 아닙니다",
-        proErrSameAsBasic: "⚠️ 기본(BASIC) 자격증명과 동일합니다 — PRO 전용 파일을 올려주세요",
-    };
-    const textsEn = {
-        title: "☁️ Cloud Sync (Google Drive)",
-        desc: "Automatically synchronizes ComfyUI workflows and settings with Google Drive.",
-        masterTitle: "Master Cloud Sync ON/OFF",
-        optStartup: "Auto-sync on Startup",
-        optRealtime: "Auto-sync on Realtime Changes",
-        statusIdle: "⏸️ Google Drive not linked",
-        statusOk: "✅ Google Drive linked",
-        statusNoLibs: "⚠️ Install google-api-python-client",
-        statusNoCreds: "⚠️ credentials.json not found",
-        statusAuth: "🔑 Authentication required",
-        syncNow: "☁️ Sync Now",
-        syncing: "⏳ Syncing… (click to cancel)",
-        cancelling: "⏳ Cancelling…",
-        detailBtn: "🔍 View sync details",
-        proTitle: "👑 Bada PRO",
-        proGuideBtn: "📄 Get",
-        proGuideTip: "Open activation guide (new tab)",
-        proHint: 'Sync any files, folders, or your Gemini chat history — <b style="color:#fbbf24">free</b>, no capacity limits.<br>Drag &amp; drop your issued JSON file here to activate PRO.',
-        proPickFile: "📎 Choose file",
-        proActive: "👑 Bada PRO Active ✓ · Unlimited capacity",
-        proErrNotCred: "⚠️ Not a valid PRO credential (no client_id)",
-        proErrInvalid: "⚠️ Not a valid JSON credentials file",
-        proErrSameAsBasic: "⚠️ Same as the bundled BASIC credential — upload your own PRO file",
-    };
-
-    const t = () => (BadaI18n.lang === "ko" ? texts : textsEn);
+    // Cloud Sync row strings live in the shared BadaI18n dictionary (P4-2).
+    // This shim keeps the existing t().xxx / T.xxx call sites untouched.
+    const t = () => ({
+        title: BadaI18n.t("cloud_title"),
+        desc: BadaI18n.t("cloud_desc"),
+        masterTitle: BadaI18n.t("cloud_master_title"),
+        optStartup: BadaI18n.t("cloud_opt_startup"),
+        optRealtime: BadaI18n.t("cloud_opt_realtime"),
+        statusIdle: BadaI18n.t("cloud_status_idle"),
+        statusOk: BadaI18n.t("cloud_status_ok"),
+        statusNoLibs: BadaI18n.t("cloud_status_no_libs"),
+        statusNoCreds: BadaI18n.t("cloud_status_no_creds"),
+        statusAuth: BadaI18n.t("cloud_status_auth"),
+        syncNow: BadaI18n.t("cloud_sync_now"),
+        syncing: BadaI18n.t("cloud_syncing"),
+        cancelling: BadaI18n.t("cloud_cancelling"),
+        detailBtn: BadaI18n.t("cloud_detail_btn"),
+        proTitle: BadaI18n.t("cloud_pro_title"),
+        proGuideBtn: BadaI18n.t("cloud_pro_guide_btn"),
+        proGuideTip: BadaI18n.t("cloud_pro_guide_tip"),
+        proHint: BadaI18n.t("cloud_pro_hint"),
+        proPickFile: BadaI18n.t("cloud_pro_pick_file"),
+        proActive: BadaI18n.t("cloud_pro_active"),
+        proErrNotCred: BadaI18n.t("cloud_pro_err_not_cred"),
+        proErrInvalid: BadaI18n.t("cloud_pro_err_invalid"),
+        proErrSameAsBasic: BadaI18n.t("cloud_pro_err_same_basic"),
+    });
 
     // [시간 포맷] epoch(초) → 로컬 "YYYY-MM-DD HH:MM"
     const fmtTime = (ts) => {
@@ -536,8 +508,8 @@ function buildCloudSyncRow() {
         return { wrap, cb, span };
     };
 
-    const startupOpt = createCheckbox("bada-cloud-opt-startup", texts.optStartup);
-    const realtimeOpt = createCheckbox("bada-cloud-opt-realtime", texts.optRealtime);
+    const startupOpt = createCheckbox("bada-cloud-opt-startup", t().optStartup);
+    const realtimeOpt = createCheckbox("bada-cloud-opt-realtime", t().optRealtime);
 
     subOptionsRow.appendChild(startupOpt.wrap);
     subOptionsRow.appendChild(realtimeOpt.wrap);
@@ -694,8 +666,7 @@ function buildCloudSyncRow() {
                 showProError(proActivateErrorMessage(data.error));
             }
         } catch (err) {
-            const isKo = (BadaI18n.lang === "ko");
-            showProError(isKo ? `⚠️ 요청 실패: ${err}` : `⚠️ Request failed: ${err}`);
+            showProError(BadaI18n.t("settings_v2_request_failed", { err }));
         }
     };
 
@@ -854,16 +825,13 @@ function buildCloudSyncRow() {
     // 분모/분자 한 줄 그리기 (좌측 넓은 영역이므로 긴 파일명도 시원하게 표시)
     const paintProgress = (prog) => {
         if (!prog) return;
-        const isKo = (BadaI18n.lang === "ko");
         if (prog.total === undefined) return;
         let cur = "";
         if (prog.current) {
             cur = ` · ${prog.current}`;
         }
         const frac = `${prog.done ?? 0}/${prog.total}`;
-        status.textContent = isKo
-            ? `⏳ 동기화 중 ${frac}${cur}`
-            : `⏳ Syncing ${frac}${cur}`;
+        status.textContent = BadaI18n.t("settings_v2_syncing", { frac, cur });
         status.title = prog.current || "";
     };
 
@@ -942,9 +910,7 @@ function buildCloudSyncRow() {
                 if (data.progress && data.progress.total !== undefined) {
                     paintProgress(data.progress);
                 } else {
-                    status.textContent = (BadaI18n.lang === "ko")
-                        ? "⏳ 동기화 준비 중…"
-                        : "⏳ Preparing sync…";
+                    status.textContent = BadaI18n.t("cloud_status_preparing");
                 }
             } else if (data.status === "missing_credentials") {
                 status.textContent = T.statusNoCreds;
@@ -962,9 +928,7 @@ function buildCloudSyncRow() {
                 const up = lastSyncSnapshot.uploaded ?? 0;
                 const down = lastSyncSnapshot.downloaded ?? 0;
                 if (when) {
-                    status.textContent = (BadaI18n.lang === "ko")
-                        ? `☁️ 마지막 동기화 ${when} (↑${up} ↓${down})`
-                        : `☁️ Last sync ${when} (↑${up} ↓${down})`;
+                    status.textContent = BadaI18n.t("cloud_last_sync", { when, up, down });
                 }
             }
         } catch (_) {
@@ -979,18 +943,15 @@ function buildCloudSyncRow() {
             try {
                 const res = await fetch("/api/bada/cloud/cancel", { method: "POST" });
                 const data = await res.json();
-                const isKo = (BadaI18n.lang === "ko");
                 status.textContent = (data.status === "cancelling")
-                    ? (isKo ? "⏳ 중단 요청… 진행 중인 파일까지만 마무리하고 멈춥니다." : "⏳ Cancelling… it stops after the current file.")
-                    : (isKo ? "ℹ️ 진행 중인 동기화가 없습니다." : "ℹ️ No sync is currently running.");
+                    ? BadaI18n.t("cloud_cancel_requested")
+                    : BadaI18n.t("cloud_no_sync_running");
                 if (data.status !== "cancelling") {
                     setSyncUI(false);
                     renderStatus();
                 }
             } catch (err) {
-                status.textContent = (BadaI18n.lang === "ko")
-                    ? `❌ 중단 요청 실패: ${err}`
-                    : `❌ Cancel request failed: ${err}`;
+                status.textContent = BadaI18n.t("cloud_cancel_failed", { err });
             }
             return;
         }
@@ -999,33 +960,22 @@ function buildCloudSyncRow() {
             const res = await fetch("/api/bada/cloud/sync", { method: "POST" });
             const data = await res.json();
             if (data.status === "cancelled") {
-                status.textContent = (BadaI18n.lang === "ko")
-                    ? `⏹️ ${data.message || "동기화가 중단되었습니다."}`
-                    : `⏹️ ${data.message || "Sync cancelled."}`;
+                status.textContent = "⏹️ " + (data.message || BadaI18n.t("cloud_cancelled"));
             } else if (data.success) {
                 const up = data.uploaded ?? 0;
                 const down = data.downloaded ?? 0;
                 const tLocal = data.trashed_local ?? 0;
                 const tRemote = data.trashed_remote ?? 0;
-                const isKo = (BadaI18n.lang === "ko");
                 let extra = "";
                 if (tLocal > 0 || tRemote > 0) {
-                    extra = isKo
-                        ? ` · 정리(휴지통): 로컬 ${tLocal}, 드라이브 ${tRemote}`
-                        : ` · Cleaned(trash): local ${tLocal}, drive ${tRemote}`;
+                    extra = BadaI18n.t("cloud_trash_cleaned", { local: tLocal, remote: tRemote });
                 }
-                status.textContent = isKo
-                    ? `✅ 동기화 완료 (업로드 ${up} · 다운로드 ${down}${extra})`
-                    : `✅ Sync done (upload ${up} · download ${down}${extra})`;
+                status.textContent = BadaI18n.t("cloud_sync_done", { up, down, extra });
             } else {
-                status.textContent = (BadaI18n.lang === "ko")
-                    ? `❌ ${data.error || data.message || "실패"}`
-                    : `❌ ${data.error || data.message || "Failed"}`;
+                status.textContent = "❌ " + (data.error || data.message || BadaI18n.t("cloud_failed"));
             }
         } catch (err) {
-            status.textContent = (BadaI18n.lang === "ko")
-                ? `❌ 요청 실패: ${err}`
-                : `❌ Request failed: ${err}`;
+            status.textContent = BadaI18n.t("cloud_request_failed", { err });
         } finally {
             setSyncUI(false);
             renderStatus();
