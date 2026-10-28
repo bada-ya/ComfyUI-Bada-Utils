@@ -254,7 +254,26 @@ export const BadaI18n = {
             "trans_label_from": "from_lang",
             "trans_label_to": "to_lang",
             "trans_label_quotes": "preserve_quotes",
-            "trans_tip_quotes": "When true, text inside double quotes (\" \") is preserved without translation."
+            "trans_tip_quotes": "When true, text inside double quotes (\" \") is preserved without translation.",
+
+            // --- Global Presets Overview Modal ---
+            "presets_overview_title": "Global Presets Overview & Manager",
+            "presets_overview_subtitle": "Review and manage all global presets stored in ComfyUI",
+            "presets_overview_total_label": "🎯 Total Presets:",
+            "presets_overview_node_types_label": "🧩 Node Types:",
+            "presets_overview_shared_note": "※ Stored globally across all workflows",
+            "presets_overview_empty_title": "No Global Presets Saved Yet",
+            "presets_overview_empty_hint": "💡 Right-click any node on canvas and select <b>[Save Current Settings as Global Preset...]</b> to save your first global preset!",
+            "presets_overview_count_one": "{n} Preset",
+            "presets_overview_count_many": "{n} Presets",
+            "presets_overview_backup_all": "📤 Backup All Presets (JSON)",
+            "presets_overview_import": "📥 Import Presets",
+            "presets_overview_close": "✕ Close",
+            "presets_overview_export_done": "📤 Global presets backup JSON downloaded",
+            "presets_overview_backup_all_done": "📤 Global presets backup JSON downloaded",
+            "presets_overview_import_done": "📥 Global presets imported successfully",
+            "presets_overview_import_merged_done": "📥 Global presets successfully imported & merged",
+            "presets_overview_json_error": "⚠️ Failed to parse JSON file: "
         },
 
         ko: {
@@ -482,7 +501,26 @@ export const BadaI18n = {
             "trans_label_from": "출발 언어 (from_lang)",
             "trans_label_to": "도착 언어 (to_lang)",
             "trans_label_quotes": "따옴표 원문 보존 (preserve_quotes)",
-            "trans_tip_quotes": "True 시 큰따옴표(\" \") 안의 내용은 번역하지 않고 원문 그대로 유지합니다."
+            "trans_tip_quotes": "True 시 큰따옴표(\" \") 안의 내용은 번역하지 않고 원문 그대로 유지합니다.",
+
+            // --- Global Presets Overview Modal ---
+            "presets_overview_title": "글로벌 프리셋 전체 현황 및 관리자",
+            "presets_overview_subtitle": "ComfyUI 전역에 저장된 모든 노드별 프리셋을 한눈에 확인하고 관리합니다",
+            "presets_overview_total_label": "🎯 총 등록된 프리셋:",
+            "presets_overview_node_types_label": "🧩 등록된 노드 종류:",
+            "presets_overview_shared_note": "※ 모든 워크플로우에서 공유됨",
+            "presets_overview_empty_title": "저장된 글로벌 프리셋이 없습니다",
+            "presets_overview_empty_hint": "💡 캔버스에서 원하는 노드를 우클릭 후 <b>[현재 세팅 글로벌 프리셋으로 저장...]</b>을 누르면 이곳에 등록됩니다.",
+            "presets_overview_count_one": "{n}개 프리셋",
+            "presets_overview_count_many": "{n}개 프리셋",
+            "presets_overview_backup_all": "📤 전체 프리셋 백업 (JSON)",
+            "presets_overview_import": "📥 프리셋 불러오기",
+            "presets_overview_close": "✕ 닫기",
+            "presets_overview_export_done": "📤 백업 파일 다운로드 완료",
+            "presets_overview_backup_all_done": "📤 전체 백업 파일 다운로드 완료",
+            "presets_overview_import_done": "📥 글로벌 프리셋 불러오기 완료",
+            "presets_overview_import_merged_done": "📥 글로벌 프리셋 불러오기 완료",
+            "presets_overview_json_error": "⚠️ JSON 파일 형식 오류: "
         }
     },
 
