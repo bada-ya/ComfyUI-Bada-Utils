@@ -1482,14 +1482,36 @@ def register_bada_api_routes():
                         return web.json_response({"success": False, "error": "File or folder not found"}, status=404)
 
                 trash_dest = os.path.join(trash_root, clean_rel)
-                os.makedirs(os.path.dirname(trash_dest), exist_ok=True)
 
-                if os.path.exists(trash_dest):
-                    base_n, ext = os.path.splitext(os.path.basename(clean_rel))
-                    stamped = f"{base_n}_{int(time.time())}{ext}"
-                    trash_dest = os.path.join(os.path.dirname(trash_dest), stamped)
+                if os.path.isdir(target_full):
+                    # --- 폴더 삭제 시 ---
+                    # 휴지통에 이미 동명 폴더가 존재한다면 (예: 이전에 내부 파일이 개별 삭제되어 폴더가 생긴 경우)
+                    # 폴더명을 타임스탬프로 바꾸지 않고, 같은 폴더 안으로 내용물을 병합(Merge) 이동한다.
+                    if os.path.exists(trash_dest) and os.path.isdir(trash_dest):
+                        for item_name in os.listdir(target_full):
+                            src_item = os.path.join(target_full, item_name)
+                            dst_item = os.path.join(trash_dest, item_name)
+                            if os.path.exists(dst_item):
+                                b_n, b_ext = os.path.splitext(item_name)
+                                dst_item = os.path.join(trash_dest, f"{b_n}_{int(time.time())}{b_ext}")
+                            try:
+                                shutil.move(src_item, dst_item)
+                            except Exception as me:
+                                logger.warning(f"[Bada-Utils] Error merging item to trash folder: {me}")
+                        shutil.rmtree(target_full, ignore_errors=True)
+                    else:
+                        os.makedirs(os.path.dirname(trash_dest), exist_ok=True)
+                        shutil.move(target_full, trash_dest)
+                else:
+                    # --- 개별 파일 삭제 시 ---
+                    os.makedirs(os.path.dirname(trash_dest), exist_ok=True)
+                    # 동일한 파일명이 이미 휴지통 해당 폴더에 있을 때만 파일명에 타임스탬프 부여
+                    if os.path.exists(trash_dest):
+                        base_n, ext = os.path.splitext(os.path.basename(clean_rel))
+                        stamped = f"{base_n}_{int(time.time())}{ext}"
+                        trash_dest = os.path.join(os.path.dirname(trash_dest), stamped)
 
-                if os.path.isfile(target_full):
+                    # 동반 썸네일 이동
                     base_orig = os.path.splitext(target_full)[0]
                     base_dest = os.path.splitext(trash_dest)[0]
                     for thumb_ext in [".thumb.png", ".thumb.webp", ".thumb.jpg"]:
@@ -1500,14 +1522,14 @@ def register_bada_api_routes():
                             except Exception as te:
                                 logger.warning(f"[Bada-Utils] Failed moving thumbnail to trash: {te}")
 
+                    shutil.move(target_full, trash_dest)
+
                 meta = load_workflow_metadata(root_dir)
                 keys_to_pop = [k for k in meta if k == clean_rel or k.startswith(clean_rel + '/')]
                 if keys_to_pop:
                     for k in keys_to_pop:
                         meta.pop(k, None)
                     save_workflow_metadata(root_dir, meta)
-
-                shutil.move(target_full, trash_dest)
                 logger.info(f"[Bada-Utils] Local workflow safely moved to trash: {clean_rel} -> {trash_dest}")
                 return web.json_response({
                     "success": True,
