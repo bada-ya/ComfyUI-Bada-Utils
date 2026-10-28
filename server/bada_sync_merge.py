@@ -110,7 +110,7 @@ def _iter_keyed(kind, data):
         for k, item in _engines_items(data):
             yield k, item
     else:
-        raise ValueError("지원하지 않는 kind: " + repr(kind))
+        raise ValueError("Unsupported kind: " + repr(kind))
 
 
 def extract_live_keys(kind, data):
@@ -237,7 +237,7 @@ def rebuild_merged(kind, local_data, remote_data, merged_keys, winner="local"):
         return _rebuild_presets(local_data, remote_data, merged_keys, winner)
     if kind == "engines":
         return _rebuild_engines(local_data, remote_data, merged_keys, winner)
-    raise ValueError("지원하지 않는 kind: " + repr(kind))
+    raise ValueError("Unsupported kind: " + repr(kind))
 
 
 def merge_personal_data(kind, local_data, remote_data, base_keys,

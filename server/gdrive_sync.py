@@ -441,8 +441,8 @@ def set_custom_trash_retention(days) -> dict:
     cs = _custom_sync_settings(settings)
     cs["trash_retention_days"] = want
     set_gdrive_settings({"custom_sync": cs})
-    logger.info(f"[GDrive] 커스텀 보관함 보관 기간을 {want}일 로 설정"
-                if want else "[GDrive] 커스텀 보관함 자동 정리를 껐습니다")
+    logger.info(f"[GDrive] Custom trash retention set to {want} day(s)"
+                if want else "[GDrive] Custom trash auto-prune disabled")
     return {"success": True, "days": want}
 
 
@@ -467,7 +467,7 @@ def _custom_trash_baseline() -> float:
         try:
             set_gdrive_settings({"custom_sync": cs})
         except Exception as e:  # noqa: BLE001 — 기준선 저장이 실패해도 이번 판은 계속 유효하다.
-            logger.warning(f"[GDrive] 보관함 기준선 저장 실패: {e}")
+            logger.warning(f"[GDrive] Failed to save trash baseline: {e}")
     _TRASH_BASELINE_MEMO = baseline
     return baseline
 
@@ -609,9 +609,9 @@ def prune_custom_trash(days=None, purge_all=False) -> dict:
     # 보관함은 이 노드만 쓰므로 유예 없이 즉시 빈 폴더까지 정리한다.
     removed_dirs = len(_prune_empty_local_dirs(root, grace_sec=0))
     if removed_files or removed_dirs:
-        logger.warning(f"[GDrive] 커스텀 안전 보관함 정리: 파일 {removed_files}개 "
-                       f"({round(removed_bytes / 1048576, 1)}MB) 영구 삭제, "
-                       f"빈 폴더 {removed_dirs}개 제거")
+        logger.warning(f"[GDrive] Custom trash pruned: {removed_files} file(s) "
+                       f"({round(removed_bytes / 1048576, 1)}MB) permanently deleted, "
+                       f"{removed_dirs} empty folder(s) removed")
     return {"success": not errors, "removed_files": removed_files,
             "removed_bytes": removed_bytes, "removed_dirs": removed_dirs,
             "freed_mb": round(removed_bytes / 1048576, 1), "days": days,
@@ -636,7 +636,7 @@ def auto_prune_custom_trash(force=False) -> dict:
     try:
         set_gdrive_settings({"custom_sync": cs})
     except Exception as e:  # noqa: BLE001 — 정리는 끝났다, 기록 실패로 되돌릴 수는 없다.
-        logger.warning(f"[GDrive] 보관함 정리 시각 저장 실패: {e}")
+        logger.warning(f"[GDrive] Failed to save trash prune timestamp: {e}")
     return result
 
 
@@ -758,7 +758,7 @@ def get_drive_service():
                         creds = flow.run_local_server(port=0)
                     with open(TOKEN_PATH, 'w', encoding='utf-8') as token_file:
                         token_file.write(creds.to_json())
-                    logger.info("[GDrive] OAuth 인증 완료 — 토큰이 저장되었습니다.")
+                    logger.info("[GDrive] OAuth authorization complete - token saved.")
                     _OAUTH_AUTHORIZED = True
                 except Exception as e:
                     logger.error(f"[GDrive] OAuth flow failed: {e}")
@@ -852,7 +852,7 @@ def _resolve_local_path(rel_path):
         cfg_name = clean_rel[len(_CONFIG_NS):]
         # 경로 탈출(../) 방지 — 화이트리스트에 있는 파일명만 허용.
         if cfg_name not in SYNC_TARGET_FILES:
-            raise ValueError(f"동기화 대상이 아닌 파일: {cfg_name}")
+            raise ValueError(f"Not a sync target file: {cfg_name}")
         return os.path.join(PARENT_DIR, cfg_name)
 
     if clean_rel.startswith(WORKFLOWS_NS):
@@ -860,14 +860,14 @@ def _resolve_local_path(rel_path):
         target = os.path.realpath(os.path.join(root, clean_rel[len(WORKFLOWS_NS):]))
         # realpath 비교로 junction/대소문자/../ 를 모두 무력화.
         if os.path.commonpath((root, target)) != root:
-            raise ValueError(f"허용되지 않은 동기화 경로: {rel_path}")
+            raise ValueError(f"Sync path not allowed: {rel_path}")
         return target
 
     if clean_rel.startswith(CUSTOM_NS):
         # custom/<name>[/<subpath>] — 등록 레지스트리(custom_targets.json) 로만 해석, 임의 경로는 불가.
         return _resolve_custom_local_path(clean_rel[len(CUSTOM_NS):])
 
-    raise ValueError(f"허용되지 않은 동기화 경로: {rel_path}")
+    raise ValueError(f"Sync path not allowed: {rel_path}")
 
 
 def _resolve_custom_local_path(custom_rel):
@@ -881,22 +881,22 @@ def _resolve_custom_local_path(custom_rel):
     """
     parts = [p for p in custom_rel.split("/") if p and p != "."]
     if not parts:
-        raise ValueError(f"잘못된 커스텀 동기화 경로: {custom_rel}")
+        raise ValueError(f"Invalid custom sync path: {custom_rel}")
     name, sub_parts = parts[0], parts[1:]
     reg = _get_registered_custom_folder(name)
     if not reg:
-        raise ValueError(f"등록되지 않은 커스텀 대상: {name}")
+        raise ValueError(f"Custom target not registered: {name}")
     base = os.path.realpath(reg["path"])
     if reg.get("is_file"):
         if sub_parts:
-            raise ValueError(f"파일 대상은 서브패스를 지원하지 않습니다: {custom_rel}")
+            raise ValueError(f"File targets do not support subpaths: {custom_rel}")
         return base
     if not sub_parts:
         # 폴더 대상 루트 자체는 디렉터리이므로 동기화 파일이 될 수 없다.
-        raise ValueError(f"폴더 대상은 서브패스가 필요합니다: {custom_rel}")
+        raise ValueError(f"Folder targets require a subpath: {custom_rel}")
     target = os.path.realpath(os.path.join(base, *sub_parts))
     if os.path.commonpath((base, target)) != base:
-        raise ValueError(f"허용되지 않은 커스텀 동기화 경로(탈출): {custom_rel}")
+        raise ValueError(f"Custom sync path not allowed (escape): {custom_rel}")
     return target
 
 
@@ -1674,7 +1674,7 @@ def _personal_data_pro_gate_open(name: str) -> bool:
         return True
     if _custom_pro_gate_open():
         return True
-    logger.debug(f"[GDrive] Bada PRO 미발급 — {name} 동기화 보류 (로컬에만 보관)")
+    logger.debug(f"[GDrive] Bada PRO not activated - skipping {name} sync (kept locally only)")
     return False
 
 
@@ -1730,7 +1730,7 @@ def _download_remote_json(service, file_id, expected_size=None,
         expected_size = 0
     if expected_size > max_bytes:
         raise ValueError(
-            "원격 JSON이 수신 상한을 초과해 다운로드를 생략합니다 "
+            "Remote JSON exceeds the download cap; skipping download "
             f"({expected_size} > {max_bytes} bytes)")
 
     request = service.files().get_media(fileId=file_id)
@@ -1742,7 +1742,7 @@ def _download_remote_json(service, file_id, expected_size=None,
             _, done = downloader.next_chunk()
             if len(sink.buf) > max_bytes:
                 raise ValueError(
-                    "원격 JSON이 수신 상한을 초과해 폐기합니다 "
+                    "Remote JSON exceeds the receive cap; discarding "
                     f"(> {max_bytes} bytes)")
         return json.loads(sink.buf)
     finally:
@@ -1788,7 +1788,7 @@ def _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files
                 "size": os.path.getsize(local_path),
                 "folder_id": target_folder_id,
             }
-            logger.info(f"[GDrive] custom_targets.json 초기 업로드 완료 ({len(local_targets)}개 대상)")
+            logger.info(f"[GDrive] custom_targets.json initial upload complete ({len(local_targets)} target(s))")
             uploaded = True
         return uploaded, downloaded
 
@@ -1802,7 +1802,7 @@ def _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files
         else:
             remote_targets = []
     except Exception as e:
-        logger.warning(f"[GDrive] 원격 custom_targets.json 파싱 실패: {e}")
+        logger.warning(f"[GDrive] Failed to parse remote custom_targets.json: {e}")
         return uploaded, downloaded
 
     remote_mtime = _parse_drive_time(remote_meta.get("modifiedTime"))
@@ -1839,7 +1839,7 @@ def _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files
                 merged_targets.append(r_item)
         need_local_save = True
         need_remote_upload = True
-        logger.info(f"[GDrive] custom_targets.json 분기 감지: 양쪽 대상 합집합 병합 ({len(local_keys)}개 + {len(remote_keys)}개 -> {len(merged_targets)}개)")
+        logger.info(f"[GDrive] custom_targets.json divergence detected: merged union of both sides ({len(local_keys)} + {len(remote_keys)} -> {len(merged_targets)} target(s))")
     elif local_keys > remote_keys:
         merged_targets = local_targets
         need_remote_upload = True
@@ -1855,7 +1855,7 @@ def _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files
         _save_custom_targets_registry(merged_targets)
         if not need_remote_upload:
             _pin_local_mtime(local_path, remote_meta.get("modifiedTime"))
-        logger.info(f"[GDrive] custom_targets.json 로컬 갱신 완료 ({len(merged_targets)}개 대상)")
+        logger.info(f"[GDrive] custom_targets.json local update complete ({len(merged_targets)} target(s))")
         downloaded = True
 
     if need_remote_upload and merged_targets is not None:
@@ -1867,7 +1867,7 @@ def _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files
                             existing_id=remote_meta["id"], existing_meta=remote_meta)
         remote_files[remote_key]["modifiedTime"] = os.path.getmtime(local_path)
         remote_files[remote_key]["size"] = os.path.getsize(local_path)
-        logger.info(f"[GDrive] custom_targets.json 원격 업로드 완료 ({len(merged_targets)}개 대상)")
+        logger.info(f"[GDrive] custom_targets.json remote upload complete ({len(merged_targets)} target(s))")
         uploaded = True
     elif not need_local_save and not need_remote_upload:
         if abs(local_mtime - remote_mtime) > 1.0:
@@ -1995,14 +1995,14 @@ def _merge_one_personal_data(service, root_id, folder_id, spec, now_ms, state, r
         try:
             remote_data = _download_remote_json(service, remote_id, rmeta.get("size") if rmeta else None)
         except Exception as e:
-            logger.warning(f"[GDrive] 원격 {name} 파싱 실패(이번 사이클 스킵): {e}")
+            logger.warning(f"[GDrive] Failed to parse remote {name} (skipping this cycle): {e}")
             return (False, False)
     remote_tombs = None
     if remote_sidecar_id:
         try:
             remote_tombs = _download_remote_json(service, remote_sidecar_id, smeta.get("size") if smeta else None)
         except Exception as e:
-            logger.warning(f"[GDrive] 원격 {sidecar_name} 파싱 실패(빈 것으로 진행): {e}")
+            logger.warning(f"[GDrive] Failed to parse remote {sidecar_name} (continuing with empty): {e}")
             remote_tombs = None
 
     if not local_exists:
@@ -2075,7 +2075,7 @@ def _sync_and_merge_personal_data(service, root_id, subfolder_ids, remote_files)
             up += 1 if u else 0
             down += 1 if d else 0
         except Exception as e:
-            logger.warning(f"[GDrive] 개인 데이터 병합 실패 {spec['name']}: {e}")
+            logger.warning(f"[GDrive] Personal data merge failed for {spec['name']}: {e}")
     _save_merge_state(state)
     return (up, down)
 
@@ -2635,7 +2635,7 @@ def _perform_sync_blocking():
                     # 직전에 없었거나 Base 없음 -> 원격(타 PC)에서 새로 만든 파일 -> 로컬 다운로드
                     # [개선 P0] 첫 동기화(스냅샷 부재) 시 삭제 전파 보류: 원격 파일을 함부로 다운로드하지 않음
                     if base_snapshot is None:
-                        logger.info(f"[GDrive] CASE3 보류 (스냅샷 부재): {rel_path} — 다음 동기화에서 삭제 의도 재판단")
+                        logger.info(f"[GDrive] CASE3 deferred (no snapshot): {rel_path} - delete intent will be re-evaluated on next sync")
                     else:
                         to_download.append(rel_path)
 
@@ -2788,22 +2788,22 @@ def _perform_sync_blocking():
             residue = _cleanup_deleted_remote_custom_folders(service, custom_root_id)
             if residue["trashed"]:
                 logger.info(f"[GDrive] Remote empty custom folders moved to Drive trash: "
-                            f"{residue['trashed']}개 ({', '.join(residue['trashed_paths'][:6])})")
+                            f"{residue['trashed']} folder(s) ({', '.join(residue['trashed_paths'][:6])})")
             for o in residue["orphans"]:
-                logger.warning(f"[GDrive] 동기화에서 제외된 대상의 Drive 복사본이 남아 용량을 "
-                               f"차지합니다 — Custom/{o['name']}: 파일 {o['files']}개 "
+                logger.warning(f"[GDrive] Drive copies of excluded targets still occupy space "
+                               f"- Custom/{o['name']}: {o['files']} file(s) "
                                f"({round(int(o.get('bytes', 0)) / 1048576, 1)}MB)")
         # 로컬 빈 커스텀 폴더 잔해 — 등록 루트 하위를 재귀 가지치기한다.
         local_pruned = _cleanup_empty_local_custom_folders()
         if local_pruned:
-            logger.info(f"[GDrive] Local empty custom subfolders pruned: {local_pruned}개")
+            logger.info(f"[GDrive] Local empty custom subfolders pruned: {local_pruned} folder(s)")
 
         # 커스텀 안전 보관함 자동 정리 — 보관 기간을 넘긴 항목만 삭제 (1일 1회 이하).
         try:
             pruned = auto_prune_custom_trash()
             if pruned.get("removed_files"):
                 logger.info(f"[GDrive] Custom trash auto-pruned: "
-                            f"{pruned['removed_files']}개 · {pruned['freed_mb']}MB 해금")
+                            f"{pruned['removed_files']} file(s) · {pruned['freed_mb']}MB freed")
         except Exception as e:  # noqa: BLE001 — 정리가 실패해도 동기화 결과는 망치지 않는다.
             logger.warning(f"[GDrive] Custom trash auto-prune failed: {e}")
 
@@ -2819,7 +2819,7 @@ def _perform_sync_blocking():
         # [개선 P0] 삭제 성공 확인 전에는 스냅샷의 삭제 기록을 지우지 않음.
         # 삭제 실패 경로의 키는 이전 스냅샷에서 보존해 다음 동기화에서 재시도 대상으로 남김.
         if cancelled:
-            logger.info("[GDrive] Base snapshot left unchanged (sync cancelled) - 재시도 대기.")
+            logger.info("[GDrive] Base snapshot left unchanged (sync cancelled) - will retry.")
         else:
             try:
                 latest_local = build_local_manifest()
@@ -3085,7 +3085,7 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
     if raw_path and _is_out_of_sync_scope(normalize_sync_rel_path(raw_path)):
         # 휴지통으로의 이동/영구 삭제는 동기화 대상이 아니다. 원격에 손을 대지 않고 성공
         # 처리해 전체 스캔 폴백을 막는다 (Full sync 도 같은 규칙으로 스킵하므로 일관된다).
-        logger.info(f"[GDrive Pinpoint] 동기화 제외 경로 - 원격 변경 없음: {raw_path}")
+        logger.info(f"[GDrive Pinpoint] Out-of-scope path - no remote change: {raw_path}")
         return True
 
     if not _SYNC_GUARD.acquire(blocking=False):
@@ -3109,13 +3109,13 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
         if action == "save":
             raw_path = details.get("path")
             if not raw_path:
-                logger.info("[GDrive Pinpoint Save] 경로 미지정 -> Full sync 폴백 위임")
+                logger.info("[GDrive Pinpoint Save] No path given -> delegating to full sync fallback")
                 return False
             rel_path = normalize_sync_rel_path(raw_path)
             try:
                 full_path = _resolve_local_path(rel_path)
             except Exception as e:
-                logger.warning(f"[GDrive Pinpoint Save] 경로 해석 실패({rel_path}) -> Full sync 폴백 위임: {e}")
+                logger.warning(f"[GDrive Pinpoint Save] Failed to resolve path ({rel_path}) -> delegating to full sync fallback: {e}")
                 return False
 
             # .json 확장자 자동 보정 시도: 확장자 없이 전달되었으나 .json 파일이 로컬에 존재하는 경우
@@ -3127,11 +3127,11 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
                         rel_path = rel_path + ".json"
 
             if not os.path.exists(full_path):
-                logger.info(f"[GDrive Pinpoint Save] 로컬 파일 미존재({full_path}) -> Full sync 폴백 위임")
+                logger.info(f"[GDrive Pinpoint Save] Local file missing ({full_path}) -> delegating to full sync fallback")
                 return False
 
             if os.path.isdir(full_path):
-                logger.info(f"[GDrive Pinpoint Save] 대상이 폴더임({full_path}) -> Full sync 폴백 위임")
+                logger.info(f"[GDrive Pinpoint Save] Target is a folder ({full_path}) -> delegating to full sync fallback")
                 return False
 
             local_meta = {
@@ -3142,7 +3142,7 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
             target_folder_id = _resolve_target_folder_id(
                 service, root_id, subfolder_ids, rel_path)
             if not target_folder_id:
-                logger.warning(f"[GDrive Pinpoint Save] 대상 폴더 ID 해석 실패({rel_path}) -> Full sync 폴백 위임")
+                logger.warning(f"[GDrive Pinpoint Save] Failed to resolve target folder ID ({rel_path}) -> delegating to full sync fallback")
                 return False
 
             if rel_path in PERSONAL_CONFIG_RELS:
@@ -3151,7 +3151,7 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
                 _merge_one_personal_data(service, root_id, target_folder_id, spec, time.time() * 1000.0, pd_state)
                 _save_merge_state(pd_state)
                 _save_last_sync_state(1, 0)
-                logger.info(f"[GDrive Pinpoint Save] 개인 데이터 합집합 병합 반영: {rel_path}")
+                logger.info(f"[GDrive Pinpoint Save] Personal data union merge applied: {rel_path}")
                 return True
 
             remote_name = _stored_remote_name(rel_path)
@@ -3209,11 +3209,11 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
 
                 remote_folder_id = _find_remote_folder_by_name(service, folder_name, parent_id=parent_folder_id)
                 if not remote_folder_id:
-                    logger.info(f"[GDrive Pinpoint Delete] 원격 폴더 미발견({folder_name}) -> Full sync 폴백 위임")
+                    logger.info(f"[GDrive Pinpoint Delete] Remote folder not found ({folder_name}) -> delegating to full sync fallback")
                     return False
 
                 if not trash_remote_file(service, remote_folder_id, folder_name):
-                    logger.warning(f"[GDrive Pinpoint Delete] 원격 폴더 휴지통 이동 실패: {rel_path}")
+                    logger.warning(f"[GDrive Pinpoint Delete] Failed to move remote folder to trash: {rel_path}")
                     return False
 
                 logger.info(f"[GDrive Pinpoint Delete] Trashed remote folder: {rel_path} (ID: {remote_folder_id})")
@@ -3242,7 +3242,7 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
                 return False
 
             if rel_path in PERSONAL_CONFIG_RELS:
-                logger.info(f"[GDrive Pinpoint] 개인 데이터 파일 전체 삭제는 무시합니다(삭제는 항목 단위 tombstone 로 전파): {rel_path}")
+                logger.info(f"[GDrive Pinpoint] Ignoring whole-file delete of personal data (deletes propagate per item via tombstone): {rel_path}")
                 return True
 
             remote_name = _stored_remote_name(rel_path)
@@ -3251,12 +3251,12 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
                 file_id = _find_remote_file_in_folder(service, folder_id, remote_name + ".json")
             if not file_id:
                 logger.info(
-                    f"[GDrive Pinpoint Delete] 원격 대상 미발견({remote_name}) -> Full sync 폴백 위임: {rel_path}"
+                    f"[GDrive Pinpoint Delete] Remote target not found ({remote_name}) -> delegating to full sync fallback: {rel_path}"
                 )
                 return False
 
             if not trash_remote_file(service, file_id, remote_name):
-                logger.warning(f"[GDrive Pinpoint Delete] 원격 휴지통 실패 -> Full sync 폴백: {rel_path}")
+                logger.warning(f"[GDrive Pinpoint Delete] Remote trash failed -> full sync fallback: {rel_path}")
                 return False
 
             logger.info(f"[GDrive Pinpoint Delete] Trashed remote file: {rel_path} (ID: {file_id})")
@@ -3555,7 +3555,7 @@ def _custom_targets_signature():
                         try:
                             st = os.stat(full_path)
                         except OSError as e:
-                            logger.debug(f"[GDrive] Custom watcher stat failed (보류): {full_path} — {e}")
+                            logger.debug(f"[GDrive] Custom watcher stat failed (deferred): {full_path} - {e}")
                             continue
                         rel = os.path.relpath(os.path.realpath(full_path), root_real).replace("\\", "/")
                         if any("___" in part for part in rel.split("/")):
@@ -4276,9 +4276,9 @@ def activate_pro_from_bytes(raw) -> dict:
         with open(PRO_CREDENTIALS_PATH, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        logger.error(f"[GDrive] PRO 자격증명 저장 실패: {e}")
+        logger.error(f"[GDrive] Failed to save PRO credentials: {e}")
         return {"success": False, "error": "save_failed"}
-    logger.info("[GDrive] Bada PRO 활성화됨 (credentials_pro.json 저장)")
+    logger.info("[GDrive] Bada PRO activated (credentials_pro.json saved)")
     return {"success": True}
 
 
@@ -4301,7 +4301,7 @@ def _load_custom_targets_registry() -> list:
             if isinstance(targets, list):
                 return [t for t in targets if isinstance(t, dict)]
     except Exception as e:
-        logger.warning(f"[GDrive] custom_targets.json 로드 실패 — 빈 목록으로 처리: {e}")
+        logger.warning(f"[GDrive] Failed to load custom_targets.json - continuing with empty list: {e}")
     return []
 
 
@@ -4362,7 +4362,7 @@ def get_custom_folders() -> list:
         is_file = bool(item.get("is_file", False))
         full = os.path.normpath(os.path.join(root, *parts)) if parts else root
         if not _is_inside_comfyui_root(full, root):
-            logger.warning(f"[GDrive] 커스텀 대상 '{name}' 이 ComfyUI 루트 외부로 해석됨 — 무시합니다")
+            logger.warning(f"[GDrive] Custom target '{name}' resolves outside the ComfyUI root - ignoring")
             continue
         exists = os.path.isfile(full) if is_file else os.path.isdir(full)
         out.append({"name": name, "path": full, "rel_path": rel_path,
@@ -4509,7 +4509,7 @@ def add_custom_folder(local_path, drive_name=None) -> dict:
         _save_custom_targets_registry(targets)
     except Exception as e:  # noqa: BLE001
         return {"success": False, "error": f"레지스트리 저장 실패: {e}"}
-    logger.info(f"[GDrive] 커스텀 대상 등록: {name} → {rel_path} ({'파일' if is_file else '폴더'})")
+    logger.info(f"[GDrive] Custom target registered: {name} -> {rel_path} ({'file' if is_file else 'folder'})")
     # 워커 확보 + 즉시 1회 동기화 시도 — 등록한 대상을 Drive Custom/ 에 바로 반영.
     # (게이트가 OFF 이면 trigger_realtime_sync 가 조용히 disabled 로 반환)
     _ensure_custom_watcher()
@@ -4544,7 +4544,7 @@ def remove_custom_folder(name, purge_remote=False) -> dict:
         _save_custom_targets_registry(kept)
     except Exception as e:  # noqa: BLE001
         return {"success": False, "error": f"레지스트리 저장 실패: {e}"}
-    logger.info(f"[GDrive] 커스텀 대상 해제: {n} (로컬 데이터 보존)")
+    logger.info(f"[GDrive] Custom target unregistered: {n} (local data kept)")
     # 워커 시그니처는 다음 사이클에 갱신 — 제외된 대상의 로컬 변경은 더 이상 트리거하지 않는다.
     try:
         trigger_realtime_sync(None)
@@ -4575,10 +4575,10 @@ def remove_custom_folder(name, purge_remote=False) -> dict:
                             o for o in _CUSTOM_RESIDUE_STATE.get("orphans", [])
                             if str(o.get("name", "")) != n]
                 except Exception as e:  # noqa: BLE001
-                    logger.error(f"[GDrive] 커스텀 대상 Drive 정리 실패: {n}: {e}")
+                    logger.error(f"[GDrive] Failed to clean up Drive copy of custom target: {n}: {e}")
                     remote_note = f"Drive 정리 실패: {e}"
-        logger.info(f"[GDrive] 커스텀 대상 Drive 정리: Custom/{n} → "
-                    f"{'휴지통 이동 완료' if remote_purged else remote_note}")
+        logger.info(f"[GDrive] Custom target Drive cleanup: Custom/{n} -> "
+                    f"{'moved to trash' if remote_purged else 'not purged (see remote_note)'}")
     return {"success": True, "name": n, "remote_purged": remote_purged,
             "remote_note": remote_note}
 

@@ -298,11 +298,11 @@ def _apply_byte_budget(chats: list) -> list:
     dropped = len(loose) - len(kept)
     if dropped:
         logger.warning(
-            "[BadaChatHistory] 용량 상한 %d MB 초과 - 가장 오래된 대화 %d개 삭제 (전체 %d MB)",
+            "[BadaChatHistory] Store size limit %d MB exceeded - dropped %d oldest chat(s) (total %d MB)",
             MAX_STORE_BYTES // 1048576, dropped, total // 1048576)
     if pinned_bytes > MAX_STORE_BYTES:
         logger.warning(
-            "[BadaChatHistory] 고정 대화 %d개만으로도 용량 상한 %d MB 초과 - 고정은 삭제하지 않음",
+            "[BadaChatHistory] Pinned chats alone (%d) exceed the %d MB limit - pinned chats are never dropped",
             len(pinned), MAX_STORE_BYTES // 1048576)
     if not dropped:
         return chats
