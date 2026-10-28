@@ -18,10 +18,10 @@ import { BadaI18n } from "./bada_i18n.js";
 import { escapeHtml, placePopupInViewport } from "./bada_shared.js";
 
 const FONT_SIZE_PRESETS = [
-    { label: "작게 (A⁻ - 13px)", label_ko: "작게 (A⁻ - 13px)", label_en: "Small (A⁻ - 13px)", icon: "A⁻", name: "compact", fontSize: "13px", folderHeight: "28px", fileHeight: "27px", folderIcon: "14.5px", fileIcon: "13.5px", badgeFont: "11px", badgeHeight: "17px", chevron: "10px" },
-    { label: "보통 (A - 14.5px)", label_ko: "보통 (A - 14.5px)", label_en: "Medium (A - 14.5px)", icon: "A", name: "standard", fontSize: "14.5px", folderHeight: "31px", fileHeight: "30px", folderIcon: "16px", fileIcon: "15px", badgeFont: "11.5px", badgeHeight: "19px", chevron: "11px" },
-    { label: "크게 (A⁺ - 16px)", label_ko: "크게 (A⁺ - 16px)", label_en: "Large (A⁺ - 16px)", icon: "A⁺", name: "large", fontSize: "16px", folderHeight: "34px", fileHeight: "33px", folderIcon: "17.5px", fileIcon: "16.5px", badgeFont: "12px", badgeHeight: "20px", chevron: "12px" },
-    { label: "아주 크게 (A⁺⁺ - 18px)", label_ko: "아주 크게 (A⁺⁺ - 18px)", label_en: "Extra Large (A⁺⁺ - 18px)", icon: "A⁺⁺", name: "xlarge", fontSize: "18px", folderHeight: "38px", fileHeight: "37px", folderIcon: "19.5px", fileIcon: "18.5px", badgeFont: "13px", badgeHeight: "22px", chevron: "13px" }
+    { labelKey: "wf_font_compact", icon: "A⁻", name: "compact", fontSize: "13px", folderHeight: "28px", fileHeight: "27px", folderIcon: "14.5px", fileIcon: "13.5px", badgeFont: "11px", badgeHeight: "17px", chevron: "10px" },
+    { labelKey: "wf_font_standard", icon: "A", name: "standard", fontSize: "14.5px", folderHeight: "31px", fileHeight: "30px", folderIcon: "16px", fileIcon: "15px", badgeFont: "11.5px", badgeHeight: "19px", chevron: "11px" },
+    { labelKey: "wf_font_large", icon: "A⁺", name: "large", fontSize: "16px", folderHeight: "34px", fileHeight: "33px", folderIcon: "17.5px", fileIcon: "16.5px", badgeFont: "12px", badgeHeight: "20px", chevron: "12px" },
+    { labelKey: "wf_font_xlarge", icon: "A⁺⁺", name: "xlarge", fontSize: "18px", folderHeight: "38px", fileHeight: "37px", folderIcon: "19.5px", fileIcon: "18.5px", badgeFont: "13px", badgeHeight: "22px", chevron: "13px" }
 ];
 
 /**
@@ -98,7 +98,7 @@ const NATIVE_WRITE_SUPPRESS_MS = 300;
 
 function getPresetLabel(preset) {
     if (!preset) return "";
-    return BadaI18n.lang === "ko" ? (preset.label_ko || preset.label) : (preset.label_en || preset.label);
+    return BadaI18n.t(preset.labelKey);
 }
 
 /**
@@ -213,15 +213,11 @@ class WorkflowsPlusManager {
                 btn.classList.remove("gdrive-authed", "gdrive-unauth");
                 if (data.authorized) {
                     btn.classList.add("gdrive-authed");
-                    btn.title = BadaI18n.lang === "ko"
-                        ? "Google Drive 클라우드 동기화 (연동됨)"
-                        : "Google Drive cloud sync (linked)";
+                    btn.title = BadaI18n.t("wf_gdrive_title_linked");
                 } else {
                     btn.classList.add("gdrive-unauth");
-                    const msg = data.message || (BadaI18n.lang === "ko" ? "인증 필요" : "auth required");
-                    btn.title = BadaI18n.lang === "ko"
-                        ? `Google Drive 클라우드 동기화 (${msg})`
-                        : `Google Drive cloud sync (${msg})`;
+                    const msg = data.message || BadaI18n.t("wf_gdrive_auth_required");
+                    btn.title = BadaI18n.t("wf_gdrive_title_status", { msg });
                 }
             }
             return data;
@@ -262,9 +258,7 @@ class WorkflowsPlusManager {
                 if (btn) {
                     const cur = detail.current ? ` · ${detail.current}` : "";
                     const frac = `${detail.done ?? 0}/${detail.total}`;
-                    btn.title = BadaI18n.lang === "ko"
-                        ? `Google Drive 동기화 중 ${frac}${cur}`
-                        : `Google Drive syncing ${frac}${cur}`;
+                    btn.title = BadaI18n.t("wf_gdrive_syncing", { frac, cur });
                 }
             }
             // 취소/완료 푸시가 오면 스핀을 확실히 끈다 (늦게 붙은 구독자도 동기화).
@@ -295,11 +289,7 @@ class WorkflowsPlusManager {
                 const res = await fetch("/api/bada/cloud/cancel", { method: "POST" });
                 const data = await res.json();
                 if (data.status === "cancelling") {
-                    this.showToast(
-                        BadaI18n.lang === "ko"
-                            ? "동기화 중단 요청… 진행 중인 파일까지만 마무리하고 멈춥니다."
-                            : "Cancelling sync… it stops after the current file."
-                    );
+                    this.showToast(BadaI18n.t("wf_gdrive_cancel_requested"));
                     // 설정창과 동일: WS만 믿지 않고 한시 폴링으로 스핀 복원.
                     const started = Date.now();
                     const pollDone = async () => {
@@ -322,7 +312,7 @@ class WorkflowsPlusManager {
                     setTimeout(pollDone, 2000);
                 }
             } catch (e) {
-                this.showToast((BadaI18n.lang === "ko" ? "중단 요청 오류: " : "Cancel error: ") + e.message, true);
+                this.showToast(BadaI18n.t("wf_gdrive_cancel_error") + e.message, true);
             }
             return;
         }
@@ -330,46 +320,34 @@ class WorkflowsPlusManager {
         try {
             if (status && !status.authorized) {
                 if (status.status === "missing_libs") {
-                    this.showToast(
-                        BadaI18n.lang === "ko"
-                            ? "google-api-python-client 설치가 필요합니다.\npip install google-api-python-client google-auth-oauthlib"
-                            : "google-api-python-client is required.\npip install google-api-python-client google-auth-oauthlib",
-                        true
-                    );
+                    this.showToast(BadaI18n.t("wf_gdrive_missing_libs"), true);
                     return;
                 }
                 if (status.status === "missing_credentials") {
-                    this.showToast(
-                        BadaI18n.lang === "ko"
-                            ? "credentials.json 파일이 상위 폴더에 필요합니다."
-                            : "credentials.json is required in the parent folder.",
-                        true
-                    );
+                    this.showToast(BadaI18n.t("wf_gdrive_missing_credentials"), true);
                     return;
                 }
                 // unauthenticated: OAuth 진행을 위해 sync 시도로 넘어간다.
             }
 
             if (iconSpan) iconSpan.classList.add("bada-gdrive-syncing");
-            this.showToast(BadaI18n.lang === "ko" ? "Google Drive 비동기 동기화 시작..." : "Starting Google Drive async sync...");
+            this.showToast(BadaI18n.t("wf_gdrive_starting"));
 
             const res = await fetch("/api/bada/cloud/sync", { method: "POST" });
             const data = await res.json();
 
             if (data.status === "cancelled") {
-                this.showToast(
-                    data.message || (BadaI18n.lang === "ko" ? "동기화가 중단되었습니다." : "Sync cancelled.")
-                );
+                this.showToast(data.message || BadaI18n.t("wf_gdrive_cancelled"));
             } else if (res.ok && data.success && data.status === "success") {
-                this.showToast(data.message || (BadaI18n.lang === "ko" ? "Google Drive 동기화 완료!" : "Google Drive sync complete!"));
+                this.showToast(data.message || BadaI18n.t("wf_gdrive_complete"));
                 await this.loadTree();
             } else if (data.status === "busy") {
-                this.showToast(data.message || (BadaI18n.lang === "ko" ? "이미 동기화가 진행 중입니다." : "Sync already in progress."));
+                this.showToast(data.message || BadaI18n.t("wf_gdrive_busy"));
             } else {
-                this.showToast(data.message || (BadaI18n.lang === "ko" ? "동기화 실패" : "Sync failed"), true);
+                this.showToast(data.message || BadaI18n.t("wf_gdrive_failed"), true);
             }
         } catch (e) {
-            this.showToast((BadaI18n.lang === "ko" ? "동기화 오류: " : "Sync error: ") + e.message, true);
+            this.showToast(BadaI18n.t("wf_gdrive_error") + e.message, true);
         } finally {
             this.applyGDriveSyncingState(false);
             this.checkGDriveStatus();
@@ -1903,8 +1881,7 @@ class WorkflowsPlusManager {
     }
 
     getTabLabel() {
-        const isKo = (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
-        return isKo ? "⚓ 워크플로우+" : "⚓ Workflows+";
+        return BadaI18n.t("wf_tab_plus");
     }
 
     updateTabLabel() {
@@ -2088,7 +2065,7 @@ class WorkflowsPlusManager {
                 <button class="qol-icon-btn" id="qol-btn-new-folder" title="${BadaI18n.t("wf_btn_new_folder")}">➕</button>
                 <button class="qol-icon-btn" id="qol-btn-toggle-all" title="${BadaI18n.t("wf_btn_toggle_all")}">📂</button>
                 <button class="qol-icon-btn" id="qol-btn-refresh" title="${BadaI18n.t("wf_btn_refresh")}">🔄</button>
-                <button class="qol-icon-btn" id="qol-btn-gdrive-sync" title="${BadaI18n.lang === "ko" ? "Google Drive 클라우드 동기화" : "Google Drive cloud sync"}"><span class="gdrive-icon">☁️</span></button>
+                <button class="qol-icon-btn" id="qol-btn-gdrive-sync" title="${BadaI18n.t("wf_gdrive_title")}"><span class="gdrive-icon">☁️</span></button>
             </div>
 
             <div class="qol-root-dropzone" id="qol-root-dropzone">
@@ -2160,7 +2137,7 @@ class WorkflowsPlusManager {
 
         plusPanel.querySelector("#qol-btn-refresh").addEventListener("click", async () => {
             await this.loadTree();
-            this.showToast(BadaI18n.lang === "ko" ? "새로고침 완료" : "Workflows refreshed");
+            this.showToast(BadaI18n.t("wf_refreshed"));
         });
 
         // Cloud Sync (Google Drive) — 신규 엔진 /api/bada/cloud/* 연동
@@ -2273,7 +2250,7 @@ class WorkflowsPlusManager {
 
             if (!nativeVerified) {
                 const res = await fetch(`/api/qol/workflows/content?path=${encodeURIComponent(workflowPath)}`);
-                if (!res.ok) throw new Error("워크플로우 파일을 읽을 수 없습니다.");
+                if (!res.ok) throw new Error(BadaI18n.t("wf_load_read_error"));
                 const json = await res.json();
                 if (json.success && json.data) {
                     const graphData = json.data;
@@ -2286,7 +2263,7 @@ class WorkflowsPlusManager {
                         window.app.graph.configure(graphData);
                     }
                 } else {
-                    throw new Error(json.error || "불러오기 실패");
+                    throw new Error(json.error || BadaI18n.t("wf_load_failed"));
                 }
 
                 // The canvas now shows this file, but ComfyUI still believes the previously
@@ -2296,10 +2273,10 @@ class WorkflowsPlusManager {
             }
 
             this.setActiveWorkflow(workflowPath, false);
-            this.showToast(BadaI18n.lang === "ko" ? `'${filename}' 불러오기 완료!` : `'${filename}' loaded successfully!`);
+            this.showToast(BadaI18n.t("wf_load_success", { name: filename }));
         } catch (e) {
             console.error("[QoL-Utils] Error loading workflow:", e);
-            this.showToast((BadaI18n.lang === "ko" ? "불러오기 오류: " : "Load error: ") + e.message, true);
+            this.showToast(BadaI18n.t("wf_load_error") + e.message, true);
         }
     }
 
@@ -2377,7 +2354,7 @@ class WorkflowsPlusManager {
 
         const focusBtn = document.querySelector("#qol-btn-focus-toolbar");
         if (focusBtn) {
-            focusBtn.title = BadaI18n.lang === "ko" ? `현재 작업: '${cleanName}' 위치로 이동` : `Locate active: '${cleanName}'`;
+            focusBtn.title = BadaI18n.t("wf_focus_title", { name: cleanName });
             focusBtn.classList.add("has-active");
         }
 
@@ -2392,7 +2369,7 @@ class WorkflowsPlusManager {
 
     scrollToActiveWorkflow(showToast = false) {
         if (!this.activeWorkflowName && !this.activeWorkflowPath) {
-            if (showToast) this.showToast(BadaI18n.lang === "ko" ? "현재 열려있는 워크플로우가 없습니다." : "No active workflow is currently open.");
+            if (showToast) this.showToast(BadaI18n.t("wf_focus_none"));
             return;
         }
 
@@ -2422,10 +2399,10 @@ class WorkflowsPlusManager {
                         node.classList.add("qol-moved-success");
                         setTimeout(() => node.classList.remove("qol-moved-success"), 2200);
                     });
-                    this.showToast(BadaI18n.lang === "ko" ? `🎯 '${this.activeWorkflowName}' 위치로 이동했습니다.` : `🎯 Located '${this.activeWorkflowName}'`);
+                    this.showToast(BadaI18n.t("wf_focus_located", { name: this.activeWorkflowName }));
                 }
             } else if (showToast && this.activeWorkflowName) {
-                this.showToast(BadaI18n.lang === "ko" ? `현재 작업: '${this.activeWorkflowName}'` : `Active: '${this.activeWorkflowName}'`);
+                this.showToast(BadaI18n.t("wf_focus_active", { name: this.activeWorkflowName }));
             }
         }, 40);
     }
@@ -2587,23 +2564,19 @@ class WorkflowsPlusManager {
         }
 
         const fontBtn = this.plusPanel?.querySelector("#qol-btn-font-size") || document.querySelector("#qol-btn-font-size");
-        const isKo = BadaI18n.lang === "ko";
         if (fontBtn) {
-            fontBtn.title = isKo 
-                ? `글자 크기: ${getPresetLabel(preset)}\n(좌클릭: 크기 순환 변경 / 우클릭: 목록 선택)`
-                : `Font Size: ${getPresetLabel(preset)}\n(Left-click: Cycle / Right-click: Menu)`;
+            fontBtn.title = BadaI18n.t("wf_font_size_title", { label: getPresetLabel(preset) });
             fontBtn.innerHTML = `<span style="font-weight:700; font-size:12px; font-family:sans-serif; letter-spacing:-0.5px;">${preset.icon || 'Aa'}</span>`;
         }
 
         if (showToast) {
-            this.showToast((isKo ? "글자 크기: " : "Font Size: ") + getPresetLabel(preset));
+            this.showToast(BadaI18n.t("wf_font_size_toast") + getPresetLabel(preset));
         }
     }
 
     showFontSizeMenu(e) {
         e.preventDefault();
         e.stopPropagation();
-        const isKo = BadaI18n.lang === "ko";
 
         let menu = document.getElementById("qol-font-size-menu");
         if (!menu) {
@@ -2619,7 +2592,7 @@ class WorkflowsPlusManager {
 
         menu.innerHTML = `
             <div style="padding: 6px 10px 5px 10px; font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; border-bottom: 1px solid #27272a; margin-bottom: 4px;">
-                ${isKo ? "🔤 글자 & 행 크기 설정" : "🔤 Font & Row Size"}
+                ${BadaI18n.t("wf_font_menu_title")}
             </div>
             ${FONT_SIZE_PRESETS.map((preset, idx) => `
                 <div class="qol-menu-item font-size-item" data-idx="${idx}" style="justify-content: space-between; gap: 14px;">
@@ -2833,11 +2806,11 @@ class WorkflowsPlusManager {
                 }
             }
             toDelete.forEach(d => this.favorites.delete(d));
-            this.showToast(BadaI18n.lang === "ko" ? `'${filename}' 즐겨찾기에서 제거되었습니다.` : `'${filename}' removed from bookmarks.`);
+            this.showToast(BadaI18n.t("wf_fav_removed", { name: filename }));
         } else {
             const toAdd = norm.endsWith(".json") ? norm : norm + ".json";
             this.favorites.add(toAdd);
-            this.showToast(BadaI18n.lang === "ko" ? `⭐ '${filename}' 즐겨찾기에 추가되었습니다!` : `⭐ '${filename}' added to bookmarks!`);
+            this.showToast(BadaI18n.t("wf_fav_added", { name: filename }));
         }
 
         await this.saveFavorites();
@@ -2868,9 +2841,9 @@ class WorkflowsPlusManager {
             });
             const data = await res.json();
             if (data.success) {
-                const targetLabel = cleanTarget === "/" ? (BadaI18n.lang === "ko" ? "최상위(Root)" : "Root") : `'${cleanTarget}'`;
+                const targetLabel = cleanTarget === "/" ? BadaI18n.t("wf_root_label") : `'${cleanTarget}'`;
                 const filename = cleanSource.split("/").pop();
-                this.showToast(BadaI18n.lang === "ko" ? `'${filename}' -> ${targetLabel} 이동 완료!` : `'${filename}' moved to ${targetLabel}!`);
+                this.showToast(BadaI18n.t("wf_move_success", { name: filename, target: targetLabel }));
 
                 const newPath = cleanTarget === "/" ? filename : `${cleanTarget}/${filename}`;
 
@@ -2904,11 +2877,11 @@ class WorkflowsPlusManager {
                 });
                 return true;
             } else {
-                this.showToast(data.error || (BadaI18n.lang === "ko" ? "이동 실패" : "Failed to move"), true);
+                this.showToast(data.error || BadaI18n.t("wf_move_failed"), true);
                 return false;
             }
         } catch (e) {
-            this.showToast((BadaI18n.lang === "ko" ? "이동 오류: " : "Move error: ") + e.message, true);
+            this.showToast(BadaI18n.t("wf_move_error") + e.message, true);
             return false;
         }
     }
@@ -2924,7 +2897,6 @@ class WorkflowsPlusManager {
     async moveWorkflowFolder(sourcePath, targetFolder) {
         if (!sourcePath || targetFolder === undefined) return false;
 
-        const isKo = BadaI18n.lang === "ko";
         const cleanSource = sourcePath.replace(/\\/g, "/").trim();
         let cleanTarget = targetFolder.replace(/\\/g, "/").trim();
         if (!cleanTarget || cleanTarget === ".") cleanTarget = "/";
@@ -2936,7 +2908,7 @@ class WorkflowsPlusManager {
         const sourceKey = this.normalizePath(cleanSource);
         const targetKey = this.normalizePath(cleanTarget);
         if (targetKey && (targetKey === sourceKey || targetKey.startsWith(`${sourceKey}/`))) {
-            this.showToast(isKo ? "폴더를 자기 자신이나 하위 폴더 안으로 옮길 수 없습니다." : "A folder cannot be moved into itself or a subfolder.", true);
+            this.showToast(BadaI18n.t("wf_move_folder_forbidden"), true);
             return false;
         }
 
@@ -2953,12 +2925,12 @@ class WorkflowsPlusManager {
             });
             const data = await res.json();
             if (!data.success) {
-                this.showToast(data.error || (isKo ? "이동 실패" : "Failed to move"), true);
+                this.showToast(data.error || BadaI18n.t("wf_move_failed"), true);
                 return false;
             }
 
-            const targetLabel = cleanTarget === "/" ? (isKo ? "최상위(Root)" : "Root") : `'${cleanTarget}'`;
-            this.showToast(isKo ? `📁 '${folderName}' -> ${targetLabel} 이동 완료!` : `📁 '${folderName}' moved to ${targetLabel}!`);
+            const targetLabel = cleanTarget === "/" ? BadaI18n.t("wf_root_label") : `'${cleanTarget}'`;
+            this.showToast(BadaI18n.t("wf_move_folder_success", { name: folderName, target: targetLabel }));
 
             // Folder rows are addressed with a leading slash, matching the tree's own paths.
             const newPath = cleanTarget === "/" ? `/${folderName}` : `${cleanTarget}/${folderName}`;
@@ -2969,7 +2941,7 @@ class WorkflowsPlusManager {
             this.triggerRealtimeCloudSync("move_folder");
             return true;
         } catch (e) {
-            this.showToast((isKo ? "이동 오류: " : "Move error: ") + e.message, true);
+            this.showToast(BadaI18n.t("wf_move_error") + e.message, true);
             return false;
         }
     }
@@ -3217,7 +3189,7 @@ class WorkflowsPlusManager {
             const tBadge = document.createElement("span");
             tBadge.className = "qol-badge-chip qol-thumb-badge";
             tBadge.textContent = "🖼️";
-            tBadge.title = BadaI18n.lang === "ko" ? "대표 썸네일 등록됨 (클릭하여 수정)" : "Thumbnail attached (Click to edit)";
+            tBadge.title = BadaI18n.t("wf_badge_thumb");
             tBadge.addEventListener("click", (e) => {
                 e.stopPropagation();
                 this.openWorkflowInfoModal(file);
@@ -3229,7 +3201,7 @@ class WorkflowsPlusManager {
             const nBadge = document.createElement("span");
             nBadge.className = "qol-badge-chip qol-notes-badge";
             nBadge.textContent = "📝";
-            nBadge.title = BadaI18n.lang === "ko" ? "주석 및 메모 등록됨 (클릭하여 수정)" : "Notes attached (Click to edit)";
+            nBadge.title = BadaI18n.t("wf_badge_notes");
             nBadge.addEventListener("click", (e) => {
                 e.stopPropagation();
                 this.openWorkflowInfoModal(file);
@@ -3407,7 +3379,7 @@ class WorkflowsPlusManager {
                 const name = document.createElement("span");
                 name.className = "qol-file-name";
                 name.innerHTML = this.highlightMatch(file.displayName || file.name, query);
-                name.title = `${file.filename}\n경로: ${file.path}`;
+                name.title = BadaI18n.t("wf_path_tooltip", { name: file.filename, path: file.path });
 
                 fileRow.appendChild(icon);
                 fileRow.appendChild(name);
@@ -3612,7 +3584,7 @@ class WorkflowsPlusManager {
                     const name = document.createElement("span");
                     name.className = "qol-file-name";
                     name.innerHTML = this.highlightMatch(file.name, query);
-                    name.title = `${file.filename}${BadaI18n.lang === "ko" ? "\n경로: " : "\nPath: "}${file.path}`;
+                    name.title = BadaI18n.t("wf_path_tooltip", { name: file.filename, path: file.path });
 
                     fileRow.appendChild(icon);
                     fileRow.appendChild(name);
@@ -4074,7 +4046,7 @@ class WorkflowsPlusManager {
                 await this.loadTree();
                 return data.path || null;
             }
-            this.showToast(data.error || (BadaI18n.lang === "ko" ? "폴더 생성 실패" : "Failed to create folder"), true);
+            this.showToast(data.error || BadaI18n.t("wf_folder_create_failed"), true);
         } catch (e) {
             this.showToast(`Error: ${e.message}`, true);
         }
@@ -4082,7 +4054,6 @@ class WorkflowsPlusManager {
     }
 
     async openSaveAsModal(wf) {
-        const isKo = BadaI18n.lang === "ko";
         if (!this.treeData) {
             try { await this.loadTree(); } catch (e) { console.debug("[Bada] ignored:", e); }
         }
@@ -4096,7 +4067,7 @@ class WorkflowsPlusManager {
         }
         if (!folders.includes(initialFolder)) initialFolder = "/";
 
-        const initialName = this.sanitizeWorkflowName(wf?.filename) || (isKo ? "제목 없음" : "Untitled");
+        const initialName = this.sanitizeWorkflowName(wf?.filename) || BadaI18n.t("wf_untitled");
 
         return new Promise((resolve) => {
             const overlay = document.createElement("div");
@@ -4408,13 +4379,13 @@ class WorkflowsPlusManager {
                 });
                 const data = await res.json();
                 if (data.success) {
-                    this.showToast(BadaI18n.lang === "ko" ? `폴더 '${name}' 생성 완료!` : `Folder '${name}' created!`);
+                    this.showToast(BadaI18n.t("wf_folder_created", { name }));
                     close();
                     if (parent !== "/") this.expandedFolders.add(parent);
                     await this.loadTree();
                     this.triggerRealtimeCloudSync("create_folder");
                 } else {
-                    this.showToast(data.error || (BadaI18n.lang === "ko" ? "생성 실패" : "Failed to create folder"), true);
+                    this.showToast(data.error || BadaI18n.t("wf_create_failed"), true);
                 }
             } catch (e) {
                 this.showToast(`Error: ${e.message}`, true);
@@ -4677,7 +4648,6 @@ class WorkflowsPlusManager {
      * rebases the sidebar state.
      */
     async moveSelectionToFolder(entries, targetFolder) {
-        const isKo = BadaI18n.lang === "ko";
         const target = String(targetFolder || "/").replace(/\\/g, "/").trim() || "/";
         const targetKey = this.normalizePath(target);
 
@@ -4719,7 +4689,7 @@ class WorkflowsPlusManager {
         }
 
         if (!moved.length) {
-            if (failed.length) this.showToast(isKo ? "선택한 항목을 이동하지 못했습니다." : "Could not move the selected items.", true);
+            if (failed.length) this.showToast(BadaI18n.t("wf_move_selection_failed"), true);
             return { moved, failed };
         }
 
@@ -4742,11 +4712,13 @@ class WorkflowsPlusManager {
             }
         }
 
-        const targetLabel = target === "/" ? (isKo ? "최상위(Root)" : "Root") : `'${target}'`;
-        const failedNote = failed.length ? (isKo ? ` (${failed.length}개 실패)` : ` (${failed.length} failed)`) : "";
-        this.showToast(isKo
-            ? `📦 ${moved.length}개 항목 -> ${targetLabel} 이동 완료!${failedNote}`
-            : `📦 Moved ${moved.length} item(s) to ${targetLabel}${failedNote}`);
+        const targetLabel = target === "/" ? BadaI18n.t("wf_root_label") : `'${target}'`;
+        const failedNote = failed.length ? BadaI18n.t("wf_move_failed_count", { count: failed.length }) : "";
+        this.showToast(BadaI18n.t("wf_move_selection_success", {
+            count: moved.length,
+            target: targetLabel,
+            failed: failedNote
+        }));
 
         await this.loadTree();
         if (moved.length) {
@@ -4845,17 +4817,16 @@ class WorkflowsPlusManager {
     }
 
     openRenameModal(targetPath, isFolder) {
-        const isKo = BadaI18n.lang === "ko";
         const { parent: currentFolder, name: currentName } = this.splitSidebarPath(targetPath);
-        const typeLabel = isFolder ? (isKo ? "폴더" : "Folder") : (isKo ? "워크플로우" : "Workflow");
-        const parentLabel = currentFolder === "/" ? (isKo ? "최상위(Root)" : "Root") : currentFolder;
+        const typeLabel = BadaI18n.t(isFolder ? "wf_type_folder" : "wf_type_workflow");
+        const parentLabel = currentFolder === "/" ? BadaI18n.t("wf_root_label") : currentFolder;
 
         const overlay = document.createElement("div");
         overlay.className = "qol-modal-overlay";
         overlay.innerHTML = `
             <div class="qol-modal-dialog">
                 <div class="qol-modal-header">
-                    <span>✏️ ${isKo ? `${typeLabel} 이름 변경` : `Rename ${typeLabel}`}</span>
+                    <span>${BadaI18n.t("wf_modal_rename_title", { type: typeLabel })}</span>
                     <span style="cursor:pointer;" id="qol-m-close">&times;</span>
                 </div>
                 <div class="qol-modal-body">
@@ -4863,16 +4834,16 @@ class WorkflowsPlusManager {
                         ${isFolder ? "📁" : "📄"} ${this.escapeHtml(parentLabel)}/${this.escapeHtml(currentName)}
                     </div>
                     <div>
-                        <div class="qol-form-label" style="margin-bottom:4px;">${isKo ? "새 이름 입력" : "Enter New Name"}</div>
+                        <div class="qol-form-label" style="margin-bottom:4px;">${BadaI18n.t("wf_rename_new_name")}</div>
                         <input type="text" class="qol-input" id="qol-rename-input" value="${this.escapeHtml(currentName)}" autofocus />
                     </div>
                     <div style="font-size: 11px; color: #a1a1aa; margin-top:6px;">
-                        ${isKo ? "이름만 변경됩니다. 위치는 그대로 유지됩니다." : "Only the name changes — the location stays the same."}
+                        ${BadaI18n.t("wf_rename_hint")}
                     </div>
                 </div>
                 <div class="qol-modal-footer">
-                    <button class="qol-btn qol-btn-cancel" id="qol-m-cancel">${isKo ? "취소" : "Cancel"}</button>
-                    <button class="qol-btn qol-btn-primary" id="qol-m-confirm">${isKo ? "변경하기" : "Rename"}</button>
+                    <button class="qol-btn qol-btn-cancel" id="qol-m-cancel">${BadaI18n.t("wf_cancel_btn")}</button>
+                    <button class="qol-btn qol-btn-primary" id="qol-m-confirm">${BadaI18n.t("wf_modal_rename_btn")}</button>
                 </div>
             </div>
         `;
@@ -4905,7 +4876,7 @@ class WorkflowsPlusManager {
                 });
                 const data = await res.json();
                 if (data.success) {
-                    this.showToast(isKo ? `'${formattedName}' (으)로 변경 완료!` : `Renamed to '${formattedName}'!`);
+                    this.showToast(BadaI18n.t("wf_rename_success", { name: formattedName }));
                     close();
 
                     // Folder rows are addressed with a leading slash, file rows without one,
@@ -4932,7 +4903,7 @@ class WorkflowsPlusManager {
                     }
                     await this.loadTree();
                 } else {
-                    this.showToast(data.error || (isKo ? "이름 변경 실패" : "Failed to rename"), true);
+                    this.showToast(data.error || BadaI18n.t("wf_rename_failed"), true);
                 }
             } catch (e) {
                 this.showToast(`Error: ${e.message}`, true);
@@ -4941,9 +4912,8 @@ class WorkflowsPlusManager {
     }
 
     openDeleteConfirmModal(targetPath, isFolder) {
-        const isKo = BadaI18n.lang === "ko";
         const name = targetPath.split("/").pop();
-        const typeLabel = isFolder ? (isKo ? "폴더" : "Folder") : (isKo ? "워크플로우" : "Workflow");
+        const typeLabel = BadaI18n.t(isFolder ? "wf_type_folder" : "wf_type_workflow");
 
         const isTrashRoot = isTrashPath(targetPath) && trashPathSegments(targetPath).length === 1;
         const isInTrash = isTrashPath(targetPath);
@@ -4953,23 +4923,20 @@ class WorkflowsPlusManager {
         let confirmBtnText = "";
 
         if (isTrashRoot) {
-            title = `🗑️ ${isKo ? "휴지통 비우기" : "Empty Trash"}`;
-            bodyHtml = isKo
-                ? "휴지통의 모든 워크플로우를 <strong>영구 삭제</strong>하시겠습니까?<br><span style='color:#ef4444;font-size:12px;'>이 작업은 되돌릴 수 없습니다.</span>"
-                : "Are you sure you want to <strong>permanently delete</strong> all items in the Trash?<br><span style='color:#ef4444;font-size:12px;'>This action cannot be undone.</span>";
-            confirmBtnText = isKo ? "휴지통 비우기" : "Empty Trash";
+            title = `🗑️ ${BadaI18n.t("wf_modal_empty_trash_btn")}`;
+            bodyHtml = BadaI18n.t("wf_modal_empty_trash_confirm");
+            confirmBtnText = BadaI18n.t("wf_modal_empty_trash_btn");
         } else if (isInTrash) {
-            title = `🗑️ ${isKo ? `${typeLabel} 영구 삭제` : `Delete ${typeLabel} Permanently`}`;
-            bodyHtml = isKo
-                ? `휴지통의 <strong>'${name}'</strong> 항목을 <strong>영구 삭제</strong>하시겠습니까?<br><span style='color:#ef4444;font-size:12px;'>이 작업은 되돌릴 수 없습니다.</span>`
-                : `Are you sure you want to <strong>permanently delete</strong> '<strong>${name}</strong>'?<br><span style='color:#ef4444;font-size:12px;'>This action cannot be undone.</span>`;
-            confirmBtnText = isKo ? "영구 삭제" : "Delete Permanently";
+            title = BadaI18n.t("wf_modal_delete_perm_title", { type: typeLabel });
+            bodyHtml = BadaI18n.t("wf_modal_delete_perm_confirm", { name });
+            confirmBtnText = BadaI18n.t("wf_modal_delete_perm_btn");
         } else {
-            title = `🗑️ ${isKo ? `${typeLabel} 삭제 (휴지통 이동)` : `Delete ${typeLabel}`}`;
-            bodyHtml = isKo
-                ? `<strong>'${name}'</strong> ${isFolder ? "폴더와 내부 파일을" : "워크플로우를"} <strong>휴지통으로 이동</strong>하시겠습니까?`
-                : `Move <strong>'${name}'</strong> ${isFolder ? "folder and its contents" : "workflow"} to <strong>Trash</strong>?`;
-            confirmBtnText = isKo ? "휴지통으로 이동" : "Move to Trash";
+            title = BadaI18n.t("wf_modal_delete_trash_title", { type: typeLabel });
+            bodyHtml = BadaI18n.t("wf_modal_trash_confirm", {
+                name,
+                target: BadaI18n.t(isFolder ? "wf_trash_target_folder" : "wf_trash_target_workflow")
+            });
+            confirmBtnText = BadaI18n.t("wf_modal_trash_btn");
         }
 
         const overlay = document.createElement("div");
@@ -4986,7 +4953,7 @@ class WorkflowsPlusManager {
                     </p>
                 </div>
                 <div class="qol-modal-footer">
-                    <button class="qol-btn qol-btn-cancel" id="qol-m-cancel">${isKo ? "취소" : "Cancel"}</button>
+                    <button class="qol-btn qol-btn-cancel" id="qol-m-cancel">${BadaI18n.t("wf_cancel_btn")}</button>
                     <button class="qol-btn qol-btn-danger" id="qol-m-confirm">${confirmBtnText}</button>
                 </div>
             </div>
@@ -5006,11 +4973,11 @@ class WorkflowsPlusManager {
                 const data = await res.json();
                 if (data.success) {
                     if (data.action === "empty_trash") {
-                        this.showToast(isKo ? "휴지통을 비웠습니다." : "Trash emptied.");
+                        this.showToast(BadaI18n.t("wf_trash_emptied"));
                     } else if (data.action === "permanent_delete" || data.permanent) {
-                        this.showToast(isKo ? `'${name}' 영구 삭제 완료!` : `'${name}' permanently deleted!`);
+                        this.showToast(BadaI18n.t("wf_deleted_permanent", { name }));
                     } else {
-                        this.showToast(isKo ? `'${name}' 휴지통으로 이동 완료!` : `'${name}' moved to Trash!`);
+                        this.showToast(BadaI18n.t("wf_deleted_trash", { name }));
                     }
                     close();
                     const cleanTarget = (targetPath || "").split("/").pop().replace(/\.json$/i, "");
@@ -5034,7 +5001,7 @@ class WorkflowsPlusManager {
                         is_folder: isFolder
                     });
                 } else {
-                    this.showToast(data.error || (isKo ? "삭제 실패" : "Failed to delete"), true);
+                    this.showToast(data.error || BadaI18n.t("wf_delete_failed"), true);
                 }
             } catch (e) {
                 this.showToast(`Error: ${e.message}`, true);
@@ -5105,7 +5072,7 @@ class WorkflowsPlusManager {
                 <div class="qol-preview-path">📁 ${this.escapeHtml(file.path)}</div>
             </div>
             ${notesHtml}
-            <div class="qol-preview-footer">💡 ${BadaI18n.lang === "ko" ? "우클릭하여 정보 및 썸네일 수정" : "Right-click to edit info & thumbnail"}</div>
+            <div class="qol-preview-footer">💡 ${BadaI18n.t("wf_preview_footer")}</div>
         `;
 
         this.hoverCardEl.style.display = "flex";
@@ -5419,7 +5386,7 @@ class WorkflowsPlusManager {
             pasteBtn.onclick = async () => {
                 try {
                     if (!navigator.clipboard || !navigator.clipboard.read) {
-                        alert(BadaI18n.lang === "ko" ? "브라우저 보안으로 인해 직접 붙여넣기를 호출할 수 없습니다. 키보드 단축키 Ctrl+V 를 눌러 붙여넣어 주세요!" : "Please press Ctrl+V to paste the image.");
+                        alert(BadaI18n.t("wf_clip_no_direct_paste"));
                         return;
                     }
                     const items = await navigator.clipboard.read();
@@ -5434,18 +5401,18 @@ class WorkflowsPlusManager {
                         }
                     }
                     if (!found) {
-                        alert(BadaI18n.lang === "ko" ? "클립보드에 복사된 이미지가 없습니다. 이미지를 복사한 후 Ctrl+V 또는 이 버튼을 눌러주세요." : "No image found in clipboard.");
+                        alert(BadaI18n.t("wf_clip_empty"));
                     }
                 } catch (err) {
                     console.warn("Clipboard paste button error:", err);
-                    alert(BadaI18n.lang === "ko" ? "클립보드 읽기 권한이 허용되지 않았습니다. 키보드로 Ctrl+V 를 눌러 붙여넣어 주세요!" : "Please press Ctrl+V directly to paste the image.");
+                    alert(BadaI18n.t("wf_clip_denied"));
                 }
             };
         }
 
         canvasBtn.onclick = async () => {
             try {
-                canvasBtn.textContent = "⏳ 찾는 중...";
+                canvasBtn.textContent = BadaI18n.t("wf_thumb_searching");
                 canvasBtn.disabled = true;
 
                 let latestImgSrc = null;
@@ -5490,13 +5457,13 @@ class WorkflowsPlusManager {
                         updatePreviewUI(pendingImageBase64);
                     } catch (imgErr) {
                         console.error("[BadaUtils] Canvas thumbnail extract error:", imgErr);
-                        alert(BadaI18n.lang === "ko" ? "캔버스 이미지를 불러오지 못했습니다." : "Could not load canvas image.");
+                        alert(BadaI18n.t("wf_thumb_canvas_load_failed"));
                     } finally {
                         canvasBtn.textContent = BadaI18n.t("wf_thumb_canvas_btn");
                         canvasBtn.disabled = false;
                     }
                 } else {
-                    alert(BadaI18n.lang === "ko" ? "캔버스 또는 히스토리에 최근 생성된 이미지가 없습니다." : "No recently generated image found on canvas or history.");
+                    alert(BadaI18n.t("wf_thumb_canvas_none"));
                     canvasBtn.textContent = BadaI18n.t("wf_thumb_canvas_btn");
                     canvasBtn.disabled = false;
                 }
@@ -5509,7 +5476,7 @@ class WorkflowsPlusManager {
 
         const saveBtn = overlay.querySelector("#qol-info-save");
         saveBtn.onclick = async () => {
-            saveBtn.textContent = "⏳ 저장 중...";
+            saveBtn.textContent = BadaI18n.t("wf_thumb_saving");
             saveBtn.disabled = true;
 
             const notesVal = notesInput.value.trim();
