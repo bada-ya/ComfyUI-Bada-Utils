@@ -1501,8 +1501,10 @@ def register_bada_api_routes():
                                 logger.warning(f"[Bada-Utils] Failed moving thumbnail to trash: {te}")
 
                 meta = load_workflow_metadata(root_dir)
-                if clean_rel in meta:
-                    meta.pop(clean_rel, None)
+                keys_to_pop = [k for k in meta if k == clean_rel or k.startswith(clean_rel + '/')]
+                if keys_to_pop:
+                    for k in keys_to_pop:
+                        meta.pop(k, None)
                     save_workflow_metadata(root_dir, meta)
 
                 shutil.move(target_full, trash_dest)
