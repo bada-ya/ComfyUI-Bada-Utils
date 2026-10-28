@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ComfyUI-Bada-Utils Comprehensive 2-Tier i18n Translation Engine
  * - Tier 1: ComfyUI Native Settings UI Language (Automatically synced with ComfyUI's Locale)
  * - Tier 2: Bada Master Language Switch (Controls canvas nodes, badges, context menus, modals, sidebars)
@@ -120,6 +120,13 @@ export const BadaI18n = {
             "wf_ctx_new_subfolder": "New Subfolder",
             "wf_ctx_rename": "Rename",
             "wf_ctx_delete": "Delete",
+            "wf_ctx_delete_perm": "Permanently Delete",
+            "wf_ctx_empty_trash": "Empty Trash",
+            "wf_modal_trash_confirm": "Move <strong>'{name}'</strong> {target} to <strong>Trash</strong>?",
+            "wf_modal_trash_btn": "Move to Trash",
+            "wf_modal_delete_perm_confirm": "Are you sure you want to <strong>permanently delete</strong> '{name}'?<br><span style='color:#ef4444;font-size:12px;'>This action cannot be undone.</span>",
+            "wf_modal_empty_trash_confirm": "Are you sure you want to <strong>permanently delete</strong> all items in the Trash?<br><span style='color:#ef4444;font-size:12px;'>This action cannot be undone.</span>",
+            "wf_modal_empty_trash_btn": "Empty Trash",
             "wf_ctx_edit_info": "Edit Info & Thumbnail...",
             "wf_info_modal_title": "⚓ Workflow Info & Thumbnail",
             "wf_notes_label": "Notes & Description",
@@ -394,6 +401,13 @@ export const BadaI18n = {
             "wf_ctx_new_subfolder": "하위 새 폴더 (New Subfolder)",
             "wf_ctx_rename": "이름 변경 (Rename)",
             "wf_ctx_delete": "삭제 (Delete)",
+            "wf_ctx_delete_perm": "영구 삭제 (Delete Permanently)",
+            "wf_ctx_empty_trash": "휴지통 비우기 (Empty Trash)",
+            "wf_modal_trash_confirm": "<strong>'{name}'</strong> {target} <strong>휴지통으로 이동</strong>하시겠습니까?",
+            "wf_modal_trash_btn": "휴지통으로 이동",
+            "wf_modal_delete_perm_confirm": "휴지통의 <strong>'{name}'</strong> 항목을 <strong>영구 삭제</strong>하시겠습니까?<br><span style='color:#ef4444;font-size:12px;'>이 작업은 되돌릴 수 없습니다.</span>",
+            "wf_modal_empty_trash_confirm": "휴지통의 모든 항목을 <strong>영구 삭제</strong>하시겠습니까?<br><span style='color:#ef4444;font-size:12px;'>이 작업은 되돌릴 수 없습니다.</span>",
+            "wf_modal_empty_trash_btn": "휴지통 비우기",
             "wf_ctx_edit_info": "정보 및 썸네일 설정...",
             "wf_info_modal_title": "⚓ 워크플로우 정보 및 썸네일",
             "wf_notes_label": "주석 및 설명 메모",

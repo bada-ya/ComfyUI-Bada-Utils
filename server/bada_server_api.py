@@ -367,6 +367,10 @@ def build_workflow_tree(root_dir):
     Recursively scans the user workflows directory and builds a nested tree representation.
     Includes metadata (notes, thumbnail) for instant hover preview.
     """
+    try:
+        os.makedirs(os.path.join(root_dir, '_deleted_workflows'), exist_ok=True)
+    except Exception:
+        pass
     meta_data = load_workflow_metadata(root_dir)
 
     def scan_dir(current_dir, rel_path=""):
@@ -1250,6 +1254,9 @@ def register_bada_api_routes():
                         return web.json_response({"success": False, "error": "Source path escapes workflows directory"}, status=403)
                     if os.path.normcase(src_dir) == os.path.normcase(root_dir):
                         return web.json_response({"success": False, "error": "Cannot rename the workflows root directory"}, status=403)
+                    trash_root = os.path.join(root_dir, '_deleted_workflows')
+                    if os.path.normcase(src_dir) == os.path.normcase(trash_root):
+                        return web.json_response({'success': False, 'error': 'Cannot rename or move the trash directory'}, status=403)
                     return move_workflow_folder(root_dir, src_dir, target_folder_rel, new_name, overwrite)
 
                 # --- FILE branch --------------------------------------------------
@@ -1408,22 +1415,105 @@ def register_bada_api_routes():
                     except Exception as me:
                         logger.warning(f"[Bada-Utils] Metadata delete cleanup error: {me}")
 
-                if os.path.isdir(target_full):
-                    if os.path.realpath(target_full) == os.path.realpath(root_dir):
-                        return web.json_response({"success": False, "error": "Cannot delete the workflow root directory"}, status=403)
-                    shutil.rmtree(target_full)
-                    return web.json_response({"success": True, "message": f"Folder '{clean_rel}' deleted"})
-                elif os.path.isfile(target_full):
-                    cleanup_companion_and_meta(target_full)
-                    os.remove(target_full)
-                    return web.json_response({"success": True, "message": f"File '{clean_rel}' deleted"})
-                else:
+                # 1) Root folder deletion guard
+                if os.path.normcase(target_full) == os.path.normcase(root_dir):
+                    return web.json_response({"success": False, "error": "Cannot delete the workflow root directory"}, status=403)
+
+                trash_root = os.path.join(root_dir, "_deleted_workflows")
+                os.makedirs(trash_root, exist_ok=True)
+                norm_target = os.path.normcase(target_full)
+                norm_trash = os.path.normcase(trash_root)
+
+                # 2) Empty trash request (when target is _deleted_workflows root)
+                if norm_target == norm_trash or clean_rel.lower() == "_deleted_workflows":
+                    cleared_count = 0
+                    for item_name in os.listdir(trash_root):
+                        item_p = os.path.join(trash_root, item_name)
+                        try:
+                            if os.path.isdir(item_p):
+                                shutil.rmtree(item_p)
+                            else:
+                                cleanup_companion_and_meta(item_p)
+                                os.remove(item_p)
+                            cleared_count += 1
+                        except Exception as ce:
+                            logger.warning(f"[Bada-Utils] Error clearing trash item {item_p}: {ce}")
+                    return web.json_response({
+                        "success": True,
+                        "message": "Trash emptied",
+                        "action": "empty_trash",
+                        "cleared_count": cleared_count
+                    })
+
+                # 3) Permanent deletion for items already in trash
+                is_already_in_trash = (
+                    norm_target.startswith(norm_trash + os.sep) or
+                    clean_rel.lower().startswith("_deleted_workflows/")
+                )
+
+                if is_already_in_trash:
+                    if os.path.isdir(target_full):
+                        shutil.rmtree(target_full)
+                        return web.json_response({
+                            "success": True,
+                            "message": f"Folder '{clean_rel}' permanently deleted",
+                            "action": "permanent_delete",
+                            "permanent": True
+                        })
+                    elif os.path.isfile(target_full):
+                        cleanup_companion_and_meta(target_full)
+                        os.remove(target_full)
+                        return web.json_response({
+                            "success": True,
+                            "message": f"File '{clean_rel}' permanently deleted",
+                            "action": "permanent_delete",
+                            "permanent": True
+                        })
+                    else:
+                        return web.json_response({"success": False, "error": "File or folder not found in trash"}, status=404)
+
+                # 4) Safe deletion for active workflows/folders -> Move to _deleted_workflows
+                if not os.path.exists(target_full):
                     found = find_file_in_workflows(root_dir, clean_rel)
-                    if found and os.path.isfile(found) and is_safe_path(root_dir, found):
-                        cleanup_companion_and_meta(found)
-                        os.remove(found)
-                        return web.json_response({"success": True, "message": f"File deleted"})
-                    return web.json_response({"success": False, "error": "File or folder not found"}, status=404)
+                    if found and os.path.exists(found) and is_safe_path(root_dir, found):
+                        target_full = found
+                        clean_rel = os.path.relpath(target_full, root_dir).replace("\\", "/").lstrip("/")
+                    else:
+                        return web.json_response({"success": False, "error": "File or folder not found"}, status=404)
+
+                trash_dest = os.path.join(trash_root, clean_rel)
+                os.makedirs(os.path.dirname(trash_dest), exist_ok=True)
+
+                if os.path.exists(trash_dest):
+                    base_n, ext = os.path.splitext(os.path.basename(clean_rel))
+                    stamped = f"{base_n}_{int(time.time())}{ext}"
+                    trash_dest = os.path.join(os.path.dirname(trash_dest), stamped)
+
+                if os.path.isfile(target_full):
+                    base_orig = os.path.splitext(target_full)[0]
+                    base_dest = os.path.splitext(trash_dest)[0]
+                    for thumb_ext in [".thumb.png", ".thumb.webp", ".thumb.jpg"]:
+                        orig_thumb = base_orig + thumb_ext
+                        if os.path.isfile(orig_thumb):
+                            try:
+                                shutil.move(orig_thumb, base_dest + thumb_ext)
+                            except Exception as te:
+                                logger.warning(f"[Bada-Utils] Failed moving thumbnail to trash: {te}")
+
+                meta = load_workflow_metadata(root_dir)
+                if clean_rel in meta:
+                    meta.pop(clean_rel, None)
+                    save_workflow_metadata(root_dir, meta)
+
+                shutil.move(target_full, trash_dest)
+                logger.info(f"[Bada-Utils] Local workflow safely moved to trash: {clean_rel} -> {trash_dest}")
+                return web.json_response({
+                    "success": True,
+                    "message": f"Moved '{clean_rel}' to trash",
+                    "action": "trash",
+                    "trashed": True,
+                    "trash_path": os.path.relpath(trash_dest, root_dir).replace("\\", "/")
+                })
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
