@@ -1902,6 +1902,60 @@ class WorkflowsPlusManager {
         } catch (e) { console.debug("[Bada] ignored:", e); }
     }
 
+    /**
+     * Re-label the toolbar shell after a live language switch.
+     *
+     * The panel markup is built once in createPlusPanel(), so its placeholder and the
+     * toolbar tooltips would otherwise keep the language they were built with, while the
+     * tree rows (rebuilt by renderPlusTree) already switched. Two of the tooltips are
+     * state-dependent — the focus button and the font-size button — so restore them from
+     * the current state instead of their initial text.
+     */
+    refreshPanelLabels() {
+        const panel = this.plusPanel;
+        if (!panel) return; // Built later by createPlusPanel() in the active language.
+        try {
+            const search = panel.querySelector(".qol-search-input");
+            if (search) search.placeholder = BadaI18n.t("wf_search_placeholder");
+
+            const focusBtn = panel.querySelector("#qol-btn-focus-toolbar");
+            if (focusBtn) {
+                focusBtn.title = this.activeWorkflowName
+                    ? BadaI18n.t("wf_focus_title", { name: this.activeWorkflowName })
+                    : BadaI18n.t("wf_btn_focus");
+            }
+
+            const fontBtn = panel.querySelector("#qol-btn-font-size");
+            if (fontBtn) {
+                fontBtn.title = BadaI18n.t("wf_font_size_title", {
+                    label: getPresetLabel(FONT_SIZE_PRESETS[this.fontSizeIndex])
+                });
+            }
+
+            const staticTitles = {
+                "#qol-btn-new-folder": "wf_btn_new_folder",
+                "#qol-btn-toggle-all": "wf_btn_toggle_all",
+                "#qol-btn-refresh": "wf_btn_refresh"
+            };
+            for (const [selector, key] of Object.entries(staticTitles)) {
+                const el = panel.querySelector(selector);
+                if (el) el.title = BadaI18n.t(key);
+            }
+
+            const dropzone = panel.querySelector("#qol-root-dropzone span");
+            if (dropzone) dropzone.textContent = BadaI18n.t("wf_root_dropzone");
+
+            // The cloud title carries the authorization state, so re-query it — unless a sync
+            // is running, where the watcher's progress title should survive the switch.
+            const gdriveBtn = panel.querySelector("#qol-btn-gdrive-sync");
+            const syncing = gdriveBtn?.querySelector(".gdrive-icon")?.classList.contains("bada-gdrive-syncing");
+            if (gdriveBtn && !syncing) {
+                gdriveBtn.title = BadaI18n.t("wf_gdrive_title");
+                this.checkGDriveStatus();
+            }
+        } catch (e) { console.debug("[Bada] ignored:", e); }
+    }
+
     registerSidebarTab() {
         if (!app.extensionManager || !app.extensionManager.registerSidebarTab) {
             console.warn("[BadaUtils] app.extensionManager.registerSidebarTab not available.");
@@ -1925,6 +1979,7 @@ class WorkflowsPlusManager {
         if (typeof BadaI18n !== "undefined" && BadaI18n.subscribe) {
             BadaI18n.subscribe(() => {
                 this.updateTabLabel();
+                this.refreshPanelLabels();
                 this.renderPlusTree();
             });
         }
