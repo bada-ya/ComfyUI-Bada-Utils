@@ -1,4 +1,4 @@
-﻿﻿/**
+﻿/**
  * ComfyUI-Bada-Utils Comprehensive 2-Tier i18n Translation Engine
  * - Tier 1: ComfyUI Native Settings UI Language (Automatically synced with ComfyUI's Locale)
  * - Tier 2: Bada Master Language Switch (Controls canvas nodes, badges, context menus, modals, sidebars)
