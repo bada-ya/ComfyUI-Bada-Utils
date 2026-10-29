@@ -15,7 +15,7 @@
 
 import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
-import { escapeHtml, placePopupInViewport } from "./bada_shared.js";
+import { escapeHtml, placePopupInViewport, readApi } from "./bada_shared.js";
 
 const FONT_SIZE_PRESETS = [
     { labelKey: "wf_font_compact", icon: "A⁻", name: "compact", fontSize: "13px", folderHeight: "28px", fileHeight: "27px", folderIcon: "14.5px", fileIcon: "13.5px", badgeFont: "11px", badgeHeight: "17px", chevron: "10px" },
@@ -5538,6 +5538,8 @@ class WorkflowsPlusManager {
             let finalThumbPath = currentThumb;
 
             try {
+                // 썸네일 업로드 실패가 메모 저장까지 막지는 않는다 — 대신 조용히 넘어가지도 않는다.
+                let thumbFail = "";
                 if (pendingImageBase64) {
                     const upRes = await fetch("/api/bada/workflows/thumbnail/upload", {
                         method: "POST",
@@ -5547,17 +5549,20 @@ class WorkflowsPlusManager {
                             image_base64: pendingImageBase64
                         })
                     });
-                    if (upRes.ok) {
-                        const upJson = await upRes.json();
-                        if (upJson.success && upJson.thumbnail) {
-                            finalThumbPath = upJson.thumbnail;
-                        }
+                    const up = await readApi(upRes);
+                    if (up.ok && up.data.thumbnail) {
+                        finalThumbPath = up.data.thumbnail;
+                    } else {
+                        thumbFail = up.error;
+                        console.error("[BadaUtils] Thumbnail upload rejected:", up.error);
                     }
                 } else if (isThumbRemoved) {
                     finalThumbPath = "";
                 }
 
-                await fetch("/api/bada/workflows/metadata", {
+                // 아래 트리를 고치고 "저장됨" 을 띄우기 전에 여기 응답을 읽어야 한다.
+                // 읽지 않으면 서버가 거절해도 성공 안내가 나간다(2026-10-29 감사 발견).
+                const metaRes = await fetch("/api/bada/workflows/metadata", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -5567,6 +5572,15 @@ class WorkflowsPlusManager {
                         delete_thumbnail: isThumbRemoved
                     })
                 });
+                const saved = await readApi(metaRes);
+                if (!saved.ok) {
+                    // 서버 원문("Workflow path is required" 등)은 사용자한테 보여줄 문구가 아니다 → 로그로만.
+                    console.error("[BadaUtils] Metadata save rejected:", saved.error);
+                    this.showToast(BadaI18n.t("wf_info_save_failed"), true);
+                    saveBtn.textContent = BadaI18n.t("wf_save_btn");
+                    saveBtn.disabled = false;
+                    return; // 오버레이를 닫지 않는다 — 그대로 다시 저장할 수 있게
+                }
 
                 const now = Date.now();
                 targetInfo.notes = notesVal;
@@ -5585,10 +5599,12 @@ class WorkflowsPlusManager {
 
                 close();
                 this.renderPlusTree();
-                this.showToast(BadaI18n.t("wf_info_saved_toast"));
+                // 메모는 저장되고 썸네일만 실패한 경우를 성공과 구분해 알려준다.
+                this.showToast(thumbFail ? BadaI18n.t("wf_info_saved_thumb_failed") : BadaI18n.t("wf_info_saved_toast"), !!thumbFail);
             } catch (err) {
                 console.error("[BadaUtils] Failed to save workflow info:", err);
-                alert("Failed to save workflow info: " + err.message);
+                // 영어 하드코딩 alert 대신 사전 문구를 쓴다 (이 파일의 토스트 규약은 두 번째 인자 boolean).
+                this.showToast(BadaI18n.t("wf_info_save_failed"), true);
                 saveBtn.textContent = BadaI18n.t("wf_save_btn");
                 saveBtn.disabled = false;
             }
