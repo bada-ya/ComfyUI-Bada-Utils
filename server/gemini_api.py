@@ -20,7 +20,34 @@ logger = logging.getLogger("ComfyUI-Bada-Utils")
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PARENT_DIR = os.path.dirname(CURRENT_DIR)
 CONFIG_FILE = os.path.join(PARENT_DIR, "config.json")
-REGISTRY_FILE = os.path.join(PARENT_DIR, "engines_registry.json")
+
+# ---------------------------------------------------------------------------
+# 엔진 레지스트리 접근은 전적으로 server/registry_store.py 를 통한다.
+#   배포본 engines_registry.json      : 공식 targets/official_prompts (+ 예시 프롬프트)
+#   사용자본 engines_registry_user.json: 사용자가 저장한 시스템 프롬프트 (git 미추적)
+#
+# 이 파일은 nodes/ 쪽 플랫 로더가 importlib 경로로 직접 불러오기도 한다. 상대 임포트가
+# 실패하면 같은 폴더의 파일을 경로로 로드해 다시 시도한다 — 임포트 방식 하나로 기동이
+# 중단되어서는 안 된다.
+# ---------------------------------------------------------------------------
+_REGISTRY_STORE = None
+
+
+def _registry_store():
+    """통합 레지스트리 스토어 모듈 (지연 임포트·1회 캐싱)."""
+    global _REGISTRY_STORE
+    if _REGISTRY_STORE is None:
+        try:
+            from . import registry_store as _module  # type: ignore
+        except Exception:  # noqa: BLE001 - 플랫 모듈 로딩 폴백
+            import importlib.util as _ilu
+
+            _path = os.path.join(PARENT_DIR, "server", "registry_store.py")
+            _spec = _ilu.spec_from_file_location("bada_registry_store", _path)
+            _module = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_module)
+        _REGISTRY_STORE = _module
+    return _REGISTRY_STORE
 
 # 3 Fast & Robust Verified Gemini Models
 EXACT_MODELS = [
@@ -122,17 +149,17 @@ GEM_PERSONAS = {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Gemini-only system prompts (engines_registry.json :: gemini_prompts)
+# Gemini-only system prompts (engines_registry_user.json :: gemini_prompts)
 #
 # These are user-authored prompts that are ONLY reachable from the 🔞 제미나이 chat
 # tab — they are stored in a dedicated registry list, separate from `user_prompts`
-# (which feeds the 📜 시스템 프롬프트 engine tab).
+# (which feeds the 📜 시스템 프롬프트 engine tab). Both lists live in the user's own
+# registry file, which no git update ever overwrites.
 # ──────────────────────────────────────────────────────────────────────────────
 def load_gemini_chat_prompts():
-    """Read `gemini_prompts` from the registry. Returns [] on any problem."""
+    """Read `gemini_prompts` from the user registry. Returns [] on any problem."""
     try:
-        with open(REGISTRY_FILE, "r", encoding="utf-8") as handle:
-            registry = json.load(handle)
+        registry = _registry_store().load_user()
     except Exception as exc:  # noqa: BLE001
         logger.warning(f"[bada-AsyncGemini] failed to read gemini_prompts: {exc}")
         return []
@@ -465,8 +492,9 @@ def _parse_structured_prompt(raw_text):
 def load_user_system_prompt(prompt_id):
     if not prompt_id:
         raise ValueError("Select a system prompt before generating.")
-    with open(REGISTRY_FILE, "r", encoding="utf-8") as handle:
-        registry = json.load(handle)
+    # 사용자본(engines_registry_user.json) 이 정답이다. 스토어는 읽기 실패 시 {} 를
+    # 반환하므로 아래 'not found' 문구가 깨진 파일 경우까지 커버한다.
+    registry = _registry_store().load_user()
     for prompt in registry.get("user_prompts", []):
         if isinstance(prompt, dict) and str(prompt.get("id") or prompt.get("name") or "") == str(prompt_id):
             text = str(prompt.get("text") or prompt.get("system_prompt") or "").strip()
@@ -662,8 +690,8 @@ def register_gemini_api_routes():
                     prompt_key = {"t2i": f"{engine_mode}_t2i", "i2i": f"{engine_mode}_i2i"}.get(submode)
                     if not prompt_key:
                         return web.json_response({"success": False, "error": f"Invalid {engine_mode} submode."}, status=400)
-                    with open(REGISTRY_FILE, "r", encoding="utf-8") as handle:
-                        registry = json.load(handle)
+                    # 공식 PE 프롬프트와 targets 정의는 배포본 고윳값이므로 배포본만 읽는다.
+                    registry = _registry_store().load_base()
                     official = (registry.get("official_prompts") or {}).get(prompt_key) or {}
                     target = next((item for item in registry.get("targets", []) if item.get("id") == engine_mode), {})
                     submenu = next((item for item in target.get("submenus", []) if item.get("id") == submode), {})

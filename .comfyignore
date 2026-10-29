@@ -42,7 +42,7 @@ custom_targets.json
 # 개인 데이터 — 설치 환경별 사용자 내용. `Includes` 화이트리스트가 이미 막지만,
 # 화이트리스트를 나중에 넓혀도 새지 않도록 여기서도 이중으로 제외한다.
 presets_data.json
-engines_registry.json
+engines_registry_user.json
 gemini_chat_history.json
 favorites_data.json
 .gdrive_manifest.json

@@ -40,7 +40,9 @@ custom_targets.json
 # 사용자가 만든 프롬프트와 이미지가 base64로 들어 있으므로 저장소에 커밋되면
 # 그대로 공개된다. 백업은 앱 안의 「📤 백업」 버튼(.json 다운로드)으로 한다.
 gemini_chat_history.json
-engines_registry.json
+# 시스템 프롬프트 사용자본 — 설치마다 다른 개인 데이터. 배포본 engines_registry.json 은
+# 예시·targets 정의이므로 계속 추적하고, 이쪽만 제외한다 (서버 기동 시 자동 생성).
+engines_registry_user.json
 # ── 개인 데이터 합집합 병합(tombstone) 런타임 파일 ──
 # 병합 베이스 상태(로컬 전용·동기화 안 함)와 삭제 전파 사이드카. 절대 커밋 금지.
 .bada_merge_state.json

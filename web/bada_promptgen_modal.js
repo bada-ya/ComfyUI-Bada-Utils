@@ -1,7 +1,7 @@
 /**
  * ⚓ Bada 프롬프트 생성기 — "모델 관리" 모달
  * ---------------------------------------------------------------
- * `engines_registry.json` 의 `user_prompts` 를 CRUD 합니다.
+ * `engines_registry_user.json` 의 `user_prompts` 를 CRUD 합니다 (배포본 아님).
  *   • 새로 만들기 / 수정 / 삭제 / ▲▼ 순서 이동
  *   • 공식 프롬프트(Qwen PE)를 템플릿으로 불러와 편집
  * 저장은 서버 REST API 를 통해 수행되며 저장 즉시 노드의

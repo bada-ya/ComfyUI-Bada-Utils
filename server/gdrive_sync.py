@@ -2,10 +2,10 @@
 ====================================================================
 동기화 범위
   A. `.configs/*` (노드 루트 개인 데이터 4종)
-     - presets_data.json        (프리셋 라이브러리 / Visual Regional Prompt 공유)
-     - favorites_data.json      (즐겨찾기)
-     - gemini_chat_history.json (제미나이 채팅 기록)
-     - engines_registry.json    (Gemini · Prompt Generator 시스템 프롬프트)
+     - presets_data.json          (프리셋 라이브러리 / Visual Regional Prompt 공유)
+     - favorites_data.json        (즐겨찾기)
+     - gemini_chat_history.json   (제미나이 채팅 기록)
+     - engines_registry_user.json (Gemini · Prompt Generator 시스템 프롬프트)
 
   B. `workflows/*` (ComfyUI 사용자 워크플로우 폴더, .json 재귀)
 
@@ -32,11 +32,13 @@
   - credentials/token    : 인증 파일. 커밋·동기화·배포 전부 금지.
   - 워크플로우 출력물    : __pycache__ 등 무의미 파일은 스캔 제외.
 
-주의 (engines_registry.json)
-  Drive 양방향 공유 파일이다. git 배포하지 않는다(.gitignore) — git pull이
-  로컬을 되돌리면 동기화가 핑퐁 업로드를 반복하므로 추적을 중단했다.
-  다른 PC 버전으로 덮어쓰기 직전 항상 `.bak` 을 남기고 경고 로그를 기록하므로,
-  덮여도 `.bak` 에서 복구할 수 있다.
+주의 (engines_registry_user.json)
+  사용자가 UI 에서 직접 쓴 시스템 프롬프트다. 배포본 engines_registry.json 과 파일 자체를
+  분리했으므로 git pull·Manager 업데이트가 이 파일을 건드릴 일이 없다 (.gitignore·.comfyignore).
+  Drive 는 여전히 양방향 공유라 다른 PC 사본으로 덮어쓸 수 있으므로, 덮어쓰기 직전 항상
+  `.bak` 을 남기고 경고 로그를 기록한다 — 덮여도 `.bak` 에서 복구할 수 있다.
+  (참고: 이전 버전이 쓰던 원격 SystemPrompts/engines_registry.json 은 동기화 대상에서
+  뺐다. 화이트리스트 밖이라 다운로드·삭제 어느 쪽으로도 해석되지 않고 그 자리에 남는다.)
 """
 
 
@@ -166,14 +168,15 @@ def _basic_client_id() -> str:
     return cid or ""
 
 # 동기화 대상 파일명 (커스텀 노드 루트 기준). 워크플로우 디렉터리와 무관하게 고정.
-# engines_registry.json 은 Gemini/Prompt Generator 의 사용자 시스템 프롬프트를 담는
-# 파일이다. Drive 양방향 공유로 일원화했으므로 git 배포하지 않는다(.gitignore).
+# engines_registry_user.json 은 Gemini/Prompt Generator 의 사용자 시스템 프롬프트를 담는
+# 파일이다 (배포본 engines_registry.json 과 분리 — 서버 기동 시 없으면 만들어진다).
+# git 배포하지 않고(.gitignore·.comfyignore) Drive 양방향 공유로만 전파한다.
 # 덮어쓰기 시 프롬프트 유실을 막기 위해 `_download_single_file` 에서 .bak 백업 + 로그를 남긴다.
 SYNC_TARGET_FILES = [
     'presets_data.json',
     'favorites_data.json',
     'gemini_chat_history.json',
-    'engines_registry.json',
+    'engines_registry_user.json',
     # 커스텀 동기화 대상 레지스트리 — 타 PC 에 등록 정보 자동 전파 (상대경로 기반).
     # 동기화는 유지하되 상세 목록에는 표시하지 않는다 (내부 관리용 — UI 노출 제외).
     'custom_targets.json',
@@ -188,16 +191,16 @@ SYNC_TARGET_FILES = [
 #     ├── Presets/       presets_data.json
 #     ├── Favorites/     favorites_data.json
 #     ├── GeminiChat/    gemini_chat_history.json
-#     ├── SystemPrompts/ engines_registry.json
+#     ├── SystemPrompts/ engines_registry_user.json
 #     └── Workflows/
 #           ├── <file>.json
 #           └── <subdir>/<file>.json ...
 REMOTE_FOLDER_BY_REL = {
-    '.configs/presets_data.json':        'Presets',
-    '.configs/favorites_data.json':      'Favorites',
-    '.configs/gemini_chat_history.json': 'GeminiChat',
-    '.configs/engines_registry.json':    'SystemPrompts',
-    '.configs/custom_targets.json':      'CustomTargets',
+    '.configs/presets_data.json':         'Presets',
+    '.configs/favorites_data.json':        'Favorites',
+    '.configs/gemini_chat_history.json':   'GeminiChat',
+    '.configs/engines_registry_user.json': 'SystemPrompts',
+    '.configs/custom_targets.json':        'CustomTargets',
 }
 REMOTE_WORKFLOWS_FOLDER = 'Workflows'
 
@@ -1600,16 +1603,16 @@ def _download_single_file(service, rel_path, remote_meta):
 
     full_path = _resolve_local_path(rel_path)
     if os.path.exists(full_path):
-        # engines_registry.json 은 GitHub 배포 기본값과 사용자 수정본이 공존하는 파일이라
-        # `git pull` 이 배포본으로 되돌린 직후 동기화가 돌면 사용자가 UI 에서 저장한
-        # 프롬프트가 조용히 덮여버린다. 덮어쓰기 직전 .bak 은 모든 파일에 대해 남기고,
-        # 이 파일에 한해서만 경고 로그를 남여 원인 추적이 가능하게 한다.
+        # 엔진 레지스트리 사용자본은 사용자가 UI 에서 직접 쓴 프롬프트 덩어리다.
+        # 배포본과 파일이 분리되어 `git pull` 위험은 사라졌지만, Drive 는 양방향이라
+        # 다른 PC 사본이 로컬을 조용히 덮을 수 있다. 덮어쓰기 직전 .bak 은 모든 파일에
+        # 대해 남기고, 이 파일에 한해서만 경고 로그를 남겨 원인 추적이 가능하게 한다.
         try:
             with open(full_path, 'rb') as src, open(full_path + '.bak', 'wb') as dst:
                 dst.write(src.read())
-            if rel_path.endswith('engines_registry.json'):
+            if rel_path.endswith('engines_registry_user.json'):
                 logger.warning(
-                    "[GDrive] Overwriting engines_registry.json with the remote version. "
+                    "[GDrive] Overwriting engines_registry_user.json with the remote version. "
                     f"The existing content is kept at {full_path}.bak. "
                     "(If this happened during sync, your local changes were replaced by another PC's version)"
                 )
@@ -1658,7 +1661,7 @@ def _custom_pro_gate_open() -> bool:
 
 
 # Bada PRO 전용 개인 데이터 — 미발급이면 이 목록에 있는 파일만 동기화(업/다운)를 동결한다.
-# presets/favorites/engines_registry 등 나머지는 BASIC 으로 계속 동기화된다.
+# presets/favorites/engines_registry_user 등 나머지는 BASIC 으로 계속 동기화된다.
 PRO_ONLY_PERSONAL_DATA = {"gemini_chat_history.json"}
 
 
@@ -1879,7 +1882,7 @@ def _sync_and_merge_custom_targets(service, root_id, subfolder_ids, remote_files
 # =============================================================================
 # 개인 데이터 4종 — 항목 단위 합집합 병합 + tombstone 삭제 전파
 # -----------------------------------------------------------------------------
-# presets/favorites/gemini_chat_history/engines_registry 는 각각 단일 JSON 덩어리다.
+# presets/favorites/gemini_chat_history/engines_registry_user 는 각각 단일 JSON 덩어리다.
 # 워크플로우처럼 파일 단위 last-write-wins 로 동기화하면 나중에 동기화한 PC 가 상대
 # PC 전체를 통째 덮어써서 유실된다 (실제 사고: 회사에서 동기화한 채팅이 집에서 유실).
 #   -> 항목(id/키) 단위로 합집합 병합하고, 삭제 의도만 tombstone 사이드카로 전파한다.
@@ -1894,7 +1897,7 @@ PERSONAL_DATA_MERGE_SPECS = [
     {"rel": ".configs/gemini_chat_history.json", "folder": "GeminiChat", "kind": "gemini", "name": "gemini_chat_history.json"},
     {"rel": ".configs/favorites_data.json", "folder": "Favorites", "kind": "favorites", "name": "favorites_data.json"},
     {"rel": ".configs/presets_data.json", "folder": "Presets", "kind": "presets", "name": "presets_data.json"},
-    {"rel": ".configs/engines_registry.json", "folder": "SystemPrompts", "kind": "engines", "name": "engines_registry.json"},
+    {"rel": ".configs/engines_registry_user.json", "folder": "SystemPrompts", "kind": "engines", "name": "engines_registry_user.json"},
 ]
 PERSONAL_CONFIG_RELS = {spec["rel"] for spec in PERSONAL_DATA_MERGE_SPECS}
 
@@ -3639,10 +3642,10 @@ def _parse_content_count_from_json(fname, data):
     (로컬 파일과 원격 다운로드 양쪽이 이 함수를 공유한다.)
 
     파일마다 구조가 다르므로 파일명으로 분기한다. 형태 미지/불일치 시 None.
-      - favorites_data.json      : 최상단 배열 → len / {"favorites":[...]} → len
-      - gemini_chat_history.json : {"chats":[...]} → len(chats)
-      - engines_registry.json    : user_prompts + gemini_prompts 배열 길이 합
-      - presets_data.json        : {노드타입:{프리셋명:{...}}} → 모든 리프 프리셋 합
+      - favorites_data.json       : 최상단 배열 → len / {"favorites":[...]} → len
+      - gemini_chat_history.json  : {"chats":[...]} → len(chats)
+      - engines_registry_user.json: user_prompts + gemini_prompts 배열 길이 합
+      - presets_data.json         : {노드타입:{프리셋명:{...}}} → 모든 리프 프리셋 합
     """
     if fname == "favorites_data.json":
         if isinstance(data, list):
@@ -3656,7 +3659,7 @@ def _parse_content_count_from_json(fname, data):
             return len(data["chats"])
         return None
 
-    if fname == "engines_registry.json":
+    if fname == "engines_registry_user.json":
         if not isinstance(data, dict):
             return None
         up = data.get("user_prompts")

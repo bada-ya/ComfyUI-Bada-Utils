@@ -1,7 +1,7 @@
 /**
  * ⚓ Bada Async Gemini Studio — "제미나이 전용 시스템 프롬프트 관리" 모달
  * ---------------------------------------------------------------------------
- * `engines_registry.json` 의 `gemini_prompts` 를 CRUD 합니다.
+ * `engines_registry_user.json` 의 `gemini_prompts` 를 CRUD 합니다 (배포본 아님).
  *   • 새로 만들기 / 수정 / 삭제 / ▲▼ 순서 이동
  * 이 목록은 `user_prompts` 와 완전히 분리되어 있으며, 오직
  * 🔞 제미나이 탭의 「만능 무검열 제미나이」 드롭다운에서만 선택할 수 있습니다.

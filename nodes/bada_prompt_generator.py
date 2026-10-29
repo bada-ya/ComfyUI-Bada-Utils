@@ -48,7 +48,24 @@ except Exception:  # noqa: BLE001 — numpy 없는 환경에서도 노드 로드
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REGISTRY_FILE = os.path.join(ROOT_DIR, "engines_registry.json")
+
+# ---------------------------------------------------------------------------
+# 통합 레지스트리 스토어 — 배포본(engines_registry.json) 과 사용자본
+# (engines_registry_user.json) 을 합쳐주는 유일한 창구. 경로를 여기저기 중복 정의하면
+# 업데이트에 안 덮이는 쪽을 잘못 고르는 사고가 다시 생기므로 스토어 상수를 그대로 쓴다.
+# ---------------------------------------------------------------------------
+try:  # normal package import (ComfyUI loads custom nodes as packages)
+    from ..server import registry_store  # type: ignore
+except Exception:  # pragma: no cover - fallback for flat module loading
+    import importlib.util as _ilu_registry
+
+    _REGISTRY_STORE_PATH = os.path.join(ROOT_DIR, "server", "registry_store.py")
+    _registry_spec = _ilu_registry.spec_from_file_location("bada_registry_store", _REGISTRY_STORE_PATH)
+    registry_store = _ilu_registry.module_from_spec(_registry_spec)
+    _registry_spec.loader.exec_module(registry_store)
+
+REGISTRY_FILE = registry_store.BASE_FILE  # 배포본 — 이 노드는 읽기만 한다
+REGISTRY_USER_FILE = registry_store.USER_FILE  # 사용자본 — 실제 프롬프트 저장 위치
 CONFIG_FILE = os.path.join(ROOT_DIR, "config.json")
 
 GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -152,32 +169,15 @@ QWEN_SCHEMA_I2I = {
 }
 
 # ---------------------------------------------------------------------------
-# Registry access (mtime-cached so edits are picked up without a restart)
+# Registry access — 위임만 한다 (mtime 캐시·배포본/사용자본 병합은 server/registry_store.py)
 # ---------------------------------------------------------------------------
-_registry_cache = {"mtime": None, "data": None}
-
-
 def load_registry(force: bool = False) -> dict:
-    """Load `engines_registry.json`, caching by mtime. Returns {} when unavailable."""
-    try:
-        mtime = os.path.getmtime(REGISTRY_FILE)
-    except OSError:
-        logger.warning("[BadaPromptGen] engines_registry.json not found at %s", REGISTRY_FILE)
-        return {}
+    """Return the merged registry (distributed file + the user's own prompts).
 
-    if not force and _registry_cache["mtime"] == mtime and _registry_cache["data"] is not None:
-        return _registry_cache["data"]
-
-    try:
-        with open(REGISTRY_FILE, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except Exception as exc:  # noqa: BLE001
-        logger.error("[BadaPromptGen] Failed to parse engines_registry.json: %s", exc)
-        return {}
-
-    _registry_cache["mtime"] = mtime
-    _registry_cache["data"] = data
-    return data
+    Returns {} when nothing usable is on disk. Cache invalidation is mtime-based in
+    the store, so saving a prompt through the REST API is picked up without a restart.
+    """
+    return registry_store.load_registry(force=force)
 
 
 def _find_by(items, key, value):
@@ -632,10 +632,13 @@ def result_cache_key(registry, target, submenu, request_text, tensors, duration=
         str(aspect_ratio or "").strip(),
     )).encode("utf-8"))
     digest.update(resolve_model(registry).encode("utf-8"))
-    try:
-        digest.update(str(os.path.getmtime(REGISTRY_FILE)).encode("utf-8"))
-    except Exception:  # noqa: BLE001
-        pass
+    # 배포본과 사용자본 중 어느 쪽이 바뀌어도 캐시는 깨져야 한다 — 사용자 프롬프트 본문은
+    # 이제 사용자 파일에 있으므로 예전처럼 배포본 mtime 만 보면 바뀐 프롬프트로 옛 응답을 재사용한다.
+    for _registry_path in (REGISTRY_FILE, REGISTRY_USER_FILE):
+        try:
+            digest.update(str(os.path.getmtime(_registry_path)).encode("utf-8"))
+        except Exception:  # noqa: BLE001 — 파일이 없을 때를 포함, 캐시 키 계산이 실패 원인이 되지 않게
+            pass
     for index, tensor in enumerate(tensors or [], start=1):
         digest.update(f"|{index}:{_tensor_digest(tensor)}".encode("utf-8"))
     return digest.hexdigest()

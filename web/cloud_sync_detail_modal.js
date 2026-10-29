@@ -61,7 +61,7 @@ const FILE_LABELS = {
     "presets_data.json": { ko: "⚓ 프리셋 (Regional Prompt)", en: "⚓ Presets (Regional Prompt)" },
     "favorites_data.json": { ko: "⭐ 즐겨찾기", en: "⭐ Favorites" },
     "gemini_chat_history.json": { ko: "⚓ 제미나이 채팅 기록", en: "⚓ Gemini chat history" },
-    "engines_registry.json": { ko: "⚓ 시스템 프롬프트", en: "⚓ System prompts" },
+    "engines_registry_user.json": { ko: "⚓ 시스템 프롬프트", en: "⚓ System prompts" },
     "workflows": { ko: "🗂️ 워크플로우 파일", en: "🗂️ Workflow files" },
 };
 

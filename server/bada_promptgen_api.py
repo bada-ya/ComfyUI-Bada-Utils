@@ -29,7 +29,15 @@ POST /api/bada/gemini/chats/import           restore from a .json backup
 is a completely separate list used ONLY by the 🔞 제미나이 chat tab
 (consumed by server/gemini_api.py::find_gemini_chat_prompt).
 
-The registry file is written atomically and a `.bak` snapshot is kept, because
+Storage is split, and every endpoint below follows the same rule:
+  * read  — the merged view of the distributed `engines_registry.json` and the
+    user's own `engines_registry_user.json` (server/registry_store.py).
+  * write — the USER file only. The distributed file is never written again, so a
+    `git pull` or a Manager update can no longer erase a hand-written prompt.
+Prompts shipped with `"built_in": true` are examples: they stay visible and
+editable in the merged view, but both delete endpoints refuse them (403).
+
+Writes are atomic and keep a `.bak` snapshot, because
 `nodes/bada_prompt_generator.py::load_registry()` caches by mtime and therefore
 picks every successful save up immediately (no restart required).
 """
@@ -41,29 +49,24 @@ import os
 import re
 import uuid
 
-from .atomic_json import read_json_fallback, write_json_atomic
+from . import registry_store
+from .atomic_json import read_json_fallback
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-REGISTRY_FILE = os.path.join(ROOT_DIR, "engines_registry.json")
 CONFIG_FILE = os.path.join(ROOT_DIR, "config.json")
 
 ALLOWED_DEFAULT_KEYS = ("target", "submenu", "enhance", "uncensored", "duration")
 SLUG_RE = re.compile(r"[^a-z0-9가-힣._-]+")
 
+# 배포본/사용자본 경로와 입출력 규칙은 전부 server/registry_store.py 의 계약이다.
+# 여기서는 read_user()/write_user() 만 쓰기 때문에 "어느 쪽을 덮쓰는가" 가 코드에 남지 않는다.
+BUILT_IN_DELETE_ERROR = "기본 제공 프롬프트는 삭제할 수 없습니다."
+
 
 def _read_json(path: str, fallback):
     return read_json_fallback(path, fallback, log_prefix="[BadaPromptGen]")
-
-
-def _write_json(path: str, payload: dict) -> None:
-    """Atomic write: temp file in the same folder + os.replace, with a .bak copy.
-
-    Delegates to the shared routine so every JSON the pack persists behaves identically —
-    see ``server/atomic_json.py`` for why the temp-file dance is not optional.
-    """
-    write_json_atomic(path, payload)
 
 
 def _slugify(text: str) -> str:
@@ -73,9 +76,7 @@ def _slugify(text: str) -> str:
 
 def _registry_payload() -> dict:
     """Registry enriched with the live Gemini model selection (from config.json)."""
-    registry = _read_json(REGISTRY_FILE, {})
-    if not isinstance(registry, dict):
-        registry = {}
+    registry = registry_store.load_registry()
     registry = dict(registry)
     registry.setdefault("user_prompts", [])
     registry.setdefault("gemini_prompts", [])
@@ -157,9 +158,7 @@ def register_promptgen_api_routes():
             if not system_prompt:
                 return web.json_response({"success": False, "error": "시스템 프롬프트 내용을 입력해 주세요."}, status=400)
 
-            registry = _read_json(REGISTRY_FILE, {})
-            if not isinstance(registry, dict):
-                registry = {}
+            registry = registry_store.read_user()
             prompts = registry.get("user_prompts")
             if not isinstance(prompts, list):
                 prompts = []
@@ -199,7 +198,7 @@ def register_promptgen_api_routes():
                 action = "created"
 
             registry["user_prompts"] = prompts
-            _write_json(REGISTRY_FILE, registry)
+            registry_store.write_user(registry)
             logger.info("[BadaPromptGen] user prompt %s: %s", action, name)
             return web.json_response({
                 "success": True,
@@ -218,8 +217,8 @@ def register_promptgen_api_routes():
         try:
             body = await request.json()
             key = (body.get("id") or body.get("name") or "").strip()
-            registry = _read_json(REGISTRY_FILE, {})
-            prompts = registry.get("user_prompts") if isinstance(registry, dict) else None
+            registry = registry_store.read_user()
+            prompts = registry.get("user_prompts")
             if not isinstance(prompts, list):
                 return web.json_response({"success": False, "error": "저장된 사용자 프롬프트가 없습니다."}, status=404)
 
@@ -227,11 +226,11 @@ def register_promptgen_api_routes():
             if index < 0:
                 return web.json_response({"success": False, "error": f"'{key}' 항목을 찾을 수 없습니다."}, status=404)
             if prompts[index].get("built_in"):
-                return web.json_response({"success": False, "error": "기본 제공 프롬프트는 삭제할 수 없습니다."}, status=403)
+                return web.json_response({"success": False, "error": BUILT_IN_DELETE_ERROR}, status=403)
 
             removed = prompts.pop(index)
             registry["user_prompts"] = prompts
-            _write_json(REGISTRY_FILE, registry)
+            registry_store.write_user(registry)
             return web.json_response({"success": True, "removed": removed, "registry": _registry_payload()})
         except Exception as exc:  # noqa: BLE001
             logger.exception("[BadaPromptGen] delete failed")
@@ -246,8 +245,8 @@ def register_promptgen_api_routes():
             if direction not in ("up", "down"):
                 return web.json_response({"success": False, "error": "direction 은 up 또는 down 이어야 합니다."}, status=400)
 
-            registry = _read_json(REGISTRY_FILE, {})
-            prompts = registry.get("user_prompts") if isinstance(registry, dict) else None
+            registry = registry_store.read_user()
+            prompts = registry.get("user_prompts")
             if not isinstance(prompts, list) or not prompts:
                 return web.json_response({"success": False, "error": "저장된 사용자 프롬프트가 없습니다."}, status=404)
 
@@ -260,7 +259,7 @@ def register_promptgen_api_routes():
 
             prompts[index], prompts[target_index] = prompts[target_index], prompts[index]
             registry["user_prompts"] = prompts
-            _write_json(REGISTRY_FILE, registry)
+            registry_store.write_user(registry)
             return web.json_response({"success": True, "moved": True, "registry": _registry_payload()})
         except Exception as exc:  # noqa: BLE001
             logger.exception("[BadaPromptGen] move failed")
@@ -278,9 +277,7 @@ def register_promptgen_api_routes():
             if not system_prompt:
                 return web.json_response({"success": False, "error": "시스템 프롬프트 내용을 입력해 주세요."}, status=400)
 
-            registry = _read_json(REGISTRY_FILE, {})
-            if not isinstance(registry, dict):
-                registry = {}
+            registry = registry_store.read_user()
             prompts = registry.get("gemini_prompts")
             if not isinstance(prompts, list):
                 prompts = []
@@ -309,7 +306,7 @@ def register_promptgen_api_routes():
                 action = "created"
 
             registry["gemini_prompts"] = prompts
-            _write_json(REGISTRY_FILE, registry)
+            registry_store.write_user(registry)
             logger.info("[BadaPromptGen] gemini prompt %s: %s", action, name)
             return web.json_response({
                 "success": True,
@@ -326,18 +323,22 @@ def register_promptgen_api_routes():
         try:
             body = await request.json()
             key = (body.get("id") or body.get("name") or "").strip()
-            registry = _read_json(REGISTRY_FILE, {})
-            prompts = registry.get("gemini_prompts") if isinstance(registry, dict) else None
+            registry = registry_store.read_user()
+            prompts = registry.get("gemini_prompts")
             if not isinstance(prompts, list) or not prompts:
                 return web.json_response({"success": False, "error": "저장된 제미나이 프롬프트가 없습니다."}, status=404)
 
             index = _find_prompt_index(prompts, key)
             if index < 0:
                 return web.json_response({"success": False, "error": f"'{key}' 항목을 찾을 수 없습니다."}, status=404)
+            # 배포본이 예시로 넣어둔 항목(built_in) 은 📜 탭과 동일하게 삭제 대상이 아니다.
+            # 사용자 파일에도 플래그가 찍혀 있어야 하므로 판단은 read_user() 의 결과로 한다.
+            if prompts[index].get("built_in"):
+                return web.json_response({"success": False, "error": BUILT_IN_DELETE_ERROR}, status=403)
 
             removed = prompts.pop(index)
             registry["gemini_prompts"] = prompts
-            _write_json(REGISTRY_FILE, registry)
+            registry_store.write_user(registry)
             return web.json_response({"success": True, "removed": removed, "registry": _registry_payload()})
         except Exception as exc:  # noqa: BLE001
             logger.exception("[BadaPromptGen] gemini prompt delete failed")
@@ -352,8 +353,8 @@ def register_promptgen_api_routes():
             if direction not in ("up", "down"):
                 return web.json_response({"success": False, "error": "direction 은 up 또는 down 이어야 합니다."}, status=400)
 
-            registry = _read_json(REGISTRY_FILE, {})
-            prompts = registry.get("gemini_prompts") if isinstance(registry, dict) else None
+            registry = registry_store.read_user()
+            prompts = registry.get("gemini_prompts")
             if not isinstance(prompts, list) or not prompts:
                 return web.json_response({"success": False, "error": "저장된 제미나이 프롬프트가 없습니다."}, status=404)
 
@@ -366,7 +367,7 @@ def register_promptgen_api_routes():
 
             prompts[index], prompts[target_index] = prompts[target_index], prompts[index]
             registry["gemini_prompts"] = prompts
-            _write_json(REGISTRY_FILE, registry)
+            registry_store.write_user(registry)
             return web.json_response({"success": True, "moved": True, "registry": _registry_payload()})
         except Exception as exc:  # noqa: BLE001
             logger.exception("[BadaPromptGen] gemini prompt move failed")
@@ -376,15 +377,13 @@ def register_promptgen_api_routes():
     async def save_defaults(request):
         try:
             body = await request.json()
-            registry = _read_json(REGISTRY_FILE, {})
-            if not isinstance(registry, dict):
-                registry = {}
+            registry = registry_store.read_user()
             defaults = registry.get("defaults") if isinstance(registry.get("defaults"), dict) else {}
             for key in ALLOWED_DEFAULT_KEYS:
                 if key in body:
                     defaults[key] = body[key]
             registry["defaults"] = defaults
-            _write_json(REGISTRY_FILE, registry)
+            registry_store.write_user(registry)
             return web.json_response({"success": True, "defaults": defaults})
         except Exception as exc:  # noqa: BLE001
             logger.exception("[BadaPromptGen] defaults save failed")
@@ -394,7 +393,8 @@ def register_promptgen_api_routes():
     #  🔞 제미나이 채팅 기록 (chat history)
     #
     #  Stored in its own file (gemini_chat_history.json), NOT in engines_registry.json:
-    #  the registry is a GitHub-distributed artifact, chat history is private data.
+    #  the distributed registry ships from GitHub, private data never does (personal
+    #  prompts moved to engines_registry_user.json for exactly that reason).
     #  See server/gemini_chat_history.py for the storage rationale.
     # ------------------------------------------------------------------
 

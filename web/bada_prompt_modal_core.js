@@ -40,6 +40,7 @@ export const SHARED_TEXTS = {
         deleted: "🗑 삭제되었습니다",
         moved: "↕ 순서가 변경되었습니다",
         failed: "❌ 요청 실패",
+        builtIn: "❌ 기본 제공 프롬프트는 삭제할 수 없습니다. 편집은 가능합니다.",
         chars: "자",
         moveUp: "위로 이동",
         moveDown: "아래로 이동",
@@ -63,6 +64,7 @@ export const SHARED_TEXTS = {
         deleted: "🗑 Deleted",
         moved: "↕ Order updated",
         failed: "❌ Request failed",
+        builtIn: "❌ Built-in prompts cannot be deleted. Editing is allowed.",
         chars: "chars",
         moveUp: "Move up",
         moveDown: "Move down",
@@ -100,7 +102,12 @@ async function postJson(url, body) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) {
-        throw new Error(data.error || `HTTP ${res.status}`);
+        // 실패 정보를 Error 에 얹어 호출측으로 올린다. 이 전에는 메시지 문자열만 남아
+        // 상태 코드(=거부 이유)가 사라졌고, 토스트는 항상 "요청 실패"만 띄웠다.
+        const err = new Error(data.error || `HTTP ${res.status}`);
+        err.status = res.status;
+        err.code = typeof data.code === "string" ? data.code : "";
+        throw err;
     }
     return data;
 }
@@ -367,7 +374,12 @@ export function createPromptModalOpener(config) {
                 notify(label, "ok");
             } catch (err) {
                 console.error(log.action, err);
-                notify(m("failed"), "err");
+                // 거부 이유를 사용자에게 보여준다. 예전에는 무조건 m("failed") 만 띄워
+                // 「왜 안 지워지나」를 알 방법이 없었다. 규칙 거부는 403 — 서버 응답 문구는
+                // 한국어 고정이라 상태 코드·code 로 판정해 다국어 문구로 대체한다.
+                const reason = (err?.message || "").trim().slice(0, 120);
+                const isBuiltIn = err?.status === 403 || err?.code === "built_in_prompt";
+                notify(isBuiltIn ? m("builtIn") : (reason ? `${m("failed")} · ${reason}` : m("failed")), "err");
             } finally {
                 saveBtn.disabled = false;
             }
