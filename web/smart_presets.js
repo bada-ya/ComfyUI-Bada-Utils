@@ -10,7 +10,7 @@
  */
 
 import { app } from "../../scripts/app.js";
-import { escapeHtml, placePopupInViewport } from "./bada_shared.js";
+import { escapeHtml, placePopupInViewport, readApi, clipReason } from "./bada_shared.js";
 import { initModal, showPresetModal, closeModal, showToast } from "./presets_modal.js";
 import { hubPresetsStore } from "./hub_node.js";
 import { showHubManageModal } from "./hub_modal.js";
@@ -45,10 +45,14 @@ export function loadPresetsFromStorage() {
     }
 
     const loadEndpoint = (url) => {
+        // readApi 는 던지지 않으므로 HTTP·success 실패는 여기서 던져 별칭 재시도 사슬에 태운다.
+        // (그냥 두면 본문이 JSON 인 404 가 조용히 삼켜져 별칭 URL 까지도 가지 못한다)
         return fetch(url)
-            .then((res) => res.json())
-            .then((data) => {
-                if (data && data.success && data.presets && Object.keys(data.presets).length > 0) {
+            .then(readApi)
+            .then((res) => {
+                if (!res.ok) throw new Error(res.error);
+                const data = res.data;
+                if (data.presets && Object.keys(data.presets).length > 0) {
                     presetsStore = { ...presetsStore, ...data.presets };
                     localStorage.setItem(STORAGE_KEY, JSON.stringify(presetsStore));
                     app.graph?.setDirtyCanvas(true, true);
@@ -56,7 +60,59 @@ export function loadPresetsFromStorage() {
             });
     };
 
-    loadEndpoint("/api/bada/presets/load").catch(() => loadEndpoint("/universal_presets/load").catch(() => {}));
+    // 서버 조회 실패는 알리지 않는다 — 이미 localStorage 사본으로 작업 중이고, 프리셋 경로가
+    // 없는 서버에서는 매 부팅마다 404 가 나는 것이 정상이라 알림이 곧 소음이 된다 (감사 4장).
+    // "프리셋이 사라진 것처럼 보인다" 의 1차 단서는 이 콘솔 로그가 남긴다.
+    loadEndpoint("/api/bada/presets/load")
+        .catch(() => loadEndpoint("/universal_presets/load"))
+        .catch((err) =>
+            console.warn("[Smart Presets] Server load failed, continuing with the local copy:", err)
+        );
+}
+
+// ── 서버 저장 (감사 P2-D) ───────────────────────────────────────────────────
+// 바로 위 localStorage 저장만 성공하면 화면에는 "다 저장됨" 으로 보인다. 서버 저장까지 실패한
+// 상태는 **이 브라우저에만** 남아 다른 기계에서는 안 보이라는 뜻인데, 기존 코드는 그 사실을
+// 전혀 알리지 않았다(.catch(() => {}) — 게다가 HTTP 405·500 은 거부되지도 않아 폴백 시도조차
+// 안 했다). 그래서 여기서는 실패를 알리는 것이 기본값이고, 프리셋을 연달아 저장할 때 생기는
+// 중복은 성공할 때까지 1회로 합친다.
+let saveFaultNotified = false;
+
+// 구버전 ComfyUI 는 /api/bada 경로가 없어 404 가 나므로, 실패 원인이 무엇이든 별칭 URL 로
+// 한 번 더 시도한다(두 경로는 서버에서 같은 핸들러라 재시도는 값싼 보험이다).
+async function postPresetsSave(url, payload) {
+    try {
+        const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: payload,
+        });
+        return await readApi(res); // 본문이 텍스트·HTML 이어도 이유(HTTP 코드) 는 남는다
+    } catch (err) {
+        return { ok: false, error: String((err && err.message) || err || "") };
+    }
+}
+
+async function savePresetsToServer(payload) {
+    let why = "";
+    for (const url of ["/api/bada/presets/save", "/universal_presets/save"]) {
+        const res = await postPresetsSave(url, payload);
+        if (res.ok) {
+            saveFaultNotified = false; // 복구됨 — 다음 실패는 다시 알려야 한다
+            return;
+        }
+        why = res.error;
+    }
+    console.warn("[Smart Presets] Server save failed:", why);
+    if (saveFaultNotified) return; // 이미 한 번 알린 실패 — 연속 저장은 한 줄로 합친다
+    saveFaultNotified = true;
+    showToast(
+        BadaI18n.t("presets_modal_toast_server_save_failed", {
+            why: clipReason(why, 90, BadaI18n.t("api_reason_unknown")),
+        }),
+        "warning",
+        5200
+    );
 }
 
 export function savePresetsToStorage() {
@@ -65,19 +121,8 @@ export function savePresetsToStorage() {
     } catch (e) {
         console.warn("[Smart Presets] Failed to save to localStorage:", e);
     }
-
-    const payload = JSON.stringify({ presets: presetsStore });
-    fetch("/api/bada/presets/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: payload,
-    }).catch(() => {
-        fetch("/universal_presets/save", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: payload,
-        }).catch(() => {});
-    });
+    // 서버 저장 결과를 기다리지 않는다 — 캔버스 조작은 즉시 반영되어야 한다 (기존 동작).
+    savePresetsToServer(JSON.stringify({ presets: presetsStore }));
 }
 
 export function getNodeType(node) {

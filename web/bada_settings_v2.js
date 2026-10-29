@@ -38,7 +38,7 @@
 // text is safe here. Keep injected-CSS concerns out of this file.
 // ──────────────────────────────────────────────────────────────────────────────
 import { BadaI18n } from "./bada_i18n.js";
-import { escapeHtml, findBadaSettingCells, readApi } from "./bada_shared.js";
+import { escapeHtml, findBadaSettingCells, readApi, clipReason } from "./bada_shared.js";
 // Phase 2: the Global Presets row is self-owned. It used to call back into
 // bada_core.js's buildInlinePresetsPanel() through window.__BADA_BUILD_PRESETS_PANEL__;
 // that bridge is gone, so v2 imports the overview modal module directly.
@@ -910,17 +910,29 @@ function buildCloudSyncRow() {
         renderStatus();
     };
 
+    // 상태 조회 실패의 이유는 호버로만 남긴다 (감사 P2-C 권고). 이 줄은 설정창이 열려 있는
+    // 동안 3초(동기화 중 1초)마다 다시 그려지는 상시 노출이라, 문구를 늘리면 레이아웃이 밀린다.
+    // 서버 /cloud/status 는 실패마다 이미 500 + {"success": false, "error": …} 로 이유를
+    // 보내고 있었으므로 그 문자열을 title 에 옮겨 앉히는 것만이 이번 작업의 전부다.
+    // 문구와 이유를 이어 붙이는 일은 사전이 맡긴다: `{why}` 자리까지 들어 있는 키를 통째로
+    // 번역해 넘겨야 한다. 이미 번역된 줄 뒤에 이유를 따로 붙이면 구분자가 두 개가 된다.
+    const statusFaultTitle = (why) =>
+        BadaI18n.t("cloud_status_query_failed", {
+            why: clipReason(why, 90, BadaI18n.t("api_reason_unknown")),
+        });
+
     const renderStatus = async () => {
         const T = t();
         status.textContent = T.statusIdle;
         status.title = "";
         try {
-            const res = await fetch("/api/bada/cloud/status");
-            const data = await res.json();
-            if (!data.success) {
-                status.textContent = T.statusIdle;
+            const r = await fetch("/api/bada/cloud/status");
+            const res = await readApi(r); // 본문이 텍스트·HTML 이어도 이유(HTTP 코드) 는 남는다
+            if (!res.ok) {
+                status.title = statusFaultTitle(res.error);
                 return;
             }
+            const data = res.data;
             if (!data.libs_available) {
                 status.textContent = T.statusNoLibs;
                 syncBtn.style.display = "none";
@@ -954,8 +966,11 @@ function buildCloudSyncRow() {
                     status.textContent = BadaI18n.t("cloud_last_sync", { when, up, down });
                 }
             }
-        } catch (_) {
+        } catch (err) {
+            // fetch 자체 거부(서버 종료·오프라인) 와 본문 이상은 여기서 받는다. 줄은 기존 대로
+            // "대기 중" 을 유지하고, 이유("Failed to fetch" 등) 는 title 만 태운다.
             status.textContent = T.statusIdle;
+            status.title = statusFaultTitle((err && err.message) || err);
         }
     };
 

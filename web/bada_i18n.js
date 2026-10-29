@@ -85,6 +85,7 @@ export const BadaI18n = {
             "presets_modal_toast_reordered": "↕️ Preset order updated.",
             "presets_modal_confirm_delete": "Delete preset '{name}'?",
             "presets_modal_toast_deleted": "🗑️ Preset [{name}] deleted.",
+            "presets_modal_toast_server_save_failed": "⚠️ Could not save presets to the server — {why}. They are kept in this browser only, so other computers will not see them.",
             "presets_modal_on": "Enable (ON)",
             "presets_modal_off": "Disable (OFF)",
             "presets_modal_click_to": "Click to {state}",
@@ -379,6 +380,7 @@ export const BadaI18n = {
             "cloud_status_no_libs": "⚠️ Install google-api-python-client",
             "cloud_status_no_creds": "⚠️ credentials.json not found",
             "cloud_status_auth": "🔑 Authentication required",
+            "cloud_status_query_failed": "⚠️ Could not check the sync status — {why}",
             "cloud_sync_now": "☁️ Sync Now",
             "cloud_syncing": "⏳ Syncing… (click to cancel)",
             "cloud_cancelling": "⏳ Cancelling…",
@@ -799,6 +801,7 @@ export const BadaI18n = {
             "cloud_detail_cancel_idle": "Nothing to cancel — no sync is running.",
             "cloud_detail_net_failed": "❌ Could not reach the Bada server.",
             "cloud_detail_toggle_failed": "⚠️ Setting not saved — {why}",
+            "api_reason_unknown": "the server reported no reason",
         },
 
         ko: {
@@ -882,6 +885,7 @@ export const BadaI18n = {
             "presets_modal_toast_reordered": "↕️ 프리셋 순서가 변경되었습니다.",
             "presets_modal_confirm_delete": "'{name}' 프리셋을 정말 삭제하시겠습니까?",
             "presets_modal_toast_deleted": "🗑️ [{name}] 프리셋이 삭제되었습니다.",
+            "presets_modal_toast_server_save_failed": "⚠️ 프리셋을 서버에 저장하지 못했습니다 — {why}. 이 브라우저에는 저장되어 있으니 다른 컴퓨터에서는 보이지 않습니다.",
             "presets_modal_on": "적용(ON)",
             "presets_modal_off": "제외(OFF)",
             "presets_modal_click_to": "클릭하여 {state}",
@@ -1158,6 +1162,7 @@ export const BadaI18n = {
             "cloud_status_no_libs": "⚠️ google-api-python-client 설치 필요",
             "cloud_status_no_creds": "⚠️ credentials.json 없음",
             "cloud_status_auth": "🔑 인증 필요",
+            "cloud_status_query_failed": "⚠️ 동기화 상태를 확인하지 못했습니다 — {why}",
             "cloud_sync_now": "☁️ 지금 동기화",
             "cloud_syncing": "⏳ 동기화 중… (누르면 중단)",
             "cloud_cancelling": "⏳ 중단 중…",
@@ -1578,6 +1583,7 @@ export const BadaI18n = {
             "cloud_detail_cancel_idle": "취소할 동기화가 없습니다. 이미 끝난 후입니다.",
             "cloud_detail_net_failed": "❌ 서버와 통신하지 못했습니다. ComfyUI 서버 상태를 확인하세요.",
             "cloud_detail_toggle_failed": "⚠️ 설정을 저장하지 못했습니다 — {why}",
+            "api_reason_unknown": "서버가 이유를 보내지 않았습니다",
         }
     },
 

@@ -50,6 +50,18 @@ export async function readApi(res) {
     return { ok: false, data, error: String(data.error || data.message || "") || `HTTP ${res.status}` };
 }
 
+/**
+ * 한 줄로 보여줄 이유 문자열만 남긴다: 공백·개행은 한 칸으로 접고 `max` 자로 자르며, 잘렸다면 `…` 로
+ * 그 표시를 남긴다. 서버 `str(e)` 는 트레이스백 수준으로 길 수 있고 개행을 그대로 들고 오는 경우가
+ * 있어서, 토스트·title 에 얹기 전에는 반드시 이 통과를 지나게 한다. 인수가 없거나 비면 빈 문자열을
+ * 돌려주지 않고 `fallback` 을 쓴다 — `{why}` 자리가 비면 구분자만 남는 화면이 되기 때문.
+ */
+export function clipReason(value, max = 90, fallback = "") {
+    const raw = String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+    if (!raw) return String(fallback || "");
+    return raw.length > max ? `${raw.slice(0, max)}…` : raw;
+}
+
 const TOAST_STYLE_ID = "bada-shared-toast-style";
 const TOAST_CONTAINER_ID = "bada-shared-toast-container";
 
