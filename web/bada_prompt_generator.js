@@ -64,6 +64,12 @@ const I18N = {
         keyRequired: "Gemini API 키를 먼저 입력해 주세요.",
         keyOk: "✅ API 연결 정상",
         keyFail: "❌ API 연결 실패",
+        keyFailInvalidKey: "❌ API 키가 거절되었습니다. 키를 확인해 주세요.",
+        keyFailQuota: "❌ 호출 한도를 넘었습니다. 잠시 뒤 다시 시도해 주세요.",
+        keyFailRequest: "❌ 요청이 거절되었습니다. 입력한 키를 확인해 주세요.",
+        keyFailUpstream: "❌ Google 서버가 오류를 반환했습니다.",
+        keyFailTimeout: "❌ 응답이 늦습니다 (8초 초과). 네트워크를 확인해 주세요.",
+        keyFailUnreachable: "❌ Google 서버에 도달하지 못했습니다. 네트워크를 확인해 주세요.",
         saved: "저장됨",
         manageTip: "시스템 프롬프트를 등록·선택·삭제·이동합니다.",
         manageLoadFail: "⚠️ 모델 관리 모듈을 불러오지 못했습니다.",
@@ -99,6 +105,12 @@ const I18N = {
         keyRequired: "Please enter your Gemini API key first.",
         keyOk: "✅ API connected",
         keyFail: "❌ API connection failed",
+        keyFailInvalidKey: "❌ API key rejected. Check the key.",
+        keyFailQuota: "❌ Quota exceeded. Try again in a moment.",
+        keyFailRequest: "❌ Request rejected. Check the key you entered.",
+        keyFailUpstream: "❌ Google returned a server error.",
+        keyFailTimeout: "❌ No answer within 8s. Check your network.",
+        keyFailUnreachable: "❌ Could not reach Google. Check your network.",
         saved: "Saved",
         manageTip: "Create, select, delete or reorder system prompts.",
         manageLoadFail: "⚠️ Could not load the model manager.",
@@ -249,7 +261,41 @@ async function pullFromServer() {
     }
 }
 
-async function verifyKey(key) {
+// 서버 /gemini/test 가 실패마다 싣는 기호 값(code) → 이 파일 사전 키. 사전에 없는(= 미래의)
+// 코드나 구버전 서버가 코드를 안 준 응답은 원문만 붙여 보여주므로 화면이 침묵하지 않는다.
+const KEY_FAIL_KEYS = {
+    no_key: "keyRequired",
+    invalid_key: "keyFailInvalidKey",
+    quota: "keyFailQuota",
+    bad_request: "keyFailRequest",
+    upstream: "keyFailUpstream",
+    timeout: "keyFailTimeout",
+    unreachable: "keyFailUnreachable",
+};
+
+// 서버가 "자기 문구"를 그대로 되돌려 보내는 코드 (server/gemini_api.py 의 고정 문자열).
+// 이 경우 원문을 붙이면 같은 말을 두 번 읽게 되고, 언어를 바꾼 화면에선 남의 언어
+// 문장이 이유 자리에 뜨므로 코드로 판정해 붙이지 않는다.
+const KEY_FAIL_ECHO_CODES = new Set(["no_key"]);
+
+// 서버 원문(Google 메시지)은 언어가 섞여 있어 보조 자리에만 쓴다. 길이가 천 자인 응답도
+// 있으므로 토스트에서 자른다 — 잘린 줄은 … 로 표시해 원문이 짧지 않았음을 남긴다.
+function keyFailMessage(data) {
+    const raw = String((data && (data.error || data.message)) || "").replace(/\s+/g, " ").trim();
+    const why = raw.length > 90 ? `${raw.slice(0, 90)}…` : raw;
+    const code = String((data && data.code) || "");
+    // code 는 외부에서 온 문자열이라 그 자체로 사전 검색에 쓴다. 프로토타입을 타고
+    // 올라가 "constructor" 같은 값이 사전 키로 잡히지 않도록 객체 자체의 키만 인정한다.
+    const known = Object.prototype.hasOwnProperty.call(KEY_FAIL_KEYS, code);
+    const base = known ? t(KEY_FAIL_KEYS[code]) : t("keyFail");
+    // 구버전 서버가 코드를 안 주는 경우를 대비해 문자열 동일성도 본다. 지나치게 짧은
+    // 문자열이 우연히 걸려 진짜 이유를 지우면 안 되어 길이 제한을 둔다.
+    const dup = KEY_FAIL_ECHO_CODES.has(code) || (why.length >= 8 && base.includes(why));
+    return why && !dup ? `${base} — ${why}` : base;
+}
+
+// export: 노드를 실제로 만들지 않고 이 확인 경로만 검사할 수 있게 (회귀 테스트용)
+export async function verifyKey(key) {
     const target = (key || "").trim();
     if (!target) {
         showToast(t("keyRequired"), "warn", 3400);
@@ -266,11 +312,13 @@ async function verifyKey(key) {
             showToast(t("keyOk"), "ok", 2600);
             return true;
         }
-        showToast(t("keyFail"), "err", 5200);
+        // 실패 이유 없이 "연결 실패"만 뜨면 사용자가 키 문제인지 네트워크인지 못 가른다 (P2-A)
+        showToast(keyFailMessage(data), "err", 6200);
         return false;
     } catch (err) {
         console.warn("[BadaPromptGen] API key check failed:", err);
-        showToast(t("keyFail"), "err", 5200);
+        // fetch 자체가 실패하면(서버 종료) 이유 문자열은 사용자에게 소용없다 → 정해진 문구
+        showToast(t("keyFailUnreachable"), "err", 6200);
         return false;
     }
 }

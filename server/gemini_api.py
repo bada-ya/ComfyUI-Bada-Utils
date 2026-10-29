@@ -11,6 +11,7 @@ Ported from https://bada-ya.github.io/AI-Prompt-Studio-and-Text-Transformer/:
 import os
 import re
 import json
+import asyncio
 import logging
 import aiohttp
 from aiohttp import web
@@ -530,6 +531,20 @@ def _int_field(body: dict, key: str, default: int) -> int:
         raise ValueError(f"'{key}' must be a number") from None
 
 
+def _gemini_test_error_code(status: int) -> str:
+    # 프론트 사전 키로 쓰는 기호 값. 사람이 읽는 문구는 error 에 그대로 두고, 이 값은
+    # 언어와 무관하게 "어떤 종류 실패인지"만 전달한다 (401/403 = 키 문제, 429 = 한도).
+    if status in (401, 403):
+        return "invalid_key"
+    if status == 429:
+        return "quota"
+    if status in (400, 404):
+        return "bad_request"
+    if 500 <= status < 600:
+        return "upstream"
+    return "unknown"
+
+
 def register_gemini_api_routes():
     try:
         import server
@@ -593,7 +608,7 @@ def register_gemini_api_routes():
                 api_key = req_key or cfg.get("api_key", "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
 
                 if not api_key:
-                    return web.json_response({"success": False, "error": "API 키를 먼저 입력해 주세요."}, status=400)
+                    return web.json_response({"success": False, "error": "API 키를 먼저 입력해 주세요.", "code": "no_key"}, status=400)
 
                 start_time = time.time()
                 url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
@@ -618,10 +633,21 @@ def register_gemini_api_routes():
                             return web.json_response({
                                 "success": False,
                                 "error": err_msg,
-                                "status_code": resp.status
+                                "status_code": resp.status,
+                                "code": _gemini_test_error_code(resp.status)
                             })
+            except asyncio.TimeoutError:
+                # ClientTimeout(total=8) 초과 경로. 이 예는 str(e) 가 빈 문자열인 경우가 많아
+                # 아래 일반 분기로 떨어지면 "이유가 아무것도 없는 실패" 가 화면까지 간다.
+                logger.warning("[bada-AsyncGemini] /gemini/test upstream timed out after 8s")
+                return web.json_response({"success": False, "error": "Upstream timed out after 8s", "code": "timeout"}, status=504)
+            except aiohttp.ClientError as exc:
+                # DNS 실패·연결 거부 등 = 키 문제와 별개. 키가 이상하다는 안내는 오도가도 못 된다.
+                logger.warning(f"[bada-AsyncGemini] /gemini/test connection error: {exc!r}")
+                return web.json_response({"success": False, "error": f"Connection error: {exc}", "code": "unreachable"}, status=502)
             except Exception as e:
-                return web.json_response({"success": False, "error": str(e)}, status=500)
+                logger.warning(f"[bada-AsyncGemini] /gemini/test failed: {e!r}")
+                return web.json_response({"success": False, "error": str(e), "code": "server_error"}, status=500)
 
         @routes.post("/api/bada/gemini/generate")
         async def generate_prompt_handler(request):
