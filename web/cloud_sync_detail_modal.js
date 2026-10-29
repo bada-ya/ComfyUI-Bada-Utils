@@ -255,7 +255,7 @@ async function fetchRemoteSnapshot() {
         const syncBtnNow = detailModalEl ? detailModalEl.querySelector("#bada-detail-sync-btn") : null;
         const busyNow = !!syncBtnNow && syncBtnNow.dataset && syncBtnNow.dataset.mode === "cancel";
         if (fracNow && !busyNow) {
-            fracNow.textContent = isRemoteChecking() ? (isKoNow ? "확인 중…" : "Checking...") : (isKoNow ? "대기 중" : "Idle");
+            fracNow.textContent = isRemoteChecking() ? (BadaI18n.t("cloud_state_checking")) : (BadaI18n.t("cloud_state_idle"));
         }
     } catch (_) {}
 }
@@ -274,11 +274,11 @@ function paintDetailProgress(s) {
         if (s.syncing) {
             const done = prog.done ?? 0;
             const total = prog.total ?? 0;
-            syncBtn.textContent = isKo ? `⏹ 중단 (${done}/${total})` : `⏹ Cancel (${done}/${total})`;
+            syncBtn.textContent = BadaI18n.t("cloud_btn_cancel_progress", { done, total });
             syncBtn.dataset.mode = "cancel";
             syncBtn.style.cssText = "background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; border-radius:6px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer;";
         } else {
-            syncBtn.textContent = isKo ? "☁️ 지금 동기화" : "☁️ Sync now";
+            syncBtn.textContent = BadaI18n.t("cloud_btn_sync_now");
             syncBtn.dataset.mode = "sync";
             syncBtn.style.cssText = "background:rgba(14,165,233,0.2); border:1px solid rgba(14,165,233,0.4); color:#e0f2fe; border-radius:6px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer;";
         }
@@ -292,27 +292,25 @@ function paintDetailProgress(s) {
         if (frac) frac.textContent = `${done}/${total} (${pct}%)`;
         if (cur) {
             const full = prog.current || "";
-            cur.textContent = full ? truncName(full) : (isKo ? "준비 중…" : "Preparing…");
+            cur.textContent = full ? truncName(full) : (BadaI18n.t("cloud_state_preparing"));
             cur.title = full;
         }
-        if (stateLine) stateLine.textContent = isKo
-            ? "⏳ 동기화 중 — 창을 닫아도 백그라운드에서 계속됩니다."
-            : "⏳ Syncing — continues in background if closed.";
+        if (stateLine) stateLine.textContent = BadaI18n.t("cloud_state_syncing_bg");
     } else {
         if (bar) bar.style.width = "0%";
         if (frac) {
             if (isRemoteChecking()) {
-                frac.textContent = isKo ? "확인 중…" : "Checking...";
+                frac.textContent = BadaI18n.t("cloud_state_checking");
             } else {
-                frac.textContent = isKo ? "대기 중" : "Idle";
+                frac.textContent = BadaI18n.t("cloud_state_idle");
             }
         }
         if (cur) { cur.textContent = ""; cur.title = ""; }
         const ls = s.last_sync || detailLastSyncSnapshot || {};
         const when = fmtTime(ls.last_sync_at);
         if (stateLine) stateLine.textContent = when
-            ? (isKo ? `마지막 동기화 ${when} (↑${ls.uploaded ?? 0} ↓${ls.downloaded ?? 0})` : `Last sync ${when} (↑${ls.uploaded ?? 0} ↓${ls.downloaded ?? 0})`)
-            : (isKo ? "아직 동기화한 적 없음" : "Never synced yet");
+            ? BadaI18n.t("cloud_lbl_last_sync_counts", { when, up: ls.uploaded ?? 0, down: ls.downloaded ?? 0 })
+            : (BadaI18n.t("cloud_lbl_never_synced"));
     }
     paintDetailFiles();
 }
@@ -345,7 +343,7 @@ async function callOpenLocal(name, btn) {
     const baseTitle = btn.title || "";
     btn.disabled = true;
     // 체감 완화: 서버 응답(즉시) 전이라도 버튼을 먼저 "여는 중…"으로 전환 — 탐색기는 곧 떠 있음.
-    btn.textContent = isKo ? "⏳ 여는 중…" : "⏳ Opening…";
+    btn.textContent = BadaI18n.t("cloud_btn_opening");
     try {
         const r = await fetch("/api/bada/cloud/open-local", {
             method: "POST",
@@ -354,13 +352,13 @@ async function callOpenLocal(name, btn) {
         });
         const s = await r.json();
         if (s.success) {
-            btn.textContent = isKo ? "✅ 열림" : "✅ Opened";
+            btn.textContent = BadaI18n.t("cloud_btn_opened");
         } else {
-            btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+            btn.textContent = BadaI18n.t("cloud_btn_failed");
             btn.title = s.error || "";
         }
     } catch (_) {
-        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+        btn.textContent = BadaI18n.t("cloud_btn_failed");
     }
     scheduleOpenButtonRevert(btn, baseLabel, baseTitle);
 }
@@ -380,14 +378,14 @@ async function callOpenDrive(name, btn) {
         const s = await r.json();
         if (s.success && s.url) {
             window.open(s.url, "_blank", "noopener");
-            btn.textContent = isKo ? "✅ 열림" : "✅ Opened";
+            btn.textContent = BadaI18n.t("cloud_btn_opened");
             btn.title = s.url;
         } else {
-            btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+            btn.textContent = BadaI18n.t("cloud_btn_failed");
             btn.title = s.error || "";
         }
     } catch (_) {
-        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+        btn.textContent = BadaI18n.t("cloud_btn_failed");
     }
     scheduleOpenButtonRevert(btn, baseLabel, baseTitle);
 }
@@ -470,12 +468,10 @@ async function scanCustomResidue() {
 // 잔해 1개를 Drive 휴지통으로 이동 — 영구 파기 아님(30일 복원). 동기화 대상은 서버가 거부한다.
 async function purgeCustomResidue(name, btn, isKo) {
     if (!btn || btn.disabled) return;
-    const msg = isKo
-        ? `Drive 의 'Custom/${name}' 을 정리할까요?\n\n이 대상은 이미 동기화에서 제외되어 어느 PC 의 파일에도 영향을 주지 않습니다.\nDrive 휴지통으로만 이동하며 30일 안에 복원할 수 있습니다.`
-        : `Move 'Custom/${name}' to the Drive trash?\n\nThis target is already excluded from sync — no PC's files are affected.\nIt is only moved to the Drive trash (restorable for 30 days).`;
+    const msg = BadaI18n.t("cloud_confirm_purge_residue", { name });
     if (!confirm(msg)) return;
     btn.disabled = true;
-    btn.textContent = isKo ? "정리 중…" : "Moving…";
+    btn.textContent = BadaI18n.t("cloud_btn_moving");
     try {
         const r = await fetch("/api/bada/cloud/custom-residue-purge", {
             method: "POST",
@@ -489,13 +485,13 @@ async function purgeCustomResidue(name, btn, isKo) {
             return;
         }
         btn.title = String((s && s.error) || "");
-        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+        btn.textContent = BadaI18n.t("cloud_btn_failed");
     } catch (err) {
         btn.title = String(err || "");
-        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+        btn.textContent = BadaI18n.t("cloud_btn_failed");
     }
-    scheduleOpenButtonRevert(btn, isKo ? "🗑 Drive에서 정리" : "🗑 Purge from Drive",
-        isKo ? "이 폴더를 Drive 휴지통으로 (30일 복원 가능)" : "Move this folder to the Drive trash (30-day restore)");
+    scheduleOpenButtonRevert(btn, BadaI18n.t("cloud_btn_purge_drive"),
+        BadaI18n.t("cloud_tip_purge_folder"));
 }
 
 // ── Drive 잔해 섹션 — 제외된 대상이 Drive 에 남긴 파일을 눈으로 확인시키고 정리한다.
@@ -512,16 +508,14 @@ function paintCustomResidue(sec, isKo) {
     const totalMB = (customResidue.reduce((n, o) => n + (Number(o.bytes) || 0), 0) / 1048576).toFixed(1);
     const title = document.createElement("span");
     title.textContent = customResidue.length
-        ? (isKo ? `🧹 Drive에 남은 잔해 ${customResidue.length}건 · ${totalMB}MB`
-                : `🧹 Drive leftovers ${customResidue.length} · ${totalMB}MB`)
-        : (isKo ? "🧹 Drive 잔해" : "🧹 Drive leftovers");
+        ? BadaI18n.t("cloud_residue_count_title", { count: customResidue.length, mb: totalMB })
+        : (BadaI18n.t("cloud_residue_title"));
     head.appendChild(title);
     const again = document.createElement("button");
     again.type = "button";
     again.style.cssText = "flex-shrink:0; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#bae6fd; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
-    again.textContent = customResidueLoading ? (isKo ? "확인 중…" : "Scanning…") : (isKo ? "🔄 다시 확인" : "🔄 Re-scan");
-    again.title = isKo ? "Drive Custom/ 트리를 다시 훑습니다 (읽기 전용 — 아무것도 지우지 않음)"
-                       : "Re-scan the Drive Custom/ tree (read-only — nothing is deleted)";
+    again.textContent = customResidueLoading ? (BadaI18n.t("cloud_btn_state_scanning")) : (BadaI18n.t("cloud_btn_rescan"));
+    again.title = BadaI18n.t("cloud_tip_rescan");
     again.disabled = customResidueLoading;
     again.addEventListener("click", () => scanCustomResidue());
     head.appendChild(again);
@@ -533,31 +527,27 @@ function paintCustomResidue(sec, isKo) {
         const when = document.createElement("div");
         when.style.cssText = "margin-top:2px; font-size:11px; color:#94a3b8;";
         const ts = new Date(customResidueScannedAt * 1000).toLocaleTimeString();
-        when.textContent = (isKo ? "마지막 확인: " : "Last checked: ") + ts
-            + (customResidueLoading ? (isKo ? " (확인 중…)" : " (scanning…)") : "");
+        when.textContent = (BadaI18n.t("cloud_lbl_last_checked")) + ts
+            + (customResidueLoading ? (BadaI18n.t("cloud_suffix_scanning")) : "");
         box.appendChild(when);
     }
 
     if (customResidueError) {
         const err = document.createElement("div");
         err.style.cssText = "margin-top:4px; color:#fca5a5;";
-        err.textContent = (isKo ? "잔해 확인 실패: " : "Residue scan failed: ") + customResidueError;
+        err.textContent = (BadaI18n.t("cloud_err_residue_scan")) + customResidueError;
         box.appendChild(err);
     }
     if (customResidueTruncated) {
         const warn = document.createElement("div");
         warn.style.cssText = "margin-top:4px; color:#fbbf24;";
-        warn.textContent = isKo
-            ? "⚠️ 폴더 수가 많아 일부만 확인했습니다 — 목록이 실제보다 짧을 수 있습니다."
-            : "⚠️ Too many folders — only part of the tree was scanned.";
+        warn.textContent = BadaI18n.t("cloud_residue_truncated");
         box.appendChild(warn);
     }
     if (!customResidue.length) {
         const ok = document.createElement("div");
         ok.style.cssText = "margin-top:4px; color:#86efac;";
-        ok.textContent = isKo
-            ? "✅ 동기화 범위 밖의 Drive 잔해가 없습니다."
-            : "✅ No Drive copies outside the sync scope.";
+        ok.textContent = BadaI18n.t("cloud_residue_none");
         box.appendChild(ok);
     }
     for (const o of customResidue) {
@@ -565,17 +555,14 @@ function paintCustomResidue(sec, isKo) {
         row.style.cssText = "display:flex; align-items:center; gap:8px; margin-top:5px; color:#e2e8f0; word-break:break-all;";
         const mb = ((Number(o.bytes) || 0) / 1048576).toFixed(1);
         const info = document.createElement("span");
-        info.textContent = `☁️ Custom/${o.name} — ` + (isKo
-            ? `파일 ${Number(o.files) || 0}개 · ${mb}MB`
-            : `${Number(o.files) || 0} files · ${mb}MB`);
-        info.title = isKo ? "동기화에서 제외되었지만 Drive 에 남아 용량을 차지합니다"
-                          : "Excluded from sync but still stored in Drive";
+        info.textContent = `☁️ Custom/${o.name} — ` + BadaI18n.t("cloud_frag_files_mb", { files: Number(o.files) || 0, mb });
+        info.title = BadaI18n.t("cloud_tip_residue_row");
         row.appendChild(info);
         const btn = document.createElement("button");
         btn.type = "button";
         btn.style.cssText = "flex-shrink:0; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
-        btn.textContent = isKo ? "🗑 Drive에서 정리" : "🗑 Purge from Drive";
-        btn.title = isKo ? "Drive 휴지통으로 이동 (30일 복원 가능)" : "Move to the Drive trash (restorable for 30 days)";
+        btn.textContent = BadaI18n.t("cloud_btn_purge_drive");
+        btn.title = BadaI18n.t("cloud_tip_purge_trash");
         btn.addEventListener("click", () => purgeCustomResidue(String(o.name || ""), btn, isKo));
         row.appendChild(btn);
         box.appendChild(row);
@@ -583,9 +570,7 @@ function paintCustomResidue(sec, isKo) {
 
     const note = document.createElement("div");
     note.style.cssText = "margin-top:6px; font-size:11px; color:#94a3b8;";
-    note.textContent = isKo
-        ? "정리는 Drive 휴지통으로 이동만 합니다 (30일 복원 가능) — 현재 동기화 대상은 이 목록에 나타나지 않습니다."
-        : "Purging only moves folders to the Drive trash (30-day restore) — active targets never appear here.";
+    note.textContent = BadaI18n.t("cloud_residue_note");
     box.appendChild(note);
     sec.appendChild(box);
 }
@@ -627,10 +612,10 @@ function paintCustomBrowseTree(sec, isKo) {
     head.appendChild(crumb);
     const hereBtn = document.createElement("button");
     hereBtn.type = "button";
-    hereBtn.textContent = isKo ? "현재 폴더 선택" : "Select folder";
+    hereBtn.textContent = BadaI18n.t("cloud_browse_btn_select");
     if (!key || !snap) {
         hereBtn.disabled = true;
-        hereBtn.title = isKo ? "하위 폴더로 이동한 뒤 선택" : "Enter a subfolder first";
+        hereBtn.title = BadaI18n.t("cloud_browse_tip_enter_first");
         hereBtn.style.cssText = "flex-shrink:0;background:rgba(148,163,184,0.1);border:1px solid rgba(148,163,184,0.25);color:#64748b;border-radius:6px;padding:3px 10px;font-size:11px;cursor:not-allowed;";
     } else {
         hereBtn.title = snap.path || "";
@@ -648,18 +633,18 @@ function paintCustomBrowseTreeBody(box, isKo, key, snap) {
     if (customBrowseLoading === key) {
         const ld = document.createElement("div");
         ld.style.cssText = "padding:8px 4px;color:#94a3b8;";
-        ld.textContent = isKo ? "불러오는 중…" : "Loading…";
+        ld.textContent = BadaI18n.t("cloud_browse_loading");
         box.appendChild(ld);
         return;
     }
     if (customBrowseError || !snap) {
         const er = document.createElement("div");
         er.style.cssText = "padding:6px 4px;color:#fca5a5;";
-        er.textContent = "⚠️ " + (customBrowseError || (isKo ? "목록 없음" : "No data"));
+        er.textContent = "⚠️ " + (customBrowseError || (BadaI18n.t("cloud_browse_no_data")));
         box.appendChild(er);
         const retry = document.createElement("button");
         retry.type = "button";
-        retry.textContent = isKo ? "다시 시도" : "Retry";
+        retry.textContent = BadaI18n.t("cloud_browse_btn_retry");
         retry.style.cssText = "background:none;border:1px solid rgba(148,163,184,0.35);color:#94a3b8;border-radius:6px;padding:2px 10px;font-size:11px;cursor:pointer;margin:2px 0 4px 4px;";
         retry.addEventListener("click", () => { delete customBrowseCache[key]; fetchCustomBrowse(key); });
         box.appendChild(retry);
@@ -701,7 +686,7 @@ function paintCustomBrowseRows(box, isKo, snap) {
         const left = document.createElement("span");
         left.style.cssText = "color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;cursor:pointer;";
         left.textContent = icon + " " + label + (sub ? "  (" + sub + ")" : "") + (selected ? " ✅" : "");
-        left.title = (enterRel ? (isKo ? "클릭: 폴더 안으로 진입" : "Click: enter folder") + " · " : "") + (absPath || "");
+        left.title = (enterRel ? (BadaI18n.t("cloud_browse_tip_enter")) + " · " : "") + (absPath || "");
         left.addEventListener("click", (e) => {
             e.stopPropagation();
             if (enterRel) { customBrowseRel = enterRel; fetchCustomBrowse(enterRel); }
@@ -718,13 +703,13 @@ function paintCustomBrowseRows(box, isKo, snap) {
     if (!folders.length && !files.length) {
         const em = document.createElement("div");
         em.style.cssText = "padding:8px 4px;color:#64748b;";
-        em.textContent = isKo ? "빈 폴더입니다" : "Empty folder";
+        em.textContent = BadaI18n.t("cloud_browse_empty");
         box.appendChild(em);
     }
     if ((snap && snap.truncated_dirs) || (snap && snap.truncated_files)) {
         const tr = document.createElement("div");
         tr.style.cssText = "padding:4px 6px;font-size:11px;color:#fbbf24;";
-        tr.textContent = isKo ? "⚠️ 항목이 많아 일부만 표시 — 하위 폴더로 이동" : "⚠️ Showing first 300 — enter a subfolder";
+        tr.textContent = BadaI18n.t("cloud_browse_truncated");
         box.appendChild(tr);
     }
 }
@@ -744,10 +729,10 @@ async function fetchCustomBrowse(rel) {
             customBrowseCache[key] = s;
             customBrowseError = "";
         } else {
-            customBrowseError = s.error || (isKo ? "목록을 불러오지 못했습니다" : "Failed to load");
+            customBrowseError = s.error || (BadaI18n.t("cloud_browse_load_failed"));
         }
     } catch (_) {
-        customBrowseError = isKo ? "서버 오류 — 다시 시도하세요 (ComfyUI 재시작 필요 가능)" : "Server error — retry (may need ComfyUI restart)";
+        customBrowseError = BadaI18n.t("cloud_browse_server_error");
     }
     customBrowseLoading = null;
     paintDetailFiles();
@@ -762,7 +747,7 @@ function paintCustomSection(body, isKo) {
     const header = document.createElement("div");
     header.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:12px; line-height:1.9;";
     const title = document.createElement("span");
-    title.textContent = isKo ? `📂 커스텀 동기화 대상 (${customFolders.length}개)` : `📂 Custom sync targets (${customFolders.length})`;
+    title.textContent = BadaI18n.t("cloud_custom_targets_title", { count: customFolders.length });
     title.style.cssText = "font-size:13px; font-weight:700; color:#e2e8f0;";
     header.appendChild(title);
 
@@ -779,9 +764,9 @@ function paintCustomSection(body, isKo) {
     swInput.checked = customSyncEnabled;
     if (!customProActive) {
         swInput.disabled = true;
-        swInput.title = isKo ? "Bada PRO 미발급 — 발급 후 사용 가능" : "Bada PRO required — activate to use";
+        swInput.title = BadaI18n.t("cloud_tip_pro_required");
     } else {
-        swInput.title = isKo ? "커스텀 동기화 ON/OFF (폴더·파일)" : "Custom sync ON/OFF (folders & files)";
+        swInput.title = BadaI18n.t("cloud_tip_sync_toggle");
     }
     const swSpan = document.createElement("span");
     swSpan.className = "bada-cloud-slider";
@@ -817,9 +802,9 @@ function paintCustomSection(body, isKo) {
     } else {
         addBtn.disabled = true;
         addBtn.style.cssText = "background:rgba(148,163,184,0.1); border:1px solid rgba(148,163,184,0.25); color:#64748b; border-radius:6px; padding:3px 12px; font-size:12px; font-weight:700; cursor:not-allowed;";
-        addBtn.title = isKo ? "Bada PRO 미발급 — 발급 후 사용 가능" : "Bada PRO required — activate to use";
+        addBtn.title = BadaI18n.t("cloud_tip_pro_required");
     }
-    addBtn.textContent = isKo ? "+ 추가" : "+ Add";
+    addBtn.textContent = BadaI18n.t("cloud_btn_add");
     rightCtl.appendChild(addBtn);
 
     header.appendChild(rightCtl);
@@ -835,7 +820,7 @@ function paintCustomSection(body, isKo) {
         input.type = "text";
         input.dataset.field = "customPath"; // 재렌더 시 포커스 복원용 식별자
         input.value = customAddDraft;
-        input.placeholder = isKo ? '직접 입력/붙여넣기 또는 아래 목록에서 선택' : 'Type/paste a path or pick from the list below';
+        input.placeholder = BadaI18n.t("cloud_ph_path");
         input.style.cssText = "flex:1; min-width:0; background:rgba(30,41,59,0.6); border:1px solid rgba(148,163,184,0.35); color:#e2e8f0; border-radius:6px; padding:5px 10px; font-size:12px;";
         input.addEventListener("input", () => { customAddDraft = input.value; });
 
@@ -844,14 +829,14 @@ function paintCustomSection(body, isKo) {
         nameInput.type = "text";
         nameInput.dataset.field = "customName"; // 재렌더 시 포커스 복원용 식별자
         nameInput.value = customAddName;
-        nameInput.placeholder = isKo ? "(선택 — 비워두면 로컬 이름 사용)" : "(optional — blank = use local name)";
+        nameInput.placeholder = BadaI18n.t("cloud_ph_name");
         nameInput.style.cssText = "flex:0 1 220px; min-width:0; background:rgba(30,41,59,0.6); border:1px dashed rgba(148,163,184,0.4); color:#e2e8f0; border-radius:6px; padding:5px 10px; font-size:12px;";
         nameInput.addEventListener("input", () => { customAddName = nameInput.value; });
 
         const okBtn = document.createElement("button");
         okBtn.type = "button";
         okBtn.style.cssText = "flex-shrink:0; background:rgba(34,197,94,0.2); border:1px solid rgba(34,197,94,0.5); color:#bbf7d0; border-radius:6px; padding:5px 14px; font-size:12px; font-weight:700; cursor:pointer;";
-        okBtn.textContent = isKo ? "확인" : "Add";
+        okBtn.textContent = BadaI18n.t("cloud_btn_add_confirm");
 
         const cancelBtn = document.createElement("button");
         cancelBtn.type = "button";
@@ -861,8 +846,8 @@ function paintCustomSection(body, isKo) {
         // 미니 트리 토글 — ComfyUI 내부 목록에서 클릭 선택 (붙여넣기 대체).
         const browseBtn = document.createElement("button");
         browseBtn.type = "button";
-        browseBtn.textContent = customBrowseOpen ? (isKo ? "📁 목록 닫기" : "📁 Hide list") : (isKo ? "📁 목록에서 선택" : "📁 Browse");
-        browseBtn.title = isKo ? "ComfyUI 폴더 목록에서 폴더/파일 선택" : "Pick a folder/file from the ComfyUI folder list";
+        browseBtn.textContent = customBrowseOpen ? (BadaI18n.t("cloud_btn_hide_list")) : (BadaI18n.t("cloud_btn_browse"));
+        browseBtn.title = BadaI18n.t("cloud_tip_browse");
         browseBtn.style.cssText = "flex-shrink:0; background:rgba(14,165,233,0.15); border:1px solid rgba(14,165,233,0.4); color:#bae6fd; border-radius:6px; padding:5px 10px; font-size:12px; cursor:pointer;";
         browseBtn.addEventListener("click", () => {
             customBrowseOpen = !customBrowseOpen;
@@ -887,14 +872,14 @@ function paintCustomSection(body, isKo) {
             if (okBtn.disabled) return;
             // 다중 줄(여러 경로 일괄 붙여넣기) 차단 — 안내 메시지만 표시.
             if (/[\r\n]/.test(customAddDraft)) {
-                customAddError = isKo ? "여러 경로를 붙여넣으셨습니다 — 한 번에 하나씩 등록해 주세요" : "Multiple paths pasted — add them one at a time";
+                customAddError = BadaI18n.t("cloud_err_multiple_paths");
                 paintDetailFiles();
                 return;
             }
             // 따옴표·공백 자동 제거 (탐색기 "경로로 복사"는 양쪽 \"...\" 포함).
             const cleanPath = customAddDraft.trim().replace(/^\"+|\"+$/g, "").trim();
             if (!cleanPath) {
-                customAddError = isKo ? "경로를 입력해 주세요" : "Please enter a path";
+                customAddError = BadaI18n.t("cloud_err_path_empty");
                 paintDetailFiles();
                 return;
             }
@@ -921,11 +906,11 @@ function paintCustomSection(body, isKo) {
                     customBrowseError = "";
                     fetchCustomFolders(); // 목록 + 개수 갱신
                 } else {
-                    customAddError = s.error || (isKo ? "등록 실패" : "Failed to add");
+                    customAddError = s.error || (BadaI18n.t("cloud_err_add_failed"));
                     paintDetailFiles();
                 }
             } catch (_) {
-                customAddError = isKo ? "서버 오류 — 다시 시도하세요" : "Server error — retry";
+                customAddError = BadaI18n.t("cloud_err_server");
                 paintDetailFiles();
             }
         };
@@ -981,7 +966,7 @@ function paintCustomSection(body, isKo) {
         const empty = document.createElement("div");
         if (customProActive) {
             empty.style.cssText = "border:1px dashed rgba(148,163,184,0.35); border-radius:8px; padding:12px 14px; margin-top:8px; font-size:12px; color:#94a3b8; text-align:center; cursor:pointer;";
-            empty.textContent = isKo ? "아직 동기화 대상이 없습니다 — 클릭하여 폴더 또는 파일 추가" : "No sync targets yet — click to add a folder or file";
+            empty.textContent = BadaI18n.t("cloud_lbl_empty_targets");
             empty.addEventListener("click", () => {
                 customAddOpen = true;
                 customBrowseOpen = true;
@@ -991,9 +976,7 @@ function paintCustomSection(body, isKo) {
         } else {
             // Bada PRO 미발급 — 발급 안내 (클릭 무반응).
             empty.style.cssText = "border:1px dashed rgba(245,158,11,0.4); border-radius:8px; padding:12px 14px; margin-top:8px; font-size:12px; color:#fbbf24; text-align:center; cursor:not-allowed;";
-            empty.textContent = isKo
-                ? "👑 Bada PRO 미발급 — 설정 > 클라우드 동기화에서 발급받은 JSON 자격증명 파일을 드래그&드롭하세요"
-                : "👑 Bada PRO not activated — drag & drop your issued JSON credential file in Settings > Cloud Sync";
+            empty.textContent = BadaI18n.t("cloud_pro_locked_browse_hint");
         }
         sec.appendChild(empty);
     }
@@ -1005,22 +988,22 @@ function paintCustomSection(body, isKo) {
         // 오른쪽: 로컬 개수 · 원격 개수/상태 (built-in workflows 패턴 재사용).
         let rightTxt;
         if (!f.exists) {
-            rightTxt = isKo ? "로컬에 없음" : "missing locally";
+            rightTxt = BadaI18n.t("cloud_badge_missing_local");
         } else if (cnt && typeof cnt.local_count === "number") {
-            const lc = `${isKo ? "로컬 " : "local "}${cnt.local_count}${isKo ? "개" : ""}`;
+            const lc = BadaI18n.t("cloud_frag_local_count", { count: cnt.local_count });
             let rc;
             if (typeof cnt.remote_count === "number") {
-                rc = `${isKo ? "원격 " : "remote "}${cnt.remote_count}${isKo ? "개" : ""}`;
+                rc = BadaI18n.t("cloud_frag_remote_count", { count: cnt.remote_count });
                 const diff = cnt.local_count - cnt.remote_count;
-                if (diff > 0) rc += isKo ? ` (⏳ ${diff}개 차이)` : ` (⏳ ${diff} pending)`;
-                else if (diff < 0) rc += isKo ? ` (☁️ ${-diff}개 많음)` : ` (☁️ ${-diff} more)`;
+                if (diff > 0) rc += BadaI18n.t("cloud_frag_diff_pending", { diff });
+                else if (diff < 0) rc += BadaI18n.t("cloud_frag_diff_more", { n: -diff });
                 else rc += " ✅";
             } else {
-                rc = cnt.remote_exists ? (isKo ? "원격 있음" : "remote ✓") : (isKo ? "원격 없음" : "no remote");
+                rc = cnt.remote_exists ? (BadaI18n.t("cloud_badge_remote_yes")) : (BadaI18n.t("cloud_badge_remote_none"));
             }
             rightTxt = `${lc} · ${rc}`;
         } else {
-            rightTxt = isKo ? "확인 중…" : "checking…";
+            rightTxt = BadaI18n.t("cloud_badge_checking");
         }
 
         const wrap = document.createElement("div");
@@ -1045,13 +1028,13 @@ function paintCustomSection(body, isKo) {
         const p1 = document.createElement("span");
         p1.textContent = `${typeIcon} ${f.path}`;
         // rel_path 는 Drive 로 공유되는 ComfyUI 루트 기준 상대경로 — 타 PC 에서도 동일 대상이 해석됨.
-        p1.title = f.rel_path ? `${f.path}\n(Drive 공유 상대경로: ${f.rel_path})` : f.path;
+        p1.title = f.rel_path ? BadaI18n.t("cloud_tip_rel_path", { path: f.path, rel: f.rel_path }) : f.path;
         l1.appendChild(p1);
         if (f.exists) {
             const openBtn = document.createElement("button");
             openBtn.type = "button";
             openBtn.style.cssText = "flex-shrink:0; background:rgba(34,197,94,0.15); border:1px solid rgba(34,197,94,0.4); color:#bbf7d0; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
-            openBtn.textContent = isKo ? "📂 로컬 열기" : "📂 Open local";
+            openBtn.textContent = BadaI18n.t("cloud_btn_open_local");
             openBtn.title = f.path;
             openBtn.addEventListener("click", (e) => { e.stopPropagation(); callOpenLocal(`custom:${f.name}`, openBtn); });
             l1.appendChild(openBtn);
@@ -1059,19 +1042,15 @@ function paintCustomSection(body, isKo) {
         const rmBtn = document.createElement("button");
         rmBtn.type = "button";
         rmBtn.style.cssText = "flex-shrink:0; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
-        rmBtn.textContent = isKo ? "✕ 제거" : "✕ Remove";
-        rmBtn.title = isKo ? "등록 해제 (로컬·Drive 파일은 삭제되지 않음)" : "Unregister only — local & Drive files are kept";
+        rmBtn.textContent = BadaI18n.t("cloud_btn_remove");
+        rmBtn.title = BadaI18n.t("cloud_tip_remove");
         rmBtn.addEventListener("click", async (e) => {
             e.stopPropagation();
             if (rmBtn.disabled) return;
             // 제거 = 동기화 범위에서만 제외 (오클릭 방지 확인). Drive 복사본 정리는 사용자가 직접 고른다.
-            const msg = isKo
-                ? `'${f.name}' 대상을 동기화에서 제거할까요?\n\n모든 PC의 동기화 범위에서만 제외되고, 로컬 파일은 그대로 남습니다.`
-                : `Remove '${f.name}' from sync targets?\n\nIt is only excluded from sync on all PCs — local files stay untouched.`;
+            const msg = BadaI18n.t("cloud_confirm_remove_target", { name: f.name });
             if (!confirm(msg)) return;
-            const purgeMsg = isKo
-                ? `이어서 Drive 복사본을 정할까요?\n\n[예] Drive 복사본도 정리 — Drive 휴지통으로 이동 (30일 복원 가능)\n[아니오] 등록만 해제 — Drive 복사본은 Drive 에 그대로 남음`
-                : `Next: what about the Drive copy?\n\n[Yes] Also purge the Drive copy — moved to the Drive trash (30-day restore)\n[No] Unregister only — the Drive copy stays in Drive`;
+            const purgeMsg = BadaI18n.t("cloud_confirm_purge_drive_copy");
             const purgeRemote = confirm(purgeMsg);
             rmBtn.disabled = true;
             try {
@@ -1083,22 +1062,22 @@ function paintCustomSection(body, isKo) {
                 const s = await r.json();
                 if (s.success) {
                     rmBtn.textContent = s.remote_purged
-                        ? (isKo ? "✅ 제거됨 · Drive 정리됨" : "✅ Removed · Drive purged")
-                        : (isKo ? "✅ 제거됨" : "✅ Removed");
+                        ? (BadaI18n.t("cloud_msg_removed_purged"))
+                        : (BadaI18n.t("cloud_msg_removed"));
                     if (!s.remote_purged && s.remote_note) rmBtn.title = String(s.remote_note);
                     delete customCounts[f.name];
                     fetchCustomFolders(); // 목록 갱신
                     scanCustomResidue();  // 제거 직후 잔해/정리 결과 반영
                 } else {
-                    rmBtn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
+                    rmBtn.textContent = BadaI18n.t("cloud_btn_failed");
                     rmBtn.title = s.error || "";
-                    scheduleOpenButtonRevert(rmBtn, isKo ? "✕ 제거" : "✕ Remove",
-                        isKo ? "등록 해제 (로컬·Drive 파일은 삭제되지 않음)" : "Unregister only — local & Drive files are kept");
+                    scheduleOpenButtonRevert(rmBtn, BadaI18n.t("cloud_btn_remove"),
+                        BadaI18n.t("cloud_tip_remove"));
                 }
             } catch (_) {
-                rmBtn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
-                scheduleOpenButtonRevert(rmBtn, isKo ? "✕ 제거" : "✕ Remove",
-                    isKo ? "등록 해제 (로컬·Drive 파일은 삭제되지 않음)" : "Unregister only — local & Drive files are kept");
+                rmBtn.textContent = BadaI18n.t("cloud_btn_failed");
+                scheduleOpenButtonRevert(rmBtn, BadaI18n.t("cloud_btn_remove"),
+                    BadaI18n.t("cloud_tip_remove"));
             }
         });
         l1.appendChild(rmBtn);
@@ -1115,8 +1094,8 @@ function paintCustomSection(body, isKo) {
         const driveBtn = document.createElement("button");
         driveBtn.type = "button";
         driveBtn.style.cssText = "flex-shrink:0; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#bae6fd; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
-        driveBtn.textContent = isKo ? "🔗 Drive 열기" : "🔗 Open Drive";
-        driveBtn.title = isKo ? "Google Drive 에서 해당 대상 열기 (아직 동기화 전이면 실패)" : "Open in Google Drive (fails if not synced yet)";
+        driveBtn.textContent = BadaI18n.t("cloud_btn_open_drive");
+        driveBtn.title = BadaI18n.t("cloud_tip_open_drive");
         driveBtn.addEventListener("click", (e) => { e.stopPropagation(); callOpenDrive(`custom:${f.name}`, driveBtn); });
         l2.appendChild(driveBtn);
 
@@ -1141,10 +1120,10 @@ function paintProSectionHeader(body, isKo) {
     badge.textContent = "⭐ PRO";
     badge.style.cssText = "background:rgba(245,158,11,0.16); border:1px solid rgba(245,158,11,0.5); color:#fcd34d; border-radius:6px; padding:1px 8px; font-size:11px; font-weight:800; letter-spacing:0.4px;";
     const title = document.createElement("span");
-    title.textContent = isKo ? "PRO 전용 동기화" : "PRO-only sync";
+    title.textContent = BadaI18n.t("cloud_pro_section_title");
     title.style.cssText = "font-size:13px; font-weight:700; color:#e2e8f0;";
     const state = document.createElement("span");
-    state.textContent = customProActive ? (isKo ? "· 활성화됨" : "· active") : (isKo ? "· 미발급" : "· not activated");
+    state.textContent = customProActive ? (BadaI18n.t("cloud_pro_suffix_active")) : (BadaI18n.t("cloud_pro_suffix_inactive"));
     state.style.cssText = "font-size:11px; color:" + (customProActive ? "#34d399" : "#fbbf24") + ";";
     wrap.appendChild(badge);
     wrap.appendChild(title);
@@ -1156,12 +1135,10 @@ function paintProSectionHeader(body, isKo) {
     const notice = document.createElement("div");
     notice.style.cssText = "display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 8px; padding:6px 10px; border-radius:6px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.3); font-size:11px; color:#fbbf24;";
     const txt = document.createElement("span");
-    txt.textContent = isKo
-        ? "⚠️ Bada PRO 미발급 — 제미나이 채팅 기록과 커스텀 동기화 대상은 동기화되지 않고 이 기기에만 보관됩니다 (Drive·로컬 데이터 삭제 없음)"
-        : "⚠️ Bada PRO not activated — Gemini chat history and custom sync targets stay on this device and are NOT synced (nothing on Drive or your PC is deleted)";
+    txt.textContent = BadaI18n.t("cloud_pro_notice_inactive");
     const guide = document.createElement("button");
     guide.type = "button";
-    guide.textContent = isKo ? "🚀 발급 가이드" : "🚀 Activation guide";
+    guide.textContent = BadaI18n.t("cloud_btn_pro_guide");
     guide.style.cssText = "flex-shrink:0; background:rgba(245,158,11,0.18); border:1px solid rgba(245,158,11,0.5); color:#fde68a; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
     guide.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -1193,9 +1170,7 @@ async function readTrashApi(r) {
 // 실패 사유를 사람이 읽는 문장으로 — 재시작으로 풀리는 문제는 그렇게 안내한다.
 function trashApiFault(s, isKo) {
     if (s && s.restart) {
-        return isKo
-            ? "ComfyUI 를 다시 시작하면 사용할 수 있습니다 — 서버가 이 기능을 얹기 전 코드로 떠 있습니다."
-            : "Restart ComfyUI to use this — the server is still running code from before this feature.";
+        return BadaI18n.t("cloud_err_trash_restart");
     }
     return String((s && s.error) || "");
 }
@@ -1226,22 +1201,16 @@ async function purgeCustomTrash(mode, btn, isKo) {
     if (!files) return;
     const mb = (bytes / 1048576).toFixed(1);
     const scope = all
-        ? (isKo ? "보관 기간과 상관없이 보관함 전체를 지웁니다.\n"
-                : "This empties the whole retention folder, newer items included.\n")
-        : (isKo ? `'${days}일' 보다 오래된 항목만 지우고, 그보다 최신은 그대로 남습니다.\n`
-                : `Only items older than ${days} days go; newer items stay.\n`);
-    const msg = isKo
-        ? `삭제 보관함에서 ${files}개 · ${mb}MB 를 지금 영구 삭제할까요?\n\n` + scope
-          + "대상은 이 PC 의 _deleted_custom 폴더뿐이며 구글 드라이브에는 영향이 없습니다.\n"
-          + "한번 지우면 되돌릴 수 없습니다. 계속할까요?"
-        : `Permanently delete ${files} files · ${mb}MB from the local trash folder now?\n\n` + scope
-          + `Only this PC's _deleted_custom folder is affected — Google Drive is untouched.\n`
-          + "This cannot be undone. Continue?";
+        ? BadaI18n.t("cloud_purge_scope_all")
+        : BadaI18n.t("cloud_purge_scope_older", { days });
+    const msg = BadaI18n.t("cloud_purge_confirm_head", { files, mb }) + scope
+        + BadaI18n.t("cloud_purge_confirm_body")
+        + BadaI18n.t("cloud_purge_confirm_tail");
     if (!window.confirm(msg)) return;
     const keep = btn.textContent;
     customTrashBusy = true;
     btn.disabled = true;
-    btn.textContent = isKo ? "정리 중…" : "Cleaning…";
+    btn.textContent = BadaI18n.t("cloud_btn_cleaning");
     paintDetailFiles();
     try {
         const r = await fetch("/api/bada/cloud/custom-trash-purge", {
@@ -1257,18 +1226,12 @@ async function purgeCustomTrash(mode, btn, isKo) {
         }
         const why = trashApiFault(s, isKo);
         btn.title = why;
-        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
-        window.alert(isKo ? `보관함을 정리하지 못했습니다.
-
-${why}`
-                          : `Could not clean the trash folder.
-
-${why}`);
+        btn.textContent = BadaI18n.t("cloud_btn_failed");
+        window.alert(BadaI18n.t("cloud_err_purge_failed_detail", { why }));
     } catch (err) {
         btn.title = String(err || "");
-        btn.textContent = isKo ? "⚠️ 실패" : "⚠️ Failed";
-        window.alert(isKo ? "보관함을 정리하지 못했습니다: " + String(err || "")
-                          : "Could not clean the trash folder: " + String(err || ""));
+        btn.textContent = BadaI18n.t("cloud_btn_failed");
+        window.alert(BadaI18n.t("cloud_err_purge_failed_colon") + String(err || ""));
     }
     customTrashBusy = false;
     btn.disabled = false;
@@ -1293,15 +1256,9 @@ async function setCustomTrashRetention(days, isKo) {
             return;
         }
         const why = trashApiFault(s, isKo);
-        window.alert(isKo ? `보관 기간을 저장하지 못했습니다.
-
-${why}`
-                          : `Could not save the retention period.
-
-${why}`);
+        window.alert(BadaI18n.t("cloud_err_retention_failed_detail", { why }));
     } catch (err) {
-        window.alert(isKo ? "보관 기간을 저장하지 못했습니다: " + String(err || "")
-                          : "Could not save the retention period: " + String(err || ""));
+        window.alert(BadaI18n.t("cloud_err_retention_failed_colon") + String(err || ""));
     }
     customTrashBusy = false;
     paintDetailFiles();
@@ -1321,15 +1278,12 @@ function paintCustomTrash(sec, isKo) {
     head.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px; font-weight:700; color:#cbd5e1;";
     const title = document.createElement("span");
     const mb = ((Number((d && d.bytes) || 0)) / 1048576).toFixed(1);
-    const KO_NAME = "🗃 이 PC의 삭제 보관함";
-    const EN_NAME = "🗃 Local trash folder";
+    const NAME = BadaI18n.t("cloud_trash_folder_name");
     // 세어 보지 않은 것과 세어 두고 없는 것을 같은 '0개'로 묶어 말하지 않는다.
-    if (!d) title.textContent = isKo ? KO_NAME : EN_NAME;
-    else if (files <= 0) title.textContent = isKo ? `${KO_NAME} · 비어 있음` : `${EN_NAME} · empty`;
-    else title.textContent = isKo ? `${KO_NAME} ${files}개 · ${mb}MB` : `${EN_NAME} ${files} · ${mb}MB`;
-    title.title = isKo
-        ? "동기화 중에 다른 PC 에서 사라져 이 PC 에서도 물러난 파일들 (_deleted_custom 폴더)"
-        : "Files that were deleted on another PC and moved out of this one (_deleted_custom)";
+    if (!d) title.textContent = NAME;
+    else if (files <= 0) title.textContent = BadaI18n.t("cloud_trash_title_empty", { name: NAME });
+    else title.textContent = BadaI18n.t("cloud_trash_title_count", { name: NAME, files, mb });
+    title.title = BadaI18n.t("cloud_tip_trash_folder");
     head.appendChild(title);
     box.appendChild(head);
 
@@ -1337,35 +1291,28 @@ function paintCustomTrash(sec, isKo) {
     const sub = document.createElement("div");
     sub.style.cssText = "margin-top:2px; font-size:11px; color:#94a3b8;";
     sub.textContent = files > 0
-        ? (isKo
-            ? `제일 오래된 항목 ${age}일 전 · 보관 기간이 지나면 동기화 때 자동으로 지웁니다.`
-            : `Oldest item ${age} days ago · items past the retention period are pruned during sync.`)
-        : (isKo
-            ? `다른 PC 에서 사라진 파일이 이 PC 에서도 물러나면 이곳에 쌓입니다 — 지금은 모아 둔 것이 없습니다.`
-            : "Files removed on other PCs and on this one pile up here — nothing is held right now.");
+        ? BadaI18n.t("cloud_trash_sub_oldest", { age })
+        : BadaI18n.t("cloud_trash_sub_empty");
     if (d) box.appendChild(sub);
 
     if (customTrashError) {
         const err = document.createElement("div");
         err.style.cssText = "margin-top:4px; color:#fca5a5;";
         err.textContent = customTrashError === "restart"
-            ? (isKo ? "ComfyUI 를 다시 시작하면 나타나는 새 기능입니다."
-                    : "Restart ComfyUI to load this feature.")
-            : (isKo ? "보관함 확인 실패: " : "Trash scan failed: ") + customTrashError;
+            ? BadaI18n.t("cloud_err_trash_restart_feature")
+            : (BadaI18n.t("cloud_err_trash_scan")) + customTrashError;
         box.appendChild(err);
     }
     if (customTrashLoading || customTrashBusy) {
         const busy = document.createElement("div");
         busy.style.cssText = "margin-top:4px; color:#93c5fd;";
-        busy.textContent = isKo ? "⏳ 확인·정리 중…" : "⏳ Working…";
+        busy.textContent = BadaI18n.t("cloud_btn_working");
         box.appendChild(busy);
     }
     if (d && d.truncated) {
         const warn = document.createElement("div");
         warn.style.cssText = "margin-top:4px; color:#fbbf24;";
-        warn.textContent = isKo
-            ? "⚠️ 항목이 너무 많아 일부만 세었습니다 — 실제가 더 많을 수 있습니다."
-            : "⚠️ Too many items — the count is a partial scan.";
+        warn.textContent = BadaI18n.t("cloud_trash_truncated");
         box.appendChild(warn);
     }
 
@@ -1374,9 +1321,7 @@ function paintCustomTrash(sec, isKo) {
     for (const t of top) {
         const row = document.createElement("div");
         row.style.cssText = "margin-top:3px; font-size:11px; color:#94a3b8; word-break:break-all;";
-        row.textContent = `└ ${t.name} — ` + (isKo
-            ? `파일 ${Number(t.files) || 0}개 · ${((Number(t.bytes) || 0) / 1048576).toFixed(1)}MB`
-            : `${Number(t.files) || 0} files · ${((Number(t.bytes) || 0) / 1048576).toFixed(1)}MB`);
+        row.textContent = `└ ${t.name} — ` + BadaI18n.t("cloud_frag_files_mb", { files: Number(t.files) || 0, mb: ((Number(t.bytes) || 0) / 1048576).toFixed(1) });
         box.appendChild(row);
     }
 
@@ -1388,9 +1333,7 @@ function paintCustomTrash(sec, isKo) {
     if (!customTrashError && files > 0 && days > 0 && expFiles <= 0) {
         const why = document.createElement("div");
         why.style.cssText = "margin-top:4px; font-size:11px; color:#93c5fd;";
-        why.textContent = isKo
-            ? "ℹ️ 자동 정리 대상이 아직 0개입니다 — 보관함 나이 기준이 새로 잡혀 모든 항목이 보관 기간 안에 있습니다. 바로 비우려면 '모두 비우기'를 쓰세요."
-            : "ℹ️ Nothing is due yet — every item is inside the retention period. Use 'Empty now' to clear the folder right away.";
+        why.textContent = BadaI18n.t("cloud_trash_no_expired_hint");
         box.appendChild(why);
     }
 
@@ -1404,11 +1347,9 @@ function paintCustomTrash(sec, isKo) {
     again.style.cssText = "flex-shrink:0; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); "
         + "color:#bae6fd; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
     again.textContent = (customTrashLoading || customTrashBusy)
-        ? (isKo ? "⏳ 확인 중…" : "⏳ Checking…")
-        : (isKo ? "🔄 다시 확인" : "🔄 Re-check");
-    again.title = isKo
-        ? "보관함 디스크를 다시 세어 개수와 보관 기간을 갱신합니다 (아무것도 지우지 않음)"
-        : "Count the trash folder again (deletes nothing)";
+        ? (BadaI18n.t("cloud_btn_rechecking"))
+        : (BadaI18n.t("cloud_btn_recheck"));
+    again.title = BadaI18n.t("cloud_tip_trash_recheck");
     again.disabled = customTrashLoading || customTrashBusy;
     again.addEventListener("click", () => fetchCustomTrash());
     row2.appendChild(again);
@@ -1418,11 +1359,8 @@ function paintCustomTrash(sec, isKo) {
             const older = document.createElement("button");
             older.type = "button";
             older.style.cssText = TRASH_BTN;
-            older.textContent = isKo ? `🧹 ${days}일 지난 항목만 정리 (${expFiles}개 · ${expMB}MB)`
-                                    : `🧹 Older than ${days}d (${expFiles} · ${expMB}MB)`;
-            older.title = isKo
-                ? "보관 기간을 넘긴 항목만 영구 삭제 — 최신 항목은 그대로 남습니다 (Drive 영향 없음)"
-                : "Permanently delete only items past the retention period (Drive untouched)";
+            older.textContent = BadaI18n.t("cloud_btn_purge_older", { days, files: expFiles, mb: expMB });
+            older.title = BadaI18n.t("cloud_tip_purge_older");
             older.disabled = customTrashBusy || customTrashLoading || expFiles <= 0;
             older.addEventListener("click", () => purgeCustomTrash("older", older, isKo));
             row2.appendChild(older);
@@ -1430,17 +1368,15 @@ function paintCustomTrash(sec, isKo) {
         const all = document.createElement("button");
         all.type = "button";
         all.style.cssText = TRASH_BTN + "background:rgba(220,38,38,0.22);";
-        all.textContent = isKo ? "🗑 모두 비우기" : "🗑 Empty now";
-        all.title = isKo
-            ? "보관 기간과 상관없이 보관함 전체를 영구 삭제 — 되돌릴 수 없습니다"
-            : "Permanently delete everything in the trash folder — irreversible";
+        all.textContent = BadaI18n.t("cloud_btn_empty_now");
+        all.title = BadaI18n.t("cloud_tip_purge_all");
         all.disabled = customTrashBusy || customTrashLoading || files <= 0;
         all.addEventListener("click", () => purgeCustomTrash("all", all, isKo));
         row2.appendChild(all);
     }
 
     const lbl = document.createElement("span");
-    lbl.textContent = isKo ? "보관 기간" : "Retain";
+    lbl.textContent = BadaI18n.t("cloud_lbl_retain");
     lbl.style.cssText = "font-size:11px; color:#94a3b8;";
     const sel = document.createElement("select");
     sel.style.cssText = "background:rgba(15,23,42,0.8); border:1px solid rgba(148,163,184,0.4); color:#e2e8f0; border-radius:6px; padding:2px 6px; font-size:11px; font-weight:700; cursor:pointer;";
@@ -1451,14 +1387,12 @@ function paintCustomTrash(sec, isKo) {
         const op = document.createElement("option");
         op.value = String(c);
         op.textContent = c > 0
-            ? (isKo ? `${c}일 후 자동 삭제` : `${c} days`)
-            : (isKo ? "자동 정리 없음" : "Never auto-clean");
+            ? (BadaI18n.t("cloud_retain_days", { c }))
+            : (BadaI18n.t("cloud_retain_never"));
         if (c === days) op.selected = true;
         sel.appendChild(op);
     }
-    sel.title = isKo
-        ? "보관 기간이 지난 항목만 동기화 중에 자동으로 지웁니다 (기본 30일)"
-        : "Only items older than this are auto-pruned during sync (default 30 days)";
+    sel.title = BadaI18n.t("cloud_tip_retention_select");
     sel.addEventListener("change", () => setCustomTrashRetention(sel.value, isKo));
     // 현재값을 못 얻은 상태에서 선택지를 보여주면 '자동 정리 없음'으로 오해한다.
     if (d) { row2.appendChild(lbl); row2.appendChild(sel); }
@@ -1466,9 +1400,7 @@ function paintCustomTrash(sec, isKo) {
 
     const note = document.createElement("div");
     note.style.cssText = "margin-top:6px; font-size:11px; color:#94a3b8;";
-    note.textContent = isKo
-        ? "정리는 이 PC 의 보관함에서만 지워지며 구글 드라이브와 다른 PC 는 영향받지 않습니다. '자동 정리 없음' 을 고르면 자동으로 지워지는 것은 없고 버튼으로만 비우게 됩니다."
-        : "Cleaning only deletes from this PC's trash folder (Google Drive and other PCs untouched).";
+    note.textContent = BadaI18n.t("cloud_trash_note");
     if (d) box.appendChild(note);
 
     sec.appendChild(box);
@@ -1532,50 +1464,50 @@ function paintDetailFiles() {
         // workflows: 원격 파일 수 확정 → "로컬 N개 · 원격 M개".
         let rightParts = [];
         if (proLocked) {
-            rightParts = [isKo ? "PRO 전용 · 이 기기에만 보관" : "PRO-only · kept on this device"];
+            rightParts = [BadaI18n.t("cloud_badge_pro_only")];
         } else if (!f.exists) {
-            rightParts = [isKo ? "없음" : "absent"];
+            rightParts = [BadaI18n.t("cloud_badge_absent")];
         } else if (f.name === "workflows") {
-            const lc = (localCnt !== null) ? `${localCnt}${isKo ? "개" : ""}` : "";
+            const lc = (localCnt !== null) ? BadaI18n.t("cloud_frag_count_only", { count: localCnt }) : "";
             let rc = "";
             if (rt && typeof rt.remote_count === "number") {
-                rc = `${isKo ? "원격 " : "remote "}${rt.remote_count}${isKo ? "개" : ""}`;
+                rc = BadaI18n.t("cloud_frag_remote_count", { count: rt.remote_count });
                 if (localCnt !== null && rt.remote_count !== localCnt) {
                     const diff = localCnt - rt.remote_count;
                     rc += diff > 0
-                        ? (isKo ? ` (⏳ ${diff}개 차이)` : ` (⏳ ${diff} pending)`)
-                        : (isKo ? ` (☁️ ${-diff}개 많음)` : ` (☁️ ${-diff} more)`);
+                        ? (BadaI18n.t("cloud_frag_diff_pending", { diff }))
+                        : BadaI18n.t("cloud_frag_diff_more", { n: -diff });
                 } else if (localCnt !== null) {
                     rc += " ✅";
                 }
             } else if (detailRemoteError) {
-                rc = isKo ? "원격 확인 실패" : "remote check failed";
+                rc = BadaI18n.t("cloud_badge_remote_failed");
             } else {
-                rc = isKo ? "원격 확인 중…" : "checking remote…";
+                rc = BadaI18n.t("cloud_badge_remote_checking");
             }
-            rightParts = [[lc ? `${isKo ? "로컬 " : "local "}${lc}` : "", rc].filter(Boolean).join(" · "), sz].filter(Boolean);
+            rightParts = [[lc ? `${BadaI18n.t("cloud_frag_local")}${lc}` : "", rc].filter(Boolean).join(" · "), sz].filter(Boolean);
         } else {
-            const lc = (localCnt !== null) ? `${isKo ? "내용 " : ""}${localCnt}${isKo ? "개" : ""}` : (isKo ? "있음" : "present");
+            const lc = (localCnt !== null) ? BadaI18n.t("cloud_frag_content_count", { count: localCnt }) : (BadaI18n.t("cloud_badge_present"));
             let rc = "";
             const rCnt = (rt && typeof rt.remote_count === "number") ? rt.remote_count : null;
             if (rCnt !== null) {
-                rc = `${isKo ? "원격 " : "remote "}${rCnt}${isKo ? "개" : ""}`;
+                rc = BadaI18n.t("cloud_frag_remote_count", { count: rCnt });
                 if (localCnt !== null && rCnt !== localCnt) {
                     const diff = localCnt - rCnt;
                     rc += diff > 0
-                        ? (isKo ? ` (⏳ ${diff}개 차이)` : ` (⏳ ${diff} pending)`)
-                        : (isKo ? ` (☁️ ${-diff}개 많음)` : ` (☁️ ${-diff} more)`);
+                        ? (BadaI18n.t("cloud_frag_diff_pending", { diff }))
+                        : BadaI18n.t("cloud_frag_diff_more", { n: -diff });
                 } else if (localCnt !== null) {
                     rc += " ✅";
                 }
             } else if (rt && rt.remote_exists) {
-                rc = isKo ? "원격 있음" : "remote ✓";
+                rc = BadaI18n.t("cloud_badge_remote_yes");
             } else if (rt) {
-                rc = isKo ? "원격 없음" : "no remote";
+                rc = BadaI18n.t("cloud_badge_remote_none");
             } else if (detailRemoteError) {
-                rc = isKo ? "원격 확인 실패" : "remote check failed";
+                rc = BadaI18n.t("cloud_badge_remote_failed");
             } else {
-                rc = isKo ? "원격 확인 중…" : "checking remote…";
+                rc = BadaI18n.t("cloud_badge_remote_checking");
             }
             rightParts = [[lc, rc].filter(Boolean).join(" · "), sz].filter(Boolean);
         }
@@ -1584,7 +1516,7 @@ function paintDetailFiles() {
         const line = document.createElement("button");
         line.type = "button";
         line.style.cssText = "width:100%; display:flex; justify-content:space-between; gap:16px; line-height:1.9; background:none; border:none; padding:0; cursor:pointer; font-size:13px; color:#cbd5e1; text-align:left;";
-        line.title = isKo ? "클릭하면 추적 경로 표시" : "Click for tracked paths";
+        line.title = BadaI18n.t("cloud_tip_tracked_paths");
         const left = document.createElement("span");
         const arrow = detailExpanded[f.name] !== false ? "\u25be" : "\u25b8";
         left.textContent = `${arrow} ${mark} ${label}`;
@@ -1610,7 +1542,7 @@ function paintDetailFiles() {
             const l1 = document.createElement("div");
             l1.style.cssText = "display:flex; align-items:center; gap:8px;";
             const p1 = document.createElement("span");
-            p1.textContent = `📁 ${lp || (isKo ? "로컬 경로 확인 중…" : "resolving local path…")}`;
+            p1.textContent = `📁 ${lp || (BadaI18n.t("cloud_state_resolving_path"))}`;
             p1.title = lp;
             l1.appendChild(p1);
             // "로컬 열기" 버튼 — 서버 화이트리스트 검증 후 탐색기에서 폴더 오픈 (파일은 /select 하이라이트).
@@ -1618,8 +1550,8 @@ function paintDetailFiles() {
                 const openBtn = document.createElement("button");
                 openBtn.type = "button";
                 openBtn.style.cssText = "flex-shrink:0; background:rgba(34,197,94,0.15); border:1px solid rgba(34,197,94,0.4); color:#bbf7d0; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
-                openBtn.textContent = isKo ? "📂 로컬 열기" : "📂 Open local";
-                openBtn.title = `${lp} · ${isKo ? "탐색기에서 폴더 열기 (파일은 하이라이트)" : "open folder in Explorer (file highlighted)"}`;
+                openBtn.textContent = BadaI18n.t("cloud_btn_open_local");
+                openBtn.title = `${lp} · ${BadaI18n.t("cloud_tip_open_local")}`;
                 openBtn.addEventListener("click", (e) => { e.stopPropagation(); callOpenLocal(f.name, openBtn); });
                 l1.appendChild(openBtn);
             }
@@ -1627,8 +1559,8 @@ function paintDetailFiles() {
             l2.style.cssText = "display:flex; align-items:center; gap:8px;";
             const p2 = document.createElement("span");
             p2.textContent = proLocked
-                ? (isKo ? "☁️ Drive: PRO 발급 후 동기화 재개 (Drive 기존 사본은 그대로 유지)" : "☁️ Drive: resumes after PRO activation (existing Drive copy kept)")
-                : `☁️ Drive: ${rn || (isKo ? "원격 확인 중…" : "checking remote…")}`;
+                ? (BadaI18n.t("cloud_tip_pro_paused"))
+                : `☁️ Drive: ${rn || (BadaI18n.t("cloud_badge_remote_checking"))}`;
             p2.title = rn;
             l2.appendChild(p2);
             // "Drive 열기" 버튼 — 서버 화이트리스트 검증 후 해당 **동기화 폴더**(Presets/SystemPrompts 등)를 새 탭으로 오픈.
@@ -1636,8 +1568,8 @@ function paintDetailFiles() {
                 const driveBtn = document.createElement("button");
                 driveBtn.type = "button";
                 driveBtn.style.cssText = "flex-shrink:0; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.4); color:#bae6fd; border-radius:6px; padding:2px 10px; font-size:11px; font-weight:700; cursor:pointer;";
-                driveBtn.textContent = isKo ? "🔗 Drive 열기" : "🔗 Open Drive";
-                driveBtn.title = isKo ? "Google Drive 에서 해당 동기화 폴더 열기" : "Open the sync folder in Google Drive";
+                driveBtn.textContent = BadaI18n.t("cloud_btn_open_drive");
+                driveBtn.title = BadaI18n.t("cloud_tip_open_drive_folder");
                 driveBtn.addEventListener("click", (e) => { e.stopPropagation(); callOpenDrive(f.name, driveBtn); });
                 l2.appendChild(driveBtn);
             }
@@ -1681,16 +1613,16 @@ function renderDetailModal() {
                 <div class="usp-header-title-box">
                     <div class="usp-header-icon" style="background:rgba(14,165,233,0.2); border-color:rgba(14,165,233,0.4); color:#bae6fd;">☁️</div>
                     <div>
-                        <h3 class="usp-header-title" style="font-size:17px; color:#f8fafc; font-weight:700; margin:0;">${isKo ? "클라우드 동기화 상세" : "Cloud Sync Details"}</h3>
-                        <p class="usp-header-subtitle" style="font-size:12px; color:#94a3b8; margin:4px 0 0 0;">${isKo ? "진행률 · 현재 파일 · 항목별 현황" : "Progress · current file · per-target status"}</p>
+                        <h3 class="usp-header-title" style="font-size:17px; color:#f8fafc; font-weight:700; margin:0;">${BadaI18n.t("cloud_modal_title")}</h3>
+                        <p class="usp-header-subtitle" style="font-size:12px; color:#94a3b8; margin:4px 0 0 0;">${BadaI18n.t("cloud_modal_subtitle")}</p>
                     </div>
                 </div>
                 <button class="usp-close-btn" id="bada-detail-close-x" style="background:none; border:none; font-size:22px; color:#94a3b8; cursor:pointer; padding:6px 12px; border-radius:8px;">✕</button>
             </div>
             <div id="bada-detail-scroll" style="padding:18px 24px; overflow-y:auto;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                    <span id="bada-detail-progress-frac" style="font-size:14px; font-weight:700; color:#e2e8f0;">${isKo ? "\ud655\uc778 \uc911\u2026" : "Checking..."}</span>
-                    <button id="bada-detail-sync-btn" data-mode="sync" style="background:rgba(14,165,233,0.2); border:1px solid rgba(14,165,233,0.4); color:#e0f2fe; border-radius:6px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer;">${isKo ? "☁️ 지금 동기화" : "☁️ Sync now"}</button>
+                    <span id="bada-detail-progress-frac" style="font-size:14px; font-weight:700; color:#e2e8f0;">${BadaI18n.t("cloud_state_checking")}</span>
+                    <button id="bada-detail-sync-btn" data-mode="sync" style="background:rgba(14,165,233,0.2); border:1px solid rgba(14,165,233,0.4); color:#e0f2fe; border-radius:6px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer;">${BadaI18n.t("cloud_btn_sync_now")}</button>
                 </div>
                 <div style="width:100%; height:10px; background:rgba(148,163,184,0.15); border-radius:5px; overflow:hidden; margin-bottom:8px;">
                     <div id="bada-detail-progress-bar" style="height:100%; width:0%; background:linear-gradient(90deg,#0ea5e9,#0284c7); border-radius:5px; transition:width 0.3s;"></div>
@@ -1700,7 +1632,7 @@ function renderDetailModal() {
                 <div id="bada-detail-files-body" style="font-size:13px; color:#cbd5e1;"></div>
             </div>
             <div style="padding:14px 24px; background:rgba(255,255,255,0.02); border-top:1px solid rgba(255,255,255,0.07); display:flex; justify-content:flex-end;">
-                <button id="bada-detail-close-btn" class="usp-btn usp-btn-secondary" style="font-size:13px; padding:8px 20px; background:rgba(14,165,233,0.2); border:1px solid rgba(14,165,233,0.4); color:#e0f2fe; border-radius:8px; cursor:pointer; font-weight:600;">${isKo ? "✕ 닫기" : "✕ Close"}</button>
+                <button id="bada-detail-close-btn" class="usp-btn usp-btn-secondary" style="font-size:13px; padding:8px 20px; background:rgba(14,165,233,0.2); border:1px solid rgba(14,165,233,0.4); color:#e0f2fe; border-radius:8px; cursor:pointer; font-weight:600;">${BadaI18n.t("cloud_btn_close")}</button>
             </div>
         </div>
     `;
