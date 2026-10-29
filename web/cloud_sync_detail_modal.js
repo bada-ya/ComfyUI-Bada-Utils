@@ -6,6 +6,7 @@
  */
 
 import { BadaI18n } from "./bada_i18n.js";
+import { readApi } from "./bada_shared.js";
 
 let detailModalEl = null;
 let detailPollTimer = null;
@@ -88,6 +89,7 @@ let customTrashBusy = false;   // 정리/보관기간 저장 진행 중 — 중�
 export function openCloudDetailModal(files, lastSync) {
     detailFilesSnapshot = Array.isArray(files) ? files : [];
     detailFilesLastSig = null; // 모달 재오픈 시 렌더 가드 초기화
+    detailFaultUntil = 0;      // 이전 창에서 남은 실패 유예가 새 창 상태 줄을 비워 두지 않도록
     detailLastSyncSnapshot = lastSync || null;
     detailRemoteSnapshot = null;
     detailRemoteError = "";
@@ -260,9 +262,24 @@ async function fetchRemoteSnapshot() {
     } catch (_) {}
 }
 
+// ── 실패 이유를 보여주는 자리 ──
+// 상태 라인(#bada-detail-state-line)은 이 모달 유일한 안내 줄인데, paintDetailProgress() 가
+// 3초 폴링마다 그 줄을 무조건 다시 그린다(아래 2곳). 그래서 이유를 써도 다음 틱에서 지워진다 —
+// 이유를 사람이 읽을 시간만큼만 그리기를 유예한다. (`btn._openRevertTimer` 와 같은 시계 기반 복원)
+let detailFaultUntil = 0;
+function showDetailFault(msg) {
+    if (!detailModalEl) return;
+    const el = detailModalEl.querySelector("#bada-detail-state-line");
+    if (!el) return;
+    el.textContent = msg;
+    detailFaultUntil = Date.now() + 6000; // 폴링 2회만큼은 지우지 않는다
+}
+
 function paintDetailProgress(s) {
     if (!detailModalEl) return;
     const isKo = (BadaI18n.lang === "ko");
+    // 방금 표시한 실패 이유 위에는 진행 상태를 겹쳐 그리지 않는다 (상태 라인만 건너뛴다).
+    const holdFault = Date.now() < detailFaultUntil;
     const bar = detailModalEl.querySelector("#bada-detail-progress-bar");
     const frac = detailModalEl.querySelector("#bada-detail-progress-frac");
     const cur = detailModalEl.querySelector("#bada-detail-progress-current");
@@ -295,7 +312,7 @@ function paintDetailProgress(s) {
             cur.textContent = full ? truncName(full) : (BadaI18n.t("cloud_state_preparing"));
             cur.title = full;
         }
-        if (stateLine) stateLine.textContent = BadaI18n.t("cloud_state_syncing_bg");
+        if (stateLine && !holdFault) stateLine.textContent = BadaI18n.t("cloud_state_syncing_bg");
     } else {
         if (bar) bar.style.width = "0%";
         if (frac) {
@@ -308,7 +325,7 @@ function paintDetailProgress(s) {
         if (cur) { cur.textContent = ""; cur.title = ""; }
         const ls = s.last_sync || detailLastSyncSnapshot || {};
         const when = fmtTime(ls.last_sync_at);
-        if (stateLine) stateLine.textContent = when
+        if (stateLine && !holdFault) stateLine.textContent = when
             ? BadaI18n.t("cloud_lbl_last_sync_counts", { when, up: ls.uploaded ?? 0, down: ls.downloaded ?? 0 })
             : (BadaI18n.t("cloud_lbl_never_synced"));
     }
@@ -782,14 +799,19 @@ function paintCustomSection(body, isKo) {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ enabled: next }),
                 });
-                const s = await r.json();
-                if (s.success) {
+                const res = await readApi(r);
+                if (res.ok) {
                     customSyncEnabled = next;
                 } else {
                     swInput.checked = customSyncEnabled; // 실패 시 되돌림
+                    // 체크만 되돌리면 "왜 안 켜지나" 를 사용자가 혼자 찾아야 한다. 서버는 HTTP 200 +
+                    // success:false 로 이유(PRO 게이트 등)를 주므로 같이 보여준다.
+                    showDetailFault(BadaI18n.t("cloud_detail_toggle_failed", { why: res.error }));
                 }
-            } catch (_) {
+            } catch (err) {
+                console.debug("[Bada Detail] Custom sync toggle failed:", err);
                 swInput.checked = customSyncEnabled;
+                showDetailFault(BadaI18n.t("cloud_detail_net_failed"));
             }
         });
     }
@@ -1653,12 +1675,29 @@ function renderDetailModal() {
         const btn = detailModalEl.querySelector("#bada-detail-sync-btn");
         const mode = (btn && btn.dataset.mode) || "sync";
         try {
-            if (mode === "cancel") {
-                await fetch("/api/bada/cloud/cancel", { method: "POST" });
-            } else {
-                await fetch("/api/bada/cloud/sync", { method: "POST" });
+            const r = await fetch(mode === "cancel" ? "/api/bada/cloud/cancel" : "/api/bada/cloud/sync", { method: "POST" });
+            const res = await readApi(r);
+            const st = res.data.status;
+            // 판정 순서가 의미 있다: busy 는 서버가 HTTP 200 + success:false 로 보내므로
+            // !res.ok 를 먼저 보면 실패로 뭉뚱그려진다. 취소로 끝난 것도 실패가 아니다.
+            if (st === "busy") {
+                showDetailFault(BadaI18n.t("cloud_detail_sync_busy"));
+            } else if (st === "cancelled") {
+                // 빈 분기가 의도적이다. 취소를 누르면 뒤에 대기 중이던 「지금 동기화」 응답이
+                // status:"cancelled" + success:false(HTTP 200) 로 함께 풀려나온다 — 아래 !res.ok 에
+                // 떨어지면 "취소 요청 실패 — HTTP 200" 이라는 거짓 안내가 뜬다. 사용자가 멈춘 것이므로 침묵.
+            } else if (!res.ok) {
+                // 응답을 통째 버리면 버튼이 아무 짓도 하지 않은 것처럼 보인다. 이유를 남긴다.
+                showDetailFault(BadaI18n.t(mode === "cancel" ? "cloud_detail_cancel_failed" : "cloud_detail_sync_failed", { why: res.error }));
+            } else if (mode === "cancel" && st === "idle") {
+                // 취소는 실패 케이스가 없는 라우트 — "이미 끝났다" 를 여기서만 구분할 수 있다.
+                showDetailFault(BadaI18n.t("cloud_detail_cancel_idle"));
             }
-        } catch (_) { /* polling detects change */ }
+            // success / cancelling 은 폴링에 양도 — 버튼 문구가 이미 진행 상태를 보여준다.
+        } catch (err) {
+            console.debug("[Bada Detail] Sync/cancel request failed:", err);
+            showDetailFault(BadaI18n.t("cloud_detail_net_failed"));
+        }
     });
     paintDetailFiles();
 }

@@ -25,6 +25,31 @@ export function escapeHtml(value) {
         .replace(/'/g, "&#39;");
 }
 
+/**
+ * Flattens a Bada API response into one shape: `{ ok, data, error }`.
+ *
+ * Every hand-rolled variant of this failed differently, and the failure mode that mattered was
+ * always the same one: the reason was thrown away. `await res.json()` on its own rejects when the
+ * body is plain text (an unregistered route answers "404: Not Found") or HTML (a 500 page), and a
+ * `catch (_)` swallows the reason along with it. Note also that some routes answer HTTP 200 with
+ * `success: false` (e.g. a PRO-gated toggle), so `res.ok` alone is not a verdict.
+ *
+ * `error` is never empty — it falls back to the HTTP status, which keeps `{why}` placeholders in
+ * translated strings from rendering as a dangling separator.
+ */
+export async function readApi(res) {
+    let body = null;
+    try {
+        body = await res.json();
+    } catch (_) {
+        body = null; // text / HTML / empty body — the status line below is the reason we have
+    }
+    const data = body && typeof body === "object" ? body : {};
+    // Routes that report success without a `success` key (realtime sync) must stay ok.
+    if (res.ok && data.success !== false) return { ok: true, data };
+    return { ok: false, data, error: String(data.error || data.message || "") || `HTTP ${res.status}` };
+}
+
 const TOAST_STYLE_ID = "bada-shared-toast-style";
 const TOAST_CONTAINER_ID = "bada-shared-toast-container";
 

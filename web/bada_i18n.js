@@ -171,6 +171,8 @@ export const BadaI18n = {
             "wf_thumb_pasted_toast": "Image pasted from clipboard.",
             "wf_save_btn": "Save Info",
             "wf_info_saved_toast": "Workflow info & thumbnail saved successfully.",
+            "wf_info_save_failed": "Could not save workflow info. Try again.",
+            "wf_info_saved_thumb_failed": "Notes saved — thumbnail upload failed.",
             "wf_no_info_hint": "No notes or thumbnail recorded.<br>(Right-click to edit info)",
             "wf_modal_move_title": "📁 Move Workflow",
             "wf_modal_move_dest": "Select Destination Folder",
@@ -410,6 +412,8 @@ export const BadaI18n = {
             "cloud_sync_done": "✅ Sync done (upload {up} · download {down}{extra})",
             "cloud_failed": "Failed",
             "cloud_request_failed": "❌ Request failed: {err}",
+            "settings_v2_save_failed": "❌ Settings not saved — {why}",
+            "settings_v2_save_failed_net": "❌ Could not save settings — the server did not answer.",
 
             // --- Async Gemini Studio ---
             "gemini_error_log_title": "Error Notification Log",
@@ -789,6 +793,12 @@ export const BadaI18n = {
             "cloud_trash_note": "Cleaning only deletes from this PC's trash folder (Google Drive and other PCs untouched).",
             "cloud_frag_count_only": "{count}",
             "cloud_frag_content_count": "{count}",
+            "cloud_detail_sync_failed": "❌ Sync request failed — {why}",
+            "cloud_detail_sync_busy": "⏳ A sync is already running — following its progress.",
+            "cloud_detail_cancel_failed": "❌ Cancel request failed — {why}",
+            "cloud_detail_cancel_idle": "Nothing to cancel — no sync is running.",
+            "cloud_detail_net_failed": "❌ Could not reach the Bada server.",
+            "cloud_detail_toggle_failed": "⚠️ Setting not saved — {why}",
         },
 
         ko: {
@@ -958,6 +968,8 @@ export const BadaI18n = {
             "wf_thumb_pasted_toast": "클립보드 이미지가 등록되었습니다.",
             "wf_save_btn": "정보 저장",
             "wf_info_saved_toast": "워크플로우 정보와 썸네일이 저장되었습니다.",
+            "wf_info_save_failed": "정보 저장에 실패했습니다. 다시 시도해 주세요.",
+            "wf_info_saved_thumb_failed": "메모는 저장되었고, 썸네일 업로드에 실패했습니다.",
             "wf_no_info_hint": "등록된 주석이나 썸네일이 없습니다.<br>(우클릭하여 정보 및 썸네일 등록)",
             "wf_modal_move_title": "📁 워크플로우 이동",
             "wf_modal_move_dest": "대상 폴더 선택",
@@ -1179,6 +1191,8 @@ export const BadaI18n = {
             "cloud_sync_done": "✅ 동기화 완료 (업로드 {up} · 다운로드 {down}{extra})",
             "cloud_failed": "실패",
             "cloud_request_failed": "❌ 요청 실패: {err}",
+            "settings_v2_save_failed": "❌ 설정을 저장하지 못했습니다 — {why}",
+            "settings_v2_save_failed_net": "❌ 설정을 저장하지 못했습니다. 서버 연결을 확인하세요.",
 
             // --- Async Gemini Studio ---
             "gemini_error_log_title": "오류 알림 내역",
@@ -1558,6 +1572,12 @@ export const BadaI18n = {
             "cloud_trash_note": "정리는 이 PC 의 보관함에서만 지워지며 구글 드라이브와 다른 PC 는 영향받지 않습니다. '자동 정리 없음' 을 고르면 자동으로 지워지는 것은 없고 버튼으로만 비우게 됩니다.",
             "cloud_frag_count_only": "{count}개",
             "cloud_frag_content_count": "내용 {count}개",
+            "cloud_detail_sync_failed": "❌ 동기화 요청 실패 — {why}",
+            "cloud_detail_sync_busy": "⏳ 이미 동기화가 진행 중입니다. 현재 진행 상황을 그대로 보여드립니다.",
+            "cloud_detail_cancel_failed": "❌ 취소 요청 실패 — {why}",
+            "cloud_detail_cancel_idle": "취소할 동기화가 없습니다. 이미 끝난 후입니다.",
+            "cloud_detail_net_failed": "❌ 서버와 통신하지 못했습니다. ComfyUI 서버 상태를 확인하세요.",
+            "cloud_detail_toggle_failed": "⚠️ 설정을 저장하지 못했습니다 — {why}",
         }
     },
 

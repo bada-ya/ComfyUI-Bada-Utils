@@ -38,7 +38,7 @@
 // text is safe here. Keep injected-CSS concerns out of this file.
 // ──────────────────────────────────────────────────────────────────────────────
 import { BadaI18n } from "./bada_i18n.js";
-import { escapeHtml, findBadaSettingCells } from "./bada_shared.js";
+import { escapeHtml, findBadaSettingCells, readApi } from "./bada_shared.js";
 // Phase 2: the Global Presets row is self-owned. It used to call back into
 // bada_core.js's buildInlinePresetsPanel() through window.__BADA_BUILD_PRESETS_PANEL__;
 // that bridge is gone, so v2 imports the overview modal module directly.
@@ -720,15 +720,28 @@ function buildCloudSyncRow() {
     loadProStatus();
 
     // ── Settings Fetch / Save ──
+    // 결과를 호출자에게 돌려준다. 저장이 실패했는데 스위치가 켜진 채로 남으면 화면이 설정을 거짓말한다.
     const saveSettings = async (patch) => {
         try {
-            await fetch("/api/bada/cloud/settings", {
+            const r = await fetch("/api/bada/cloud/settings", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(patch),
             });
+            const res = await readApi(r);
+            if (res.ok) {
+                // 성공했는데 앞에 시도에서 남긴 ❌ 줄이 그대로면 이번엔 반대 방향으로 거짓말이 된다.
+                // (동기화 중이 아닐 때는 이 줄을 다시 그리는 주기가 없어서 손으로 지워줘야 한다)
+                renderStatus();
+                return true;
+            }
+            // 동기화 진행 중에만 1초 폴링이 이 줄을 덮어쓴다. 그 외에는 다음 조작까지 남는다.
+            status.textContent = BadaI18n.t("settings_v2_save_failed", { why: res.error });
+            return false;
         } catch (err) {
             console.error("[Bada CloudSync] Failed to save settings:", err);
+            status.textContent = BadaI18n.t("settings_v2_save_failed_net");
+            return false;
         }
     };
 
@@ -764,19 +777,29 @@ function buildCloudSyncRow() {
     updateSubOptionsState(masterSwitchInput.checked);
     fetchSettings();
 
-    masterSwitchInput.addEventListener("change", () => {
+    masterSwitchInput.addEventListener("change", async () => {
         const enabled = masterSwitchInput.checked;
         updateSubOptionsState(enabled);
-        saveSettings({ cloud_sync_enabled: enabled });
+        if (!await saveSettings({ cloud_sync_enabled: enabled })) {
+            masterSwitchInput.checked = !enabled;
+            updateSubOptionsState(!enabled);
+        }
     });
 
-    startupOpt.cb.addEventListener("change", () => {
-        saveSettings({ startup_autosync: startupOpt.cb.checked });
+    startupOpt.cb.addEventListener("change", async () => {
+        const enabled = startupOpt.cb.checked;
+        if (!await saveSettings({ startup_autosync: enabled })) {
+            startupOpt.cb.checked = !enabled;
+        }
     });
 
-    realtimeOpt.cb.addEventListener("change", () => {
+    realtimeOpt.cb.addEventListener("change", async () => {
         const enabled = realtimeOpt.cb.checked;
-        saveSettings({ realtime_autosync: enabled });
+        // 저장이 실패한 설정으로 실시간 동기화를 띄우지 않는다 (화면과 실제 동작이 갈라진다).
+        if (!await saveSettings({ realtime_autosync: enabled })) {
+            realtimeOpt.cb.checked = !enabled;
+            return;
+        }
         if (enabled) {
             window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__?.setupRealtimeSync?.();
         }
