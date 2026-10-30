@@ -443,7 +443,11 @@ def set_custom_trash_retention(days) -> dict:
     settings = get_gdrive_settings()
     cs = _custom_sync_settings(settings)
     cs["trash_retention_days"] = want
-    set_gdrive_settings({"custom_sync": cs})
+    try:
+        set_gdrive_settings({"custom_sync": cs})
+    except Exception as e:
+        logger.warning(f"[GDrive] Failed to save trash retention: {e}")
+        return {"success": False, "error": str(e)}
     logger.info(f"[GDrive] Custom trash retention set to {want} day(s)"
                 if want else "[GDrive] Custom trash auto-prune disabled")
     return {"success": True, "days": want}
@@ -3010,6 +3014,7 @@ def set_gdrive_settings(new_settings: dict) -> dict:
         write_json_atomic(GDRIVE_SETTINGS_PATH, current)
     except Exception as e:
         logger.error(f"[GDrive] Failed to save {GDRIVE_SETTINGS_PATH}: {e}")
+        raise
     return current
 
 
@@ -4595,7 +4600,11 @@ def set_custom_sync_enabled(enabled) -> dict:
     settings = get_gdrive_settings()
     cs = settings.get("custom_sync") if isinstance(settings.get("custom_sync"), dict) else {}
     cs["enabled"] = bool(enabled)
-    set_gdrive_settings({"custom_sync": cs})
+    try:
+        set_gdrive_settings({"custom_sync": cs})
+    except Exception as e:
+        logger.warning(f"[GDrive] Failed to save custom sync toggle: {e}")
+        return {"success": False, "error": str(e)}
     _ensure_custom_watcher()
     if enabled:
         try:
