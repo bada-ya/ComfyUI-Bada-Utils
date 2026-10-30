@@ -15,7 +15,7 @@
 
 import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
-import { escapeHtml, placePopupInViewport, readApi } from "./bada_shared.js";
+import { escapeHtml, placePopupInViewport, readApi, clipReason } from "./bada_shared.js";
 
 const FONT_SIZE_PRESETS = [
     { labelKey: "wf_font_compact", icon: "A⁻", name: "compact", fontSize: "13px", folderHeight: "28px", fileHeight: "27px", folderIcon: "14.5px", fileIcon: "13.5px", badgeFont: "11px", badgeHeight: "17px", chevron: "10px" },
@@ -4731,6 +4731,9 @@ class WorkflowsPlusManager {
 
         const moved = [];
         const failed = [];
+        // 단일 이동(moveWorkflowFile·moveWorkflowFolder) 은 이미 서버의 data.error 를 그대로 띄운다.
+        // 배치는 개수만 세고 이유를 버리고 있었으므로 같은 기준으로 되돌린다 — 첫 실패 사유만 남긴다.
+        let firstFailReason = "";
         for (const entry of batch) {
             if (this.splitSidebarPath(entry.path).parent === target) continue; // already there
             try {
@@ -4744,19 +4747,25 @@ class WorkflowsPlusManager {
                         overwrite: false
                     })
                 });
-                const data = await res.json();
-                if (!data.success) {
+                // readApi: 409 같은 거부는 JSON 본문이 없고, 500 은 HTML 페이지인 경우가 많다.
+                const { ok, data, error } = await readApi(res);
+                if (!ok) {
                     failed.push(entry);
+                    if (!firstFailReason) firstFailReason = error || (data && data.error) || "";
                     continue;
                 }
                 moved.push({ ...entry, newPath: (data.new_path || "").replace(/\\/g, "/") });
             } catch (e) {
                 failed.push(entry);
+                if (!firstFailReason) firstFailReason = String((e && e.message) || e || "");
             }
         }
 
+        // 이유가 비면 «이유 없음» 문구로 받는다 — {why} 자리가 비면 구분자만 남는 화면이 된다 (clipReason 계약)
+        const whyNote = () => clipReason(firstFailReason, 90, BadaI18n.t("api_reason_unknown"));
+
         if (!moved.length) {
-            if (failed.length) this.showToast(BadaI18n.t("wf_move_selection_failed"), true);
+            if (failed.length) this.showToast(BadaI18n.t("wf_move_selection_failed", { why: whyNote() }), true);
             return { moved, failed };
         }
 
@@ -4780,7 +4789,9 @@ class WorkflowsPlusManager {
         }
 
         const targetLabel = target === "/" ? BadaI18n.t("wf_root_label") : `'${target}'`;
-        const failedNote = failed.length ? BadaI18n.t("wf_move_failed_count", { count: failed.length }) : "";
+        const failedNote = failed.length
+            ? BadaI18n.t("wf_move_failed_count", { count: failed.length, why: whyNote() })
+            : "";
         this.showToast(BadaI18n.t("wf_move_selection_success", {
             count: moved.length,
             target: targetLabel,

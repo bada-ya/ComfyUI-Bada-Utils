@@ -229,9 +229,9 @@ export const BadaI18n = {
             "wf_move_error": "Move error: ",
             "wf_move_folder_forbidden": "A folder cannot be moved into itself or a subfolder.",
             "wf_move_folder_success": "📁 '{name}' moved to {target}!",
-            "wf_move_selection_failed": "Could not move the selected items.",
+            "wf_move_selection_failed": "Could not move the selected items — {why}",
             "wf_move_selection_success": "📦 Moved {count} item(s) to {target}{failed}",
-            "wf_move_failed_count": " ({count} failed)",
+            "wf_move_failed_count": " ({count} failed — {why})",
             "wf_badge_thumb": "Thumbnail attached (Click to edit)",
             "wf_badge_notes": "Notes attached (Click to edit)",
             "wf_path_tooltip": "{name}\nPath: {path}",
@@ -959,6 +959,11 @@ export const BadaI18n = {
             "vg_delete_preset_confirm": "Delete '{name}' preset?",
             "vg_area_title": "Area [{id}] Prompt Settings",
             "vg_active_badge": "ACTIVE",
+
+            // --- Note Helper: batch translation outcome ---
+            "note_translate_done": "✅ Translated {count} text field(s) to {target}.{failed}",
+            "note_translate_partial": " ({count} failed — {why})",
+            "note_translate_rejected": "⚠️ The translation server rejected the request — {why}",
         },
 
         ko: {
@@ -1180,9 +1185,9 @@ export const BadaI18n = {
             "wf_move_error": "이동 오류: ",
             "wf_move_folder_forbidden": "폴더를 자기 자신이나 하위 폴더 안으로 옮길 수 없습니다.",
             "wf_move_folder_success": "📁 '{name}' -> {target} 이동 완료!",
-            "wf_move_selection_failed": "선택한 항목을 이동하지 못했습니다.",
+            "wf_move_selection_failed": "선택한 항목을 이동하지 못했습니다 — {why}",
             "wf_move_selection_success": "📦 {count}개 항목 -> {target} 이동 완료!{failed}",
-            "wf_move_failed_count": " ({count}개 실패)",
+            "wf_move_failed_count": " ({count}개 실패 — {why})",
             "wf_badge_thumb": "대표 썸네일 등록됨 (클릭하여 수정)",
             "wf_badge_notes": "주석 및 메모 등록됨 (클릭하여 수정)",
             "wf_path_tooltip": "{name}\n경로: {path}",
@@ -1898,6 +1903,11 @@ export const BadaI18n = {
             "vg_delete_preset_confirm": "'{name}' 프리셋을 삭제하시겠습니까?",
             "vg_area_title": "영역 [{id}] 프롬프트 설정",
             "vg_active_badge": "선택됨 (ACTIVE)",
+
+            // --- Note Helper: batch translation outcome ---
+            "note_translate_done": "✅ {count}개 텍스트를 {target}로 번역했습니다.{failed}",
+            "note_translate_partial": " ({count}개 실패 — {why})",
+            "note_translate_rejected": "⚠️ 번역 서버가 요청을 거부했습니다 — {why}",
         }
     },
 

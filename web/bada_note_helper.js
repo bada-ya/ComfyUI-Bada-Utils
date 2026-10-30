@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
+import { readApi, clipReason } from "./bada_shared.js";
 
 /**
  * ComfyUI-Bada-Utils: Smart Text Node One-Click Translator Extension
@@ -930,6 +931,7 @@ function attachBadaNoteHelper(node) {
                     let okCount = 0;
                     let failCount = 0;
                     let skipCount = 0;
+                    let firstFailReason = ""; // N개가 실패해도 사유는 한 줄이면 충분하다 — 첫 번째 것만 남긴다
 
                     Promise.all(textEntries.map(({ key, widget }) => {
                         const item = map[key] || (map[key] = { original: "", translated: "", translatedLang: null, viewMode: "original" });
@@ -945,9 +947,11 @@ function attachBadaNoteHelper(node) {
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ text: item.original, target_lang: currentBadaLang })
                         })
-                        .then(res => res.json())
-                        .then(data => {
-                            if (data.success && data.translated_text) {
+                        // readApi: 본문이 텍스트·HTML(500 페이지) 이면 res.json() 만으로 파싱 예외가 나고
+                        // 그 이유가 catch 로 섞여 들어온다. HTTP 코드라도 남기는 쪽으로 통일한다.
+                        .then(readApi)
+                        .then(({ ok, data, error }) => {
+                            if (ok && data.translated_text) {
                                 item.translated = data.translated_text;
                                 item.translatedLang = currentBadaLang;
                                 item.viewMode = "translated";
@@ -957,6 +961,7 @@ function attachBadaNoteHelper(node) {
                                 okCount += 1;
                             } else {
                                 failCount += 1;
+                                if (!firstFailReason) firstFailReason = error || (data && data.error) || "";
                                 console.warn("[BadaUtils.NoteHelper] translate rejected:", data);
                             }
                         });
@@ -971,19 +976,19 @@ function attachBadaNoteHelper(node) {
                         if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
 
                         // Report the outcome - a silent no-op is impossible to debug for the user
+                        const why = clipReason(firstFailReason, 90, BadaI18n.t("api_reason_unknown"));
                         if (okCount > 0) {
                             const target = langKo ? "한국어" : "English";
+                            // 일부 실패는 성공 문구에 묻혀 사라지지 않게 한다 (예전엔 개수 셈도 console 만 남겼다)
+                            const failed = failCount
+                                ? BadaI18n.t("note_translate_partial", { count: failCount, why })
+                                : "";
                             showTranslateToast(
-                                langKo ? `✅ ${okCount}개 텍스트를 ${target}로 번역했습니다.`
-                                       : `✅ Translated ${okCount} text field(s) to ${target}.`,
+                                BadaI18n.t("note_translate_done", { count: okCount, target, failed }),
                                 "success"
                             );
                         } else if (failCount > 0) {
-                            showTranslateToast(
-                                langKo ? "⚠️ 번역 서버가 요청을 거부했습니다. 잠시 후 다시 시도해 주세요."
-                                       : "⚠️ The translation server rejected the request. Please try again.",
-                                "error"
-                            );
+                            showTranslateToast(BadaI18n.t("note_translate_rejected", { why }), "error");
                         } else if (skipCount > 0) {
                             showTranslateToast(
                                 langKo ? "⚠️ 번역할 텍스트가 비어 있습니다. 내용을 입력한 뒤 다시 눌러 주세요."
