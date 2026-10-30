@@ -746,7 +746,11 @@ app.registerExtension({
             let cols = 6;
             let rows = 3;
             let currentRatio = "16:9";
-            let currentLang = (BadaI18n && BadaI18n.lang === "ko") ? "한국어" : "English";
+            let currentLang = BadaI18n ? BadaI18n.lang : "en";
+            // ⚠️ currentLang 은 내부적으로 전역 사전과 동일한 "ko"/"en" 만 쓴다.
+            // 반면 백엔드 ui_language 위젯은 combo(["English","한국어"]) 이므로
+            // 노드 밖으로 나가는 값(위젯·직렬화)은 아래 헬퍼로 기존 문자열로 되돌린다.
+            const legacyUiLanguage = () => (currentLang === "ko" ? "한국어" : "English");
             let currentFormat = "Natural Spatial (Krea/MiniMax/Gemini/GPT)";
             let activeArtStyle = "photorealistic";
             let whiteBg = false;
@@ -950,8 +954,8 @@ app.registerExtension({
             artBtnGroup.style.cssText = "display:flex; align-items:center; gap:4px; flex-wrap:wrap;";
             const artBarLabel = document.createElement("span");
             artBarLabel.style.cssText = "font-size:11px; font-weight:600; color:#a1a1aa;";
-            const isEnInitial = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
-            artBarLabel.textContent = isEnInitial ? "🎨 Style:" : "🎨 화풍:";
+            const isEnInitial = (BadaI18n && BadaI18n.lang === "en") || currentLang === "en";
+            artBarLabel.textContent = BadaI18n.t("vg_art_style");
             artBtnGroup.appendChild(artBarLabel);
 
             ART_STYLES.forEach(st => {
@@ -1007,7 +1011,7 @@ app.registerExtension({
                 btnMinus.type = "button";
                 btnMinus.className = "vg-btn";
                 btnMinus.textContent = "−";
-                btnMinus.title = isEnInitial ? "Decrease" : "감소 (Decrease)";
+                btnMinus.title = BadaI18n.t("vg_stepper_decrease");
                 btnMinus.style.cssText = "width:22px; height:24px; padding:0; font-size:14px; font-weight:bold; display:flex; align-items:center; justify-content:center; border:none; border-radius:0; background:#3d3d3d; color:#d4d4d8; cursor:pointer;";
 
                 const numInput = document.createElement("input");
@@ -1026,7 +1030,7 @@ app.registerExtension({
                 btnPlus.type = "button";
                 btnPlus.className = "vg-btn";
                 btnPlus.textContent = "+";
-                btnPlus.title = isEnInitial ? "Increase" : "증가 (Increase)";
+                btnPlus.title = BadaI18n.t("vg_stepper_increase");
                 btnPlus.style.cssText = "width:22px; height:24px; padding:0; font-size:14px; font-weight:bold; display:flex; align-items:center; justify-content:center; border:none; border-radius:0; background:#3d3d3d; color:#d4d4d8; cursor:pointer;";
 
                 btnMinus.addEventListener("click", (e) => {
@@ -1086,7 +1090,7 @@ app.registerExtension({
                 syncToWidgets();
             });
             const whiteBgSpan = document.createElement("span");
-            whiteBgSpan.textContent = currentLang === "English" ? " White BG" : " 백색 배경";
+            whiteBgSpan.textContent = BadaI18n.t("vg_white_bg_label");
             whiteBgLabel.appendChild(whiteBgCheck);
             whiteBgLabel.appendChild(whiteBgSpan);
 
@@ -1101,7 +1105,7 @@ app.registerExtension({
                 syncToWidgets();
             });
             const gridBorderSpan = document.createElement("span");
-            gridBorderSpan.textContent = currentLang === "English" ? " Grid Borders" : " 격자 실선";
+            gridBorderSpan.textContent = BadaI18n.t("vg_grid_border_label");
             gridBorderLabel.appendChild(gridBorderCheck);
             gridBorderLabel.appendChild(gridBorderSpan);
 
@@ -1116,7 +1120,7 @@ app.registerExtension({
                 renderGrid();
             });
             const mockupSpan = document.createElement("span");
-            mockupSpan.textContent = currentLang === "English" ? " Silhouette" : " 실루엣";
+            mockupSpan.textContent = BadaI18n.t("vg_mockup_label");
             mockupLabel.appendChild(mockupCheck);
             mockupLabel.appendChild(mockupSpan);
 
@@ -1138,11 +1142,9 @@ app.registerExtension({
             const charHeader = document.createElement("div");
             charHeader.style.cssText = "display:flex; justify-content:space-between; align-items:center; width:100%; gap:8px;";
 
-            const isEnChar = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
-
             const charTitle = document.createElement("div");
             charTitle.style.cssText = "font-size:11px; font-weight:700; color:#a1a1aa; display:flex; align-items:center; gap:4px; white-space:nowrap;";
-            charTitle.innerHTML = isEnChar ? `<span>👤 Character Profile</span>` : `<span>👤 인물 공통 외모</span>`;
+            charTitle.innerHTML = `<span>${BadaI18n.t("vg_char_profile_title")}</span>`;
 
             const charPresetsBar = document.createElement("div");
             charPresetsBar.style.cssText = "display:flex; gap:6px; align-items:center; flex:1; justify-content:flex-end;";
@@ -1152,8 +1154,8 @@ app.registerExtension({
             charSelect.style.cssText = "padding:2px 6px; font-size:10.5px; flex:1; min-width:160px; max-width:260px; text-overflow:ellipsis; overflow:hidden;";
             
             function renderCharPresetsDropdown() {
-                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
-                charSelect.innerHTML = `<option value="">${isEn ? `▼ 👤 Character Presets (${charPresets.length})` : `▼ 👤 외모 프리셋 (${charPresets.length}개)`}</option>`;
+                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "en";
+                charSelect.innerHTML = `<option value="">${BadaI18n.t("vg_char_preset_option", { n: charPresets.length })}</option>`;
                 charPresets.forEach((cp, idx) => {
                     const opt = document.createElement("option");
                     opt.value = idx;
@@ -1182,8 +1184,8 @@ app.registerExtension({
             btnOpenCharManager.className = "vg-btn";
             btnOpenCharManager.type = "button";
             btnOpenCharManager.style.cssText = "padding:2px 8px; font-size:10.5px; border-color:#6366f1; background:#3d3d3d; color:#c7d2fe; white-space:nowrap;";
-            btnOpenCharManager.textContent = isEnChar ? "⚙️ Preset Settings" : "⚙️ 외모 프리셋 설정";
-            btnOpenCharManager.title = isEnChar ? "Manage character profile presets (add, edit, delete, reorder)" : "인물 외모 프리셋 관리 (추가, 수정, 삭제, 순서 변경)";
+            btnOpenCharManager.textContent = BadaI18n.t("vg_char_manager_btn");
+            btnOpenCharManager.title = BadaI18n.t("vg_char_manager_title");
 
             charPresetsBar.appendChild(charSelect);
             charPresetsBar.appendChild(btnOpenCharManager);
@@ -1204,7 +1206,7 @@ app.registerExtension({
             charKoInput.className = "vg-textarea";
             charKoInput.rows = 1;
             charKoInput.style.cssText = "min-height:26px; resize:vertical; font-size:11px; padding:4px 6px; width:100%; box-sizing:border-box;";
-            charKoInput.placeholder = isEnChar ? "KR: Korean character profile (Auto-translated to English)" : "KR: 한글 인물 공통 외모 (예: 한국인, 40대, 여성, 갈색 파마머리, 뿔테 안경...)";
+            charKoInput.placeholder = BadaI18n.t("vg_char_ko_placeholder");
             charKoInput.value = characterProfileKo || (/[가-힣]/.test(characterProfile) ? characterProfile : "");
 
             // English Profile Input
@@ -1212,7 +1214,7 @@ app.registerExtension({
             charEnInput.className = "vg-textarea";
             charEnInput.rows = 1;
             charEnInput.style.cssText = "min-height:26px; resize:vertical; font-size:11px; padding:4px 6px; border-color:#4e4e4e; color:#d4d4d8; width:100%; box-sizing:border-box;";
-            charEnInput.placeholder = isEnChar ? "US: English character profile (Sent to AI)" : "US: 영문 인물 공통 외모 (AI 최종 전달용 / 한글 입력 시 실시간 자동 번역)";
+            charEnInput.placeholder = BadaI18n.t("vg_char_en_placeholder");
             charEnInput.value = !/[가-힣]/.test(characterProfile) ? characterProfile : "";
 
             // Auto translation debouncer for charKoInput
@@ -1229,8 +1231,7 @@ app.registerExtension({
                 clearTimeout(charTransTimer);
                 if (characterProfileKo) {
                     charTransTimer = setTimeout(async () => {
-                        const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
-                        charEnInput.placeholder = isEn ? "🌐 Translating..." : "🌐 번역 중...";
+                        charEnInput.placeholder = BadaI18n.t("vg_translating");
                         const translated = await translateToEnglishAsync(charKoInput.value.trim());
                         if (translated) {
                             charEnInput.value = translated;
@@ -1277,25 +1278,25 @@ app.registerExtension({
             btnQuickSave.className = "vg-btn";
             btnQuickSave.type = "button";
             btnQuickSave.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:2px; background:#3a3a3a; border-color:#eab308; color:#fef08a;";
-            btnQuickSave.innerHTML = `<span>${isEnChar ? "⭐ Save" : "⭐ 저장"}</span>`;
-            btnQuickSave.title = isEnChar ? "Quickly save current character profile as a new preset" : "현재 입력된 외모를 새 프리셋으로 빠른 추가";
+            btnQuickSave.innerHTML = `<span>${BadaI18n.t("vg_quick_save")}</span>`;
+            btnQuickSave.title = BadaI18n.t("vg_quick_save_title");
 
             btnQuickSave.addEventListener("click", () => {
-                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
+                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "en";
                 const ko = charKoInput.value.trim();
                 const en = charEnInput.value.trim();
                 if (!ko && !en) {
-                    alert(isEn ? "Please enter a character profile first." : "저장할 인물 외모 묘사를 먼저 입력해주세요.");
+                    alert(BadaI18n.t("vg_enter_char_profile"));
                     return;
                 }
                 const defaultLabel = isEn ? (en.slice(0, 14) || ko.slice(0, 14)) : (ko.slice(0, 14) || en.slice(0, 14));
-                const label = prompt(isEn ? "New character preset name:" : "새 인물 외모 프리셋 이름:", defaultLabel);
+                const label = prompt(BadaI18n.t("vg_new_char_preset_name"), defaultLabel);
                 if (label) {
                     charPresets.push({ label: label.trim(), label_en: label.trim(), ko, en: en || ko });
                     try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                     renderCharPresetsDropdown();
-                    btnQuickSave.innerHTML = `<span>${isEn ? "✅ Done" : "✅ 완료"}</span>`;
-                    setTimeout(() => { btnQuickSave.innerHTML = `<span>${isEn ? "⭐ Save" : "⭐ 저장"}</span>`; }, 1200);
+                    btnQuickSave.innerHTML = `<span>${BadaI18n.t("vg_char_done")}</span>`;
+                    setTimeout(() => { btnQuickSave.innerHTML = `<span>${BadaI18n.t("vg_quick_save")}</span>`; }, 1200);
                 }
             });
 
@@ -1303,8 +1304,8 @@ app.registerExtension({
             btnClearChar.className = "vg-btn";
             btnClearChar.type = "button";
             btnClearChar.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; display:flex; align-items:center; justify-content:center; background:#3a3a3a; color:#a1a1aa;";
-            btnClearChar.textContent = isEnChar ? "Clear" : "비우기";
-            btnClearChar.title = isEnChar ? "Clear character profile inputs" : "인물 외모 묘사 지우기";
+            btnClearChar.textContent = BadaI18n.t("vg_clear");
+            btnClearChar.title = BadaI18n.t("vg_clear_char_title");
             btnClearChar.addEventListener("click", () => {
                 charKoInput.value = "";
                 charEnInput.value = "";
@@ -1328,12 +1329,12 @@ app.registerExtension({
 
             function renderCharManagerList() {
                 charManagerDrawer.innerHTML = "";
-                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
+                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "en";
                 
                 // Header
                 const mHeader = document.createElement("div");
                 mHeader.style.cssText = "display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #4e4e4e; padding-bottom:4px;";
-                mHeader.innerHTML = `<div style="font-size:11.5px; font-weight:700; color:#c7d2fe; display:flex; align-items:center; gap:4px;">⚙️ ${isEn ? "Character Presets Manager" : "인물 외모 프리셋 관리"} <span style="font-size:10px; color:#a1a1aa;">(${charPresets.length})</span></div>`;
+                mHeader.innerHTML = `<div style="font-size:11.5px; font-weight:700; color:#c7d2fe; display:flex; align-items:center; gap:4px;">⚙️ ${BadaI18n.t("vg_char_presets_manager")} <span style="font-size:10px; color:#a1a1aa;">(${charPresets.length})</span></div>`;
 
                 const btnCloseM = document.createElement("button");
                 btnCloseM.className = "vg-btn";
@@ -1395,7 +1396,7 @@ app.registerExtension({
                     inputTitle.type = "text";
                     inputTitle.style.cssText = "flex:1; font-weight:700; font-size:11px; padding:2px 5px;";
                     inputTitle.value = getLocalizedPresetLabel(cp, isEn);
-                    inputTitle.placeholder = isEn ? "Preset Name" : "프리셋 이름";
+                    inputTitle.placeholder = BadaI18n.t("vg_preset_name");
                     inputTitle.addEventListener("input", () => {
                         if (isEn) {
                             cp.label_en = inputTitle.value;
@@ -1414,10 +1415,10 @@ app.registerExtension({
                     btnDel.type = "button";
                     btnDel.style.cssText = "padding:1px 5px; font-size:10px; color:#f87171; border-color:#7f1d1d;";
                     btnDel.textContent = "🗑️";
-                    btnDel.title = isEn ? "Delete Preset" : "프리셋 삭제";
+                    btnDel.title = BadaI18n.t("vg_delete_preset");
                     btnDel.addEventListener("click", () => {
                         const pName = getLocalizedPresetLabel(cp, isEn);
-                        if (confirm(isEn ? `Delete '${pName}' preset?` : `'${pName}' 프리셋을 삭제하시겠습니까?`)) {
+                        if (confirm(BadaI18n.t("vg_delete_preset_confirm", { name: pName }))) {
                             charPresets.splice(idx, 1);
                             saveAndRefreshPresets();
                         }
@@ -1435,7 +1436,7 @@ app.registerExtension({
                     inputKo.rows = 1;
                     inputKo.style.cssText = "min-height:22px; font-size:10.5px; padding:2px 4px;";
                     inputKo.value = cp.ko || "";
-                    inputKo.placeholder = isEn ? "KR: Korean character profile" : "KR: 한글 인물 외모";
+                    inputKo.placeholder = BadaI18n.t("vg_char_ko_placeholder_short");
                     inputKo.addEventListener("input", () => {
                         cp.ko = inputKo.value;
                         try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
@@ -1446,7 +1447,7 @@ app.registerExtension({
                     inputEn.rows = 1;
                     inputEn.style.cssText = "min-height:22px; font-size:10.5px; padding:2px 4px; border-color:#4e4e4e; color:#d4d4d8;";
                     inputEn.value = cp.en || "";
-                    inputEn.placeholder = isEn ? "US: English character profile" : "US: 영문 인물 외모";
+                    inputEn.placeholder = BadaI18n.t("vg_char_en_placeholder_short");
                     inputEn.addEventListener("input", () => {
                         cp.en = inputEn.value;
                         try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
@@ -1481,9 +1482,9 @@ app.registerExtension({
                 btnAddRow.className = "vg-btn";
                 btnAddRow.type = "button";
                 btnAddRow.style.cssText = "padding:3px 7px; font-size:10.5px; background:#4f46e5; border-color:#6366f1; color:#fff;";
-                btnAddRow.textContent = isEn ? "➕ Add Preset" : "➕ 새 프리셋 추가";
+                btnAddRow.textContent = BadaI18n.t("vg_add_preset");
                 btnAddRow.addEventListener("click", () => {
-                    charPresets.unshift({ label: isEn ? "New Character" : "새 인물 외모", label_en: "New Character", ko: "", en: "" });
+                    charPresets.unshift({ label: BadaI18n.t("vg_new_character"), label_en: "New Character", ko: "", en: "" });
                     saveAndRefreshPresets();
                 });
 
@@ -1491,10 +1492,10 @@ app.registerExtension({
                 btnResetDefaults.className = "vg-btn";
                 btnResetDefaults.type = "button";
                 btnResetDefaults.style.cssText = "padding:3px 6px; font-size:10.5px;";
-                btnResetDefaults.textContent = isEn ? "🔄 Reset" : "🔄 초기화";
-                btnResetDefaults.title = isEn ? "Reset to default presets" : "기본 프리셋으로 초기화";
+                btnResetDefaults.textContent = BadaI18n.t("vg_reset_defaults");
+                btnResetDefaults.title = BadaI18n.t("vg_reset_to_defaults");
                 btnResetDefaults.addEventListener("click", () => {
-                    if (confirm(isEn ? "Reset all character presets to defaults?" : "모든 외모 프리셋을 기본값으로 초기화하시겠습니까?")) {
+                    if (confirm(BadaI18n.t("vg_confirm_reset_char"))) {
                         charPresets = [
                             { label: "20대 한국 여성", label_en: "20s Korean Female", ko: "20대 한국 여성, 긴 흑발 포니테일, 검은 뿔테 안경, 자연스러운 메이크업", en: "Korean woman in her 20s, long black hair ponytail, black horn-rimmed glasses, natural makeup" },
                             { label: "30대 비즈니스 남성", label_en: "30s Business Male", ko: "30대 한국 남성, 깔끔한 쉼표머리 헤어스타일, 네이비 정장 수트, 지적인 인상", en: "Korean man in his 30s, neat comma hairstyle, navy business suit, intellectual look" },
@@ -1509,7 +1510,7 @@ app.registerExtension({
                 btnCloseFooter.className = "vg-btn";
                 btnCloseFooter.type = "button";
                 btnCloseFooter.style.cssText = "padding:3px 8px; font-size:10.5px; background:#10b981; border-color:#34d399; color:#fff; font-weight:700;";
-                btnCloseFooter.textContent = isEn ? "💾 Done" : "💾 완료";
+                btnCloseFooter.textContent = BadaI18n.t("vg_done_save");
                 btnCloseFooter.addEventListener("click", () => {
                     charManagerDrawer.style.display = "none";
                     setTimeout(updateHeightOnDrawerToggle, 30);
@@ -1562,7 +1563,7 @@ app.registerExtension({
             const stageResizeHandle = document.createElement("div");
             stageResizeHandle.className = "vg-stage-resize-handle";
             stageResizeHandle.innerHTML = `⇲`;
-            stageResizeHandle.title = currentLang === "English" ? "Drag to resize canvas area" : "드래그하여 격자 영역 크기 조절";
+            stageResizeHandle.title = BadaI18n.t("vg_stage_resize_title");
 
             // Interactive Drag Resizing on Stage
             let isStageResizing = false;
@@ -1603,10 +1604,9 @@ app.registerExtension({
             container.appendChild(canvasStage);
 
             // Guide text
-            const isEnStage = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
             const guideEl = document.createElement("div");
             guideEl.style.cssText = "font-size:10px; color:#a1a1aa; text-align:center;";
-            guideEl.textContent = isEnStage ? "🖱️ Drag: Create Area | ✏️ Click: Edit | ❌ Right-click or [×]: Delete" : "🖱️ 드래그: 영역 생성 | ✏️ 클릭: 구도 편집 | ❌ [×]버튼 또는 우클릭: 삭제";
+            guideEl.textContent = BadaI18n.t("vg_guide");
             container.appendChild(guideEl);
 
             // =========================================================================
@@ -1621,17 +1621,16 @@ app.registerExtension({
             
             const activeAreaTitle = document.createElement("span");
             activeAreaTitle.style.cssText = "font-size:11.5px; font-weight:700; color:#818cf8; word-break:break-all;";
-            activeAreaTitle.textContent = isEnStage ? "📍 Select an area to edit (or drag on canvas)" : "📍 편집할 영역을 선택하세요 (또는 캔버스에서 드래그)";
+            activeAreaTitle.textContent = BadaI18n.t("vg_select_area");
             editorHeader.appendChild(activeAreaTitle);
             editorCard.appendChild(editorHeader);
 
             // Full-Width 10-Category Tree Explorer Button
-            const isEnExplorer = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
             const treeBtn = document.createElement("button");
             treeBtn.className = "vg-btn";
             treeBtn.type = "button";
             treeBtn.style.cssText = "width:100%; display:flex; justify-content:space-between; align-items:center; padding:6px 10px; font-weight:600; background:#3d3d3d; border:1px solid #4f46e5; border-radius:4px; color:#fff; cursor:pointer;";
-            treeBtn.innerHTML = `<span>${isEnExplorer ? "📂 10 Category Shot & Angle Explorer" : "📂 10대 캐릭터 시트 구도 탐색기"}</span><span>▼</span>`;
+            treeBtn.innerHTML = `<span>${BadaI18n.t("vg_tree_title")}</span><span>▼</span>`;
             
             const treeDrawer = document.createElement("div");
             treeDrawer.className = "vg-tree-drawer collapsed";
@@ -1639,7 +1638,7 @@ app.registerExtension({
             const treeSearch = document.createElement("input");
             treeSearch.className = "vg-input";
             treeSearch.style.width = "100%";
-            treeSearch.placeholder = isEnExplorer ? "🔍 Search composition/angle (collarbone, walking, lying, front)..." : "🔍 구도 검색 (쇄골, 발등, 워킹, 누운, 정면)...";
+            treeSearch.placeholder = BadaI18n.t("vg_tree_search_placeholder");
             treeDrawer.appendChild(treeSearch);
 
             const treeList = document.createElement("div");
@@ -1649,7 +1648,7 @@ app.registerExtension({
             // Render Explorer Tree
             function renderExplorerTree() {
                 treeList.innerHTML = "";
-                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
+                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "en";
                 PRESET_GROUPS.forEach(grp => {
                     const fWrap = document.createElement("div");
                     fWrap.style.cssText = "display:flex; flex-direction:column; gap:4px;";
@@ -1724,8 +1723,8 @@ app.registerExtension({
             customSelect.style.cssText = "padding:2px 6px; font-size:10.5px; flex:1; min-width:160px; text-overflow:ellipsis; overflow:hidden;";
             
             function updateCustomSelect() {
-                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
-                customSelect.innerHTML = `<option value="">${isEn ? `▼ ⭐ Custom Presets (${customPresets.length})` : `▼ ⭐ 나만의 프리셋 (${customPresets.length}개)`}</option>`;
+                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "en";
+                customSelect.innerHTML = `<option value="">${BadaI18n.t("vg_custom_preset_option", { n: customPresets.length })}</option>`;
                 customPresets.forEach((cp, idx) => {
                     const opt = document.createElement("option");
                     opt.value = idx;
@@ -1750,8 +1749,8 @@ app.registerExtension({
             btnOpenCustomManager.className = "vg-btn";
             btnOpenCustomManager.type = "button";
             btnOpenCustomManager.style.cssText = "padding:2px 8px; font-size:10.5px; border-color:#6366f1; background:#3d3d3d; color:#c7d2fe; white-space:nowrap;";
-            btnOpenCustomManager.textContent = isEnExplorer ? "⚙️ Custom Presets Settings" : "⚙️ 나만의 프리셋 설정";
-            btnOpenCustomManager.title = isEnExplorer ? "Manage custom presets (add, edit, delete, reorder)" : "나만의 구도/포즈 프리셋 관리 (추가, 수정, 삭제, 순서 변경)";
+            btnOpenCustomManager.textContent = BadaI18n.t("vg_custom_manager_btn");
+            btnOpenCustomManager.title = BadaI18n.t("vg_custom_manager_title");
 
             customPresetsBar.appendChild(customSelect);
             customPresetsBar.appendChild(btnOpenCustomManager);
@@ -1768,7 +1767,7 @@ app.registerExtension({
             areaKoInput.className = "vg-textarea";
             areaKoInput.rows = 2;
             areaKoInput.style.cssText = "min-height:36px; resize:vertical; font-size:11px; padding:4px 6px; width:100%; box-sizing:border-box;";
-            areaKoInput.placeholder = isEnExplorer ? "KR: Korean area prompt (Auto-translated to English)" : "KR: 한글 프롬프트 (프리셋 선택 시 1:1 교체, 한글 입력 시 실시간 자동 번역)";
+            areaKoInput.placeholder = BadaI18n.t("vg_area_ko_placeholder_auto");
             
             let autoTranslateTimer = null;
             areaKoInput.addEventListener("input", () => {
@@ -1803,7 +1802,7 @@ app.registerExtension({
             areaEnInput.className = "vg-textarea";
             areaEnInput.rows = 2;
             areaEnInput.style.cssText = "min-height:36px; resize:vertical; font-size:11px; padding:4px 6px; border-color:#4e4e4e; color:#d4d4d8; width:100%; box-sizing:border-box;";
-            areaEnInput.placeholder = isEnExplorer ? "US: English area prompt (Sent to AI / Editable)" : "US: 영문 프롬프트 (AI 최종 전달용 / 직접 수정 가능)";
+            areaEnInput.placeholder = BadaI18n.t("vg_area_en_placeholder_auto");
             areaEnInput.addEventListener("input", () => {
                 const area = getSelectedArea();
                 if (area) {
@@ -1824,25 +1823,25 @@ app.registerExtension({
             btnQuickSaveCustom.className = "vg-btn";
             btnQuickSaveCustom.type = "button";
             btnQuickSaveCustom.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; font-weight:600; display:flex; align-items:center; justify-content:center; gap:2px; background:#3a3a3a; border-color:#eab308; color:#fef08a;";
-            btnQuickSaveCustom.innerHTML = `<span>${isEnExplorer ? "⭐ Save" : "⭐ 저장"}</span>`;
-            btnQuickSaveCustom.title = isEnExplorer ? "Quickly save current prompt to custom presets" : "현재 구도/포즈를 나만의 프리셋으로 빠른 추가";
+            btnQuickSaveCustom.innerHTML = `<span>${BadaI18n.t("vg_quick_save")}</span>`;
+            btnQuickSaveCustom.title = BadaI18n.t("vg_custom_quick_save_title");
 
             btnQuickSaveCustom.addEventListener("click", () => {
-                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
+                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "en";
                 const ko = areaKoInput.value.trim();
                 const en = areaEnInput.value.trim();
                 if (!ko && !en) {
-                    alert(isEn ? "Please enter a composition/pose prompt first." : "저장할 구도/포즈 프롬프트를 먼저 입력해주세요.");
+                    alert(BadaI18n.t("vg_enter_comp_pose"));
                     return;
                 }
                 const defaultLabel = isEn ? (en.slice(0, 14) || ko.slice(0, 14)) : (ko.slice(0, 14) || en.slice(0, 14));
-                const label = prompt(isEn ? "New custom preset name:" : "새 나만의 프리셋 이름:", defaultLabel);
+                const label = prompt(BadaI18n.t("vg_new_custom_preset_name"), defaultLabel);
                 if (label) {
                     customPresets.push({ id: "cp_" + Date.now(), label: label.trim(), label_en: label.trim(), ko, en: en || ko });
                     try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
                     updateCustomSelect();
-                    btnQuickSaveCustom.innerHTML = `<span>${isEn ? "✅ Done" : "✅ 완료"}</span>`;
-                    setTimeout(() => { btnQuickSaveCustom.innerHTML = `<span>${isEn ? "⭐ Save" : "⭐ 저장"}</span>`; }, 1200);
+                    btnQuickSaveCustom.innerHTML = `<span>${BadaI18n.t("vg_char_done")}</span>`;
+                    setTimeout(() => { btnQuickSaveCustom.innerHTML = `<span>${BadaI18n.t("vg_quick_save")}</span>`; }, 1200);
                 }
             });
 
@@ -1850,8 +1849,8 @@ app.registerExtension({
             btnClearArea.className = "vg-btn";
             btnClearArea.type = "button";
             btnClearArea.style.cssText = "flex:1; padding:2px 4px; font-size:10.5px; display:flex; align-items:center; justify-content:center; background:#3a3a3a; color:#a1a1aa;";
-            btnClearArea.textContent = isEnExplorer ? "Clear" : "비우기";
-            btnClearArea.title = isEnExplorer ? "Clear prompt for current area" : "현재 선택된 영역의 프롬프트 지우기";
+            btnClearArea.textContent = BadaI18n.t("vg_clear");
+            btnClearArea.title = BadaI18n.t("vg_clear_area_title");
             btnClearArea.addEventListener("click", () => {
                 areaKoInput.value = "";
                 areaEnInput.value = "";
@@ -1878,12 +1877,12 @@ app.registerExtension({
 
             function renderCustomManagerList() {
                 customManagerDrawer.innerHTML = "";
-                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
+                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "en";
                 
                 // Header
                 const mHeader = document.createElement("div");
                 mHeader.style.cssText = "display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #4e4e4e; padding-bottom:4px;";
-                mHeader.innerHTML = `<div style="font-size:11.5px; font-weight:700; color:#fef08a; display:flex; align-items:center; gap:4px;">⚙️ ${isEn ? "Custom Presets Manager" : "나만의 구도/포즈 프리셋 관리"} <span style="font-size:10px; color:#a1a1aa;">(${customPresets.length})</span></div>`;
+                mHeader.innerHTML = `<div style="font-size:11.5px; font-weight:700; color:#fef08a; display:flex; align-items:center; gap:4px;">⚙️ ${BadaI18n.t("vg_custom_presets_manager")} <span style="font-size:10px; color:#a1a1aa;">(${customPresets.length})</span></div>`;
 
                 const btnCloseM = document.createElement("button");
                 btnCloseM.className = "vg-btn";
@@ -1945,7 +1944,7 @@ app.registerExtension({
                     inputTitle.type = "text";
                     inputTitle.style.cssText = "flex:1; font-weight:700; font-size:11px; padding:2px 5px;";
                     inputTitle.value = getLocalizedPresetLabel(cp, isEn);
-                    inputTitle.placeholder = isEn ? "Preset Name" : "프리셋 이름";
+                    inputTitle.placeholder = BadaI18n.t("vg_preset_name");
                     inputTitle.addEventListener("input", () => {
                         if (isEn) {
                             cp.label_en = inputTitle.value;
@@ -1964,10 +1963,10 @@ app.registerExtension({
                     btnDel.type = "button";
                     btnDel.style.cssText = "padding:1px 5px; font-size:10px; color:#f87171; border-color:#7f1d1d;";
                     btnDel.textContent = "🗑️";
-                    btnDel.title = isEn ? "Delete Preset" : "프리셋 삭제";
+                    btnDel.title = BadaI18n.t("vg_delete_preset");
                     btnDel.addEventListener("click", () => {
                         const pName = getLocalizedPresetLabel(cp, isEn);
-                        if (confirm(isEn ? `Delete '${pName}' preset?` : `'${pName}' 프리셋을 삭제하시겠습니까?`)) {
+                        if (confirm(BadaI18n.t("vg_delete_preset_confirm", { name: pName }))) {
                             customPresets.splice(idx, 1);
                             saveAndRefreshCustomPresets();
                         }
@@ -1985,7 +1984,7 @@ app.registerExtension({
                     inputKo.rows = 1;
                     inputKo.style.cssText = "min-height:22px; font-size:10.5px; padding:2px 4px;";
                     inputKo.value = cp.ko || "";
-                    inputKo.placeholder = isEn ? "KR: Korean composition/pose" : "KR: 한글 구도/포즈 묘사";
+                    inputKo.placeholder = BadaI18n.t("vg_comp_pose_ko_placeholder");
                     inputKo.addEventListener("input", () => {
                         cp.ko = inputKo.value;
                         try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
@@ -1996,7 +1995,7 @@ app.registerExtension({
                     inputEn.rows = 1;
                     inputEn.style.cssText = "min-height:22px; font-size:10.5px; padding:2px 4px; border-color:#4e4e4e; color:#d4d4d8;";
                     inputEn.value = cp.en || "";
-                    inputEn.placeholder = isEn ? "US: English composition/pose" : "US: 영문 구도/포즈 묘사";
+                    inputEn.placeholder = BadaI18n.t("vg_comp_pose_en_placeholder");
                     inputEn.addEventListener("input", () => {
                         cp.en = inputEn.value;
                         try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
@@ -2031,9 +2030,9 @@ app.registerExtension({
                 btnAddRow.className = "vg-btn";
                 btnAddRow.type = "button";
                 btnAddRow.style.cssText = "padding:3px 7px; font-size:10.5px; background:#4f46e5; border-color:#6366f1; color:#fff;";
-                btnAddRow.textContent = isEn ? "➕ Add Preset" : "➕ 새 프리셋 추가";
+                btnAddRow.textContent = BadaI18n.t("vg_add_preset");
                 btnAddRow.addEventListener("click", () => {
-                    customPresets.unshift({ id: "cp_" + Date.now(), label: isEn ? "New Preset" : "새 구도 프리셋", label_en: "New Preset", ko: "", en: "" });
+                    customPresets.unshift({ id: "cp_" + Date.now(), label: BadaI18n.t("vg_new_preset"), label_en: "New Preset", ko: "", en: "" });
                     saveAndRefreshCustomPresets();
                 });
 
@@ -2041,10 +2040,10 @@ app.registerExtension({
                 btnResetDefaults.className = "vg-btn";
                 btnResetDefaults.type = "button";
                 btnResetDefaults.style.cssText = "padding:3px 6px; font-size:10.5px;";
-                btnResetDefaults.textContent = isEn ? "🔄 Reset" : "🔄 초기화";
-                btnResetDefaults.title = isEn ? "Reset to default presets" : "기본 나만의 프리셋으로 초기화";
+                btnResetDefaults.textContent = BadaI18n.t("vg_reset_defaults");
+                btnResetDefaults.title = BadaI18n.t("vg_reset_custom_defaults");
                 btnResetDefaults.addEventListener("click", () => {
-                    if (confirm(isEn ? "Reset all custom presets to defaults?" : "모든 나만의 프리셋을 기본값으로 초기화하시겠습니까?")) {
+                    if (confirm(BadaI18n.t("vg_confirm_reset_custom"))) {
                         customPresets = [
                             { id: "cp_1", label: "태아자세 누운 전신", label_en: "Fetal Position Lying", ko: "태아자세로 누워 있는 전신", en: "Full body lying in fetal position" },
                             { id: "cp_2", label: "무릎 안고 앉기", label_en: "Sitting Hugging Knees", ko: "무릎을 세우고 앉아서 양손으로 자신의 무릎을 감싸고 있는 자세의 전신", en: "Full body sitting with knees bent and covering knees with hands" },
@@ -2058,7 +2057,7 @@ app.registerExtension({
                 btnCloseFooter.className = "vg-btn";
                 btnCloseFooter.type = "button";
                 btnCloseFooter.style.cssText = "padding:3px 8px; font-size:10.5px; background:#10b981; border-color:#34d399; color:#fff; font-weight:700;";
-                btnCloseFooter.textContent = isEn ? "💾 Done" : "💾 완료";
+                btnCloseFooter.textContent = BadaI18n.t("vg_done_save");
                 btnCloseFooter.addEventListener("click", () => {
                     customManagerDrawer.style.display = "none";
                     setTimeout(updateHeightOnDrawerToggle, 30);
@@ -2093,13 +2092,12 @@ app.registerExtension({
             btnApplyPrompt.className = "vg-btn";
             btnApplyPrompt.type = "button";
             btnApplyPrompt.style.cssText = "width:100%; padding:6px 12px; font-weight:700; font-size:12px; background:#4f46e5; border:1px solid #6366f1; color:#fff; border-radius:4px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; box-shadow:0 0 10px rgba(99,102,241,0.35); transition:all 0.15s ease;";
-            btnApplyPrompt.innerHTML = `<span>${isEnExplorer ? "Apply (Ctrl+Enter)" : "적용 (Ctrl+Enter)"}</span>`;
+            btnApplyPrompt.innerHTML = `<span>${BadaI18n.t("vg_apply_prompt")}</span>`;
 
             async function triggerApplyAndTranslate() {
                 const area = getSelectedArea();
                 if (!area) return;
-                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
-                btnApplyPrompt.innerHTML = `<span>${isEn ? "⏳ Translating & Applying..." : "⏳ 번역 및 적용 중..."}</span>`;
+                btnApplyPrompt.innerHTML = `<span>${BadaI18n.t("vg_translating_applying")}</span>`;
                 btnApplyPrompt.style.opacity = "0.7";
                 
                 area.ko_prompt = areaKoInput.value.trim();
@@ -2118,10 +2116,10 @@ app.registerExtension({
                 renderGrid();
                 syncToWidgets();
 
-                btnApplyPrompt.innerHTML = `<span>${isEn ? "✅ Applied!" : "✅ 적용 완료!"}</span>`;
+                btnApplyPrompt.innerHTML = `<span>${BadaI18n.t("vg_applied")}</span>`;
                 btnApplyPrompt.style.opacity = "1";
                 setTimeout(() => {
-                    btnApplyPrompt.innerHTML = `<span>${isEn ? "Apply (Ctrl+Enter)" : "적용 (Ctrl+Enter)"}</span>`;
+                    btnApplyPrompt.innerHTML = `<span>${BadaI18n.t("vg_apply_prompt")}</span>`;
                 }, 1000);
             }
 
@@ -2149,21 +2147,20 @@ app.registerExtension({
             container.appendChild(editorCard);
 
             // 8. Global Prefix / Suffix & Format
-            const isEnBottom = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
             const globalCard = document.createElement("div");
             globalCard.style.cssText = "display:flex; flex-direction:column; gap:4px;";
             
             const prefixInput = document.createElement("textarea");
             prefixInput.className = "vg-textarea";
             prefixInput.rows = 2;
-            prefixInput.placeholder = isEnBottom ? "Prefix prompt (Masterpiece, photorealistic, lighting)..." : "접두사 (Prefix: Masterpiece, Photorealistic)...";
+            prefixInput.placeholder = BadaI18n.t("vg_prefix_placeholder");
             prefixInput.value = prefixVal;
             prefixInput.addEventListener("input", () => { prefixVal = prefixInput.value; syncToWidgets(); });
 
             const suffixInput = document.createElement("textarea");
             suffixInput.className = "vg-textarea";
             suffixInput.rows = 2;
-            suffixInput.placeholder = isEnBottom ? "Suffix prompt (8k resolution, cinematic lighting)..." : "접미사 (Suffix: 8k resolution, cinematic lighting)...";
+            suffixInput.placeholder = BadaI18n.t("vg_suffix_placeholder");
             suffixInput.value = suffixVal;
             suffixInput.addEventListener("input", () => { suffixVal = suffixInput.value; syncToWidgets(); });
 
@@ -2200,8 +2197,8 @@ app.registerExtension({
             const btnClear = document.createElement("button");
             btnClear.className = "vg-btn";
             btnClear.type = "button";
-            btnClear.textContent = isEnBottom ? "🗑️ Reset" : "🗑️ 초기화";
-            btnClear.title = isEnBottom ? "Clear all areas" : "모든 영역 지우기";
+            btnClear.textContent = BadaI18n.t("vg_reset");
+            btnClear.title = BadaI18n.t("vg_reset_title");
             btnClear.addEventListener("click", () => {
                 areas = [];
                 selectedAreaId = null;
@@ -2223,13 +2220,13 @@ app.registerExtension({
             
             const previewTitle = document.createElement("div");
             previewTitle.style.cssText = "font-size:11.5px; font-weight:700; color:#f4f4f5; display:flex; align-items:center; gap:6px;";
-            previewTitle.innerHTML = isEnBottom ? `<span>📋 Final Output Prompt Preview</span>` : `<span>📋 최종 프롬프트 미리보기</span>`;
+            previewTitle.innerHTML = `<span>${BadaI18n.t("vg_preview_title")}</span>`;
 
             const btnCopyFullPrompt = document.createElement("button");
             btnCopyFullPrompt.className = "vg-btn";
             btnCopyFullPrompt.type = "button";
             btnCopyFullPrompt.style.cssText = "padding:4px 10px; font-size:11px; font-weight:700; background:#4f46e5; border-color:#6366f1; color:#fff; display:flex; align-items:center; gap:4px; box-shadow:0 0 8px rgba(99,102,241,0.3);";
-            btnCopyFullPrompt.innerHTML = isEnBottom ? `<span>📋 Copy</span>` : `<span>📋 복사 (Copy)</span>`;
+            btnCopyFullPrompt.innerHTML = `<span>${BadaI18n.t("vg_copy_full_prompt")}</span>`;
 
             btnCopyFullPrompt.addEventListener("click", (e) => {
                 e.stopPropagation();
@@ -2243,13 +2240,11 @@ app.registerExtension({
                     document.execCommand("copy");
                 }
 
-                const isEnNow = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
-                btnCopyFullPrompt.innerHTML = `<span>${isEnNow ? "✅ Copied!" : "✅ 복사 완료!"}</span>`;
+                btnCopyFullPrompt.innerHTML = `<span>${BadaI18n.t("vg_copied")}</span>`;
                 btnCopyFullPrompt.style.background = "#10b981";
                 btnCopyFullPrompt.style.borderColor = "#34d399";
                 setTimeout(() => {
-                    const isEnAfter = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
-                    btnCopyFullPrompt.innerHTML = `<span>${isEnAfter ? "📋 Copy" : "📋 복사 (Copy)"}</span>`;
+                    btnCopyFullPrompt.innerHTML = `<span>${BadaI18n.t("vg_copy_full_prompt")}</span>`;
                     btnCopyFullPrompt.style.background = "#4f46e5";
                     btnCopyFullPrompt.style.borderColor = "#6366f1";
                 }, 1500);
@@ -2262,7 +2257,7 @@ app.registerExtension({
             fullPromptTextarea.className = "vg-textarea";
             fullPromptTextarea.rows = 4;
             fullPromptTextarea.style.cssText = "min-height:85px; resize:vertical; font-family:Consolas, Monaco, monospace; font-size:11px; line-height:1.45; background:#2b2b2b; border-color:#3d3d3d; color:#e4e4e7; width:100%; box-sizing:border-box;";
-            fullPromptTextarea.placeholder = isEnBottom ? "Generated final prompt will appear here in real time..." : "생성된 최종 프롬프트가 실시간으로 여기에 표시됩니다...";
+            fullPromptTextarea.placeholder = BadaI18n.t("vg_full_prompt_placeholder");
             
             fullPromptTextarea.addEventListener("input", () => {
                 const wPrompt = node.widgets?.find(w => w.name === "prompt_text");
@@ -2389,7 +2384,6 @@ app.registerExtension({
 
             function selectArea(id) {
                 selectedAreaId = id;
-                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
                 const area = getSelectedArea();
                 if (area) {
                     const areaIndex = areas.findIndex(a => a.id === area.id);
@@ -2400,8 +2394,8 @@ app.registerExtension({
                     editorCard.style.boxShadow = `0 0 16px ${palette.glow}, inset 0 0 10px ${palette.bg}`;
                     editorCard.style.transition = "border-color 0.2s ease, box-shadow 0.2s ease";
 
-                    const titleText = isEn ? `Area [${area.id}] Prompt Settings` : `영역 [${area.id}] 프롬프트 설정`;
-                    const activeBadge = isEn ? `ACTIVE` : `선택됨 (ACTIVE)`;
+                    const titleText = BadaI18n.t("vg_area_title", { id: area.id });
+                    const activeBadge = BadaI18n.t("vg_active_badge");
 
                     activeAreaTitle.innerHTML = `<span style="display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap;">
                         <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${palette.border}; box-shadow:0 0 8px ${palette.border}; flex-shrink:0;"></span>
@@ -2418,31 +2412,27 @@ app.registerExtension({
                     btnApplyPrompt.style.boxShadow = `0 0 10px ${palette.glow}`;
                     btnApplyPrompt.style.color = "#000";
 
-                    areaKoInput.placeholder = isEn 
-                        ? `👉 [Area ${area.id}] Korean prompt (1:1 replace on preset select)` 
-                        : `👉 [영역 ${area.id}] 한글 프롬프트 (프리셋 선택 시 1:1 교체)`;
+                    areaKoInput.placeholder = BadaI18n.t("vg_area_ko_placeholder_id", { id: area.id });
                     areaKoInput.style.borderColor = palette.border;
                     areaKoInput.value = area.ko_prompt || "";
 
-                    areaEnInput.placeholder = isEn 
-                        ? `👉 [Area ${area.id}] AI English prompt (Auto-translated or manual edit)` 
-                        : `👉 [Area ${area.id}] AI 영문 프롬프트 (자동 번역 또는 직접 수정)`;
+                    areaEnInput.placeholder = BadaI18n.t("vg_area_en_placeholder_id", { id: area.id });
                     areaEnInput.style.borderColor = palette.border;
                     areaEnInput.value = area.prompt || "";
                 } else {
                     editorCard.style.borderColor = "#3d3d3d";
                     editorCard.style.boxShadow = "none";
-                    activeAreaTitle.innerHTML = `<span style="color:#6b6b6b;">${isEn ? "📍 Select an area to edit (or drag on canvas)" : "📍 편집할 영역을 선택하세요 (또는 캔버스에서 드래그)"}</span>`;
+                    activeAreaTitle.innerHTML = `<span style="color:#6b6b6b;">${BadaI18n.t("vg_select_area")}</span>`;
                     treeBtn.style.borderColor = "#4f46e5";
                     treeBtn.style.boxShadow = "none";
                     btnApplyPrompt.style.background = "#4f46e5";
                     btnApplyPrompt.style.borderColor = "#6366f1";
                     btnApplyPrompt.style.boxShadow = "none";
                     btnApplyPrompt.style.color = "#fff";
-                    areaKoInput.placeholder = isEn ? "🇰🇷 Korean prompt (1:1 replace on preset select)" : "🇰🇷 한글 프롬프트 (프리셋 선택 시 1:1 교체)";
+                    areaKoInput.placeholder = BadaI18n.t("vg_area_ko_placeholder");
                     areaKoInput.style.borderColor = "#4e4e4e";
                     areaKoInput.value = "";
-                    areaEnInput.placeholder = isEn ? "🇺🇸 English prompt (Sent to AI / Editable)" : "🇺🇸 영문 프롬프트 (AI 최종 전달용 / 직접 수정 가능)";
+                    areaEnInput.placeholder = BadaI18n.t("vg_area_en_placeholder");
                     areaEnInput.style.borderColor = "#4e4e4e";
                     areaEnInput.value = "";
                 }
@@ -2556,9 +2546,9 @@ app.registerExtension({
             }
 
             function updateAllUILanguage() {
-                currentLang = (BadaI18n && BadaI18n.lang === "ko") ? "한국어" : "English";
-                const isEn = currentLang === "English";
-                if (artBarLabel) artBarLabel.textContent = isEn ? "🎨 Style:" : "🎨 화풍:";
+                currentLang = BadaI18n ? BadaI18n.lang : "en";
+                const isEn = currentLang === "en";
+                if (artBarLabel) artBarLabel.textContent = BadaI18n.t("vg_art_style");
                 if (artBtnGroup) {
                     artBtnGroup.querySelectorAll(".vg-btn").forEach(btn => {
                         const sid = btn.dataset.styleId;
@@ -2571,68 +2561,68 @@ app.registerExtension({
                     });
                 }
                 if (colsStepper) {
-                    if (colsStepper.btnMinus) colsStepper.btnMinus.title = isEn ? "Decrease" : "감소 (Decrease)";
-                    if (colsStepper.btnPlus) colsStepper.btnPlus.title = isEn ? "Increase" : "증가 (Increase)";
+                    if (colsStepper.btnMinus) colsStepper.btnMinus.title = BadaI18n.t("vg_stepper_decrease");
+                    if (colsStepper.btnPlus) colsStepper.btnPlus.title = BadaI18n.t("vg_stepper_increase");
                 }
                 if (rowsStepper) {
-                    if (rowsStepper.btnMinus) rowsStepper.btnMinus.title = isEn ? "Decrease" : "감소 (Decrease)";
-                    if (rowsStepper.btnPlus) rowsStepper.btnPlus.title = isEn ? "Increase" : "증가 (Increase)";
+                    if (rowsStepper.btnMinus) rowsStepper.btnMinus.title = BadaI18n.t("vg_stepper_decrease");
+                    if (rowsStepper.btnPlus) rowsStepper.btnPlus.title = BadaI18n.t("vg_stepper_increase");
                 }
-                if (whiteBgSpan) whiteBgSpan.textContent = isEn ? " White BG" : " 백색 배경";
-                if (whiteBgLabel) whiteBgLabel.title = isEn ? "Clean pure white studio backdrop" : "배경을 깔끔한 순백색 스튜디오로 설정";
-                if (gridBorderSpan) gridBorderSpan.textContent = isEn ? " Grid Borders" : " 격자 실선";
-                if (gridBorderLabel) gridBorderLabel.title = isEn ? "Demarcate each area with thin black border lines" : "각 구역을 얇은 검정색 실선으로 명확하게 분할";
-                if (mockupSpan) mockupSpan.textContent = isEn ? " Silhouette" : " 실루엣";
-                if (mockupLabel) mockupLabel.title = isEn ? "Render dynamic vector silhouette guides inside canvas areas" : "구도 및 포즈에 맞춘 정밀 벡터 실루엣을 캔버스 영역에 동적 표시";
+                if (whiteBgSpan) whiteBgSpan.textContent = BadaI18n.t("vg_white_bg_label");
+                if (whiteBgLabel) whiteBgLabel.title = BadaI18n.t("vg_white_bg_title");
+                if (gridBorderSpan) gridBorderSpan.textContent = BadaI18n.t("vg_grid_border_label");
+                if (gridBorderLabel) gridBorderLabel.title = BadaI18n.t("vg_grid_border_title");
+                if (mockupSpan) mockupSpan.textContent = BadaI18n.t("vg_mockup_label");
+                if (mockupLabel) mockupLabel.title = BadaI18n.t("vg_mockup_title");
                 
-                if (charTitle) charTitle.innerHTML = isEn ? `<span>👤 Character Profile</span>` : `<span>👤 인물 공통 외모</span>`;
+                if (charTitle) charTitle.innerHTML = `<span>${BadaI18n.t("vg_char_profile_title")}</span>`;
                 if (btnOpenCharManager) {
-                    btnOpenCharManager.textContent = isEn ? "⚙️ Preset Settings" : "⚙️ 외모 프리셋 설정";
-                    btnOpenCharManager.title = isEn ? "Manage character profile presets (add, edit, delete, reorder)" : "인물 외모 프리셋 관리 (추가, 수정, 삭제, 순서 변경)";
+                    btnOpenCharManager.textContent = BadaI18n.t("vg_char_manager_btn");
+                    btnOpenCharManager.title = BadaI18n.t("vg_char_manager_title");
                 }
                 if (typeof renderCharPresetsDropdown === "function") renderCharPresetsDropdown();
                 if (btnQuickSave) {
-                    btnQuickSave.innerHTML = `<span>${isEn ? "⭐ Save" : "⭐ 저장"}</span>`;
-                    btnQuickSave.title = isEn ? "Quickly save current character profile as a new preset" : "현재 입력된 외모를 새 프리셋으로 빠른 추가";
+                    btnQuickSave.innerHTML = `<span>${BadaI18n.t("vg_quick_save")}</span>`;
+                    btnQuickSave.title = BadaI18n.t("vg_quick_save_title");
                 }
                 if (btnClearChar) {
-                    btnClearChar.textContent = isEn ? "Clear" : "비우기";
-                    btnClearChar.title = isEn ? "Clear character profile inputs" : "인물 외모 묘사 지우기";
+                    btnClearChar.textContent = BadaI18n.t("vg_clear");
+                    btnClearChar.title = BadaI18n.t("vg_clear_char_title");
                 }
-                if (charKoInput) charKoInput.placeholder = isEn ? "KR: Korean character profile (Auto-translated to English)" : "KR: 한글 인물 공통 외모 (예: 한국인, 40대, 여성, 갈색 파마머리, 뿔테 안경...)";
-                if (charEnInput) charEnInput.placeholder = isEn ? "US: English character profile (Sent to AI)" : "US: 영문 인물 공통 외모 (AI 최종 전달용 / 한글 입력 시 실시간 자동 번역)";
-                if (stageResizeHandle) stageResizeHandle.title = isEn ? "Drag to resize canvas area" : "드래그하여 격자 캔버스 영역 크기 조절";
-                if (guideEl) guideEl.textContent = isEn ? "🖱️ Drag: Create Area | ✏️ Click: Edit | ❌ Right-click or [×]: Delete" : "🖱️ 드래그: 영역 생성 | ✏️ 클릭: 구도 편집 | ❌ [×]버튼 또는 우클릭: 삭제";
+                if (charKoInput) charKoInput.placeholder = BadaI18n.t("vg_char_ko_placeholder");
+                if (charEnInput) charEnInput.placeholder = BadaI18n.t("vg_char_en_placeholder");
+                if (stageResizeHandle) stageResizeHandle.title = BadaI18n.t("vg_stage_resize_title");
+                if (guideEl) guideEl.textContent = BadaI18n.t("vg_guide");
                 
-                if (treeBtn) treeBtn.querySelector("span:first-child").textContent = isEn ? "📂 10 Category Shot & Angle Explorer" : "📂 10대 캐릭터 시트 구도 탐색기";
-                if (treeSearch) treeSearch.placeholder = isEn ? "🔍 Search composition/angle (collarbone, walking, lying, front)..." : "🔍 구도 검색 (쇄골, 발등, 워킹, 누운, 정면)...";
+                if (treeBtn) treeBtn.querySelector("span:first-child").textContent = BadaI18n.t("vg_tree_title");
+                if (treeSearch) treeSearch.placeholder = BadaI18n.t("vg_tree_search_placeholder");
                 if (typeof renderExplorerTree === "function") renderExplorerTree();
                 
                 if (btnOpenCustomManager) {
-                    btnOpenCustomManager.textContent = isEn ? "⚙️ Custom Presets Settings" : "⚙️ 나만의 프리셋 설정";
-                    btnOpenCustomManager.title = isEn ? "Manage custom presets (add, edit, delete, reorder)" : "나만의 구도/포즈 프리셋 관리 (추가, 수정, 삭제, 순서 변경)";
+                    btnOpenCustomManager.textContent = BadaI18n.t("vg_custom_manager_btn");
+                    btnOpenCustomManager.title = BadaI18n.t("vg_custom_manager_title");
                 }
                 if (typeof updateCustomSelect === "function") updateCustomSelect();
                 if (btnQuickSaveCustom) {
-                    btnQuickSaveCustom.innerHTML = `<span>${isEn ? "⭐ Save" : "⭐ 저장"}</span>`;
-                    btnQuickSaveCustom.title = isEn ? "Quickly save current prompt to custom presets" : "현재 구도/포즈를 나만의 프리셋으로 빠른 추가";
+                    btnQuickSaveCustom.innerHTML = `<span>${BadaI18n.t("vg_quick_save")}</span>`;
+                    btnQuickSaveCustom.title = BadaI18n.t("vg_custom_quick_save_title");
                 }
                 if (btnClearArea) {
-                    btnClearArea.textContent = isEn ? "Clear" : "비우기";
-                    btnClearArea.title = isEn ? "Clear prompt for current area" : "현재 선택된 영역의 프롬프트 지우기";
+                    btnClearArea.textContent = BadaI18n.t("vg_clear");
+                    btnClearArea.title = BadaI18n.t("vg_clear_area_title");
                 }
-                if (btnApplyPrompt) btnApplyPrompt.innerHTML = `<span>${isEn ? "Apply (Ctrl+Enter)" : "적용 (Ctrl+Enter)"}</span>`;
+                if (btnApplyPrompt) btnApplyPrompt.innerHTML = `<span>${BadaI18n.t("vg_apply_prompt")}</span>`;
                 
-                if (prefixInput) prefixInput.placeholder = isEn ? "Prefix prompt (Masterpiece, photorealistic, lighting)..." : "접두사 (Prefix: Masterpiece, Photorealistic)...";
-                if (suffixInput) suffixInput.placeholder = isEn ? "Suffix prompt (8k resolution, cinematic lighting)..." : "접미사 (Suffix: 8k resolution, cinematic lighting)...";
+                if (prefixInput) prefixInput.placeholder = BadaI18n.t("vg_prefix_placeholder");
+                if (suffixInput) suffixInput.placeholder = BadaI18n.t("vg_suffix_placeholder");
                 if (btnClear) {
-                    btnClear.textContent = isEn ? "🗑️ Reset" : "🗑️ 초기화";
-                    btnClear.title = isEn ? "Clear all areas" : "모든 영역 지우기";
+                    btnClear.textContent = BadaI18n.t("vg_reset");
+                    btnClear.title = BadaI18n.t("vg_reset_title");
                 }
                 
-                if (previewTitle) previewTitle.innerHTML = isEn ? `<span>📋 Final Output Prompt Preview</span>` : `<span>📋 최종 프롬프트 미리보기</span>`;
-                if (btnCopyFullPrompt) btnCopyFullPrompt.innerHTML = isEn ? `<span>📋 Copy</span>` : `<span>📋 복사 (Copy)</span>`;
-                if (fullPromptTextarea) fullPromptTextarea.placeholder = isEn ? "Generated final prompt will appear here in real time..." : "생성된 최종 프롬프트가 실시간으로 여기에 표시됩니다...";
+                if (previewTitle) previewTitle.innerHTML = `<span>${BadaI18n.t("vg_preview_title")}</span>`;
+                if (btnCopyFullPrompt) btnCopyFullPrompt.innerHTML = `<span>${BadaI18n.t("vg_copy_full_prompt")}</span>`;
+                if (fullPromptTextarea) fullPromptTextarea.placeholder = BadaI18n.t("vg_full_prompt_placeholder");
                 
                 if (charManagerDrawer && charManagerDrawer.style.display !== "none" && typeof renderCharManagerList === "function") {
                     renderCharManagerList();
@@ -2646,7 +2636,7 @@ app.registerExtension({
             }
 
             function renderGrid() {
-                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "English";
+                const isEn = (BadaI18n && BadaI18n.lang === "en") || currentLang === "en";
                 gridCellsContainer.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
                 gridCellsContainer.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
                 gridCellsContainer.innerHTML = "";
@@ -2691,7 +2681,7 @@ app.registerExtension({
                     closeBtn.className = "vg-area-close";
                     closeBtn.type = "button";
                     closeBtn.innerHTML = "×";
-                    closeBtn.title = isEn ? "Delete area (Click or right-click)" : "영역 삭제 (클릭 또는 우클릭)";
+                    closeBtn.title = BadaI18n.t("vg_delete_area_title");
                     closeBtn.addEventListener("click", (e) => {
                         e.stopPropagation();
                         e.preventDefault();
@@ -2716,7 +2706,7 @@ app.registerExtension({
                     // Prompt label
                     const label = document.createElement("div");
                     label.className = "vg-area-prompt";
-                    const defaultLabel = isEn ? "✏️ Edit" : "✏️ 작성";
+                    const defaultLabel = BadaI18n.t("vg_edit");
                     label.textContent = (isEn ? (area.prompt || area.ko_prompt) : (area.ko_prompt || area.prompt)) || defaultLabel;
                     box.appendChild(label);
 
@@ -2876,7 +2866,7 @@ app.registerExtension({
                 if (wSuffix) wSuffix.value = suffixVal;
 
                 const wLang = node.widgets?.find(w => w.name === "ui_language");
-                if (wLang) wLang.value = currentLang;
+                if (wLang) wLang.value = legacyUiLanguage();
 
                 const finalPromptStr = generateFullPromptString();
                 if (fullPromptTextarea) {
@@ -2935,7 +2925,7 @@ app.registerExtension({
                 if (formatW && formatW.value) { currentFormat = formatW.value; formatSelect.value = currentFormat; }
 
                 // Always adhere to the global BADA language setting (default to English)
-                currentLang = (BadaI18n && BadaI18n.lang === "ko") ? "한국어" : "English";
+                currentLang = BadaI18n ? BadaI18n.lang : "en";
 
                 updateAllUILanguage();
                 updateCanvasDimensions();
@@ -3040,7 +3030,7 @@ app.registerExtension({
                 serialize: false,
                 hideOnZoom: false,
                 getValue() {
-                    return JSON.stringify({ cols, rows, aspect_ratio: currentRatio, white_bg: whiteBg, grid_borders: gridBorders, character_profile: characterProfile, character_profile_ko: characterProfileKo, areas, prefix: prefixVal, suffix: suffixVal, format: currentFormat, ui_language: currentLang, stage_height: stageMaxHeight });
+                    return JSON.stringify({ cols, rows, aspect_ratio: currentRatio, white_bg: whiteBg, grid_borders: gridBorders, character_profile: characterProfile, character_profile_ko: characterProfileKo, areas, prefix: prefixVal, suffix: suffixVal, format: currentFormat, ui_language: legacyUiLanguage(), stage_height: stageMaxHeight });
                 },
                 setValue(v) {
                     if (v) {
@@ -3068,7 +3058,7 @@ app.registerExtension({
                             gridBorderCheck.checked = gridBorders;
                             if (charKoInput) charKoInput.value = characterProfileKo || characterProfile;
                             if (charEnInput) charEnInput.value = characterProfile;
-                            currentLang = (BadaI18n && BadaI18n.lang === "ko") ? "한국어" : "English";
+                            currentLang = BadaI18n ? BadaI18n.lang : "en";
                             updateAllUILanguage();
                             updateCanvasDimensions();
                             renderGrid();
@@ -3087,7 +3077,7 @@ app.registerExtension({
             });
 
             // Initial Sizing & Setup
-            currentLang = (BadaI18n && BadaI18n.lang === "ko") ? "한국어" : "English";
+            currentLang = BadaI18n ? BadaI18n.lang : "en";
             syncContainerSize();
             updateCanvasDimensions();
             renderGrid();
@@ -3135,7 +3125,7 @@ app.registerExtension({
 
             // BadaI18n Master Switch Listener & Cleanup
             const langListener = (newLang) => {
-                currentLang = newLang === "ko" ? "한국어" : "English";
+                currentLang = newLang === "ko" ? "ko" : "en";
                 updateAllUILanguage();
                 renderGrid();
                 syncToWidgets();
