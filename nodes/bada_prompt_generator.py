@@ -238,6 +238,31 @@ def resolve_api_key(explicit: str = "") -> str:
     return (os.environ.get("GEMINI_API_KEY") or "").strip()
 
 
+def resolve_api_keys(explicit: str = "") -> list:
+    """다중 API 키 목록을 반환. 단일 키도 리스트로 래핑.
+
+    우선순위: 명시적 키 > config.json api_keys(리스트) > config.json api_key(단일) > GEMINI_API_KEY(env)
+    """
+    if explicit and explicit.strip():
+        return [explicit.strip()]
+    try:
+        if os.path.exists(CONFIG_FILE):
+            with open(CONFIG_FILE, "r", encoding="utf-8") as fh:
+                cfg = json.load(fh)
+                keys = cfg.get("api_keys", [])
+                if keys and isinstance(keys, list):
+                    return [k.strip() for k in keys if k.strip()]
+                single = cfg.get("api_key", "").strip()
+                if single:
+                    return [single]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[BadaPromptGen] Could not read config.json: %s", exc)
+    env_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    if env_key:
+        return [env_key]
+    return []
+
+
 def resolve_model(registry: dict) -> str:
     """Priority-model resolution.
 
@@ -664,7 +689,7 @@ def _ui_text(ui_language, english, korean):
     return korean if ui_language == "ko" else english
 
 
-def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, api_key,
+def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, api_keys,
                         duration: int = 10, uncensored: bool = True, ui_language: str = "en",
                         aspect_ratio: str = ""):
     """Execute the generation pipeline.
@@ -715,12 +740,36 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
     http_failures = []   # [(model, detail)] — non-200 responses across all passes
     api_reached = False  # at least one model answered with HTTP 200 (refusal or empty)
 
+    # --- 다중 API 키 로테이터 상태 ---
+    key_index = 0
+    exhausted_keys = set()
+
+    def _try_key(model, sys_text, attach_images, temperature, timeout):
+        """모든 키를 순회하며 호출. 성공 시 (status, body, key) 반환, 실패 시 (status, body, None)."""
+        nonlocal key_index
+        if not api_keys:
+            return 0, [], None
+        start = key_index
+        while True:
+            current_key = api_keys[key_index]
+            if key_index not in exhausted_keys:
+                status, body = _post_generate_content(
+                    model, current_key, payload(sys_text, attach_images, temperature), timeout=timeout
+                )
+                if status == 200:
+                    return status, body, current_key
+                elif status in (429, 503):
+                    exhausted_keys.add(key_index)
+                    logger.warning(f"[BadaPromptGen] 키 소진 표시: idx={key_index}")
+            key_index = (key_index + 1) % len(api_keys)
+            if key_index == start:
+                break  # 모든 키 순회 완료
+        return 0, [], None
+
     # ---- PASS 1: direct master compilation -------------------------------------
     for model_index, model in enumerate(models):
         timeout = PRIMARY_MODEL_TIMEOUT if model_index == 0 else FALLBACK_MODEL_TIMEOUT
-        status, body = _post_generate_content(
-            model, api_key, payload(system_text, True, 0.75), timeout=timeout
-        )
+        status, body, used_key = _try_key(model, system_text, True, 0.75, timeout=timeout)
         if status != 200:
             logger.warning("[BadaPromptGen][Pass 1] %s -> HTTP %s", model, status)
             http_failures.append((model, _http_failure_detail(status, body)))
@@ -744,10 +793,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
         pass_used = 2
         system_p2 = PASS2_SYSTEM + "\n\n" + system_text
         for model in models:
-            status, body = _post_generate_content(
-                model, api_key, payload(system_p2, bool(images_b64), 0.5),
-                timeout=FALLBACK_MODEL_TIMEOUT,
-            )
+            status, body, used_key = _try_key(model, system_p2, bool(images_b64), 0.5, timeout=FALLBACK_MODEL_TIMEOUT)
             if status != 200:
                 http_failures.append((model, _http_failure_detail(status, body)))
                 continue
@@ -764,10 +810,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
         if schema:
             system_p3 += _json_directive((submenu or {}).get("output_fields") or ["rewritten_prompt"])
         for model in models:
-            status, body = _post_generate_content(
-                model, api_key, payload(system_p3, bool(images_b64), 0.8),
-                timeout=FALLBACK_MODEL_TIMEOUT,
-            )
+            status, body, used_key = _try_key(model, system_p3, bool(images_b64), 0.8, timeout=FALLBACK_MODEL_TIMEOUT)
             if status != 200:
                 http_failures.append((model, _http_failure_detail(status, body)))
                 continue
@@ -1041,8 +1084,8 @@ class BadaPromptGenerator:
                          "요청사항을 입력하거나 이미지를 사용하는 서브메뉴를 선택해 주세요.")
             )
 
-        api_key = resolve_api_key()
-        if not api_key:
+        api_keys = resolve_api_keys()
+        if not api_keys:
             raise RuntimeError(
                 _ui_text(ui_language,
                          "Gemini API key not found. Enter it in the node's API Key field and select Check, or save api_key in config.json.",
@@ -1069,7 +1112,7 @@ class BadaPromptGenerator:
             return {"ui": {"bada_promptgen_toast": toasts}, "result": cached}
 
         prompt, wh_ratio, pass_used, model_used, warnings = run_prompt_pipeline(
-            registry, target_obj, submenu_obj, request_text, used_tensors, api_key,
+            registry, target_obj, submenu_obj, request_text, used_tensors, api_keys,
             duration=int(duration or 10), uncensored=bool(uncensored), ui_language=ui_language,
             aspect_ratio=aspect_ratio,
         )

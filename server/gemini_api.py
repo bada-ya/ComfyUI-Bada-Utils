@@ -50,15 +50,95 @@ def _registry_store():
         _REGISTRY_STORE = _module
     return _REGISTRY_STORE
 
-# 3 Fast & Robust Verified Gemini Models
+# 6 Fast & Robust Verified Gemini Models (실제 Google Gemini 모델명)
 EXACT_MODELS = [
     {"id": "gemini-3.5-flash-lite", "name": "Gemini 3.5 Flash-Lite (권장 ⭐)", "name_en": "Gemini 3.5 Flash-Lite (Recommended ⭐)", "desc": "1,500회/일 • 최신 초고속 영작/실시간 챗"},
     {"id": "gemini-3.6-flash", "name": "Gemini 3.6 Flash", "name_en": "Gemini 3.6 Flash", "desc": "1,500회/일 • 표준 올라운더 Flash"},
     {"id": "gemini-3.8-flash", "name": "Gemini 3.8 Flash", "name_en": "Gemini 3.8 Flash", "desc": "1,500회/일 • 최신 고성능 Flash"},
+    {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "name_en": "Gemini 2.5 Flash", "desc": "가격-성능 비율 최강 • 추론·코딩·과학 작업"},
+    {"id": "gemini-2.5-flash-lite", "name": "Gemini 2.5 Flash-Lite", "name_en": "Gemini 2.5 Flash-Lite", "desc": "가장 빠르고 예산 친화적인 멀티모달 모델"},
+    {"id": "gemini-3.1-flash-lite", "name": "Gemini 3.1 Flash-Lite", "name_en": "Gemini 3.1 Flash-Lite", "desc": "최고 효율 • 저지연·고처리량 작업"},
 ]
 
 # Verified fast-variant model IDs — single source of truth for every cascade below.
 EXACT_MODEL_IDS = [m["id"] for m in EXACT_MODELS]
+
+
+class GeminiKeyRotator:
+    """여러 Gemini API 키를 순환하며 사용할 수 있게 하는 로테이터.
+
+    429(TooManyRequests)나 503(ServiceUnavailable) 에러가 발생하면 해당 키를
+    소진된 것으로 표시하고 다음 키로 넘어간다. 모든 키가 소진되면 None을 반환.
+    """
+
+    def __init__(self, keys: list):
+        self.keys = [k.strip() for k in keys if k and k.strip()]
+        self.index = 0
+        self.exhausted = set()  # 소진된 키 인덱스 집합
+
+    def current(self) -> str | None:
+        """현재 키를 반환. 모든 키가 소진되면 None."""
+        if not self.keys:
+            return None
+        # 소진되지 않은 키 찾기
+        start = self.index
+        while True:
+            if self.index not in self.exhausted:
+                return self.keys[self.index]
+            self.index = (self.index + 1) % len(self.keys)
+            if self.index == start:
+                return None  # 모든 키 소진
+
+    def advance(self):
+        """다음 키로 이동 (소진된 키는 스킵)"""
+        if not self.keys:
+            return
+        start = self.index
+        while True:
+            self.index = (self.index + 1) % len(self.keys)
+            if self.index not in self.exhausted:
+                return
+            if self.index == start:
+                return  # 모든 키 소진
+
+    def mark_exhausted(self, key: str):
+        """해당 키를 소진됨으로 표시 (429/503 발생 시 호출)"""
+        try:
+            idx = self.keys.index(key)
+            self.exhausted.add(idx)
+            logger.warning(f"[GeminiKeyRotator] 키 소진 표시: idx={idx}")
+        except ValueError:
+            pass
+
+    def all_exhausted(self) -> bool:
+        """모든 키가 소진됐는지 확인"""
+        return len(self.exhausted) >= len(self.keys) if self.keys else True
+
+    def stats(self) -> dict:
+        """로테이터 상태 정보 반환"""
+        return {
+            "total_keys": len(self.keys),
+            "exhausted_keys": len(self.exhausted),
+            "available_keys": len(self.keys) - len(self.exhausted),
+            "current_index": self.index,
+        }
+
+
+def load_api_keys(cfg: dict) -> list:
+    """config.json에서 API 키 목록을 로드.
+
+    우선순위: api_keys(리스트) > api_key(단일) > GEMINI_API_KEY(환경변수)
+    """
+    keys = cfg.get("api_keys", [])
+    if keys and isinstance(keys, list):
+        return [k.strip() for k in keys if k.strip()]
+    single = cfg.get("api_key", "").strip()
+    if single:
+        return [single]
+    env_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if env_key:
+        return [env_key]
+    return []
 
 
 def model_cascade(primary_model):
@@ -567,18 +647,25 @@ def register_gemini_api_routes():
             cfg = load_server_config()
             env_key = os.environ.get("GEMINI_API_KEY", "").strip()
             saved_key = cfg.get("api_key", "").strip()
-            has_key = bool(env_key or saved_key)
+            api_keys = cfg.get("api_keys", [])
+            if not api_keys and saved_key:
+                api_keys = [saved_key]
+            elif not api_keys and env_key:
+                api_keys = [env_key]
 
-            masked_key = ""
-            if saved_key:
-                masked_key = saved_key[:4] + "••••••••" + saved_key[-4:] if len(saved_key) > 8 else "••••••••"
-            elif env_key:
-                masked_key = "(ENV: " + env_key[:4] + "••••" + env_key[-4:] + ")" if len(env_key) > 8 else "(ENV: ••••••••)"
+            masked_keys = []
+            for k in api_keys:
+                if len(k) > 8:
+                    masked_keys.append(k[:4] + "••••••••" + k[-4:])
+                else:
+                    masked_keys.append("••••••••")
 
             return web.json_response({
                 "success": True,
-                "has_key": has_key,
-                "masked_key": masked_key,
+                "has_key": bool(api_keys),
+                "api_keys": api_keys,
+                "masked_keys": masked_keys,
+                "key_count": len(api_keys),
                 "default_model": cfg.get("default_model", "gemini-3.5-flash-lite"),
                 "models": EXACT_MODELS,
                 "personas": GEM_PERSONAS
@@ -591,6 +678,8 @@ def register_gemini_api_routes():
                 new_cfg = {}
                 if "api_key" in body:
                     new_cfg["api_key"] = body["api_key"].strip()
+                if "api_keys" in body:
+                    new_cfg["api_keys"] = [k.strip() for k in body["api_keys"] if k.strip()]
                 if "default_model" in body:
                     new_cfg["default_model"] = body["default_model"].strip()
                 success = save_server_config(new_cfg)
@@ -605,13 +694,16 @@ def register_gemini_api_routes():
                 body = await request.json()
                 req_key = (body.get("api_key") or "").strip()
                 cfg = load_server_config()
-                api_key = req_key or cfg.get("api_key", "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
-
-                if not api_key:
+                if req_key:
+                    key_rotator = GeminiKeyRotator([req_key])
+                else:
+                    key_rotator = GeminiKeyRotator(load_api_keys(cfg))
+                if key_rotator.all_exhausted():
                     return web.json_response({"success": False, "error": "API 키를 먼저 입력해 주세요.", "code": "no_key"}, status=400)
 
+                current_key = key_rotator.current()
                 start_time = time.time()
-                url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models?key={current_key}"
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url, timeout=aiohttp.ClientTimeout(total=8)) as resp:
                         latency_ms = int((time.time() - start_time) * 1000)
@@ -668,8 +760,21 @@ def register_gemini_api_routes():
                     }, status=400)
 
                 primary_model = body.get("model") or cfg.get("default_model") or "gemini-3.5-flash-lite"
-                if primary_model not in ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]:
+                if primary_model not in ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite"]:
                     primary_model = "gemini-3.5-flash-lite"
+
+                # --- 다중 API 키 로테이터 초기화 ---
+                req_key = (body.get("api_key") or "").strip()
+                if req_key:
+                    key_rotator = GeminiKeyRotator([req_key])
+                else:
+                    key_rotator = GeminiKeyRotator(load_api_keys(cfg))
+                if key_rotator.all_exhausted():
+                    return web.json_response({
+                        "success": False,
+                        "error": "모든 Gemini API 키의 할당량이 소진됐습니다. 새 키를 등록해 주세요.",
+                        "code": "all_keys_exhausted",
+                    }, status=429)
                 instruction = (body.get("instruction") or "").strip()
                 images = body.get("images", [])
                 if not isinstance(images, list):
@@ -869,7 +974,10 @@ def register_gemini_api_routes():
                 async with aiohttp.ClientSession(timeout=client_timeout) as session:
                     # PASS 1: Direct Master Compilation with Multi-Model Cascade
                     for model in models_to_try:
-                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                        current_key = key_rotator.current()
+                        if not current_key:
+                            break
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={current_key}"
                         payload_p1 = {
                             "contents": [{"role": "user", "parts": build_user_parts(framed_user_prompt, attach_images=True)}],
                             "system_instruction": {"parts": [{"text": final_system_p1}]},
@@ -904,6 +1012,9 @@ def register_gemini_api_routes():
                                         break
                                 else:
                                     logger.warning(f"[Pass 1] Model {model} returned HTTP {resp.status}, trying cascade...")
+                                    if resp.status in (429, 503):
+                                        key_rotator.mark_exhausted(current_key)
+                                        key_rotator.advance()
                         except Exception as e_p1:
                             logger.warning(f"[Pass 1] Model {model} failed: {e_p1}")
 
@@ -919,7 +1030,10 @@ def register_gemini_api_routes():
                         )
 
                         for model2 in models_to_try:
-                            url2 = f"https://generativelanguage.googleapis.com/v1beta/models/{model2}:generateContent?key={api_key}"
+                            current_key = key_rotator.current()
+                            if not current_key:
+                                break
+                            url2 = f"https://generativelanguage.googleapis.com/v1beta/models/{model2}:generateContent?key={current_key}"
                             payload_p2 = {
                                 "contents": [{"role": "user", "parts": build_user_parts(
                                     deep_framed_prompt,
@@ -944,6 +1058,11 @@ def register_gemini_api_routes():
                                             raw_result_text = text2
                                             successful_model = model2
                                             break
+                                    else:
+                                        logger.warning(f"[Pass 2] Model {model2} returned HTTP {resp2.status}, trying cascade...")
+                                        if resp2.status in (429, 503):
+                                            key_rotator.mark_exhausted(current_key)
+                                            key_rotator.advance()
                             except Exception as e_p2:
                                 logger.warning(f"[Pass 2] Model {model2} failed: {e_p2}")
 
@@ -954,7 +1073,10 @@ def register_gemini_api_routes():
                         pass3_prompt = framed_user_prompt if engine_mode in ("qwen21", "system_prompt") else f"[MASTER CINEMATIC SCENE BLUEPRINT]\n{instruction}"
 
                         for model3 in models_to_try:
-                            url3 = f"https://generativelanguage.googleapis.com/v1beta/models/{model3}:generateContent?key={api_key}"
+                            current_key = key_rotator.current()
+                            if not current_key:
+                                break
+                            url3 = f"https://generativelanguage.googleapis.com/v1beta/models/{model3}:generateContent?key={current_key}"
                             payload_p3 = {
                                 "contents": [{"role": "user", "parts": build_user_parts(
                                     pass3_prompt,
@@ -976,6 +1098,11 @@ def register_gemini_api_routes():
                                             raw_result_text = text3
                                             successful_model = model3
                                             break
+                                    else:
+                                        logger.warning(f"[Pass 3] Model {model3} returned HTTP {resp3.status}, trying cascade...")
+                                        if resp3.status in (429, 503):
+                                            key_rotator.mark_exhausted(current_key)
+                                            key_rotator.advance()
                             except Exception as _ignored_err:
                                 logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
 
@@ -1036,16 +1163,19 @@ def register_gemini_api_routes():
                 body = await request.json()
                 cfg = load_server_config()
                 req_key = (body.get("api_key") or "").strip()
-                api_key = req_key or cfg.get("api_key", "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
-
-                if not api_key:
+                if req_key:
+                    key_rotator = GeminiKeyRotator([req_key])
+                else:
+                    key_rotator = GeminiKeyRotator(load_api_keys(cfg))
+                if key_rotator.all_exhausted():
                     return web.json_response({
                         "success": False,
-                        "error": "Gemini API 키가 필요합니다. API Key를 입력해 주세요."
-                    }, status=400)
+                        "error": "모든 Gemini API 키의 할당량이 소진됐습니다. 새 키를 등록해 주세요.",
+                        "code": "all_keys_exhausted",
+                    }, status=429)
 
                 model = body.get("model") or cfg.get("default_model") or "gemini-3.5-flash-lite"
-                if model not in ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"]:
+                if model not in ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite"]:
                     model = "gemini-3.5-flash-lite"
                 messages = body.get("messages", []) # Array of {role: "user"|"model", text: "...", images: [...]}
                 persona_id = body.get("persona", "universal")
@@ -1103,7 +1233,10 @@ def register_gemini_api_routes():
 
                 async with aiohttp.ClientSession(timeout=client_timeout) as session:
                     for cur_model in models_to_try:
-                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{cur_model}:generateContent?key={api_key}"
+                        current_key = key_rotator.current()
+                        if not current_key:
+                            break
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{cur_model}:generateContent?key={current_key}"
                         try:
                             async with session.post(url, json=payload) as resp:
                                 if resp.status == 200:
@@ -1118,6 +1251,9 @@ def register_gemini_api_routes():
                                     err_body = await resp.text()
                                     last_err = f"HTTP {resp.status}: {err_body[:200]}"
                                     logger.warning(f"[bada-AsyncGemini] Chat model {cur_model} failed: {last_err}")
+                                    if resp.status in (429, 503):
+                                        key_rotator.mark_exhausted(current_key)
+                                        key_rotator.advance()
                         except Exception as req_e:
                             last_err = str(req_e)
                             logger.warning(f"[bada-AsyncGemini] Chat model {cur_model} exception: {req_e}")
