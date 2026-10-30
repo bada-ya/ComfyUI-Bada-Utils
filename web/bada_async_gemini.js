@@ -1503,13 +1503,24 @@ function updateBellBadge() {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ text: text, target_lang: "ko", source_lang: "en" })
                     });
-                    const data = await resp.json();
+                    let data;
+                    try {
+                        data = await resp.json();
+                    } catch (_) {
+                        data = { success: false, error: `HTTP ${resp.status}` };
+                    }
                     if (data.success && data.translated_text) {
                         lastKoreanTranslation = data.translated_text;
+                        if (currentTab === "korean" || currentTab === "all") updateActiveTab(currentTab);
+                    } else {
+                        const serverReason = data.error ? ` — ${data.error}` : "";
+                        lastKoreanTranslation = `${BadaI18n.t("gemini_translate_failed")}${serverReason}`;
                         if (currentTab === "korean" || currentTab === "all") updateActiveTab(currentTab);
                     }
                 } catch (err) {
                     console.warn("[BadaAsyncGemini] Korean translation failed:", err);
+                    lastKoreanTranslation = `${BadaI18n.t("gemini_translate_failed")} — ${err.message || err}`;
+                    if (currentTab === "korean" || currentTab === "all") updateActiveTab(currentTab);
                 }
             }
 
