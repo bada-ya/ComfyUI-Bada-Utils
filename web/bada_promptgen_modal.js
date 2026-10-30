@@ -12,35 +12,6 @@
  */
 import { createPromptModalOpener } from "./bada_prompt_modal_core.js";
 
-const TEXTS = {
-    ko: {
-        title: "⚙️ Bada 프롬프트 생성기 — 시스템 프롬프트 관리",
-        sub: "사용자 시스템 프롬프트를 등록·수정·삭제하고 순서를 바꿉니다.",
-        format: "출력 형식",
-        text: "일반 텍스트",
-        json: "JSON (구조화)",
-        fields: "JSON 키 (쉼표 구분)",
-        promptPh: "예: 당신은 시네마틱 비디오 프롬프트 전문가입니다. …",
-        template: "공식 프롬프트 템플릿",
-        templateNone: "— 템플릿 선택 —",
-        loadTemplate: "불러오기",
-        officialNote: "공식 프롬프트는 Qwen Research License 에 따르며 삭제할 수 없습니다.",
-    },
-    en: {
-        title: "⚙️ Bada Prompt Generator — System Prompt Manager",
-        sub: "Create, edit, delete and reorder your custom system prompts.",
-        format: "Output format",
-        text: "Plain text",
-        json: "JSON (structured)",
-        fields: "JSON keys (comma separated)",
-        promptPh: "e.g. You are a cinematic video prompt expert …",
-        template: "Official prompt template",
-        templateNone: "— choose template —",
-        loadTemplate: "Load",
-        officialNote: "Official prompts follow the Qwen Research License and cannot be deleted.",
-    },
-};
-
 export const openPromptGenModal = createPromptModalOpener({
     promptsKey: "user_prompts",
     urls: {
@@ -48,8 +19,19 @@ export const openPromptGenModal = createPromptModalOpener({
         delete: "/api/bada/promptgen/user_prompts/delete",
         move: "/api/bada/promptgen/user_prompts/move",
     },
-    texts: TEXTS,
-    noteKey: "officialNote",
+    textKeys: {
+        title: "pmgen_title",
+        sub: "pmgen_sub",
+        format: "pmgen_format",
+        text: "pmgen_text",
+        json: "pmgen_json",
+        fields: "pmgen_fields",
+        promptPh: "pmgen_prompt_ph",
+        template: "pmgen_template",
+        templateNone: "pmgen_template_none",
+        loadTemplate: "pmgen_load_template",
+    },
+    noteKey: "pmgen_official_note",
     log: {
         refresh: "[BadaPromptGen] modal refresh failed:",
         action: "[BadaPromptGen] modal action failed:",

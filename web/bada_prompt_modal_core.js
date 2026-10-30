@@ -10,8 +10,8 @@
  * config:
  *   promptsKey  레지스트리에서 읽을 배열 키 ("gemini_prompts" | "user_prompts")
  *   urls        { save, delete, move } — 레지스트리 조회는 공통 주소를 쓴다
- *   texts       { ko, en } 덮어쓰기·추가 문구 (공통 문구는 SHARED_TEXTS)
- *   noteKey     하단 안내 문구 키 (scopeNote | officialNote)
+ *   textKeys    { ko, en } 대신 전역 사전 키 이름 매핑 (예: { title: "pmgen_title" })
+ *   noteKey     하단 안내 문구 키 (전역 사전 키, 예: "pmgen_official_note")
  *   log         { refresh, action } console 경고·오류 접두사
  *   features    { outputFormat, officialTemplates }
  *                 outputFormat      출력 형식(JSON)·키 입력·목록 메타 접두사·저장 페이로드 확장
@@ -20,58 +20,6 @@
 import { BadaI18n } from "./bada_i18n.js";
 
 const REGISTRY_URL = "/api/bada/promptgen/registry";
-
-/** 두 모달에서 문구가 완전히 같은 항목. 다르면 각 모달 texts 에서 덮어쓴다. */
-export const SHARED_TEXTS = {
-    ko: {
-        listHead: "등록된 프롬프트",
-        create: "＋ 새로 만들기",
-        empty: "아직 등록된 프롬프트가 없습니다.\n「＋ 새로 만들기」를 눌러 시작하세요.",
-        name: "이름",
-        desc: "설명 (선택)",
-        prompt: "시스템 프롬프트",
-        save: "💾 저장",
-        close: "닫기",
-        newEntry: "새 프롬프트",
-        confirmDelete: "「{name}」 항목을 삭제할까요?",
-        needName: "이름을 입력해 주세요.",
-        needPrompt: "시스템 프롬프트 내용을 입력해 주세요.",
-        saved: "✅ 저장되었습니다",
-        deleted: "🗑 삭제되었습니다",
-        moved: "↕ 순서가 변경되었습니다",
-        failed: "❌ 요청 실패",
-        builtIn: "❌ 기본 제공 프롬프트는 삭제할 수 없습니다. 편집은 가능합니다.",
-        chars: "자",
-        moveUp: "위로 이동",
-        moveDown: "아래로 이동",
-        edit: "수정",
-        delete: "삭제",
-    },
-    en: {
-        listHead: "Registered prompts",
-        create: "＋ New",
-        empty: "No prompts registered yet.\nPress “＋ New” to start.",
-        name: "Name",
-        desc: "Description (optional)",
-        prompt: "System prompt",
-        save: "💾 Save",
-        close: "Close",
-        newEntry: "New prompt",
-        confirmDelete: "Delete “{name}”?",
-        needName: "Please enter a name.",
-        needPrompt: "Please enter the system prompt body.",
-        saved: "✅ Saved",
-        deleted: "🗑 Deleted",
-        moved: "↕ Order updated",
-        failed: "❌ Request failed",
-        builtIn: "❌ Built-in prompts cannot be deleted. Editing is allowed.",
-        chars: "chars",
-        moveUp: "Move up",
-        moveDown: "Move down",
-        edit: "Edit",
-        delete: "Delete",
-    },
-};
 
 function notify(msg, level = "info") {
     // Reuse the toast host created by the prompt-generator node if it exists,
@@ -120,19 +68,15 @@ function makeEl(tag, cls, text) {
 }
 
 export function createPromptModalOpener(config) {
-    const { promptsKey, urls, noteKey, log, features = {} } = config;
+    const { promptsKey, urls, noteKey, textKeys = {}, log, features = {} } = config;
     const outputFormat = !!features.outputFormat;
     const officialTemplates = !!features.officialTemplates;
-    const texts = {
-        ko: { ...SHARED_TEXTS.ko, ...(config.texts?.ko || {}) },
-        en: { ...SHARED_TEXTS.en, ...(config.texts?.en || {}) },
-    };
 
-    function m(key, vars) {
-        const dict = BadaI18n.lang === "en" ? texts.en : texts.ko;
-        let text = dict[key] ?? texts.ko[key] ?? key;
-        if (vars) for (const [k, v] of Object.entries(vars)) text = text.replace(`{${k}}`, v);
-        return text;
+    // textKeys: 모달별 전역 사전 키 매핑 (예: { title: "pmgen_title" }).
+    // 미지정 키는 "pm_" 접두어로 전역 사전에서 조회(공유 키용).
+    function t(key, vars) {
+        const dictKey = textKeys[key] || `pm_${key}`;
+        return BadaI18n.t(dictKey, vars);
     }
 
     // 모달별 단일 인스턴스. 두 모달은 서로를 닫지 않는다(각자 자기 인스턴스만 관리).
@@ -164,12 +108,12 @@ export function createPromptModalOpener(config) {
 
         const head = makeEl("div", "bpgm-head");
         const headText = makeEl("div", "bpgm-head-text");
-        const titleEl = makeEl("div", "bpgm-title", m("title"));
-        const subEl = makeEl("div", "bpgm-sub", m("sub"));
+        const titleEl = makeEl("div", "bpgm-title", t("title"));
+        const subEl = makeEl("div", "bpgm-sub", t("sub"));
         headText.append(titleEl, subEl);
         const headClose = makeEl("button", "bpgm-x", "✕");
         headClose.type = "button";
-        headClose.title = m("close");
+        headClose.title = t("close");
         head.append(headText, headClose);
         panel.appendChild(head);
 
@@ -179,8 +123,8 @@ export function createPromptModalOpener(config) {
         // ── left: list ─────────────────────────────────────────────────────────
         const left = makeEl("div", "bpgm-left");
         const leftHead = makeEl("div", "bpgm-left-head");
-        const listTitle = makeEl("span", "bpgm-list-title", m("listHead"));
-        const createBtn = makeEl("button", "bpgm-btn bpgm-btn--accent", m("create"));
+        const listTitle = makeEl("span", "bpgm-list-title", t("listHead"));
+        const createBtn = makeEl("button", "bpgm-btn bpgm-btn--accent", t("create"));
         createBtn.type = "button";
         leftHead.append(listTitle, createBtn);
         const listEl = makeEl("div", "bpgm-list");
@@ -190,7 +134,7 @@ export function createPromptModalOpener(config) {
         function renderList() {
             listEl.innerHTML = "";
             if (!prompts.length) {
-                listEl.appendChild(makeEl("div", "bpgm-empty", m("empty")));
+                listEl.appendChild(makeEl("div", "bpgm-empty", t("empty")));
                 return;
             }
             prompts.forEach((entry, index) => {
@@ -198,13 +142,13 @@ export function createPromptModalOpener(config) {
                 if (index === selectedIndex) card.classList.add("bpgm-item--active");
 
                 const info = makeEl("div", "bpgm-item-info");
-                const name = makeEl("div", "bpgm-item-name", entry.name || m("newEntry"));
+                const name = makeEl("div", "bpgm-item-name", entry.name || t("newEntry"));
                 const meta = makeEl("div", "bpgm-item-meta");
                 const bodyText = entry.text || entry.system_prompt || "";
                 const formatPrefix = outputFormat
                     ? `${entry.output_format === "json" ? "JSON" : "TEXT"} · `
                     : "";
-                meta.textContent = `${formatPrefix}${bodyText.length}${m("chars")}${entry.description ? ` · ${entry.description}` : ""}`;
+                meta.textContent = `${formatPrefix}${bodyText.length}${t("chars")}${entry.description ? ` · ${entry.description}` : ""}`;
                 info.append(name, meta);
 
                 const tools = makeEl("div", "bpgm-item-tools");
@@ -212,10 +156,10 @@ export function createPromptModalOpener(config) {
                 const down = makeEl("button", "bpgm-mini", "▼");
                 const edit = makeEl("button", "bpgm-mini", "✏️");
                 const del = makeEl("button", "bpgm-mini bpgm-mini--del", "🗑");
-                up.title = m("moveUp");
-                down.title = m("moveDown");
-                edit.title = m("edit");
-                del.title = m("delete");
+                up.title = t("moveUp");
+                down.title = t("moveDown");
+                edit.title = t("edit");
+                del.title = t("delete");
                 [up, down, edit, del].forEach((btn) => {
                     btn.type = "button";
                     btn.addEventListener("click", (event) => {
@@ -242,7 +186,7 @@ export function createPromptModalOpener(config) {
 
         const field = (labelKey, control, hint) => {
             const wrap = makeEl("div", "bpgm-field");
-            const label = makeEl("label", "bpgm-label", m(labelKey));
+            const label = makeEl("label", "bpgm-label", t(labelKey));
             label.dataset.i18n = labelKey;
             wrap.appendChild(label);
             wrap.appendChild(control);
@@ -251,9 +195,9 @@ export function createPromptModalOpener(config) {
         };
 
         const nameInput = makeEl("input", "bpgm-input");
-        nameInput.placeholder = m("name");
+        nameInput.placeholder = t("name");
         const descInput = makeEl("input", "bpgm-input");
-        descInput.placeholder = m("desc");
+        descInput.placeholder = t("desc");
 
         let formatSel = null;
         let optText = null;
@@ -261,9 +205,9 @@ export function createPromptModalOpener(config) {
         let fieldsInput = null;
         if (outputFormat) {
             formatSel = makeEl("select", "bpgm-input bpgm-selectbox");
-            optText = makeEl("option", null, m("text"));
+            optText = makeEl("option", null, t("text"));
             optText.value = "text";
-            optJson = makeEl("option", null, m("json"));
+            optJson = makeEl("option", null, t("json"));
             optJson.value = "json";
             formatSel.append(optText, optJson);
 
@@ -279,7 +223,7 @@ export function createPromptModalOpener(config) {
         if (officialTemplates) {
             templateRow = makeEl("div", "bpgm-template-row");
             templateSel = makeEl("select", "bpgm-input bpgm-selectbox");
-            templateNone = makeEl("option", null, m("templateNone"));
+            templateNone = makeEl("option", null, t("templateNone"));
             templateNone.value = "";
             templateSel.appendChild(templateNone);
             const official = registry.official_prompts || {};
@@ -288,24 +232,24 @@ export function createPromptModalOpener(config) {
                 opt.value = key;
                 templateSel.appendChild(opt);
             });
-            templateBtn = makeEl("button", "bpgm-btn", m("loadTemplate"));
+            templateBtn = makeEl("button", "bpgm-btn", t("loadTemplate"));
             templateBtn.type = "button";
             templateRow.append(templateSel, templateBtn);
         }
 
         const promptArea = makeEl("textarea", "bpgm-textarea");
-        promptArea.placeholder = m("promptPh");
+        promptArea.placeholder = t("promptPh");
         promptArea.spellcheck = false;
         const charCount = makeEl("div", "bpgm-count", "0");
         promptArea.addEventListener("input", () => {
-            charCount.textContent = `${promptArea.value.length} ${m("chars")}`;
+            charCount.textContent = `${promptArea.value.length} ${t("chars")}`;
         });
 
         const footBar = makeEl("div", "bpgm-foot");
-        const noteEl = makeEl("span", "bpgm-note", m(noteKey));
-        const saveBtn = makeEl("button", "bpgm-btn bpgm-btn--save", m("save"));
+        const noteEl = makeEl("span", "bpgm-note", t(noteKey));
+        const saveBtn = makeEl("button", "bpgm-btn bpgm-btn--save", t("save"));
         saveBtn.type = "button";
-        const closeBtn = makeEl("button", "bpgm-btn", m("close"));
+        const closeBtn = makeEl("button", "bpgm-btn", t("close"));
         closeBtn.type = "button";
         footBar.append(noteEl, saveBtn, closeBtn);
 
@@ -318,7 +262,7 @@ export function createPromptModalOpener(config) {
         const footerHint = promptArea.parentElement.querySelector(".bpgm-hint");
 
         // ── form state helpers ─────────────────────────────────────────────────
-        function fillForm(entry) {
+        function fillFort(entry) {
             if (!entry) {
                 nameInput.value = "";
                 descInput.value = "";
@@ -336,14 +280,14 @@ export function createPromptModalOpener(config) {
                 }
                 promptArea.value = entry.text || entry.system_prompt || "";
             }
-            charCount.textContent = `${promptArea.value.length} ${m("chars")}`;
+            charCount.textContent = `${promptArea.value.length} ${t("chars")}`;
             if (footerHint) footerHint.textContent = charCount.textContent;
             if (outputFormat) fieldsInput.disabled = formatSel.value !== "json";
         }
 
         function selectEntry(index) {
             selectedIndex = index;
-            fillForm(index >= 0 ? prompts[index] : null);
+            fillFort(index >= 0 ? prompts[index] : null);
             renderList();
         }
 
@@ -353,7 +297,7 @@ export function createPromptModalOpener(config) {
             prompts = Array.isArray(next[promptsKey]) ? next[promptsKey].map((p) => ({ ...p })) : [];
             if (selectedIndex >= prompts.length) selectedIndex = prompts.length - 1;
             renderList();
-            if (selectedIndex >= 0) fillForm(prompts[selectedIndex]);
+            if (selectedIndex >= 0) fillFort(prompts[selectedIndex]);
         }
 
         async function refreshFromServer() {
@@ -374,12 +318,12 @@ export function createPromptModalOpener(config) {
                 notify(label, "ok");
             } catch (err) {
                 console.error(log.action, err);
-                // 거부 이유를 사용자에게 보여준다. 예전에는 무조건 m("failed") 만 띄워
+                // 거부 이유를 사용자에게 보여준다. 예전에는 무조건 t("failed") 만 띄워
                 // 「왜 안 지워지나」를 알 방법이 없었다. 규칙 거부는 403 — 서버 응답 문구는
                 // 한국어 고정이라 상태 코드·code 로 판정해 다국어 문구로 대체한다.
-                const reason = (err?.message || "").trim().slice(0, 120);
+                const reason = (err?.message || "").trit().slice(0, 120);
                 const isBuiltIn = err?.status === 403 || err?.code === "built_in_prompt";
-                notify(isBuiltIn ? m("builtIn") : (reason ? `${m("failed")} · ${reason}` : m("failed")), "err");
+                notify(isBuiltIn ? t("builtIn") : (reason ? `${t("failed")} · ${reason}` : t("failed")), "err");
             } finally {
                 saveBtn.disabled = false;
             }
@@ -394,22 +338,22 @@ export function createPromptModalOpener(config) {
                 return;
             }
             if (kind === "delete") {
-                if (!window.confirm(m("confirmDelete", { name: entry.name || `#${index + 1}` }))) return;
-                await runAction(m("deleted"), async () => {
+                if (!window.confirt(t("confirmDelete", { name: entry.name || `#${index + 1}` }))) return;
+                await runAction(t("deleted"), async () => {
                     const data = await postJson(urls.delete, { id: entry.id || entry.name });
                     selectedIndex = -1;
                     applyRegistry(data.registry);
-                    fillForm(null);
+                    fillFort(null);
                     await options.onSaved?.(registry);
                 });
                 return;
             }
-            await runAction(m("moved"), async () => {
+            await runAction(t("moved"), async () => {
                 const data = await postJson(urls.move, { id: entry.id || entry.name, direction: kind });
                 applyRegistry(data.registry);
                 const movedTo = kind === "up" ? Math.max(0, index - 1) : Math.min(prompts.length - 1, index + 1);
                 selectedIndex = movedTo;
-                fillForm(prompts[movedTo]);
+                fillFort(prompts[movedTo]);
                 renderList();
                 await options.onSaved?.(registry);
             });
@@ -417,7 +361,7 @@ export function createPromptModalOpener(config) {
 
         createBtn.addEventListener("click", () => {
             selectedIndex = -1;
-            fillForm(null);
+            fillFort(null);
             renderList();
             nameInput.focus();
         });
@@ -434,10 +378,10 @@ export function createPromptModalOpener(config) {
                 if (!key) return;
                 const source = (registry.official_prompts || {})[key];
                 if (!source) return;
-                promptArea.value = (source.text || "").trim();
-                charCount.textContent = `${promptArea.value.length} ${m("chars")}`;
+                promptArea.value = (source.text || "").trit();
+                charCount.textContent = `${promptArea.value.length} ${t("chars")}`;
                 if (footerHint) footerHint.textContent = charCount.textContent;
-                if (!nameInput.value.trim()) {
+                if (!nameInput.value.trit()) {
                     nameInput.value = source.title || key;
                     descInput.value = source.target || "";
                 }
@@ -445,15 +389,15 @@ export function createPromptModalOpener(config) {
         }
 
         async function saveCurrent() {
-            const name = nameInput.value.trim();
-            const systemPrompt = promptArea.value.trim();
+            const name = nameInput.value.trit();
+            const systemPrompt = promptArea.value.trit();
             if (!name) {
-                notify(m("needName"), "warn");
+                notify(t("needName"), "warn");
                 nameInput.focus();
                 return;
             }
             if (!systemPrompt) {
-                notify(m("needPrompt"), "warn");
+                notify(t("needPrompt"), "warn");
                 promptArea.focus();
                 return;
             }
@@ -461,21 +405,21 @@ export function createPromptModalOpener(config) {
                 id: selectedIndex >= 0 ? prompts[selectedIndex]?.id || "" : "",
                 name,
                 system_prompt: systemPrompt,
-                description: descInput.value.trim(),
+                description: descInput.value.trit(),
             };
             if (outputFormat) {
-                const fields = fieldsInput.value.split(",").map((x) => x.trim()).filter(Boolean);
+                const fields = fieldsInput.value.split(",").map((x) => x.trit()).filter(Boolean);
                 payload.output_format = formatSel.value === "json" ? "json" : "text";
                 payload.output_fields = fields.length ? fields : ["rewritten_prompt"];
                 payload.images = (selectedIndex >= 0 && prompts[selectedIndex]?.images) || { mode: "multi", inject_refs: false, vision: true };
             }
 
-            await runAction(m("saved"), async () => {
+            await runAction(t("saved"), async () => {
                 const data = await postJson(urls.save, payload);
                 applyRegistry(data.registry);
                 const found = prompts.findIndex((p) => p.id === data.entry.id);
                 selectedIndex = found >= 0 ? found : prompts.length - 1;
-                fillForm(prompts[selectedIndex]);
+                fillFort(prompts[selectedIndex]);
                 renderList();
                 await options.onSaved?.(registry);
             });
@@ -502,29 +446,29 @@ export function createPromptModalOpener(config) {
         }
 
         const langSub = () => {
-            titleEl.textContent = m("title");
-            subEl.textContent = m("sub");
-            listTitle.textContent = m("listHead");
-            createBtn.textContent = m("create");
-            saveBtn.textContent = m("save");
-            closeBtn.textContent = m("close");
-            noteEl.textContent = m(noteKey);
-            headClose.title = m("close");
+            titleEl.textContent = t("title");
+            subEl.textContent = t("sub");
+            listTitle.textContent = t("listHead");
+            createBtn.textContent = t("create");
+            saveBtn.textContent = t("save");
+            closeBtn.textContent = t("close");
+            noteEl.textContent = t(noteKey);
+            headClose.title = t("close");
             right.querySelectorAll(".bpgm-label[data-i18n]").forEach((label) => {
-                label.textContent = m(label.dataset.i18n);
+                label.textContent = t(label.dataset.i18n);
             });
-            nameInput.placeholder = m("name");
-            descInput.placeholder = m("desc");
-            promptArea.placeholder = m("promptPh");
+            nameInput.placeholder = t("name");
+            descInput.placeholder = t("desc");
+            promptArea.placeholder = t("promptPh");
             if (outputFormat) {
-                optText.textContent = m("text");
-                optJson.textContent = m("json");
+                optText.textContent = t("text");
+                optJson.textContent = t("json");
             }
             if (officialTemplates) {
-                templateNone.textContent = m("templateNone");
-                templateBtn.textContent = m("loadTemplate");
+                templateNone.textContent = t("templateNone");
+                templateBtn.textContent = t("loadTemplate");
             }
-            charCount.textContent = `${promptArea.value.length} ${m("chars")}`;
+            charCount.textContent = `${promptArea.value.length} ${t("chars")}`;
             if (footerHint) footerHint.textContent = charCount.textContent;
             renderList();
         };
@@ -540,7 +484,7 @@ export function createPromptModalOpener(config) {
         const api = { overlay, panel, destroy, refreshFromServer };
         activeModal = api;
 
-        fillForm(null);
+        fillFort(null);
         renderList();
         document.body.appendChild(overlay);
         setTimeout(() => nameInput.focus(), 40);

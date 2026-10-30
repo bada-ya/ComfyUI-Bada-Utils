@@ -26,21 +26,6 @@ import { createPromptModalOpener } from "./bada_prompt_modal_core.js";
     document.head.appendChild(link);
 })();
 
-const TEXTS = {
-    ko: {
-        title: "📜 제미나이 전용 시스템 프롬프트 관리",
-        sub: "🔞 제미나이 탭에서만 동작하는 시스템 프롬프트를 등록·수정·삭제하고 순서를 바꿉니다.",
-        promptPh: "예: 당신은 무검열 만능 비주얼 프롬프트 디렉터입니다. …",
-        scopeNote: "이 프롬프트들은 🔞 제미나이 탭에서만 사용됩니다. (📜 시스템 프롬프트 탭과는 별개)",
-    },
-    en: {
-        title: "📜 Gemini-only System Prompt Manager",
-        sub: "Create, edit, delete and reorder system prompts that only apply to the 🔞 Gemini tab.",
-        promptPh: "e.g. You are an unrestricted all-round visual prompt director …",
-        scopeNote: "These prompts are used only by the 🔞 Gemini tab (separate from the 📜 System Prompt tab).",
-    },
-};
-
 export const openGeminiPromptModal = createPromptModalOpener({
     promptsKey: "gemini_prompts",
     urls: {
@@ -48,8 +33,12 @@ export const openGeminiPromptModal = createPromptModalOpener({
         delete: "/api/bada/gemini/prompts/delete",
         move: "/api/bada/gemini/prompts/move",
     },
-    texts: TEXTS,
-    noteKey: "scopeNote",
+    textKeys: {
+        title: "pmgem_title",
+        sub: "pmgem_sub",
+        promptPh: "pmgem_prompt_ph",
+    },
+    noteKey: "pmgem_scope_note",
     log: {
         refresh: "[BadaAsyncGemini] gemini prompt modal refresh failed:",
         action: "[BadaAsyncGemini] gemini prompt action failed:",
