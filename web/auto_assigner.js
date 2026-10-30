@@ -565,14 +565,13 @@ class AutoModelAssigner {
      * 자동 장착 및 워크플로우 진단 메인 실행 함수 (targetNode가 null이면 전체 워크플로우 대상)
      */
     static async runAutoAssign(targetNode = null) {
-        const isKo = (BadaI18n.lang === "ko");
         const isSingleNode = !!targetNode;
 
         if (isSingleNode) {
             const nodeTitle = String(targetNode.title || targetNode.type || targetNode.comfyClass || `#${targetNode.id}`).trim();
-            this.showToast(isKo ? `🔍 노드 #${targetNode.id} [${nodeTitle}] 진단 중...` : `🔍 Scanning Node #${targetNode.id}...`, "info");
+            this.showToast(BadaI18n.t("aa_scanning_node", { id: targetNode.id, title: nodeTitle }), "info");
         } else {
-            this.showToast(isKo ? "🔍 워크플로우 진단 중 (미싱 노드 & 모델)..." : "🔍 Scanning workflow (Missing Nodes & Models)...", "info");
+            this.showToast(BadaI18n.t("aa_scanning_workflow"), "info");
         }
 
         // 1. 대상 노드 목록 수집
@@ -675,9 +674,9 @@ class AutoModelAssigner {
 
         if (itemsToResolve.length === 0 && missingNodes.length === 0) {
             if (isSingleNode) {
-                this.showToast(isKo ? "선택한 노드에는 해결할 미싱 노드 문제나 모델/LoRA 슬롯이 없습니다." : "No missing node issues or model/LoRA slots found on this node.", "info");
+                this.showToast(BadaI18n.t("aa_no_issues_single"), "info");
             } else {
-                this.showToast(isKo ? "캔버스에 해결할 미싱 노드나 모델/LoRA 슬롯이 없습니다." : "No missing nodes or model/LoRA slots found.", "info");
+                this.showToast(BadaI18n.t("aa_no_issues_workflow"), "info");
             }
             return;
         }
@@ -864,7 +863,6 @@ class AutoModelAssigner {
         const modal = document.createElement("div");
         modal.className = "auto-assign-modal";
 
-        const isKo = BadaI18n.lang === "ko";
         const isSingleNode = !!targetNode;
         const hasMissingNodes = (missingNodes && missingNodes.length > 0);
         const hasModelItems = (items && items.length > 0);
@@ -880,20 +878,14 @@ class AutoModelAssigner {
             const nodeTitle = String(targetNode.title || targetNode.type || targetNode.comfyClass || `#${targetNode.id}`).trim();
             if (isMissingNode(targetNode)) {
                 headerIcon = "🩺";
-                headerTitle = isKo 
-                    ? `노드 스마트 케어 (미싱 노드 복구): #${targetNode.id} [${escapeHtml(nodeTitle)}]`
-                    : `Node Smart Care (Missing Node): #${targetNode.id} [${escapeHtml(nodeTitle)}]`;
+                headerTitle = BadaI18n.t("aa_header_missing_node", { id: targetNode.id, title: escapeHtml(nodeTitle) });
             } else {
                 headerIcon = "⚡";
-                headerTitle = isKo 
-                    ? `노드 스마트 케어 (모델 / LoRA 자동 장착): #${targetNode.id} [${escapeHtml(nodeTitle)}]`
-                    : `Node Smart Care (Model / LoRA Assigner): #${targetNode.id} [${escapeHtml(nodeTitle)}]`;
+                headerTitle = BadaI18n.t("aa_header_model_node", { id: targetNode.id, title: escapeHtml(nodeTitle) });
             }
         } else {
             headerIcon = hasMissingNodes ? "🩺" : "⚡";
-            headerTitle = isKo
-                ? "노드 스마트 케어 (미싱 노드 복구 &amp; 모델 자동 장착)"
-                : "Node Smart Care (Missing Node Resolver &amp; Model Assigner)";
+            headerTitle = BadaI18n.t("aa_header_workflow");
         }
 
         header.innerHTML = `
@@ -901,7 +893,7 @@ class AutoModelAssigner {
                 <span class="icon">${headerIcon}</span>
                 <span>${headerTitle}</span>
             </div>
-            <button class="auto-assign-close-btn" title="${isKo ? '닫기' : 'Close'}">✕</button>
+            <button class="auto-assign-close-btn" title="${BadaI18n.t("aa_close")}">✕</button>
         `;
         header.querySelector(".auto-assign-close-btn").onclick = () => closeOverlay();
 
@@ -911,48 +903,30 @@ class AutoModelAssigner {
         
         let summaryBadgesHtml = "";
         if (hasMissingNodes) {
-            summaryBadgesHtml += isKo
-                ? `<span class="badge" style="background: rgba(244, 63, 94, 0.22); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.5);">🧩 미설치 미싱 노드 ${missingNodes.length}개 발견</span>`
-                : `<span class="badge" style="background: rgba(244, 63, 94, 0.22); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.5);">🧩 ${missingNodes.length} Missing Nodes Found</span>`;
+            summaryBadgesHtml += `<span class="badge" style="background: rgba(244, 63, 94, 0.22); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.5);">${BadaI18n.t("aa_badge_missing_nodes", { n: missingNodes.length })}</span>`;
         }
 
         if (missingCount > 0) {
-            summaryBadgesHtml += isKo
-                ? `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);">⚠️ 모델 ${missingCount}개 누락됨 / 총 ${items.length}개 슬롯</span>`
-                : `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);">⚠️ ${missingCount} Models Missing / Total ${items.length} Slots</span>`;
+            summaryBadgesHtml += `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4);">${BadaI18n.t("aa_badge_models_missing", { n: missingCount, total: items.length })}</span>`;
         } else if (items.length > 0) {
-            summaryBadgesHtml += isKo
-                ? `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4);">✅ 모델 ${items.length}개 정상</span>`
-                : `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4);">✅ All ${items.length} Models Loaded</span>`;
+            summaryBadgesHtml += `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.4);">${BadaI18n.t("aa_badge_models_ok", { n: items.length })}</span>`;
         }
 
         let summaryText = "";
         if (isSingleNode) {
             if (isMissingNode(targetNode)) {
-                summaryText = isKo
-                    ? `선택한 미싱 노드(#${targetNode.id})의 패키지 설치 정보 및 깃허브 저장소를 탐색하여 해결합니다.`
-                    : `Review package install info and GitHub repos to restore missing node #${targetNode.id}.`;
+                summaryText = BadaI18n.t("aa_summary_missing_single", { id: targetNode.id });
             } else {
-                summaryText = isKo
-                    ? `선택한 노드(#${targetNode.id})의 모델 및 LoRA 위젯을 폴더 탐색기로 확인 및 자동 장착합니다.`
-                    : `Inspect and assign model / LoRA widgets for node #${targetNode.id}.`;
+                summaryText = BadaI18n.t("aa_summary_model_single", { id: targetNode.id });
             }
         } else if (hasMissingNodes && missingCount > 0) {
-            summaryText = isKo
-                ? "워크플로우에 미설치된 커스텀 노드와 누락된 모델이 모두 발견되었습니다. 아래 탭에서 각각 확인 및 해결할 수 있습니다."
-                : "Uninstalled custom nodes and missing models detected. Review and resolve them via the tabs below.";
+            summaryText = BadaI18n.t("aa_summary_both");
         } else if (hasMissingNodes) {
-            summaryText = isKo
-                ? "설치되지 않은 커스텀 노드가 발견되었습니다. ComfyUI 매니저 원클릭 설치, 깃허브 검색 또는 상세 분석으로 해결하세요."
-                : "Uninstalled custom nodes detected. Install via Manager or search GitHub.";
+            summaryText = BadaI18n.t("aa_summary_missing_only");
         } else if (missingCount > 0) {
-            summaryText = isKo 
-                ? "누락된 모델을 내 PC 폴더 탐색기로 확인 및 장착하거나, 원하는 모델로 즉시 변경할 수 있습니다."
-                : "Review and assign missing models with local PC folder explorer, or switch to your desired model.";
+            summaryText = BadaI18n.t("aa_summary_models_only");
         } else {
-            summaryText = isKo
-                ? "모든 모델이 정상 장착되어 있습니다. 폴더 트리에서 모델을 확인하거나 다른 모델로 교체할 수 있습니다."
-                : "All models are properly loaded. You can browse or replace models from the folder tree.";
+            summaryText = BadaI18n.t("aa_summary_all_ok");
         }
 
         summary.innerHTML = `
@@ -971,17 +945,17 @@ class AutoModelAssigner {
             tabsBar.innerHTML = `
                 <button type="button" class="doctor-tab-btn" data-tab="models">
                     <span class="tab-icon">📦</span>
-                    <span class="tab-label">${isKo ? "모델 &amp; LoRA 자동 장착" : "Models &amp; LoRA"}</span>
+                    <span class="tab-label">${BadaI18n.t("aa_tab_models")}</span>
                     <span class="doctor-tab-badge">${items.length}</span>
                 </button>
                 <button type="button" class="doctor-tab-btn" data-tab="missing">
                     <span class="tab-icon">🧩</span>
-                    <span class="tab-label">${isKo ? "미설치 미싱 노드 케어" : "Missing Nodes"}</span>
+                    <span class="tab-label">${BadaI18n.t("aa_tab_missing")}</span>
                     <span class="doctor-tab-badge">${missingNodes.length}</span>
                 </button>
                 <button type="button" class="doctor-tab-btn" data-tab="all">
                     <span class="tab-icon">🌐</span>
-                    <span class="tab-label">${isKo ? "전체 보기" : "View All"}</span>
+                    <span class="tab-label">${BadaI18n.t("aa_tab_all")}</span>
                     <span class="doctor-tab-badge">${missingNodes.length + items.length}</span>
                 </button>
             `;
@@ -1036,10 +1010,10 @@ class AutoModelAssigner {
             banner.innerHTML = `
                 <div class="doctor-section-title">
                     <span class="icon">🧩</span>
-                    <span>${isKo ? "미설치 미싱 노드 해결사" : "Missing Nodes Doctor"} (${missingNodes.length})</span>
+                    <span>${BadaI18n.t("aa_section_missing_title", { n: missingNodes.length })}</span>
                 </div>
                 <div class="doctor-section-hint">
-                    ${isKo ? "현재 워크플로우에 설치되지 않은 커스텀 노드가 감지되었습니다. 6단계 통합 엔진을 통해 일치하는 ComfyUI 매니저 패키지 및 깃허브 저장소를 자동 탐색합니다." : "Detected uninstalled custom nodes. Our 6-tier engine searches ComfyUI Manager and GitHub to help you restore them."}
+                    ${BadaI18n.t("aa_section_missing_hint")}
                 </div>
             `;
             sectionMissing.appendChild(banner);
@@ -1057,18 +1031,18 @@ class AutoModelAssigner {
                             <span class="missing-node-title">#${nodeId} ${escapeHtml(displayTitle)}</span>
                             <span class="missing-type-pill" title="Real Class Type">${escapeHtml(realType)}</span>
                         </div>
-                        <button type="button" class="doctor-btn doctor-btn-copy" id="btn-copy-${nodeId}">📋 ${isKo ? "타입명 복사" : "Copy Type"}</button>
+                        <button type="button" class="doctor-btn doctor-btn-copy" id="btn-copy-${nodeId}">📋 ${BadaI18n.t("aa_btn_copy_type")}</button>
                     </div>
                     <div class="doctor-lookup-box" id="lookup-box-${nodeId}">
                         <div class="doctor-lookup-loading">
                             <span class="spin">⏳</span>
-                            <span>${isKo ? "매니저 공식 패키지 &amp; 깃허브 저장소 자동 탐색 중..." : "Searching ComfyUI Manager &amp; GitHub databases..."}</span>
+                            <span>${BadaI18n.t("aa_lookup_loading")}</span>
                         </div>
                     </div>
                 `;
 
                 card.querySelector(`#btn-copy-${nodeId}`)?.addEventListener("click", () => {
-                    copyToClipboard(realType, isKo ? "진짜 노드 이름(Type)이 복사되었습니다!" : "Real node class type copied!");
+                    copyToClipboard(realType, BadaI18n.t("aa_toast_type_copied"));
                 });
 
                 // 비동기 매칭 조회
@@ -1091,15 +1065,15 @@ class AutoModelAssigner {
 
                         const installBtnHtml = isAlreadyInstalled
                             ? `
-                                <button type="button" class="doctor-btn doctor-btn-already-installed" id="btn-install-${nodeId}" disabled title="${isKo ? `'${packTitle}' 패키지가 이미 설치되었습니다. ComfyUI를 재시작하면 활성화됩니다.` : `Package '${packTitle}' already installed. Restart ComfyUI to activate.`}">
+                                <button type="button" class="doctor-btn doctor-btn-already-installed" id="btn-install-${nodeId}" disabled title="${BadaI18n.t("aa_btn_already_installed_title", { title: packTitle })}">
                                     <span>✅</span>
-                                    <span>${isKo ? "이미 설치한 노드입니다 (동시 해결)" : "Already Installed (Resolved)"}</span>
+                                    <span>${BadaI18n.t("aa_btn_already_installed")}</span>
                                 </button>
                             `
                             : `
                                 <button type="button" class="doctor-btn doctor-btn-install" id="btn-install-${nodeId}">
                                     <span>📦</span>
-                                    <span>${isKo ? "ComfyUI 매니저로 설치 (원클릭)" : "Install via Manager"}</span>
+                                    <span>${BadaI18n.t("aa_btn_install_manager")}</span>
                                 </button>
                             `;
 
@@ -1107,8 +1081,8 @@ class AutoModelAssigner {
                             <div class="doctor-repo-card found">
                                 <div class="doctor-repo-header">
                                     <span class="status-dot green">🟢</span>
-                                    <span class="status-text">${isKo ? "ComfyUI 매니저 공식 등록 노드 확인!" : "Registered ComfyUI Manager Node!"}</span>
-                                    <span class="doctor-priority-badge">${isKo ? "1순위: 매니저 설치 권장" : "Recommended: Manager"}</span>
+                                    <span class="status-text">${BadaI18n.t("aa_status_manager_registered")}</span>
+                                    <span class="doctor-priority-badge">${BadaI18n.t("aa_priority_manager")}</span>
                                 </div>
                                 <div class="doctor-repo-info">
                                     <div class="doctor-repo-name">📦 ${escapeHtml(packTitle)} ${authorStr}</div>
@@ -1119,15 +1093,15 @@ class AutoModelAssigner {
                                     ${installBtnHtml}
                                     <button type="button" class="doctor-btn doctor-btn-mgr" id="btn-mgr-${nodeId}">
                                         <span>🔍</span>
-                                        <span>${isKo ? "매니저 창에서 보기" : "Open in Manager"}</span>
+                                        <span>${BadaI18n.t("aa_btn_open_manager")}</span>
                                     </button>
                                     <a href="${escapeHtml(repoUrl)}" target="_blank" rel="noopener noreferrer" class="doctor-btn doctor-btn-gh">
                                         <span>🐙</span>
-                                        <span>${isKo ? "GitHub 저장소" : "GitHub Repo"}</span>
+                                        <span>${BadaI18n.t("aa_btn_github_repo")}</span>
                                     </a>
                                     <button type="button" class="doctor-btn doctor-btn-inspect" id="btn-inspect-${nodeId}">
                                         <span>🕵️</span>
-                                        <span>${isKo ? "상세 분석" : "Deep Inspect"}</span>
+                                        <span>${BadaI18n.t("aa_btn_deep_inspect")}</span>
                                     </button>
                                 </div>
                                 <div class="doctor-install-status" id="install-status-${nodeId}" style="display: none;"></div>
@@ -1142,7 +1116,7 @@ class AutoModelAssigner {
                                 badge.style.background = "rgba(52, 211, 153, 0.2)";
                                 badge.style.color = "#6ee7b7";
                                 badge.style.border = "1px solid rgba(52, 211, 153, 0.4)";
-                                badge.textContent = isKo ? "✅ 동시 해결됨" : "✅ Resolved";
+                                badge.textContent = BadaI18n.t("aa_badge_resolved");
                                 headerGroup.appendChild(badge);
                             }
                         }
@@ -1154,9 +1128,7 @@ class AutoModelAssigner {
                         installBtn?.addEventListener("click", async () => {
                             if (installBtn.disabled || isAlreadyInstalled) return;
 
-                            if (!confirm(isKo 
-                                ? `📦 [ComfyUI 매니저 연동 설치]\n\n'${packTitle}' 커스텀 노드를 ComfyUI에 설치하시겠습니까?\n\n저장소: ${repoUrl}` 
-                                : `Install '${packTitle}' into ComfyUI custom_nodes?\n\nRepo: ${repoUrl}`)) {
+                            if (!confirm(BadaI18n.t("aa_confirm_install", { title: packTitle, repo: repoUrl }))) {
                                 return;
                             }
 
@@ -1168,7 +1140,7 @@ class AutoModelAssigner {
 
                             // 1. 클릭한 카드 및 동일 저장소를 공유하는 모든 카드의 버튼을 동기화하여 로딩 상태로 전환
                             installBtn.disabled = true;
-                            installBtn.innerHTML = `<span>⏳</span><span>${isKo ? "설치 진행 중..." : "Installing..."}</span>`;
+                            installBtn.innerHTML = `<span>⏳</span><span>${BadaI18n.t("aa_installing")}</span>`;
 
                             allSameCards.forEach(otherCard => {
                                 if (otherCard === card) return;
@@ -1176,7 +1148,7 @@ class AutoModelAssigner {
                                 if (otherBtn) {
                                     otherBtn.disabled = true;
                                     otherBtn.className = "doctor-btn doctor-btn-sync-installing";
-                                    otherBtn.innerHTML = `<span>⏳</span><span>${isKo ? "함께 설치 진행 중..." : "Installing together..."}</span>`;
+                                    otherBtn.innerHTML = `<span>⏳</span><span>${BadaI18n.t("aa_installing_together")}</span>`;
                                 }
                             });
 
@@ -1184,7 +1156,7 @@ class AutoModelAssigner {
                             statusBox.innerHTML = `
                                 <div style="color: #38bdf8; display: flex; align-items: center; gap: 8px;">
                                     <span class="spin">⏳</span>
-                                    <span>${isKo ? "저장소를 다운로드하고 requirements.txt 패키지를 설치 중입니다..." : "Downloading repository and installing dependencies..."}</span>
+                                    <span>${BadaI18n.t("aa_installing_deps")}</span>
                                 </div>
                             `;
 
@@ -1198,21 +1170,21 @@ class AutoModelAssigner {
                                     statusBox.innerHTML = `
                                         <div style="color: #34d399; font-weight: 700; font-size: 0.95rem; display: flex; align-items: center; gap: 6px;">
                                             <span>✅</span>
-                                            <span>${isKo ? `'${packTitle}' 설치 완료!` : `'${packTitle}' installed successfully!`}</span>
+                                            <span>${BadaI18n.t("aa_install_done", { title: packTitle })}</span>
                                         </div>
                                         <div style="color: #cbd5e1; font-size: 0.82rem; line-height: 1.4;">
-                                            ${isKo ? "ComfyUI를 재시작하시면 워크플로우 내 관련 노드가 모두 즉시 활성화됩니다." : "Restart ComfyUI to activate all related nodes in this workflow."}
+                                            ${BadaI18n.t("aa_install_restart_hint")}
                                         </div>
                                         <div style="margin-top: 4px;">
                                             <button type="button" class="doctor-btn-restart" id="btn-restart-${nodeId}">
                                                 <span>🔄</span>
-                                                <span>${isKo ? "ComfyUI 지금 재시작" : "Restart ComfyUI Now"}</span>
+                                                <span>${BadaI18n.t("aa_btn_restart_now")}</span>
                                             </button>
                                         </div>
                                     `;
 
                                     statusBox.querySelector(`#btn-restart-${nodeId}`)?.addEventListener("click", async () => {
-                                        AutoModelAssigner.showToast(isKo ? "🔄 ComfyUI 서버 재시작 중... 잠시 후 새로고침 됩니다." : "Restarting ComfyUI...", "info");
+                                        AutoModelAssigner.showToast(BadaI18n.t("aa_toast_restarting"), "info");
                                         try {
                                             await api.fetchApi("/manager/reboot", { method: "POST" });
                                         } catch (_) { console.debug("[Bada] ignored:", _); }
@@ -1226,10 +1198,8 @@ class AutoModelAssigner {
                                         if (otherBtn) {
                                             otherBtn.disabled = true;
                                             otherBtn.className = "doctor-btn doctor-btn-already-installed";
-                                            otherBtn.innerHTML = `<span>✅</span><span>${isKo ? "이미 설치한 노드입니다 (동시 해결)" : "Already Installed (Resolved)"}</span>`;
-                                            otherBtn.title = isKo 
-                                                ? `'${packTitle}' 패키지 설치로 함께 해결되었습니다. ComfyUI를 재시작하면 활성화됩니다.`
-                                                : `Resolved by installing '${packTitle}'. Restart ComfyUI to activate.`;
+                                            otherBtn.innerHTML = `<span>✅</span><span>${BadaI18n.t("aa_btn_already_installed")}</span>`;
+                                            otherBtn.title = BadaI18n.t("aa_resolved_by_install_title", { title: packTitle });
                                         }
 
                                         const otherHeader = otherCard.querySelector(".missing-node-title-group");
@@ -1239,18 +1209,18 @@ class AutoModelAssigner {
                                             badge.style.background = "rgba(52, 211, 153, 0.2)";
                                             badge.style.color = "#6ee7b7";
                                             badge.style.border = "1px solid rgba(52, 211, 153, 0.4)";
-                                            badge.textContent = isKo ? "✅ 동시 해결됨" : "✅ Resolved";
+                                            badge.textContent = BadaI18n.t("aa_badge_resolved");
                                             otherHeader.appendChild(badge);
                                         }
                                     });
 
-                                    AutoModelAssigner.showToast(isKo ? `🎉 '${packTitle}' 설치 완료! 관련 ${allSameCards.length}개 노드가 동시 해결되었습니다.` : `Installed '${packTitle}'! Resolved ${allSameCards.length} related nodes.`, "success");
+                                    AutoModelAssigner.showToast(BadaI18n.t("aa_toast_install_done_related", { title: packTitle, n: allSameCards.length }), "success");
 
                                 } else {
                                     installBtn.disabled = false;
-                                    installBtn.innerHTML = `<span>📦</span><span>${isKo ? "매니저로 다시 시도" : "Retry Install"}</span>`;
+                                    installBtn.innerHTML = `<span>📦</span><span>${BadaI18n.t("aa_btn_retry_install")}</span>`;
                                     statusBox.innerHTML = `
-                                        <div style="color: #f87171; font-weight: 700;">❌ ${isKo ? "설치 실패" : "Installation Failed"}</div>
+                                        <div style="color: #f87171; font-weight: 700;">❌ ${BadaI18n.t("aa_status_install_failed")}</div>
                                         <div style="color: #94a3b8; font-size: 0.8rem; word-break: break-all;">${result.error || "Unknown error"}</div>
                                     `;
 
@@ -1260,13 +1230,13 @@ class AutoModelAssigner {
                                         if (otherBtn) {
                                             otherBtn.disabled = false;
                                             otherBtn.className = "doctor-btn doctor-btn-install";
-                                            otherBtn.innerHTML = `<span>📦</span><span>${isKo ? "ComfyUI 매니저로 설치 (원클릭)" : "Install via Manager"}</span>`;
+                                            otherBtn.innerHTML = `<span>📦</span><span>${BadaI18n.t("aa_btn_install_manager")}</span>`;
                                         }
                                     });
                                 }
                             } catch (err) {
                                 installBtn.disabled = false;
-                                installBtn.innerHTML = `<span>📦</span><span>${isKo ? "매니저로 다시 시도" : "Retry Install"}</span>`;
+                                installBtn.innerHTML = `<span>📦</span><span>${BadaI18n.t("aa_btn_retry_install")}</span>`;
                                 statusBox.innerHTML = `<div style="color: #f87171;">❌ ${err.message}</div>`;
 
                                 allSameCards.forEach(otherCard => {
@@ -1275,7 +1245,7 @@ class AutoModelAssigner {
                                     if (otherBtn) {
                                         otherBtn.disabled = false;
                                         otherBtn.className = "doctor-btn doctor-btn-install";
-                                        otherBtn.innerHTML = `<span>📦</span><span>${isKo ? "ComfyUI 매니저로 설치 (원클릭)" : "Install via Manager"}</span>`;
+                                        otherBtn.innerHTML = `<span>📦</span><span>${BadaI18n.t("aa_btn_install_manager")}</span>`;
                                     }
                                 });
                             }
@@ -1302,16 +1272,16 @@ class AutoModelAssigner {
                             <div class="doctor-repo-card not-found">
                                 <div class="doctor-repo-header">
                                     <span class="status-dot yellow">🟡</span>
-                                    <span class="status-text">${isKo ? "매니저 공식 미등록 노드 (깃허브 코드 &amp; 구글 검색)" : "Not in Manager Registry (Search GitHub / Google)"}</span>
+                                    <span class="status-text">${BadaI18n.t("aa_status_not_registered")}</span>
                                 </div>
                                 <div class="doctor-actions">
                                     <a href="${ghCodeSearchUrl}" target="_blank" rel="noopener noreferrer" class="doctor-btn doctor-btn-gh">
                                         <span>🐙</span>
-                                        <span>${isKo ? "GitHub 코드 검색" : "Search Code on GitHub"}</span>
+                                        <span>${BadaI18n.t("aa_btn_github_code_search")}</span>
                                     </a>
                                     <a href="${googleSearchUrl}" target="_blank" rel="noopener noreferrer" class="doctor-btn doctor-btn-google">
                                         <span>🔍</span>
-                                        <span>${isKo ? "Google 검색" : "Google Search"}</span>
+                                        <span>${BadaI18n.t("aa_btn_google_search")}</span>
                                     </a>
                                     <a href="${registrySearchUrl}" target="_blank" rel="noopener noreferrer" class="doctor-btn doctor-btn-registry">
                                         <span>🌐</span>
@@ -1319,7 +1289,7 @@ class AutoModelAssigner {
                                     </a>
                                     <button type="button" class="doctor-btn doctor-btn-inspect" id="btn-inspect-${nodeId}">
                                         <span>🕵️</span>
-                                        <span>${isKo ? "상세 분석" : "Deep Inspect"}</span>
+                                        <span>${BadaI18n.t("aa_btn_deep_inspect")}</span>
                                     </button>
                                 </div>
                             </div>
@@ -1341,8 +1311,8 @@ class AutoModelAssigner {
             emptyNotice.style.cssText = "padding: 48px 16px; text-align: center; color: #a1a1aa; width: 100%; box-sizing: border-box;";
             emptyNotice.innerHTML = `
                 <div style="font-size: 40px; margin-bottom: 12px;">🎉</div>
-                <div style="font-weight: 700; font-size: 16px; color: #34d399; margin-bottom: 6px;">${isKo ? "미설치된 미싱 노드가 없습니다!" : "No Missing Nodes Found!"}</div>
-                <div style="font-size: 13px; color: #94a3b8;">${isKo ? "현재 워크플로우의 모든 커스텀 노드가 정상 설치되어 있습니다." : "All custom nodes in this workflow are installed and ready to run."}</div>
+                <div style="font-weight: 700; font-size: 16px; color: #34d399; margin-bottom: 6px;">${BadaI18n.t("aa_empty_missing_title")}</div>
+                <div style="font-size: 13px; color: #94a3b8;">${BadaI18n.t("aa_empty_missing_hint")}</div>
             `;
             sectionMissing.appendChild(emptyNotice);
         }
@@ -1357,10 +1327,10 @@ class AutoModelAssigner {
                 modelBanner.innerHTML = `
                     <div class="doctor-section-title">
                         <span class="icon">📦</span>
-                        <span>${isKo ? "모델 및 LoRA 스마트 자동 장착 &amp; 폴더 탐색기" : "Model &amp; LoRA Smart Assigner &amp; Folder Browser"} (${items.length})</span>
+                        <span>${BadaI18n.t("aa_section_models_title", { n: items.length })}</span>
                     </div>
                     <div class="doctor-section-hint">
-                        ${isKo ? "체크포인트, UNET, LoRA, VAE 등 누락된 모델을 내 PC 보유 파일과 비교하여 장착하거나 변경할 수 있습니다." : "Inspect and assign Checkpoints, UNETs, LoRAs, and VAEs with your local model folders."}
+                        ${BadaI18n.t("aa_section_models_hint")}
                     </div>
                 `;
                 sectionModels.appendChild(modelBanner);
@@ -1384,7 +1354,7 @@ class AutoModelAssigner {
                 recsListHtml = item.recommendations.map(r => {
                     const badgeClass = r.score >= 80 ? "high" : (r.score >= 40 ? "medium" : "low");
                     const isSelected = r.file === item.selectedMatch;
-                    const labelText = r.isCurrent ? (isKo ? "현재장착" : "Current") : `${r.score}%`;
+                    const labelText = r.isCurrent ? BadaI18n.t("aa_label_current") : `${r.score}%`;
                     return `
                         <button type="button" class="auto-assign-rec-btn ${isSelected ? 'selected' : ''}" data-file="${escapeHtml(r.file)}">
                             <span class="auto-assign-match-badge ${badgeClass}">${labelText}</span>
@@ -1398,19 +1368,19 @@ class AutoModelAssigner {
             const isSkipSelected = item.selectedMatch === SKIP_VALUE;
             const skipBtnHtml = `
                 <button type="button" class="auto-assign-skip-btn ${isSkipSelected ? 'selected' : ''}" data-file="${SKIP_VALUE}">
-                    <span>${isKo ? "⏭️ 적용 안함 (건너뛰기)" : "⏭️ Skip / Keep Current"}</span>
+                    <span>${BadaI18n.t("aa_btn_skip")}</span>
                 </button>
             `;
 
             const origLabel = item.isAlreadyValid 
-                ? (isKo ? "✅ 현재 장착됨:" : "✅ Currently Loaded:")
-                : (isKo ? "❌ 누락된 원본:" : "❌ Missing Original:");
+                ? BadaI18n.t("aa_label_currently_loaded")
+                : BadaI18n.t("aa_label_missing_original");
             const origClass = item.isAlreadyValid ? "valid" : "missing";
-            const statusBadgeText = item.isAlreadyValid ? (isKo ? "✅ 정상 장착" : "✅ Valid") : (isKo ? "⚠️ 누락됨" : "⚠️ Missing");
+            const statusBadgeText = item.isAlreadyValid ? BadaI18n.t("aa_status_valid") : BadaI18n.t("aa_status_missing");
             const statusBadgeClass = item.isAlreadyValid ? "ok" : "warn";
             const recsTitleText = item.isAlreadyValid 
-                ? (isKo ? "💡 빠른 추천 후보 (유사도순):" : "💡 Smart Recommendations (by similarity):")
-                : (isKo ? "💡 추천 후보 (유사도순):" : "💡 Suggested Matches (by similarity):");
+                ? BadaI18n.t("aa_recs_title_fast")
+                : BadaI18n.t("aa_recs_title");
 
             card.innerHTML = `
                 <div class="auto-assign-item-header">
@@ -1427,13 +1397,13 @@ class AutoModelAssigner {
                             <span>${origLabel}</span> ${escapeHtml(item.currentValue)}
                         </div>
                         <div class="auto-assign-search-group">
-                            <a href="${googleUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn google" title="${isKo ? '구글에서 스마트 검색' : 'Smart Search on Google'}">
-                                <span>${isKo ? '🔍 구글 검색' : '🔍 Google'}</span>
+                            <a href="${googleUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn google" title="${BadaI18n.t("aa_title_google_search")}">
+                                <span>${BadaI18n.t("aa_btn_google")}</span>
                             </a>
-                            <a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn hf" title="${isKo ? 'HuggingFace에서 모델 검색' : 'Search model on HuggingFace'}">
+                            <a href="${hfUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn hf" title="${BadaI18n.t("aa_title_hf_search")}">
                                 <span>🤗 HuggingFace</span>
                             </a>
-                            <a href="${civitaiUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn civitai" title="${isKo ? 'Civitai에서 모델 검색' : 'Search model on Civitai'}">
+                            <a href="${civitaiUrl}" target="_blank" rel="noopener noreferrer" class="auto-assign-search-btn civitai" title="${BadaI18n.t("aa_title_civitai_search")}">
                                 <span>💖 Civitai</span>
                             </a>
                         </div>
@@ -1455,15 +1425,15 @@ class AutoModelAssigner {
                     <div class="auto-assign-tree-header-row">
                         <div class="auto-assign-tree-title">
                             <span class="icon">📁</span>
-                            <span>[${escapeHtml(item.category)}] ${isKo ? "보유 모델 폴더 탐색기 (클릭하여 펼침/선택)" : "Model Folder Explorer (Click to expand/select)"}</span>
+                            <span>[${escapeHtml(item.category)}] ${BadaI18n.t("aa_tree_explorer")}</span>
                         </div>
                         <div class="auto-assign-tree-toolbar">
                             <div class="auto-assign-tree-search-wrapper">
                                 <span class="search-icon">🔍</span>
-                                <input type="text" class="auto-assign-tree-search-input" placeholder="${isKo ? '파일명 / 하위 폴더 검색...' : 'Search file / subfolder...'}" />
+                                <input type="text" class="auto-assign-tree-search-input" placeholder="${BadaI18n.t("aa_tree_search_placeholder")}" />
                             </div>
-                            <button type="button" class="auto-assign-tree-btn btn-expand-all">${isKo ? '📂 모두 펼치기' : '📂 Expand All'}</button>
-                            <button type="button" class="auto-assign-tree-btn btn-collapse-all">${isKo ? '📁 모두 접기' : '📁 Collapse All'}</button>
+                            <button type="button" class="auto-assign-tree-btn btn-expand-all">${BadaI18n.t("aa_btn_expand_all")}</button>
+                            <button type="button" class="auto-assign-tree-btn btn-collapse-all">${BadaI18n.t("aa_btn_collapse_all")}</button>
                         </div>
                     </div>
 
@@ -1471,8 +1441,8 @@ class AutoModelAssigner {
                     </div>
 
                     <div class="auto-assign-selected-bar">
-                        <span class="selected-label">${isKo ? "👉 최종 선택된 모델:" : "👉 Selected Model:"}</span>
-                        <span class="selected-value-display" id="selected-display-${index}">${escapeHtml(item.selectedMatch === SKIP_VALUE ? (isKo ? "⏭️ [적용 안함] 기존 모델 유지" : "⏭️ [Skip] Keep original model") : (item.selectedMatch || (isKo ? "(선택 안됨)" : "(None selected)")))}</span>
+                        <span class="selected-label">${BadaI18n.t("aa_label_selected_model")}</span>
+                        <span class="selected-value-display" id="selected-display-${index}">${escapeHtml(item.selectedMatch === SKIP_VALUE ? BadaI18n.t("aa_label_skip_keep") : (item.selectedMatch || BadaI18n.t("aa_label_none_selected")))}</span>
                     </div>
                 </div>
             `;
@@ -1492,7 +1462,7 @@ class AutoModelAssigner {
                 item.selectedMatch = chosenFile;
 
                 if (chosenFile === SKIP_VALUE) {
-                    selectedDisplay.textContent = isKo ? "⏭️ [적용 안함] 변경하지 않고 원본 유지" : "⏭️ [Skip] Keep original model";
+                    selectedDisplay.textContent = BadaI18n.t("aa_label_skip_keep_apply");
                     selectedDisplay.style.color = "#94a3b8";
                 } else {
                     selectedDisplay.textContent = chosenFile;
@@ -1622,8 +1592,8 @@ class AutoModelAssigner {
             emptyNotice.style.cssText = "padding: 48px 16px; text-align: center; color: #a1a1aa; width: 100%; box-sizing: border-box;";
             emptyNotice.innerHTML = `
                 <div style="font-size: 40px; margin-bottom: 12px;">✨</div>
-                <div style="font-weight: 700; font-size: 16px; color: #38bdf8; margin-bottom: 6px;">${isKo ? "모든 모델이 정상 장착되어 있습니다!" : "All Models Loaded!"}</div>
-                <div style="font-size: 13px; color: #94a3b8;">${isKo ? "현재 워크플로우에 누락된 모델이나 LoRA 슬롯이 없습니다." : "No missing models or LoRA slots found."}</div>
+                <div style="font-weight: 700; font-size: 16px; color: #38bdf8; margin-bottom: 6px;">${BadaI18n.t("aa_empty_models_title")}</div>
+                <div style="font-size: 13px; color: #94a3b8;">${BadaI18n.t("aa_empty_models_hint")}</div>
             `;
             sectionModels.appendChild(emptyNotice);
         }
@@ -1640,11 +1610,11 @@ class AutoModelAssigner {
         footer.className = "auto-assign-footer";
         footer.innerHTML = `
             <div class="auto-assign-footer-left">
-                <span>${isKo ? "※ 건너뛴 노드는 기존 모델명이 그대로 유지됩니다." : "※ Skipped nodes will retain their original model names."}</span>
+                <span>${BadaI18n.t("aa_footer_skip_note")}</span>
             </div>
             <div class="auto-assign-footer-right">
-                <button class="auto-assign-btn auto-assign-btn-secondary" id="btn-cancel">${isKo ? "닫기" : "Close"}</button>
-                <button class="auto-assign-btn auto-assign-btn-primary" id="btn-apply">${isKo ? "⚡ 선택한 모델 장착 / 확인" : "⚡ Apply Selected Models"}</button>
+                <button class="auto-assign-btn auto-assign-btn-secondary" id="btn-cancel">${BadaI18n.t("aa_close")}</button>
+                <button class="auto-assign-btn auto-assign-btn-primary" id="btn-apply">${BadaI18n.t("aa_btn_apply")}</button>
             </div>
         `;
 
@@ -1653,7 +1623,7 @@ class AutoModelAssigner {
             if (applyBtn) applyBtn.style.display = "none";
             const footerLeft = footer.querySelector(".auto-assign-footer-left");
             if (footerLeft) {
-                footerLeft.innerHTML = `<span>${isKo ? "※ 미설치 노드를 설치한 후 ComfyUI를 재시작해 주세요." : "※ Please restart ComfyUI after installing custom nodes."}</span>`;
+                footerLeft.innerHTML = `<span>${BadaI18n.t("aa_footer_restart_note")}</span>`;
             }
         }
 
@@ -1694,11 +1664,11 @@ class AutoModelAssigner {
             closeOverlay();
 
             if (appliedCount > 0 && skippedCount > 0) {
-                this.showToast(`🎉 ${appliedCount}개 모델/LoRA 슬롯 장착 완료 (⏭️ ${skippedCount}개 건너뜀)`, "success");
+                this.showToast(BadaI18n.t("aa_toast_applied_skipped", { n: appliedCount, s: skippedCount }), "success");
             } else if (appliedCount > 0) {
-                this.showToast(`🎉 ${appliedCount}개 모델/LoRA 슬롯 장착 및 확인 완료!`, "success");
+                this.showToast(BadaI18n.t("aa_toast_applied_done", { n: appliedCount }), "success");
             } else {
-                this.showToast(`⏭️ ${skippedCount}개 슬롯의 모델 변경을 건너뛰었습니다.`, "info");
+                this.showToast(BadaI18n.t("aa_toast_skipped", { n: skippedCount }), "info");
             }
         };
 
@@ -1775,13 +1745,10 @@ app.registerExtension({
      */
     getCanvasMenuItems(canvas) {
         if (typeof isDetectiveEnabled === "function" && !isDetectiveEnabled()) return [];
-        const isKo = (BadaI18n.lang === "ko");
         return [
             null,
             {
-                content: isKo
-                    ? "⚓ [바다] 노드 스마트 케어"
-                    : "⚓ [Bada] Node Smart Care",
+                content: BadaI18n.t("aa_menu_smart_care"),
                 isAutoModelAssigner: true,
                 callback: () => {
                     AutoModelAssigner.runAutoAssign(null);
@@ -1796,7 +1763,6 @@ app.registerExtension({
     getNodeMenuItems(node) {
         if (!node) return [];
         if (typeof isDetectiveEnabled === "function" && !isDetectiveEnabled()) return [];
-        const isKo = (BadaI18n.lang === "ko");
         const items = [];
 
         // Case 2, 3, 4: 미싱 노드이거나 모델/LoRA 슬롯이 있는 경우 단 1개의 스마트 케어 메뉴만 깔끔하게 노출
@@ -1807,9 +1773,7 @@ app.registerExtension({
             items.push(
                 null,
                 {
-                    content: isKo
-                        ? "⚓ [바다] 노드 스마트 케어"
-                        : "⚓ [Bada] Node Smart Care",
+                    content: BadaI18n.t("aa_menu_smart_care"),
                     isAutoModelAssigner: true,
                     callback: () => AutoModelAssigner.runAutoAssign(node)
                 }
@@ -1836,10 +1800,7 @@ app.registerExtension({
                 const options = origGetCanvasMenuOptions ? origGetCanvasMenuOptions.apply(this, arguments) : [];
                 if (typeof isDetectiveEnabled === "function" && !isDetectiveEnabled()) return options;
 
-                const isKo = (BadaI18n.lang === "ko");
-                const label = isKo
-                    ? "⚓ [바다] 노드 스마트 케어"
-                    : "⚓ [Bada] Node Smart Care";
+                const label = BadaI18n.t("aa_menu_smart_care");
 
                 const exists = options.some(o => o && (o.isAutoModelAssigner || (typeof o.content === 'string' && (o.content.includes("노드 스마트 케어") || o.content.includes("Node Smart Care") || o.content.includes("종합 진단")))));
                 if (!exists) {
@@ -1861,8 +1822,6 @@ app.registerExtension({
             LGraphCanvas.prototype.getNodeMenuOptions = function (node) {
                 const options = origGetNodeMenuOptions ? origGetNodeMenuOptions.apply(this, arguments) : [];
                 if (typeof isDetectiveEnabled === "function" && !isDetectiveEnabled()) return options;
-                const isKo = (BadaI18n.lang === "ko");
-
                 // Case 2, 3, 4: 미싱 노드이거나 모델 노드인 경우 단 1개의 메뉴만 추가
                 const isMissing = isMissingNode(node);
                 const isModel = AutoModelAssigner.isModelNode(node);
@@ -1872,9 +1831,7 @@ app.registerExtension({
                     if (!exists) {
                         options.push(null);
                         options.push({
-                            content: isKo
-                                ? "⚓ [바다] 노드 스마트 케어"
-                                : "⚓ [Bada] Node Smart Care",
+                            content: BadaI18n.t("aa_menu_smart_care"),
                             isAutoModelAssigner: true,
                             callback: () => AutoModelAssigner.runAutoAssign(node)
                         });
