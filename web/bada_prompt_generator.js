@@ -42,95 +42,10 @@ const FALLBACK_MODELS = [
     { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", name_en: "Gemini 3.8 Flash" },
 ];
 
-const I18N = {
-    ko: {
-        enhance: "증강",
-        uncensored: "무검열",
-        target: "모델",
-        submenu: "서브메뉴",
-        request_text: "요청사항 입력란",
-        requestPlaceholder: "요청사항을 입력하세요 (이미지만으로도 생성 가능)",
-        duration: "영상 길이 (초)",
-        durationTip: "영상 모델(MINIMAX H3 / LTX2.5)의 초 단위 길이입니다.",
-        apiHeader: "API Key & 우선순위 모델 선택",
-        keyPlaceholder: "Gemini API 키 입력",
-        showKey: "API 키 표시",
-        hideKey: "API 키 숨기기",
-        issueKeyTip: "Google AI Studio에서 API 키 발급",
-        getKey: "발급",
-        checkKey: "연결확인",
-        testing: "확인중...",
-        manage: "⚙️ 시스템 프롬프트",
-        keyRequired: "Gemini API 키를 먼저 입력해 주세요.",
-        keyOk: "✅ API 연결 정상",
-        keyFail: "❌ API 연결 실패",
-        keyFailInvalidKey: "❌ API 키가 거절되었습니다. 키를 확인해 주세요.",
-        keyFailQuota: "❌ 호출 한도를 넘었습니다. 잠시 뒤 다시 시도해 주세요.",
-        keyFailRequest: "❌ 요청이 거절되었습니다. 입력한 키를 확인해 주세요.",
-        keyFailUpstream: "❌ Google 서버가 오류를 반환했습니다.",
-        keyFailTimeout: "❌ 응답이 늦습니다 (8초 초과). 네트워크를 확인해 주세요.",
-        keyFailUnreachable: "❌ Google 서버에 도달하지 못했습니다. 네트워크를 확인해 주세요.",
-        saved: "저장됨",
-        manageTip: "시스템 프롬프트를 등록·선택·삭제·이동합니다.",
-        manageLoadFail: "⚠️ 모델 관리 모듈을 불러오지 못했습니다.",
-        enhanceTip: "OFF이면 Gemini를 호출하지 않고 요청사항 원문을 그대로 통과시킵니다.",
-        uncensoredTip: "BLOCK_NONE + 3-Pass Zero-Refusal 우회 폴백을 활성화합니다.",
-        targetTip: "프롬프트를 최적화할 대상 모델을 선택하세요.",
-        submenuTip: "선택한 모델에서 사용할 기능(서브모드)을 선택하세요.",
-        noPrompts: "(등록된 프롬프트 없음)",
-        aspectRatio: "화면 비율",
-        aspectRatioAuto: "자동",
-        aspectRatioTip: "선택한 화면비가 모든 메뉴(KREA2 / QWEN2.1 / MINIMAX H3 / LTX2.5 / 시스템 프롬프트)에 공통 적용되어 Gemini가 분석에 활용합니다.",
-        aspectRatioBroken: "⚠️ 화면비 값이 전달되지 않습니다. ComfyUI를 재시작해 주세요.",
-        general: "일반",
-    },
-    en: {
-        enhance: "Enhance",
-        uncensored: "Uncensored",
-        target: "Target Model",
-        submenu: "Submenu",
-        request_text: "Request / Instruction",
-        requestPlaceholder: "Enter a request (or connect images only)",
-        duration: "Duration (sec)",
-        durationTip: "Duration in seconds for video models (MINIMAX H3 / LTX2.5).",
-        apiHeader: "API Key & Priority Model",
-        keyPlaceholder: "Enter Gemini API key",
-        showKey: "Show API key",
-        hideKey: "Hide API key",
-        issueKeyTip: "Get an API key from Google AI Studio",
-        getKey: "Get Key",
-        checkKey: "Check",
-        testing: "Testing...",
-        manage: "⚙️ System Prompt",
-        keyRequired: "Please enter your Gemini API key first.",
-        keyOk: "✅ API connected",
-        keyFail: "❌ API connection failed",
-        keyFailInvalidKey: "❌ API key rejected. Check the key.",
-        keyFailQuota: "❌ Quota exceeded. Try again in a moment.",
-        keyFailRequest: "❌ Request rejected. Check the key you entered.",
-        keyFailUpstream: "❌ Google returned a server error.",
-        keyFailTimeout: "❌ No answer within 8s. Check your network.",
-        keyFailUnreachable: "❌ Could not reach Google. Check your network.",
-        saved: "Saved",
-        manageTip: "Create, select, delete or reorder system prompts.",
-        manageLoadFail: "⚠️ Could not load the model manager.",
-        enhanceTip: "When OFF the request text passes through untouched (no Gemini call).",
-        uncensoredTip: "Enables BLOCK_NONE plus the 3-Pass zero-refusal fallback.",
-        targetTip: "Choose the downstream model to optimize the prompt for.",
-        submenuTip: "Choose the capability of the selected model.",
-        noPrompts: "(No prompts registered)",
-        aspectRatio: "Aspect Ratio",
-        aspectRatioAuto: "Auto",
-        aspectRatioTip: "The selected aspect ratio applies to every tab (KREA2 / QWEN2.1 / MINIMAX H3 / LTX2.5 / System Prompt) and is given to Gemini for analysis.",
-        aspectRatioBroken: "⚠️ The aspect ratio is not reaching Gemini. Please restart ComfyUI.",
-        general: "General",
-    },
-};
-
-function t(key) {
-    const isKo = BadaI18n.lang === "ko";
-    return (isKo ? I18N.ko : I18N.en)[key] || (isKo ? I18N.ko : I18N.en).request_text;
-}
+// 로컬 사전(39키) 와 전역 t() 를 가리던 섀도 t() 는 전역 사전으로 옮겼다 (P4-3 D-5).
+// 키 이름은 tools/harness_p1h/p43_d5_keys.cjs 의 pg_* 대응표. 값이 없으면 전역 t() 가 키 이름을 그대로
+// 화면에 뱉는다 — 옛 t() 의 request_text 폴백은 «뭘 못 찾았는지» 를 지워버리므로 되살리지 않는다.
+const pgT = (key, params) => BadaI18n.t("pg_" + key, params);
 
 // ---------------------------------------------------------------------------
 // Registry cache
@@ -164,10 +79,10 @@ function submenuNamesFor(registry, targetName) {
     if (!target) return null;
     if (target.dynamic === "user_prompts") {
         const entries = (registry.user_prompts || []).filter((p) => p.name);
-        return entries.length ? entries : [{ name: t("noPrompts") }];
+        return entries.length ? entries : [{ name: pgT("no_prompts") }];
     }
     const entries = (target.submenus || []).filter((s) => s.name);
-    return entries.length ? entries : [{ name: t("general") }];
+    return entries.length ? entries : [{ name: pgT("general") }];
 }
 
 // ---------------------------------------------------------------------------
@@ -264,13 +179,13 @@ async function pullFromServer() {
 // 서버 /gemini/test 가 실패마다 싣는 기호 값(code) → 이 파일 사전 키. 사전에 없는(= 미래의)
 // 코드나 구버전 서버가 코드를 안 준 응답은 원문만 붙여 보여주므로 화면이 침묵하지 않는다.
 const KEY_FAIL_KEYS = {
-    no_key: "keyRequired",
-    invalid_key: "keyFailInvalidKey",
-    quota: "keyFailQuota",
-    bad_request: "keyFailRequest",
-    upstream: "keyFailUpstream",
-    timeout: "keyFailTimeout",
-    unreachable: "keyFailUnreachable",
+    no_key: "key_required",
+    invalid_key: "key_fail_invalid_key",
+    quota: "key_fail_quota",
+    bad_request: "key_fail_request",
+    upstream: "key_fail_upstream",
+    timeout: "key_fail_timeout",
+    unreachable: "key_fail_unreachable",
 };
 
 // 서버가 "자기 문구"를 그대로 되돌려 보내는 코드 (server/gemini_api.py 의 고정 문자열).
@@ -287,7 +202,7 @@ function keyFailMessage(data) {
     // code 는 외부에서 온 문자열이라 그 자체로 사전 검색에 쓴다. 프로토타입을 타고
     // 올라가 "constructor" 같은 값이 사전 키로 잡히지 않도록 객체 자체의 키만 인정한다.
     const known = Object.prototype.hasOwnProperty.call(KEY_FAIL_KEYS, code);
-    const base = known ? t(KEY_FAIL_KEYS[code]) : t("keyFail");
+    const base = known ? pgT(KEY_FAIL_KEYS[code]) : pgT("key_fail");
     // 구버전 서버가 코드를 안 주는 경우를 대비해 문자열 동일성도 본다. 지나치게 짧은
     // 문자열이 우연히 걸려 진짜 이유를 지우면 안 되어 길이 제한을 둔다.
     const dup = KEY_FAIL_ECHO_CODES.has(code) || (why.length >= 8 && base.includes(why));
@@ -298,7 +213,7 @@ function keyFailMessage(data) {
 export async function verifyKey(key) {
     const target = (key || "").trim();
     if (!target) {
-        showToast(t("keyRequired"), "warn", 3400);
+        showToast(pgT("key_required"), "warn", 3400);
         return false;
     }
     try {
@@ -309,7 +224,7 @@ export async function verifyKey(key) {
         });
         const data = await res.json().catch(() => ({}));
         if (data.success) {
-            showToast(t("keyOk"), "ok", 2600);
+            showToast(pgT("key_ok"), "ok", 2600);
             return true;
         }
         // 실패 이유 없이 "연결 실패"만 뜨면 사용자가 키 문제인지 네트워크인지 못 가른다 (P2-A)
@@ -318,7 +233,7 @@ export async function verifyKey(key) {
     } catch (err) {
         console.warn("[BadaPromptGen] API key check failed:", err);
         // fetch 자체가 실패하면(서버 종료) 이유 문자열은 사용자에게 소용없다 → 정해진 문구
-        showToast(t("keyFailUnreachable"), "err", 6200);
+        showToast(pgT("key_fail_unreachable"), "err", 6200);
         return false;
     }
 }
@@ -377,47 +292,47 @@ function buildHeader(node, widgets) {
     const root = el("div", "bpg-root");
     swallow(root);
 
-    const title = el("div", "bpg-sec-title", t("apiHeader"));
-    title.dataset.i18n = "apiHeader";
+    const title = el("div", "bpg-sec-title", pgT("api_header"));
+    title.dataset.i18n = "api_header";
     root.appendChild(title);
 
     // -- API key row -------------------------------------------------------
     const row1 = el("div", "bpg-row");
     const keyInput = el("input", "bpg-key");
     keyInput.type = "password";
-    keyInput.placeholder = t("keyPlaceholder");
+    keyInput.placeholder = pgT("key_placeholder");
     keyInput.spellcheck = false;
     keyInput.autocomplete = "off";
     keyInput.value = readKey();
 
     const eye = el("button", "bpg-icon-btn", "👁");
     eye.type = "button";
-    eye.title = t("showKey");
+    eye.title = pgT("show_key");
     eye.addEventListener("click", () => {
         keyInput.type = keyInput.type === "password" ? "text" : "password";
         eye.classList.toggle("bpg-icon-btn--on", keyInput.type === "text");
-        eye.title = t(keyInput.type === "password" ? "showKey" : "hideKey");
+        eye.title = pgT(keyInput.type === "password" ? "show_key" : "hide_key");
     });
 
-    const issueBtn = el("button", "bpg-btn", t("getKey"));
+    const issueBtn = el("button", "bpg-btn", pgT("get_key"));
     issueBtn.type = "button";
-    issueBtn.dataset.i18n = "getKey";
-    issueBtn.title = t("issueKeyTip");
+    issueBtn.dataset.i18n = "get_key";
+    issueBtn.title = pgT("issue_key_tip");
     issueBtn.addEventListener("click", () => {
         window.open("https://aistudio.google.com/app/apikey", "_blank", "noopener");
     });
 
-    const testBtn = el("button", "bpg-btn bpg-btn--accent", t("checkKey"));
+    const testBtn = el("button", "bpg-btn bpg-btn--accent", pgT("check_key"));
     testBtn.type = "button";
-    testBtn.dataset.i18n = "checkKey";
+    testBtn.dataset.i18n = "check_key";
     testBtn.addEventListener("click", async () => {
         testBtn.disabled = true;
-        testBtn.textContent = t("testing");
+        testBtn.textContent = pgT("testing");
         const key = writeKey(keyInput.value);
         const ok = await verifyKey(key);
         if (ok) pushToServer(key);
         testBtn.disabled = false;
-        testBtn.textContent = t("checkKey");
+        testBtn.textContent = pgT("check_key");
     });
 
     keyInput.addEventListener("input", () => pushToServer(writeKey(keyInput.value)));
@@ -448,17 +363,17 @@ function buildHeader(node, widgets) {
     modelSel.addEventListener("change", () => {
         const model = writeModel(modelSel.value);
         pushToServer(undefined, model);
-        showToast(`${t("saved")} · ${model}`, "ok", 1800);
+        showToast(`${pgT("saved")} · ${model}`, "ok", 1800);
     });
     row2.appendChild(modelSel);
 
     // 시스템 프롬프트 관리 sits next to the model select (where the old
     // "LocalStorage 자동 저장" notice was) so the toggle row below only has to
     // fit three controls instead of four on a narrow node.
-    const manageBtn = el("button", "bpg-btn bpg-btn--manage", t("manage"));
+    const manageBtn = el("button", "bpg-btn bpg-btn--manage", pgT("manage"));
     manageBtn.type = "button";
     manageBtn.dataset.i18n = "manage";
-    manageBtn.title = t("manageTip");
+    manageBtn.title = pgT("manage_tip");
     manageBtn.addEventListener("click", async () => {
         manageBtn.disabled = true;
         try {
@@ -472,7 +387,7 @@ function buildHeader(node, widgets) {
             });
         } catch (err) {
             console.error("[BadaPromptGen] modal load failed:", err);
-            showToast(t("manageLoadFail"), "err", 5000);
+            showToast(pgT("manage_load_fail"), "err", 5000);
         } finally {
             manageBtn.disabled = false;
         }
@@ -487,15 +402,15 @@ function buildHeader(node, widgets) {
     function makeCard(widgetName, labelKey, tipKey) {
         const widget = widgets[widgetName];
         const card = el("div", "bpg-card");
-        card.title = t(tipKey);
-        const label = el("span", "bpg-card-label", t(labelKey));
+        card.title = pgT(tipKey);
+        const label = el("span", "bpg-card-label", pgT(labelKey));
         label.dataset.i18n = labelKey;
         const switchEl = el("span", "bpg-switch");
         switchEl.appendChild(el("i"));
         card.append(label, switchEl);
         const paint = () => {
             card.classList.toggle("bpg-card--on", !!widget.value);
-            card.title = t(tipKey);
+            card.title = pgT(tipKey);
         };
         card.addEventListener("click", () => {
             widget.value = !widget.value;
@@ -508,8 +423,8 @@ function buildHeader(node, widgets) {
         return card;
     }
 
-    row3.appendChild(makeCard("enhance", "enhance", "enhanceTip"));
-    row3.appendChild(makeCard("uncensored", "uncensored", "uncensoredTip"));
+    row3.appendChild(makeCard("enhance", "enhance", "enhance_tip"));
+    row3.appendChild(makeCard("uncensored", "uncensored", "uncensored_tip"));
 
     // -- aspect ratio picker (sits to the right of 무검열) --------------------
     // Mirrors the native `aspect_ratio` combo widget so the hidden widget and this
@@ -522,15 +437,15 @@ function buildHeader(node, widgets) {
         // instead of silently dropping the user's choice.
         console.warn(
             "[BadaPromptGen] `aspect_ratio` widget not found — ComfyUI is running the old "
-            + "node module. Restart ComfyUI, otherwise the 화면 비율 선택 value is discarded.",
+            + "node module. Restart ComfyUI, otherwise the aspect-ratio value is discarded.",
         );
     }
     const ASPECT_RATIOS = [
         "1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9", "9:21", "21:9",
     ];
     const ratioBox = el("div", "bpg-card bpg-card--ratio");
-    const ratioLabel = el("span", "bpg-card-label", t("aspectRatio"));
-    ratioLabel.dataset.i18n = "aspectRatio";
+    const ratioLabel = el("span", "bpg-card-label", pgT("aspect_ratio"));
+    ratioLabel.dataset.i18n = "aspect_ratio";
     const ratioSel = el("select", "bpg-ratio-select");
     for (const value of ASPECT_RATIOS) {
         const opt = el("option", null, value);
@@ -538,7 +453,7 @@ function buildHeader(node, widgets) {
         ratioSel.appendChild(opt);
     }
     const AUTO_RATIO = "";
-    const autoOpt = el("option", null, t("aspectRatioAuto"));
+    const autoOpt = el("option", null, pgT("aspect_ratio_auto"));
     autoOpt.value = AUTO_RATIO;
     ratioSel.insertBefore(autoOpt, ratioSel.firstChild);
     ratioBox.append(ratioLabel, ratioSel);
@@ -546,9 +461,9 @@ function buildHeader(node, widgets) {
     function syncRatio() {
         const current = ratioWidget ? String(ratioWidget.value ?? AUTO_RATIO) : AUTO_RATIO;
         ratioSel.value = [...ratioSel.options].some((o) => o.value === current) ? current : AUTO_RATIO;
-        ratioBox.title = t("aspectRatioTip");
+        ratioBox.title = pgT("aspect_ratio_tip");
         // The auto option is not [data-i18n], so relabel it explicitly on a language switch.
-        autoOpt.textContent = t("aspectRatioAuto");
+        autoOpt.textContent = pgT("aspect_ratio_auto");
         const chosen = ratioSel.value;
         ratioBox.classList.toggle("bpg-card--on", !!chosen);
         // Label stays "화면 비율" whatever is picked: the <select> beside it already
@@ -561,8 +476,8 @@ function buildHeader(node, widgets) {
             // Surface it on screen too; a console warning alone is easy to miss and the
             // control would otherwise look like it had taken the value.
             ratioBox.classList.add("bpg-card--broken");
-            ratioBox.title = t("aspectRatioBroken");
-            showToast(t("aspectRatioBroken"), "err", 6000);
+            ratioBox.title = pgT("aspect_ratio_broken");
+            showToast(pgT("aspect_ratio_broken"), "err", 6000);
             syncRatio();
             return;
         }
@@ -578,13 +493,13 @@ function buildHeader(node, widgets) {
     root.appendChild(row3);
 
     const targetGroup = el("div", "bpg-picker-group");
-    const targetLabel = el("div", "bpg-picker-label", t("target"));
+    const targetLabel = el("div", "bpg-picker-label", pgT("target"));
     targetLabel.dataset.i18n = "target";
     const targetButtons = el("div", "bpg-choice-row");
     targetGroup.append(targetLabel, targetButtons);
 
     const submenuGroup = el("div", "bpg-picker-group");
-    const submenuLabel = el("div", "bpg-picker-label", t("submenu"));
+    const submenuLabel = el("div", "bpg-picker-label", pgT("submenu"));
     submenuLabel.dataset.i18n = "submenu";
     const submenuButtons = el("div", "bpg-choice-row");
     submenuGroup.append(submenuLabel, submenuButtons);
@@ -642,27 +557,27 @@ function buildHeader(node, widgets) {
         for (const key of WIDGET_LABELS) {
             const w = widgets[key];
             if (!w) continue;
-            const text = t(key);
+            const text = pgT(key);
             w.label = text;
             if (w.options) w.options.label = text;
         }
         if (widgets.ui_language) widgets.ui_language.value = BadaI18n.lang;
-        if (widgets.enhance) widgets.enhance.tooltip = t("enhanceTip");
-        if (widgets.uncensored) widgets.uncensored.tooltip = t("uncensoredTip");
-        if (widgets.target) widgets.target.tooltip = t("targetTip");
-        if (widgets.submenu) widgets.submenu.tooltip = t("submenuTip");
-        if (widgets.duration) widgets.duration.tooltip = t("durationTip");
+        if (widgets.enhance) widgets.enhance.tooltip = pgT("enhance_tip");
+        if (widgets.uncensored) widgets.uncensored.tooltip = pgT("uncensored_tip");
+        if (widgets.target) widgets.target.tooltip = pgT("target_tip");
+        if (widgets.submenu) widgets.submenu.tooltip = pgT("submenu_tip");
+        if (widgets.duration) widgets.duration.tooltip = pgT("duration_tip");
         const requestInput = widgets.request_text?.inputEl || widgets.request_text?.element;
-        if (requestInput) requestInput.placeholder = t("requestPlaceholder");
-        keyInput.placeholder = t("keyPlaceholder");
-        eye.title = t(keyInput.type === "password" ? "showKey" : "hideKey");
-        issueBtn.title = t("issueKeyTip");
-        manageBtn.title = t("manageTip");
+        if (requestInput) requestInput.placeholder = pgT("request_placeholder");
+        keyInput.placeholder = pgT("key_placeholder");
+        eye.title = pgT(keyInput.type === "password" ? "show_key" : "hide_key");
+        issueBtn.title = pgT("issue_key_tip");
+        manageBtn.title = pgT("manage_tip");
     }
 
     const langSub = () => {
         root.querySelectorAll("[data-i18n]").forEach((target) => {
-            target.textContent = t(target.dataset.i18n);
+            target.textContent = pgT(target.dataset.i18n);
         });
         Object.values(cards).forEach((c) => c.paint());
         syncRatio();

@@ -31,92 +31,10 @@ const API = {
 };
 
 
-const T = () => (typeof BadaI18n !== "undefined" && BadaI18n.lang === "ko");
 
-const L = {
-    ko: {
-        title: "🕐 채팅 기록",
-        empty: "저장된 대화가 없습니다.\n대화를 나눈 뒤 다시 열어 주세요.",
-        search: "🔍 제목 검색...",
-        msgs: "턴",
-        imgs: "이미지",
-        imgSaved: "이미지 {n}미저장",
-        restore: "▶ 이어하기",
-        remove: "🗑",
-        removeTitle: "이 대화 삭제",
-        pin: "📌",
-        pinTitle: "상단 고정 ({n}개 자동 삭제에서 제외)",
-        unpinTitle: "고정 해제",
-        pinnedOn: "📌 상단 고정 — {n}개 자동 삭제에서 제외됩니다",
-        pinnedOff: "고정 해제되었습니다",
-        pinnedSection: "📌 고정됨 — 자동 삭제되지 않음",
-        confirmDelete: "「{title}」 대화를 삭제할까요?",
-        backup: "📤 백업",
-        restore2: "📥 복원",
-        clearAll: "🗑 전체 삭제",
-        confirmClear: "저장된 대화를 모두 삭제할까요?\n(백업을 먼저 받아두시는 것을 권장합니다)",
-        imageMode: "🖼️ 첨부 이미지 저장",
-        imageModes: {
-            original: "원본 (1~8 MB)",
-            large: "2048px (~350 KB)",
-            small: "1024px (~100 KB)",
-            none: "저장 안 함 (0 KB)",
-        },
-        imageNote: "「저장 안 함」으로 저장한 이미지는 복원 시 자리표시자로만 남고,\n대화 내용은 그대로 복원됩니다.",
-        imported: "✅ {n}개의 대화를 복원했습니다",
-        importedMerge: "✅ {n}개를 병합했습니다",
-        deleted: "🗑 삭제되었습니다",
-        cleared: "🗑 모두 삭제되었습니다",
-        failed: "❌ {err}",
-        cap: "최근 {n}개까지 보관",
-        justNow: "방금",
-        minAgo: "{n}분 전",
-        hourAgo: "{n}시간 전",
-        dayAgo: "{n}일 전",
-    },
-    en: {
-        title: "🕐 Chat history",
-        empty: "No saved conversations yet.\nChat a little, then come back.",
-        search: "🔍 Search titles...",
-        msgs: "turns",
-        imgs: "images",
-        imgSaved: "{n} unsaved",
-        restore: "▶ Resume",
-        remove: "🗑",
-        removeTitle: "Delete this conversation",
-        pin: "📌",
-        pinTitle: "Pin to top (exempt from the {n}-chat auto-delete)",
-        unpinTitle: "Unpin",
-        pinnedOn: "📌 Pinned to top",
-        pinnedOff: "Unpinned",
-        pinnedSection: "📌 Pinned — never auto-deleted",
-        confirmDelete: "Delete “{title}”?",
-        backup: "📤 Backup",
-        restore2: "📥 Restore",
-        clearAll: "🗑 Clear all",
-        confirmClear: "Delete every saved conversation?\n(Backing up first is recommended)",
-        imageMode: "🖼️ Attachment storage",
-        imageModes: {
-            original: "Original (1–8 MB)",
-            large: "2048px (~350 KB)",
-            small: "1024px (~100 KB)",
-            none: "Don't save (0 KB)",
-        },
-        imageNote: "Images saved as 「Don't save」 come back as placeholders;\nthe conversation text is restored in full.",
-        imported: "✅ Restored {n} conversation(s)",
-        importedMerge: "✅ Merged {n}",
-        deleted: "🗑 Deleted",
-        cleared: "🗑 All deleted",
-        failed: "❌ {err}",
-        cap: "keeps the newest {n}",
-        justNow: "just now",
-        minAgo: "{n}m ago",
-        hourAgo: "{n}h ago",
-        dayAgo: "{n}d ago",
-    },
-};
-
-const t = (key) => (T() ? L.ko : L.en)[key];
+// 로컬 사전(29키 + 이미지 선택지 4리프) 과 전역 t() 를 가리던 섀도 t(), 그리고 인라인 «한국어 : English» 분기는
+// 전부 전역 사전으로 옮겼다 (P4-3 D-5). 키 이름은 tools/harness_p1h/p43_d5_keys.cjs 의 chat_hist_* 대응표.
+const chT = (key, params) => BadaI18n.t("chat_hist_" + key, params);
 
 function fmtBytes(bytes) {
     if (!bytes || bytes < 1024) return `${bytes || 0} B`;
@@ -127,10 +45,10 @@ function fmtBytes(bytes) {
 function fmtWhen(stamp) {
     const diff = Date.now() / 1000 - Number(stamp || 0);
     if (!stamp || diff < 0) return "";
-    if (diff < 60) return t("justNow");
-    if (diff < 3600) return t("minAgo").replace("{n}", Math.floor(diff / 60));
-    if (diff < 86400) return t("hourAgo").replace("{n}", Math.floor(diff / 3600));
-    return t("dayAgo").replace("{n}", Math.floor(diff / 86400));
+    if (diff < 60) return chT("just_now");
+    if (diff < 3600) return chT("min_ago", { n: Math.floor(diff / 60) });
+    if (diff < 86400) return chT("hour_ago", { n: Math.floor(diff / 3600) });
+    return chT("day_ago", { n: Math.floor(diff / 86400) });
 }
 
 async function postJSON(url, body) {
@@ -233,13 +151,13 @@ export async function openChatHistory(anchor, opts = {}) {
     head.className = "bada-chat-history-head";
     const headTitle = document.createElement("span");
     headTitle.className = "bada-chat-history-title";
-    headTitle.textContent = t("title");
+    headTitle.textContent = chT("title");
     head.appendChild(headTitle);
 
     const search = document.createElement("input");
     search.type = "text";
     search.className = "bada-chat-history-search";
-    search.placeholder = t("search");
+    search.placeholder = chT("search");
 
     const list = document.createElement("div");
     list.className = "bada-chat-history-list";
@@ -261,8 +179,8 @@ export async function openChatHistory(anchor, opts = {}) {
         if (opts.currentId && chat.id === opts.currentId) row.classList.add("current");
 
         const meta = [];
-        if (chat.messageCount) meta.push(`${chat.messageCount}${t("msgs")}`);
-        if (chat.imageCount) meta.push(`${chat.imageCount}${t("imgs")}`);
+        if (chat.messageCount) meta.push(`${chat.messageCount}${chT("msgs")}`);
+        if (chat.imageCount) meta.push(`${chat.imageCount}${chT("imgs")}`);
         if (chat.bytes) meta.push(fmtBytes(chat.bytes));
         const when = fmtWhen(chat.updatedAt);
         if (when) meta.push(when);
@@ -273,7 +191,7 @@ export async function openChatHistory(anchor, opts = {}) {
         name.className = "bada-chat-history-name";
         // textContent, never innerHTML: a conversation title is arbitrary user text and
         // must never be parsed as markup.
-        name.textContent = chat.title || (T() ? "(제목 없음)" : "(untitled)");
+        name.textContent = chat.title || chT("untitled");
         const metaEl = document.createElement("div");
         metaEl.className = "bada-chat-history-meta";
         metaEl.textContent = meta.join(" · ");
@@ -295,7 +213,7 @@ export async function openChatHistory(anchor, opts = {}) {
             thumbsEl.className = "bada-chat-history-thumbs";
             // The whole strip is the target — a 28px image is a small click area, and the
             // user asked for "click the thumbnail to resume", not "hit 28×28 exactly".
-            thumbsEl.title = T() ? "클릭하면 이 대화를 이어갑니다" : "Click to resume this conversation";
+            thumbsEl.title = chT("thumb_title");
             thumbsEl.onclick = () => resume(thumbsEl);
             list2.forEach((src) => {
                 const img = document.createElement("img");
@@ -313,9 +231,7 @@ export async function openChatHistory(anchor, opts = {}) {
             if (omitted) {
                 const ghost = document.createElement("span");
                 ghost.className = "bada-chat-history-thumb ghost";
-                ghost.title = T()
-                    ? `이미지 ${omitted}장은 「저장 안 함」이라 미리보기가 없습니다`
-                    : `${omitted} image(s) were saved with 「Don't save」 — no preview`;
+                ghost.title = chT("thumb_omitted", { n: omitted });
                 ghost.textContent = "🖼";
                 thumbsEl.appendChild(ghost);
             }
@@ -338,11 +254,11 @@ export async function openChatHistory(anchor, opts = {}) {
             try {
                 const resp = await fetch(`${API.get}?id=${encodeURIComponent(chat.id)}`);
                 const data = await resp.json();
-                if (!data.success) throw new Error(data.error || (T() ? "불러오기 실패" : "Load failed"));
+                if (!data.success) throw new Error(data.error || chT("load_failed"));
                 await onRestore(data.chat);
                 close();
             } catch (err) {
-                alert(t("failed").replace("{err}", err.message));
+                alert(chT("failed", { err: err.message }));
             } finally {
                 trigger.disabled = false;
             }
@@ -351,32 +267,32 @@ export async function openChatHistory(anchor, opts = {}) {
         const openBtn = document.createElement("button");
         openBtn.type = "button";
         openBtn.className = "bada-chat-history-open";
-        openBtn.textContent = t("restore");
+        openBtn.textContent = chT("restore");
         openBtn.onclick = () => resume(openBtn);
 
         const delBtn = document.createElement("button");
         delBtn.type = "button";
         delBtn.className = "bada-chat-history-del";
-        delBtn.textContent = t("remove");
-        delBtn.title = t("removeTitle");
+        delBtn.textContent = chT("remove");
+        delBtn.title = chT("remove_title");
         delBtn.onclick = async () => {
-            if (!confirm(t("confirmDelete").replace("{title}", chat.title || ""))) return;
+            if (!confirm(chT("confirm_delete", { title: chat.title || "" }))) return;
             try {
                 await postJSON(API.del, { id: chat.id });
                 chats = chats.filter(c => c.id !== chat.id);
                 render();
             } catch (err) {
-                alert(t("failed").replace("{err}", err.message));
+                alert(chT("failed", { err: err.message }));
             }
         };
 
         const pinBtn = document.createElement("button");
         pinBtn.type = "button";
         pinBtn.className = "bada-chat-history-pin";
-        pinBtn.textContent = t("pin");
+        pinBtn.textContent = chT("pin");
         // Reflect state two ways: the tooltip says what clicking will DO, and the row
         // highlight says what is already true.
-        const synced = chat.pinned ? t("unpinTitle") : t("pinTitle").replace("{n}", maxChats);
+        const synced = chat.pinned ? chT("unpin_title") : chT("pin_title", { n: maxChats });
         pinBtn.title = synced;
         pinBtn.setAttribute("aria-pressed", chat.pinned ? "true" : "false");
         pinBtn.setAttribute("aria-label", synced);
@@ -393,10 +309,10 @@ export async function openChatHistory(anchor, opts = {}) {
                 // too, and that ordering lives on the server.
                 const data = await postJSON(API.pin, { id: chat.id, pinned: next });
                 chat.pinned = data.chat ? !!data.chat.pinned : next;
-                showToast(chat.pinned ? t("pinnedOn").replace("{n}", maxChats) : t("pinnedOff"));
+                showToast(chat.pinned ? chT("pinned_on", { n: maxChats }) : chT("pinned_off"));
                 await load();
             } catch (err) {
-                alert(t("failed").replace("{err}", err.message));
+                alert(chT("failed", { err: err.message }));
             } finally {
                 pinBtn.disabled = false;
             }
@@ -411,7 +327,7 @@ export async function openChatHistory(anchor, opts = {}) {
     // user has scrolled down into the unpinned ones.
     const sectionEl = document.createElement("div");
     sectionEl.className = "bada-chat-history-section";
-    sectionEl.textContent = t("pinnedSection");
+    sectionEl.textContent = chT("pinned_section");
 
     const render = () => {
         const needle = (search.value || "").trim().toLowerCase();
@@ -422,8 +338,8 @@ export async function openChatHistory(anchor, opts = {}) {
             const empty = document.createElement("div");
             empty.className = "bada-chat-history-empty";
             empty.textContent = needle
-                ? (T() ? "검색 결과가 없습니다." : "No matches.")
-                : t("empty");
+                ? chT("no_matches")
+                : chT("empty");
             list.appendChild(empty);
             return;
         }
@@ -442,7 +358,7 @@ export async function openChatHistory(anchor, opts = {}) {
         try {
             const resp = await fetch(API.list);
             const data = await resp.json();
-            if (!data.success) throw new Error(data.error || (T() ? "목록 조회 실패" : "List failed"));
+            if (!data.success) throw new Error(data.error || chT("list_failed"));
             chats = Array.isArray(data.chats) ? data.chats : [];
             maxChats = data.maxChats || 200;
             render();
@@ -450,7 +366,7 @@ export async function openChatHistory(anchor, opts = {}) {
             list.innerHTML = "";
             const msg = document.createElement("div");
             msg.className = "bada-chat-history-empty";
-            msg.textContent = t("failed").replace("{err}", err.message);
+            msg.textContent = chT("failed", { err: err.message });
             list.appendChild(msg);
         }
     };
@@ -466,14 +382,15 @@ export async function openChatHistory(anchor, opts = {}) {
         const modeWrap = document.createElement("div");
         modeWrap.className = "bada-chat-history-mode";
         const modeLabel = document.createElement("span");
-        modeLabel.textContent = t("imageMode");
+        modeLabel.textContent = chT("image_mode");
         const select = document.createElement("select");
         select.className = "bada-chat-history-mode-select";
-        const modes = L[T() ? "ko" : "en"].imageModes;
-        Object.keys(modes).forEach(key => {
+        // 선택지 순서는 원본 로컬 사전(imageModes) 의 순서 그대로 유지 — 아래위가 바뀌면 저장 품질 오선택을 부른다.
+        const IMAGE_MODES = ["original", "large", "small", "none"];
+        IMAGE_MODES.forEach((key) => {
             const opt = document.createElement("option");
             opt.value = key;
-            opt.textContent = modes[key];
+            opt.textContent = chT("image_mode_" + key);
             if (key === imageMode) opt.selected = true;
             select.appendChild(opt);
         });
@@ -483,7 +400,7 @@ export async function openChatHistory(anchor, opts = {}) {
         };
         const note = document.createElement("div");
         note.className = "bada-chat-history-note";
-        note.textContent = t("imageNote");
+        note.textContent = chT("image_note");
         modeWrap.append(modeLabel, select, note);
         foot.appendChild(modeWrap);
 
@@ -500,17 +417,16 @@ export async function openChatHistory(anchor, opts = {}) {
             return b;
         };
 
-        const backupBtn = mk("", t("backup"),
-            T() ? `최근 ${maxChats}개 대화를 .json 파일로 내려받습니다.`
-                : `Download the newest ${maxChats} conversations as a .json file.`,
+        const backupBtn = mk("", chT("backup"),
+            chT("backup_title", { n: maxChats }),
             () => {
                 // A plain navigation: the server sends Content-Disposition: attachment, so
                 // the browser saves the file instead of rendering a multi-MB blob inline.
                 window.location.href = API.exportUrl;
             });
 
-        const importBtn = mk("", t("restore2"),
-            T() ? "백업 .json 파일을 불러옵니다." : "Load a backup .json file.",
+        const importBtn = mk("", chT("restore2"),
+            chT("restore_title"),
             () => {
                 const picker = document.createElement("input");
                 picker.type = "file";
@@ -522,36 +438,34 @@ export async function openChatHistory(anchor, opts = {}) {
                         const payload = JSON.parse(await file.text());
                         // With nothing to lose, merge without asking. Otherwise replace is the
                         // destructive default only behind an explicit confirmation.
-                        const merge = !chats.length || confirm(T()
-                            ? "현재 기록과 병합할까요?\n취소하면 전체를 교체합니다."
-                            : "Merge with the current history?\nCancel replaces everything.");
+                        const merge = !chats.length || confirm(chT("merge_confirm"));
                         const data = await postJSON(API.importUrl, { payload, merge });
-                        alert((merge ? t("importedMerge") : t("imported")).replace("{n}", data.imported));
+                        alert(merge ? chT("imported_merge", { n: data.imported }) : chT("imported", { n: data.imported }));
                         await load();
                     } catch (err) {
-                        alert(t("failed").replace("{err}", err.message));
+                        alert(chT("failed", { err: err.message }));
                     }
                 };
                 picker.click();
             });
 
-        const clearBtn = mk("danger", t("clearAll"), "",
+        const clearBtn = mk("danger", chT("clear_all"), "",
             async () => {
                 if (!chats.length) return;
-                if (!confirm(t("confirmClear"))) return;
+                if (!confirm(chT("confirm_clear"))) return;
                 try {
                     await postJSON(API.clear, { confirm: true });
                     chats = [];
                     render();
                 } catch (err) {
-                    alert(t("failed").replace("{err}", err.message));
+                    alert(chT("failed", { err: err.message }));
                 }
             });
 
         row.append(backupBtn, importBtn, clearBtn);
         const cap = document.createElement("span");
         cap.className = "bada-chat-history-cap";
-        cap.textContent = t("cap").replace("{n}", maxChats);
+        cap.textContent = chT("cap", { n: maxChats });
         row.appendChild(cap);
         foot.appendChild(row);
     };
