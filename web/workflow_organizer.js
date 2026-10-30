@@ -1743,12 +1743,24 @@ class WorkflowsPlusManager {
             const data = await res.json();
 
             if (data.status === "disabled") {
-                // 마스터 OFF 또는 실시간 OFF
+                // 마스터 OFF 또는 실시간 OFF → 사용자 설정 결과이므로 알림 없음(소음 방지)
+                // not_authenticated → 자격증명 문제. 이후 저장본이 Drive 에 영원히 안 올라가므로 1회 알림.
+                if (data.reason === "not_authenticated" && !window.__BADA_SYNC_AUTH_WARNED__) {
+                    window.__BADA_SYNC_AUTH_WARNED__ = true;
+                    const btn = document.querySelector("#qol-btn-gdrive-sync");
+                    if (btn) {
+                        btn.classList.add("gdrive-unauth");
+                        btn.classList.remove("gdrive-authed");
+                        btn.title = BadaI18n.t("wf_gdrive_title_status", { msg: BadaI18n.t("wf_gdrive_auth_required") });
+                    }
+                }
                 console.debug(`[Bada] Realtime sync disabled by settings (${data.reason}).`);
                 window.__BADA_SYNC_IN_PROGRESS__ = false;
                 this.applyGDriveSyncingState(false);
                 return;
             }
+            // 인증 문제 없이 서버가 정상 응답 → 경고 플래그 해제(복구 후 재실패 시 재통지)
+            window.__BADA_SYNC_AUTH_WARNED__ = false;
 
             if (data.status === "busy") {
                 // 서버에서도 이미 동기화 중 → pending 처리
