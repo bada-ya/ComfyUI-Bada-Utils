@@ -405,6 +405,8 @@ export const BadaI18n = {
             "detective_gh_repos": "GitHub Repos",
             "detective_copy_name": "Copy Node Name",
             "detective_github_tip": "💡 <b>Tip</b>: On GitHub Code Search, click the repository name (e.g. author/repo) at the top of the file snippet to visit the main repo.",
+            "detective_clone_cmd_copied": "git clone command copied: {cmd}",
+            "detective_manager_search_copied": "📋 {searchTerm} copied for Manager search!",
 
             // --- Settings v2: Global Presets row + Cloud Sync row ---
             "cloud_title": "☁️ Cloud Sync (Google Drive)",
@@ -1494,6 +1496,8 @@ export const BadaI18n = {
             "detective_gh_repos": "GitHub 저장소 검색",
             "detective_copy_name": "노드 이름 복사",
             "detective_github_tip": "💡 <b>GitHub 코드 검색 팁</b>: 검색 결과 창에서 각 소스 파일 상단에 파란색으로 표시되는 <b>'작성자/저장소명'</b>(예: AlnVFX/ComfyUI-SeedVR2_VideoUpscaler)을 클릭하시면 해당 노드의 원작자 메인 저장소로 바로 이동합니다.",
+            "detective_clone_cmd_copied": "git clone 명령어가 복사되었습니다: {cmd}",
+            "detective_manager_search_copied": "📋 신형 매니저 검색을 위해 노드 이름 '{searchTerm}'이(가) 복사되었습니다!",
 
             // --- Settings v2: Global Presets row + Cloud Sync row ---
             "cloud_title": "☁️ 클라우드 동기화 (Google Drive)",

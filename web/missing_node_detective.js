@@ -177,7 +177,7 @@ export async function installCustomNode(repoUrl, packTitle) {
 
         // Fallback: Copy clone command & open Manager
         const cmd = `git clone ${repoUrl}`;
-        copyToClipboard(cmd, `git clone 명령어가 복사되었습니다: ${cmd}`);
+        copyToClipboard(cmd, BadaI18n.t("detective_clone_cmd_copied", { cmd }));
         openComfyUiManager(packTitle || "");
         return {
             success: true,
@@ -361,9 +361,7 @@ export function openComfyUiManager(searchTerm = "") {
 
     // 5. Search query auto-copy and input focus
     if (searchTerm) {
-        copyToClipboard(searchTerm, BadaI18n.lang === "ko" 
-            ? `📋 신형 매니저 검색을 위해 노드 이름 '${searchTerm}'이(가) 복사되었습니다!` 
-            : `'${searchTerm}' copied for Manager search!`);
+        copyToClipboard(searchTerm, BadaI18n.t("detective_manager_search_copied", { searchTerm }));
         
         setTimeout(() => {
             const inputs = document.querySelectorAll(".cn-manager-filter-input, input[placeholder*='Search' i], input[placeholder*='검색'], input[type='search']");
