@@ -432,7 +432,7 @@ function openHubSaveFlow(node) {
     }
 
     const presets = getHubPresets(node);
-    const defaultName = `${BadaI18n.lang === "ko" ? "유니버셜 세팅" : "Universal Preset"} #${Object.keys(presets).length + 1}`;
+    const defaultName = `${BadaI18n.t("hub_preset_default_name")} #${Object.keys(presets).length + 1}`;
     showHubManageModal(node, { focusSave: true, defaultName: defaultName });
     app.graph?.setDirtyCanvas(true, true);
 }
@@ -548,7 +548,7 @@ function buildHubUI(node) {
         const tagEl = document.createElement("span");
         tagEl.className = "bada-hub-tag";
         const nodeCount = presetData?.targets?.length || 0;
-        tagEl.textContent = BadaI18n.lang === "ko" ? `(${nodeCount}개)` : `(${nodeCount})`;
+        tagEl.textContent = BadaI18n.t("hub_row_tag", { count: nodeCount });
 
         const sw = document.createElement("span");
         sw.className = "bada-hub-switch" + (isActive ? " on" : "");
@@ -712,7 +712,7 @@ export function saveMasterPresetFromSelection(hubNode, presetName) {
 
     const selectedNodes = getCurrentlySelectedNodes(hubNode);
     if (selectedNodes.length === 0) {
-        showToast("⚠️ 캔버스에서 선택된 노드가 없습니다.", "warning");
+        showToast(BadaI18n.t("modal_hub_no_selection"), "warning");
         return;
     }
 
@@ -747,7 +747,7 @@ export function saveMasterPresetFromSelection(hubNode, presetName) {
  */
 export function applyMasterPresetToWorkflow(presetData, hubNode = null) {
     if (!presetData || !Array.isArray(presetData.targets)) {
-        showToast("⚠️ 유효하지 않은 유니버셜 프리셋 데이터입니다.", "warning");
+        showToast(BadaI18n.t("hub_invalid_data"), "warning");
         return;
     }
 
@@ -824,9 +824,7 @@ export function applyMasterPresetToWorkflow(presetData, hubNode = null) {
 
     updateAllHubNodes();
     graph.setDirtyCanvas(true, true);
-    showToast(BadaI18n.lang === "ko"
-        ? `✨ [${presetData.name}] 유니버셜 프리셋 일괄 적용 완료 (총 ${appliedCount}개 노드 동기화)`
-        : `✨ Applied [${presetData.name}] preset (${appliedCount} nodes synchronized)`, "gold");
+    showToast(BadaI18n.t("hub_apply_done", { name: presetData.name, count: appliedCount }), "gold");
 }
 
 /**

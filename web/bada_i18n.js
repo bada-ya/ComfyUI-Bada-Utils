@@ -34,6 +34,10 @@ export const BadaI18n = {
             "hub_presets_header": "📜 Bada Presets ({count})",
             "hub_click_apply": "⚡ Click to Apply Instantly",
             "hub_empty_hint": "💡 Select node(s) and click top button to save a preset",
+            "hub_preset_default_name": "Universal Preset",
+            "hub_row_tag": "({count})",
+            "hub_invalid_data": "⚠️ Invalid universal preset data.",
+            "hub_apply_done": "✨ Applied [{name}] preset ({count} nodes synchronized)",
 
             // --- Smart Presets Context Menu & Roof Badges ---
             "ctx_global_presets": "⚓ Global Presets ({count})",
@@ -1092,6 +1096,10 @@ export const BadaI18n = {
             "hub_presets_header": "📜 Bada 프리셋 ({count}개)",
             "hub_click_apply": "⚡ 클릭하여 즉시 적용",
             "hub_empty_hint": "💡 노드 선택 후 상단 버튼을 눌러 저장해 보세요",
+            "hub_preset_default_name": "유니버셜 세팅",
+            "hub_row_tag": "({count}개)",
+            "hub_invalid_data": "⚠️ 유효하지 않은 유니버셜 프리셋 데이터입니다.",
+            "hub_apply_done": "✨ [{name}] 유니버셜 프리셋 일괄 적용 완료 (총 {count}개 노드 동기화)",
 
             // --- Smart Presets Context Menu & Roof Badges ---
             "ctx_global_presets": "⚓ 글로벌 프리셋 ({count})",

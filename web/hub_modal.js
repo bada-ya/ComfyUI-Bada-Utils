@@ -423,7 +423,7 @@ function handleSaveMaster() {
 
     const selectedNodes = getSelectedNodes(currentHubNode);
     if (selectedNodes.length === 0) {
-        showToast("⚠️ Please select nodes on the canvas (Ctrl+Click / Drag) first!", "warning");
+        showToast(BadaI18n.t("modal_hub_no_selection"), "warning");
         return;
     }
 
