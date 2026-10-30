@@ -7,71 +7,45 @@
 import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
 
-const TRANSLATOR_I18N = {
-    ko: {
-        title: "⚓ Bada Google Translator",
-        widgets: {
-            text: {
-                label: "번역할 원문 텍스트",
-                tooltip: "구글 번역기로 번역할 원문 텍스트를 입력하세요."
-            },
-            from_lang: {
-                label: "출발 언어 (from_lang)",
-                tooltip: "원문 언어 (기본값: ko 한국어, auto: 자동 감지)"
-            },
-            to_lang: {
-                label: "도착 언어 (to_lang)",
-                tooltip: "번역 대상 언어 (기본값: en 영어)"
-            },
-            preserve_quotes: {
-                label: "따옴표 원문 보존 (preserve_quotes)",
-                tooltip: "True 시 큰따옴표(\" \") 안의 내용은 번역하지 않고 원문 그대로 유지합니다."
-            }
-        }
-    },
-    en: {
-        title: "⚓ Bada Google Translator",
-        widgets: {
-            text: {
-                label: "text",
-                tooltip: "Text to translate using Google Translate free endpoint."
-            },
-            from_lang: {
-                label: "from_lang",
-                tooltip: "Source language (Default: ko, auto: Auto Detect)"
-            },
-            to_lang: {
-                label: "to_lang",
-                tooltip: "Target language (Default: en)"
-            },
-            preserve_quotes: {
-                label: "preserve_quotes",
-                tooltip: "When true, text inside double quotes (\" \") is preserved without translation."
-            }
-        }
-    }
+// 노드에 그려지는 글자는 전역 사전(web/bada_i18n.js)의 translator_* 키에서만 꺼낸다.
+// 로컬 사전을 따로 두면 사전이 두 개가 되어, 언어를 바꿨을 때 한쪽만 낡은 글자로 남는 창이 생긴다.
+const WIDGET_KEYS = {
+    text: "translator_text",
+    from_lang: "translator_from_lang",
+    to_lang: "translator_to_lang",
+    preserve_quotes: "translator_preserve_quotes"
 };
+
+// 오래된 워크플로에는 라벨 개편 전 제목이 그대로 저장되어 있다 — 그 제목들도 «사용자가 안 건드린 기본값» 으로 본다
+const LEGACY_TITLES = ["Bada Google Translator", "⚓ Bada Google Translator"];
 
 export function updateTranslatorNodeLabels(node, lang) {
     if (!node) return;
-    const isKo = (lang || BadaI18n.lang) === "ko";
-    const dict = isKo ? TRANSLATOR_I18N.ko : TRANSLATOR_I18N.en;
+    // lang 은 ComfyUI 설정 콜백이 «방금 고른 언어» 를 직접 넘기는 자리다.
+    // 그때는 BadaI18n.lang 이 아직 이전 값일 수 있으므로 t() 가 아니라 tAt(lang, …) 로 읽는다.
+    const tr = (key) => BadaI18n.tAt(lang || BadaI18n.lang, key);
+    const title = tr("translator_node_title");
 
     // 1. Update Title if it was not customized by user manually
-    if (!node._customUserTitle || node.title === TRANSLATOR_I18N.ko.title || node.title === TRANSLATOR_I18N.en.title || node.title === "Bada Google Translator" || node.title === "⚓ Bada Google Translator") {
-        node.title = dict.title;
+    const defaultTitles = new Set([
+        BadaI18n.tAt("ko", "translator_node_title"),
+        BadaI18n.tAt("en", "translator_node_title"),
+        ...LEGACY_TITLES
+    ]);
+    if (!node._customUserTitle || defaultTitles.has(node.title)) {
+        node.title = title;
     }
 
     // 2. Update Widget Labels and Tooltips
     if (node.widgets && node.widgets.length > 0) {
         for (const w of node.widgets) {
-            const info = dict.widgets[w.name];
-            if (info) {
-                w.label = info.label;
-                if (info.tooltip) {
-                    w.tooltip = info.tooltip;
-                    if (w.options) w.options.tooltip = info.tooltip;
-                }
+            const base = WIDGET_KEYS[w.name];
+            if (!base) continue;
+            w.label = tr(base + "_label");
+            const tooltip = tr(base + "_tooltip");
+            if (tooltip) {
+                w.tooltip = tooltip;
+                if (w.options) w.options.tooltip = tooltip;
             }
         }
     }

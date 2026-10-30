@@ -964,6 +964,23 @@ export const BadaI18n = {
             "note_translate_done": "✅ Translated {count} text field(s) to {target}.{failed}",
             "note_translate_partial": " ({count} failed — {why})",
             "note_translate_rejected": "⚠️ The translation server rejected the request — {why}",
+            "note_translate_empty": "⚠️ There is no text to translate. Type something first, then click again.",
+            "note_translate_conn_failed": "Translation server connection failed: {why}",
+            "note_translate_long_warning": "This text exceeds 5,000 characters. Translation may take longer or Google may reject it.",
+            "note_translate_tooltip": "Click: Toggle Translation/Original (Shift+Click: Force Re-translate)",
+            // 번역 대상은 언제나 «지금 UI 언어» 그 자체이므로 그 언어의 표기명을 그대로 쓴다
+            "lang_display_name": "English",
+
+            // --- Google Translator node: title, widget labels, tooltips ---
+            "translator_node_title": "⚓ Bada Google Translator",
+            "translator_text_label": "text",
+            "translator_text_tooltip": "Text to translate using Google Translate free endpoint.",
+            "translator_from_lang_label": "from_lang",
+            "translator_from_lang_tooltip": "Source language (Default: ko, auto: Auto Detect)",
+            "translator_to_lang_label": "to_lang",
+            "translator_to_lang_tooltip": "Target language (Default: en)",
+            "translator_preserve_quotes_label": "preserve_quotes",
+            "translator_preserve_quotes_tooltip": "When true, text inside double quotes (\" \") is preserved without translation.",
         },
 
         ko: {
@@ -1908,6 +1925,23 @@ export const BadaI18n = {
             "note_translate_done": "✅ {count}개 텍스트를 {target}로 번역했습니다.{failed}",
             "note_translate_partial": " ({count}개 실패 — {why})",
             "note_translate_rejected": "⚠️ 번역 서버가 요청을 거부했습니다 — {why}",
+            "note_translate_empty": "⚠️ 번역할 텍스트가 비어 있습니다. 내용을 입력한 뒤 다시 눌러 주세요.",
+            "note_translate_conn_failed": "번역 서버 연결 실패: {why}",
+            "note_translate_long_warning": "5000자를 넘었습니다. 번역 시간이 오래 걸리거나 구글에서 번역을 거부 할 수 있습니다.",
+            "note_translate_tooltip": "클릭: 번역/원문 토글 (Shift+클릭: 강제 재번역)",
+            // 번역 대상은 언제나 «지금 UI 언어» 그 자체이므로 그 언어의 표기명을 그대로 쓴다
+            "lang_display_name": "한국어",
+
+            // --- Google Translator node: title, widget labels, tooltips ---
+            "translator_node_title": "⚓ Bada Google Translator",
+            "translator_text_label": "번역할 원문 텍스트",
+            "translator_text_tooltip": "구글 번역기로 번역할 원문 텍스트를 입력하세요.",
+            "translator_from_lang_label": "출발 언어 (from_lang)",
+            "translator_from_lang_tooltip": "원문 언어 (기본값: ko 한국어, auto: 자동 감지)",
+            "translator_to_lang_label": "도착 언어 (to_lang)",
+            "translator_to_lang_tooltip": "번역 대상 언어 (기본값: en 영어)",
+            "translator_preserve_quotes_label": "따옴표 원문 보존 (preserve_quotes)",
+            "translator_preserve_quotes_tooltip": "True 시 큰따옴표(\" \") 안의 내용은 번역하지 않고 원문 그대로 유지합니다.",
         }
     },
 
@@ -2022,8 +2056,10 @@ export const BadaI18n = {
     /**
      * Tier 2 Translation (For Bada Nodes, Badges, Modals, Menus controlled by Bada Language setting)
      */
-    t(key, params = {}) {
-        const currentDict = this.dict[this.lang] || this.dict.en;
+    // 언어를 인자로 받아 그 언어로 조회한다. ComfyUI 설정 콜백은 전역 언어(BadaI18n.lang)가
+    // 아직 바뀌기 전에 먼저 불릴 수 있어서, «방금 고른 언어» 로 그려야 하는 자리는 t() 로는 못 만든다.
+    tAt(lang, key, params = {}) {
+        const currentDict = this.dict[lang] || this.dict.en;
         let str = currentDict[key] || this.dict.en[key] || key;
         for (const [k, v] of Object.entries(params)) {
             // Arrow callback: a literal "$" in a parameter value must stay literal
@@ -2031,6 +2067,10 @@ export const BadaI18n = {
             str = str.replace(new RegExp(`\\{${k}\\}`, "g"), () => String(v));
         }
         return str;
+    },
+
+    t(key, params = {}) {
+        return this.tAt(this.lang, key, params);
     }
 };
 

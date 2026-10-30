@@ -133,7 +133,6 @@ function hideTooltip() {
 }
 
 function showLongTranslationWarning(lang) {
-    const isKo = lang === "ko";
     let toast = document.getElementById("bada-translation-length-warning");
     if (!toast) {
         toast = document.createElement("div");
@@ -158,9 +157,8 @@ function showLongTranslationWarning(lang) {
         document.body.appendChild(toast);
     }
 
-    toast.textContent = isKo
-        ? "5000자를 넘었습니다. 번역 시간이 오래 걸리거나 구글에서 번역을 거부 할 수 있습니다."
-        : "This text exceeds 5,000 characters. Translation may take longer or Google may reject it.";
+    // 5,000자 초과는 예고일 뿐이고 번역은 그대로 진행하므로 화면 문구만 사전에서 꺼낸다
+    toast.textContent = BadaI18n.tAt(lang || BadaI18n.lang, "note_translate_long_warning");
     clearTimeout(toast._badaDismissTimer);
     toast._badaDismissTimer = setTimeout(() => toast.remove(), 5000);
 }
@@ -927,7 +925,6 @@ function attachBadaNoteHelper(node) {
                     state.isTranslating = true;
                     if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
 
-                    const langKo = currentBadaLang === "ko";
                     let okCount = 0;
                     let failCount = 0;
                     let skipCount = 0;
@@ -978,7 +975,7 @@ function attachBadaNoteHelper(node) {
                         // Report the outcome - a silent no-op is impossible to debug for the user
                         const why = clipReason(firstFailReason, 90, BadaI18n.t("api_reason_unknown"));
                         if (okCount > 0) {
-                            const target = langKo ? "한국어" : "English";
+                            const target = BadaI18n.t("lang_display_name");
                             // 일부 실패는 성공 문구에 묻혀 사라지지 않게 한다 (예전엔 개수 셈도 console 만 남겼다)
                             const failed = failCount
                                 ? BadaI18n.t("note_translate_partial", { count: failCount, why })
@@ -990,20 +987,16 @@ function attachBadaNoteHelper(node) {
                         } else if (failCount > 0) {
                             showTranslateToast(BadaI18n.t("note_translate_rejected", { why }), "error");
                         } else if (skipCount > 0) {
-                            showTranslateToast(
-                                langKo ? "⚠️ 번역할 텍스트가 비어 있습니다. 내용을 입력한 뒤 다시 눌러 주세요."
-                                       : "⚠️ There is no text to translate. Type something first, then click again.",
-                                "error"
-                            );
+                            showTranslateToast(BadaI18n.t("note_translate_empty"), "error");
                         }
                     })
                     .catch(err => {
                         state.isTranslating = false;
-                        showTranslateToast(
-                            (langKo ? "번역 서버 연결 실패: " : "Translation server connection failed: ") +
-                            (err && err.message ? err.message : err),
-                            "error"
-                        );
+                        // 연결 실패는 err.message 가 단서의 전부다 — 삼키지 않고 한 줄로 잘라 옮긴다
+                        // 단 «Error» «[object Object]» 같은 알맹이 없는 문자열은 이유 없이 취급해 폴백으로 채운다
+                        const raw = err && err.message ? String(err.message) : String(err == null ? "" : err);
+                        const why = clipReason(/^\W*(Error|\[object \w+\])\W*$/.test(raw.trim()) ? "" : raw, 90, BadaI18n.t("api_reason_unknown"));
+                        showTranslateToast(BadaI18n.t("note_translate_conn_failed", { why }), "error");
                         if (this.setDirtyCanvas) this.setDirtyCanvas(true, true);
                     });
 
@@ -1049,9 +1042,7 @@ function attachBadaNoteHelper(node) {
                 let tipMsg = "";
 
                 if (hoveredBtn.id === "translate") {
-                    tipMsg = (lang === "ko") 
-                        ? "클릭: 번역/원문 토글 (Shift+클릭: 강제 재번역)" 
-                        : "Click: Toggle Translation/Original (Shift+Click: Force Re-translate)";
+                    tipMsg = BadaI18n.tAt(lang, "note_translate_tooltip");
                 }
 
                 showTooltip(tipMsg, e.clientX, e.clientY);
@@ -1233,9 +1224,7 @@ function attachBadaDomHeaderButton(node) {
         btn.className = BADA_DOM_BTN_CLASS;
         btn.type = "button";
         btn.setAttribute("data-bada-for", String(node.id));
-        btn.title = getBadaLanguage() === "ko"
-            ? "\ud074\ub9ad: \ubc88\uc5ed/\uc6d0\ubb38 \ud1a0\uae08 (Shift+\ud074\ub9ad: \uac15\uc81c \uc7ac\ubc88\uc5ed)"
-            : "Click: Toggle Translation/Original (Shift+Click: Force Re-translate)";
+        btn.title = BadaI18n.t("note_translate_tooltip");
         btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); });
         btn.addEventListener("mousedown", (e) => { e.stopPropagation(); });
         btn.addEventListener("click", (e) => {
