@@ -1553,7 +1553,7 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   cursor: pointer;
 }
 
-/* ── 페르소나 · 제미나이 전용 시스템 프롬프트 펼침式 드롭다운 ── */
+/* ── 페르소나 · 제미나이 전용 시스템 프롬프트 펼침형 드롭다운 ── */
 .bada-gem-picker {
   position: relative;
   flex: 1 1 auto;

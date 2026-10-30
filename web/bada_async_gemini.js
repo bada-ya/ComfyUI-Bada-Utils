@@ -2389,7 +2389,7 @@ function updateBellBadge() {
                 const chatTopbar = document.createElement("div");
                 chatTopbar.className = "bada-chat-topbar";
 
-                // ── 페르소나 + 제미나이 전용 시스템 프롬프트 선택 (펼침式 드롭다운) ──
+                // ── 페르소나 + 제미나이 전용 시스템 프롬프트 선택 (펼침형 드롭다운) ──
                 // "만능 무검열 제미나이" 버튼을 누르면 아래 목록이 펼쳐지고,
                 // Gem 페르소나 또는 사용자가 등록한 제미나이 전용 프롬프트를 고른다.
                 const personaPicker = document.createElement("div");
