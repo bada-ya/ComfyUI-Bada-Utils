@@ -444,10 +444,6 @@ function drawRoofBadges(node, ctx) {
     if (!node || !ctx) return;
     if (node.type === "BadaPresetHub" || node.comfyClass === "BadaPresetHub") return;
 
-    const frameId = app.canvas?.frame || Date.now();
-    if (node._lastRoofFrame === frameId) return;
-    node._lastRoofFrame = frameId;
-
     const badges = getBadgesForNode(node);
     if (!badges) return;
 
@@ -910,6 +906,13 @@ app.registerExtension({
                 } catch (_) { console.debug("[Bada] ignored:", _); }
                 return res;
             };
+        }
+
+        // 4. Re-draw badges on canvas selection change (bypass toggle, node select/deselect, etc.)
+        if (app.canvas && typeof app.canvas.addEventListener === "function") {
+            app.canvas.addEventListener("selection:changed", () => {
+                try { app.graph?.setDirtyCanvas?.(true, true); } catch (_) {}
+            });
         }
     },
 
