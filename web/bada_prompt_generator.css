@@ -139,6 +139,20 @@
     cursor: pointer;
 }
 
+/* 활성 키 개수 안내 (모델 모드 드롭다운 오른쪽) — 읽는 글자이지 누르는 자리가 아니다.
+   .bpg-row 의 gap 이 벌려 주므로 margin 은 쓰지 않는다. 0개일 때만 경고색. */
+.bpg-keycount {
+    flex: 0 0 auto;
+    color: #9a9a9a;
+    font-size: 10.5px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.bpg-keycount--zero {
+    color: #ff8a80;
+}
+
 .bpg-btn {
     flex: 0 0 auto;
     background: #282828;

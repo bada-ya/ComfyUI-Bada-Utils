@@ -1026,7 +1026,7 @@ export const BadaI18n = {
             "translator_to_lang_tooltip": "Target language (Default: en)",
             "translator_preserve_quotes_label": "preserve_quotes",
             "translator_preserve_quotes_tooltip": "When true, text inside double quotes (\" \") is preserved without translation.",
-            // --- P4-3 D-5 · Bada 프롬프트 생성기 로컬 사전 이관 (web/bada_prompt_generator.js) · 39키 ---
+            // --- P4-3 D-5 · Bada 프롬프트 생성기 로컬 사전 이관 (web/bada_prompt_generator.js) · 65키 (10-31 실측, 옛 표기 39키는 D-5 이관 당시 값) ---
             "pg_enhance": "Enhance",
             "pg_uncensored": "Uncensored",
             "pg_target": "Target Model",
@@ -1089,6 +1089,9 @@ export const BadaI18n = {
             "pg_key_disable_tip": "Enabled — click to disable",
             "pg_key_enable_tip": "Disabled — click to enable",
             "pg_key_disabled": "Disabled key",
+            "pg_mode_tip": "Which model tier to use: Speed answers fastest, Quality is the strongest. Model names are no longer picked here.",
+            "pg_key_count": "API Key = {n}",
+            "pg_key_count_tip": "Enabled API keys used for generation. Manage them in ⚙️ Model Settings.",
 
             // --- P4-3 D-5 · Gemini 채팅 기록 로컬 사전·인라인 문구 이관 (web/bada_gemini_chat_history.js) · 42키 ---
             "chat_hist_title": "🕐 Chat history",
@@ -2140,7 +2143,7 @@ export const BadaI18n = {
             "translator_to_lang_tooltip": "번역 대상 언어 (기본값: en 영어)",
             "translator_preserve_quotes_label": "따옴표 원문 보존 (preserve_quotes)",
             "translator_preserve_quotes_tooltip": "True 시 큰따옴표(\" \") 안의 내용은 번역하지 않고 원문 그대로 유지합니다.",
-            // --- P4-3 D-5 · Bada 프롬프트 생성기 로컬 사전 이관 (web/bada_prompt_generator.js) · 39키 ---
+            // --- P4-3 D-5 · Bada 프롬프트 생성기 로컬 사전 이관 (web/bada_prompt_generator.js) · 65키 (10-31 실측, 옛 표기 39키는 D-5 이관 당시 값) ---
             "pg_enhance": "증강",
             "pg_uncensored": "무검열",
             "pg_target": "모델",
@@ -2203,6 +2206,9 @@ export const BadaI18n = {
             "pg_key_disable_tip": "사용 중 — 누르면 비활성화",
             "pg_key_enable_tip": "비활성 — 누르면 사용",
             "pg_key_disabled": "비활성 키",
+            "pg_mode_tip": "어느 급 모델을 쓸지 고릅니다 — 속도는 가장 빠르게, 품질은 가장 단단하게. 모델 이름은 여기서 고르지 않습니다.",
+            "pg_key_count": "API Key = {n}개",
+            "pg_key_count_tip": "생성에 쓰이는 활성 키 개수입니다. ⚙️ 모델 설정에서 키를 관리합니다.",
 
             // --- P4-3 D-5 · Gemini 채팅 기록 로컬 사전·인라인 문구 이관 (web/bada_gemini_chat_history.js) · 42키 ---
             "chat_hist_title": "🕐 채팅 기록",
