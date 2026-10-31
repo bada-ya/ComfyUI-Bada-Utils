@@ -731,16 +731,19 @@ function buildCloudSyncRow() {
             const res = await readApi(r);
             if (res.ok) {
                 // 성공했는데 앞에 시도에서 남긴 ❌ 줄이 그대로면 이번엔 반대 방향으로 거짓말이 된다.
-                // (동기화 중이 아닐 때는 이 줄을 다시 그리는 주기가 없어서 손으로 지워줘야 한다)
+                // 3초 폴이 언젠가는 지워 주지만, 그 3초 동안 실패가 성공을 거짓말리게 두지 않는다.
                 renderStatus();
                 return true;
             }
-            // 동기화 진행 중에만 1초 폴링이 이 줄을 덮어쓴다. 그 외에는 다음 조작까지 남는다.
+            // 이유를 보여 준 뒤 holdStatus() — 아래 상태 폴이 이 줄을 지워 버리면
+            // 사용자는 자기가 뭘 잘못 눌렀는지 읽을 시간을 잃는다.
             status.textContent = BadaI18n.t("settings_v2_save_failed", { why: res.error });
+            holdStatus();
             return false;
         } catch (err) {
             console.error("[Bada CloudSync] Failed to save settings:", err);
             status.textContent = BadaI18n.t("settings_v2_save_failed_net");
+            holdStatus();
             return false;
         }
     };
@@ -910,8 +913,17 @@ function buildCloudSyncRow() {
         renderStatus();
     };
 
-    // 상태 조회 실패의 이유는 호버로만 남긴다 (감사 P2-C 권고). 이 줄은 설정창이 열려 있는
-    // 동안 3초(동기화 중 1초)마다 다시 그려지는 상시 노출이라, 문구를 늘리면 레이아웃이 밀린다.
+    // 사용자 조작이 남긴 문구(저장 실패·취소 요청) 는 폴이 지우지 않는다. 막는 대상은
+    // 아래 3초 폴뿐이고, WS 푸시·진행률 폴·저장 성공의 직접 호출은 그대로 이 줄을 그린다
+    // — 실제 상태가 바뀌면 기다리지 않고 갱신된다. 기한은 두는다: 기한이 없으면 이 hold 가
+    // 그 줄을 영원히 고정시켜, 결국 «연동 대기» 로 굳던 예전의 결함으로 돌아간다.
+    const STATUS_HOLD_MS = 15000;
+    let statusHoldUntil = 0;
+    const holdStatus = () => { statusHoldUntil = Date.now() + STATUS_HOLD_MS; };
+
+    // 상태 조회 실패의 이유는 호버로만 남긴다 (감사 P2-C 권고). 이 줄은 설정창에 보이는
+    // 동안 3초마다(동기화 중에는 진행률 폴이 1초마다) 다시 그려지지만, 상시 노출인 데다
+    // 폭이 좁은 행이라 문구를 늘리면 레이아웃이 밀린다.
     // 서버 /cloud/status 는 실패마다 이미 500 + {"success": false, "error": …} 로 이유를
     // 보내고 있었으므로 그 문자열을 title 에 옮겨 앉히는 것만이 이번 작업의 전부다.
     // 문구와 이유를 이어 붙이는 일은 사전이 맡긴다: `{why}` 자리까지 들어 있는 키를 통째로
@@ -923,16 +935,24 @@ function buildCloudSyncRow() {
 
     const renderStatus = async () => {
         const T = t();
-        status.textContent = T.statusIdle;
-        status.title = "";
+        // 이 함수가 그리는 것 자체가 지금 상태의 정답이다 → 조작 문구를 보여 줄 의무가 끝난다.
+        // hold 를 여기까지 풀어 두지 않으면, 한 번 실패한 저장 때문에 15초 동안 폴링이
+        // 이유 없이 멈춘다 (그 사이에 WS 로 실제 상태가 갱신된 뒤에도).
+        statusHoldUntil = 0;
+        // 조회를 시작하기 전에 앞의 상태를 지우지 않는다. 3초 폴링에서는 그 순간마다 줄이
+        // «⏸️ 대기 중» 으로 깜빡이고, 응답이 늦는 동안 화면은 가지고 있던 상태를 잃는다.
         try {
             const r = await fetch("/api/bada/cloud/status");
             const res = await readApi(r); // 본문이 텍스트·HTML 이어도 이유(HTTP 코드) 는 남는다
             if (!res.ok) {
+                status.textContent = T.statusIdle;
                 status.title = statusFaultTitle(res.error);
                 return;
             }
             const data = res.data;
+            // 성공 응답인데 앞에 시도에서 남긴 ❌ 이유가 호버에 남아 있으면 화면이 이번엔
+            // 반대 방향으로 거짓말한다. (문구 쪽은 아래에서 어차피 다시 칠한다)
+            status.title = "";
             if (!data.libs_available) {
                 status.textContent = T.statusNoLibs;
                 syncBtn.style.display = "none";
@@ -974,6 +994,33 @@ function buildCloudSyncRow() {
         }
     };
 
+    // 상태 줄 폴링 (2026-10-31) — 이 줄이 «⏸️ Google Drive 연동 대기» 에 title='' 로
+    // 굳어 있다는 보고의 원인. 이때 이 파일에는 renderStatus() 호출 6곳(저장·진행률·
+    // WS·언어·동기화 버튼) 이 전부 이벤트성이고 setInterval 은 ①동기화 진행률 1초
+    // (startProgressPoll) ②언어 동기화 0.3초×4 회뿐이었다. 즉 창이 열려 있는 동안 줄을
+    // 다시 그리는 주기가 아예 없어서, 초기 조회가 한 번도 닿지 않으면 화면이 그대로 멈춘다
+    // (10-30 실측: 설정창 진입 후 7초간 /cloud/status 요청 0건).
+    // 3초는 항목별 상세 모달(cloud_sync_detail_modal.js) 과 같은 주기이고, 서버는 이 주기를
+    // 전제로 파일 목록을 10초 TTL 캐시로 막아 두었다 (server/gdrive_sync.py).
+    const STATUS_POLL_MS = 3000;
+    let statusPollTimer = null;
+    const stopStatusPoll = () => {
+        if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+    };
+    const startStatusPoll = () => {
+        if (statusPollTimer) return;
+        statusPollTimer = setInterval(() => {
+            // 카테고리를 바꾸면 설정창(Vue) 이 이 행을 DOM 에서 떼어 버리고 되돌아오면
+            // 새로 만든다(10-31 실측: 나가면 isConnected=false, 들어오면 새 행). 떨어져
+            // 나간 행의 타이머는 여기서 스스로 죽는다 → 행마다 하나, 화면의 행만큼만 돈다.
+            if (!row.isConnected) { stopStatusPoll(); return; }
+            if (syncInProgress) return;                    // 진행률은 1초 폴이 이미 그린다
+            if (document.hidden) return;                   // 백그라운드 탭에서 로컬 API 를 두드리지 않는다
+            if (Date.now() < statusHoldUntil) return;      // 방금 보여 준 조작 결과를 지우지 않는다
+            renderStatus();
+        }, STATUS_POLL_MS);
+    };
+
     syncBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
         if (syncInProgress) {
@@ -984,6 +1031,7 @@ function buildCloudSyncRow() {
                 status.textContent = (data.status === "cancelling")
                     ? BadaI18n.t("cloud_cancel_requested")
                     : BadaI18n.t("cloud_no_sync_running");
+                holdStatus(); // 폴이 이 줄을 먼저 지우지 못하게 (아래의 직접 renderStatus() 는 그대로 돈다)
                 if (data.status !== "cancelling") {
                     setSyncUI(false);
                     renderStatus();
@@ -1022,8 +1070,14 @@ function buildCloudSyncRow() {
 
     applyLang();
 
-    // 언어 전환 시 라벨 갱신
-    row._badaRefreshLanguage = applyLang;
+    // 상태 줄 폴링 시작. 행은 아직 DOM 에 붙기 전이라 첫 틱(3초 뒤) 에서야 붙어 있는지
+    // 확인된다 — 설정창을 바로 닫아 행이 한 번도 안 붙었다면 첫 틱에서 타이머가 죽는다.
+    startStatusPoll();
+
+    // 언어 전환 시 라벨 갱신. 여기에 폴 재시작도 걸어 둔다: 행을 다시 붙여 재사용하는
+    // 프론트엔드라면 떨어져 나갔을 때 죽은 타이머(위 첫 틱의 isConnected 판정)를 되살릴
+    // 계층이 설정창 언어 갱신밖에 없다. startStatusPoll 은 이미 켜지면 그냥 돌아가므로 안전.
+    row._badaRefreshLanguage = () => { startStatusPoll(); applyLang(); };
 
     return row;
 }
