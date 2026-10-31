@@ -137,6 +137,7 @@ try:  # normal package import (ComfyUI loads custom nodes as packages)
         mark_model_dead,
         model_cascade,
         model_timeout,
+        next_race_turn,
         split_english_and_korean,
     )
 except Exception:  # pragma: no cover - fallback for flat module loading
@@ -158,6 +159,7 @@ except Exception:  # pragma: no cover - fallback for flat module loading
     model_timeout = _shared.model_timeout
     key_cascade = _shared.key_cascade
     key_start_delay_s = _shared.key_start_delay_s
+    next_race_turn = _shared.next_race_turn
     mark_model_dead = _shared.mark_model_dead
     is_model_dead = _shared.is_model_dead
 
@@ -930,11 +932,17 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
 
 def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, api_keys,
                         duration: int = 10, uncensored: bool = True, ui_language: str = "en",
-                        aspect_ratio: str = "", model_mode: str | None = None):
+                        aspect_ratio: str = "", model_mode: str | None = None,
+                        race_turn: int | None = None):
     """Execute the generation pipeline with multi-key staggered race.
 
     `model_mode`(속도/균형/품질)는 2026-11-01 폐기되어 받아도 무시한다 — 옛 호출·옛
     워크플로가 그대로 돌아갈 수 있게 자리만 남겼다. 캐스케이드는 활성 «키 개수» 가 정한다.
+
+    `race_turn` 은 키↔모델 배치 회전 칸수다. None(기본) 이면 생성마다 한 칸씩 앞으로 돈다
+    (server/gemini_api.py::next_race_turn). 회전의 목적은 «승자를 골고루 내보내기» —
+    늘 같은 키가 이기면 그 키(같은 Google 프로젝트) 의 (키×모델) 일일 쿼터만 소진된다.
+    테스트는 결정성을 위해 0 을 넘긴다(0 = 회전 도입 이전 배치와 동일).
 
     Returns `(prompt, wh_ratio, pass_used, model_used, warnings)`.
     Raises `RuntimeError` when every candidate model fails (or refusal without the
@@ -971,10 +979,24 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
     # 4번째 키는 3.6-flash 단독이라 늦추면 안 된다(가장 느린 모델 + 25초 상한).
     active_keys = api_keys[:4]
     key_count = len(active_keys)
-    key_models = [key_cascade(idx, key_count) for idx in range(key_count)]
-    logger.info("[BadaPromptGen] Staggered race start: %d keys | %s", key_count,
+
+    # 배치 회전: «프로필(모델 목록 + 출발 지연)» 이 생성마다 한 칸씩 돈다. 늘 key0 만
+    # 이기면 그 키의 (키 × 모델) 일일 버킷만 깎인다 — 무료 티어 한도 단위가 프로젝트×모델
+    # 이기 때문에, 승리 모델이 같아도 «비용을 내는 프로젝트» 가 돌면 한도가 개수만큼 늘어난다.
+    # turn 은 표와 지연이 **같은 칸**을 공유한다 (지연을 키 번호에 남기면 2초 슬롯의 키는
+    # 영원히 승리하지 못한다). 순열이라 두 키가 같은 모델을 겹쳐 쓰지 않는다.
+    if race_turn is None:
+        turn = next_race_turn()
+    else:
+        try:
+            turn = int(race_turn)
+        except (TypeError, ValueError):
+            turn = 0
+    key_delays = [key_start_delay_s(idx, key_count, turn) for idx in range(key_count)]
+    key_models = [key_cascade(idx, key_count, turn) for idx in range(key_count)]
+    logger.info("[BadaPromptGen] Staggered race start: %d keys turn=%d | %s", key_count, turn,
                 ", ".join(f"key{idx}({'+'.join(key_models[idx])}@"
-                          f"{key_start_delay_s(idx)}s)" for idx in range(key_count)))
+                          f"{key_delays[idx]}s)" for idx in range(key_count)))
 
     # 전체 레이스를 위한 공통 상태 수집용
     all_http_failures = []
@@ -1003,7 +1025,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
                                         stop_event=stop_event)
             return task
         future = _KEY_RACE_POOL.submit(make_task(key, idx, key_models[idx],
-                                                 key_start_delay_s(idx), race_decided))
+                                                 key_delays[idx], race_decided))
         futures.append(future)
 
     # first-wins: 최초로 ok=True인 결과 채택, 60초 타임아웃

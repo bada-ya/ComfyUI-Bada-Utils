@@ -134,14 +134,59 @@ KEY_CASCADES = {
     4: [["gemini-3.5-flash-lite"], ["gemini-3.1-flash-lite"],
         ["gemini-3-flash-preview"], ["gemini-3.6-flash"]],
 }
-# 키 인덱스별 출발 지연. 4번째는 3.6-flash 단독이라 늦출 이유가 없다 — 가장 느린 모델이니
-# 오히려 즉시 출발시켜 25초 상한을 확보한다.
+# 슬롯별 출발 지연. 4번째는 3.6-flash 단독이라 늦출 이유가 없다 — 가장 느린 모델이니
+# 오히려 즉시 출발시켜 25초 상한을 확보한다. 같은 번호의 모델 행과 «프로필» 짝이며
+# 회전에서도 **함께** 돈다 — 모델만 돌리면 지연 2초 슬롯의 키는 영원히 이길 수 없다
+# (가장 빠른 모델의 p50 가 1.2초라 2초를 되돌릴 수 없다).
 KEY_START_DELAYS_S = [0, 1, 2, 0]
 KEY_RACE_TIMEOUT_S = 60
 
 
-def key_cascade(key_index, key_count=None):
-    """`key_index` 번 키가 시도할 모델 순서. 캐스케이드는 «활성 키 개수»가 결정한다."""
+# ── 배치 회전 (2026-11-01 라운드 12) ─────────────────────────────────────────
+# 위 표의 «행» 은 키 번호에 붙박이가 아니라 **생성마다 한 칸씩** 돈다. 승자가 매번 같은
+# 키에서 나오면 그 키(= 같은 Google 프로젝트) 의 버킷만 깎이기 때문이다. 무료 티어 한도는
+# 404/429 응답에서 확인한 그대로 `RequestsPerDay…PerProjectPerModel` — 즉 (키 × 모델) 별
+# 버킷이라, 승리하는 «모델» 이 3.5-flash-lite 로 그대로라도 «그 비용을 내는 프로젝트» 가
+# 4회 주기로 돌아간다 (1세대 = 1호출이므로 250회/일 막힘 → 네 프로젝트면 사실상 1000회).
+# 전제: 키가 **서로 다른 프로젝트** 에 있어야 실효가 있다. 같은 프로젝트의 키라면
+# 같은 버킷을 공유하므로 회전이 아무 효과를 내지 못한다.
+#
+# «프로필» = (모델 목록, 출발 지연) 짝이고, 둘은 **같은 turn 으로** 함께 돈다. 목록만
+# 돌리고 지연을 키 번호에 남겨두면 지연 2초짜리 키는 영원히 승리하지 못한다(가장 빠른
+# 모델의 p50 가 1.2초라 2초 지연을 되돌릴 수 없어서) — 승자가 3개 키에서만 돌게 된다.
+#
+# 회전은 **순열** 이다: index → row 를 `(idx + turn) % n` 의 전단사 함수로만 바꾸므로,
+# 한 생성 안에서 두 키가 같은 모델 슬롯을 겹치는 일이 원천적으로 없다 (RPM 겹침 회피).
+_RACE_TURN_LOCK = threading.Lock()
+_RACE_TURN = 0
+
+
+def next_race_turn() -> int:
+    """생성 1회 = 표를 한 칸 돌린다. 이번 생성이 쓸 `turn` 을 돌려준다.
+
+    **제출 시점**에 증가시킨다. «승자가 정해진 뒤 증가» 시키지 않는 이유: 승자가 없는
+    생성도 쿼터는 똑같이 태웠다(네 키가 모두 호출을 보낸다). 승자 이후에만 증가시키면
+    실패한 생성에서 회전이 멈추어, 다음 생성이 방금 실패한 바로 그 배치를 다시 물게 된다.
+    """
+    global _RACE_TURN
+    with _RACE_TURN_LOCK:
+        _RACE_TURN += 1
+        return _RACE_TURN - 1
+
+
+def _as_turn(turn) -> int:
+    try:
+        return int(turn)
+    except (TypeError, ValueError):
+        return 0
+
+
+def key_cascade(key_index, key_count=None, turn=0):
+    """`key_index` 번 키가 시도할 모델 순서. 캐스케이드는 «활성 키 개수»가 결정한다.
+
+    `turn`(기본 0) 만큼 표를 회전시킨 행을 돌려준다. 기본값은 회전 도입 이전 동작과
+    완전히 같아서 옛 호출자는 아무것도 모른다.
+    """
     try:
         idx = int(key_index)
     except (TypeError, ValueError):
@@ -154,16 +199,26 @@ def key_cascade(key_index, key_count=None):
     if not table:
         # 키가 4개를 넘으면 4종 단독 배치를 순환시키고, 0이면 1개 표를 쓴다.
         table = KEY_CASCADES[MAX_KEYS if count > MAX_KEYS else 1]
-    return list(table[idx % len(table)])
+    return list(table[(idx + _as_turn(turn)) % len(table)])
 
 
-def key_start_delay_s(key_index):
-    """키 인덱스별 출발 지연(초). 0이면 즉시."""
+def key_start_delay_s(key_index, key_count=None, turn=0):
+    """키 인덱스별 출발 지연(초). 0이면 즉시.
+
+    `key_count` 를 주면 그 개수만큼의 앞 지연 슬롯만 쓴다(키 2개 → 0s/1s). `turn` 은
+    `key_cascade` 와 **같은 값**을 넘겨야 프로필(모델+지연)이 짝째로 회전한다.
+    """
     try:
         idx = int(key_index)
     except (TypeError, ValueError):
         idx = 0
-    return KEY_START_DELAYS_S[idx % len(KEY_START_DELAYS_S)]
+    try:
+        slots = int(key_count)
+    except (TypeError, ValueError):
+        slots = len(KEY_START_DELAYS_S)
+    if slots < 1 or slots > len(KEY_START_DELAYS_S):
+        slots = len(KEY_START_DELAYS_S)
+    return KEY_START_DELAYS_S[(idx + _as_turn(turn)) % slots]
 
 
 def model_cascade(primary_model, mode=None, skip_dead=True):
