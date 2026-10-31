@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import base64
 import collections
+import concurrent.futures
 import hashlib
 import io
 import json
@@ -36,6 +37,7 @@ import logging
 import os
 import re
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -46,6 +48,10 @@ except Exception:  # noqa: BLE001 — numpy 없는 환경에서도 노드 로드
     np = None
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
+
+# ─── 다중 키 스태거드 레이스용 모듈 레벨 스레드 풀 (ComfyUI 큐 스레드와 충돌 방지) ───
+# max_workers=4 로 최대 4개 키 동시 실행 지원
+_KEY_RACE_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="BadaKeyRace")
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -695,10 +701,115 @@ def _ui_text(ui_language, english, korean):
     return korean if ui_language == "ko" else english
 
 
+# ─── 다중 키 스태거드 레이스: 단일 키에 대한 3-Pass 캐스케이드 실행 ───
+def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: str,
+                     user_text: str, images_b64: list, schema, uncensored: bool,
+                     submenu: dict, model_mode: str | None = None) -> dict:
+    """
+    단일 API 키로 전체 3-Pass 캐스케이드를 순차 실행.
+
+    Returns:
+        {
+            "ok": bool,           # 성공 여부
+            "text": str,          # 성공 시 추출된 텍스트
+            "model": str,         # 성공한 모델명
+            "pass_used": int,     # 1/2/3
+            "key": str,           # 사용된 API 키
+            "reached": bool,      # 최소 한 모델이 HTTP 200 응답했는지
+            "http_failures": list, # [(model, detail)] 비-200 응답 누적
+            "exhausted": bool,    # 이 키가 429/503으로 소진됐는지
+        }
+    """
+    http_failures = []
+    api_reached = False
+    exhausted = False
+
+    def payload(sys_text, attach_images, temperature):
+        parts = [{"text": user_text}]
+        if attach_images:
+            for mime, data in images_b64:
+                parts.append({"inline_data": {"mime_type": mime, "data": data}})
+        gen_cfg = {"temperature": temperature, "maxOutputTokens": 8192}
+        if schema:
+            gen_cfg["responseMimeType"] = "application/json"
+            gen_cfg["responseSchema"] = schema
+        return {
+            "contents": [{"role": "user", "parts": parts}],
+            "system_instruction": {"parts": [{"text": sys_text}]},
+            "safetySettings": SAFETY_SETTINGS_BLOCK_NONE,
+            "generationConfig": gen_cfg,
+        }
+
+    def _try_model(model: str, sys_text: str, attach_images: bool, temperature: float, timeout: int):
+        """단일 모델 호출. (status, body, reached) 반환"""
+        status, body = _post_generate_content(model, api_key, payload(sys_text, attach_images, temperature), timeout=timeout)
+        reached = (status == 200)
+        return status, body, reached
+
+    # ---- PASS 1: direct master compilation -------------------------------------
+    for model_index, model in enumerate(models):
+        timeout = PRIMARY_MODEL_TIMEOUT if model_index == 0 else FALLBACK_MODEL_TIMEOUT
+        status, body, reached = _try_model(model, system_text, True, 0.75, timeout)
+        if status != 200:
+            logger.warning("[BadaPromptGen][Key %d][Pass 1] %s -> HTTP %s", key_index, model, status)
+            http_failures.append((model, _http_failure_detail(status, body)))
+            if status in (429, 503):
+                exhausted = True
+            continue
+        api_reached = True
+        text, finish = _extract_candidate_text(body)
+        if finish == "SAFETY":
+            logger.warning("[BadaPromptGen][Key %d][Pass 1] %s hit finishReason=SAFETY -> Pass 2", key_index, model)
+            break
+        if text and not is_refusal_response(text):
+            return {"ok": True, "text": text, "model": model, "pass_used": 1,
+                    "key": api_key, "reached": True, "http_failures": http_failures, "exhausted": exhausted}
+        if text:
+            logger.warning("[BadaPromptGen][Key %d][Pass 1] %s returned a refusal -> Pass 2", key_index, model)
+            break
+
+    # ---- PASS 2: 3D VFX technical override (images stay attached) -----------
+    if uncensored:
+        system_p2 = PASS2_SYSTEM + "\n\n" + system_text
+        for model in models:
+            status, body, reached = _try_model(model, system_p2, bool(images_b64), 0.5, FALLBACK_MODEL_TIMEOUT)
+            if status != 200:
+                http_failures.append((model, _http_failure_detail(status, body)))
+                if status in (429, 503):
+                    exhausted = True
+                continue
+            api_reached = True
+            text, _finish = _extract_candidate_text(body)
+            if text and not is_refusal_response(text):
+                return {"ok": True, "text": text, "model": model, "pass_used": 2,
+                        "key": api_key, "reached": True, "http_failures": http_failures, "exhausted": exhausted}
+
+    # ---- PASS 3: cinematic metaphor bridge -------------------------------------
+    if uncensored:
+        system_p3 = PASS3_SYSTEM
+        if schema:
+            system_p3 += _json_directive((submenu or {}).get("output_fields") or ["rewritten_prompt"])
+        for model in models:
+            status, body, reached = _try_model(model, system_p3, bool(images_b64), 0.8, FALLBACK_MODEL_TIMEOUT)
+            if status != 200:
+                http_failures.append((model, _http_failure_detail(status, body)))
+                if status in (429, 503):
+                    exhausted = True
+                continue
+            api_reached = True
+            text, _finish = _extract_candidate_text(body)
+            if text and not is_refusal_response(text):
+                return {"ok": True, "text": text, "model": model, "pass_used": 3,
+                        "key": api_key, "reached": True, "http_failures": http_failures, "exhausted": exhausted}
+
+    return {"ok": False, "text": "", "model": "", "pass_used": 0,
+            "key": api_key, "reached": api_reached, "http_failures": http_failures, "exhausted": exhausted}
+
+
 def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, api_keys,
                         duration: int = 10, uncensored: bool = True, ui_language: str = "en",
                         aspect_ratio: str = "", model_mode: str | None = None):
-    """Execute the generation pipeline.
+    """Execute the generation pipeline with multi-key staggered race.
 
     Returns `(prompt, wh_ratio, pass_used, model_used, warnings)`.
     Raises `RuntimeError` when every candidate model fails (or refusal without the
@@ -723,6 +834,114 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
 
     models = _candidate_models(resolve_model(registry), mode=model_mode)
 
+    # --- 키가 1개면 기존 순차 로직(스태거 없음) 유지 ---
+    if len(api_keys) <= 1:
+        return _run_sequential(registry, target, submenu, request_text, used_tensors, api_keys,
+                               duration, uncensored, ui_language, aspect_ratio, model_mode,
+                               system_text, user_text, images_b64, schema, models, warnings)
+
+    # --- 2개 이상: 스태거드 레이스 (최대 4개 키) ---
+    active_keys = api_keys[:4]  # 최대 4개까지만
+    logger.info("[BadaPromptGen] Staggered race start: %d keys, models=%s", len(active_keys), models)
+
+    # 전체 레이스를 위한 공통 상태 수집용
+    all_http_failures = []
+    any_reached = False
+
+    # 각 키별 퓨처 제출 (스태거드 시작: 0s, 1s, 2s, 3s)
+    futures = []
+    for idx, key in enumerate(active_keys):
+        # 스태거드 지연: 각 키를 별도 스레드에서 지연 후 실행
+        def make_task(key, idx):
+            def task():
+                if idx > 0:
+                    time.sleep(idx)  # 1초, 2초, 3초 지연
+                return _cascade_one_key(key, idx, models, system_text, user_text,
+                                        images_b64, schema, uncensored, submenu, model_mode)
+            return task
+        future = _KEY_RACE_POOL.submit(make_task(key, idx))
+        futures.append(future)
+
+    # first-wins: 최초로 ok=True인 결과 채택, 60초 타임아웃
+    result = None
+    try:
+        for future in concurrent.futures.as_completed(futures, timeout=60):
+            res = future.result()
+            # 진단 정보 수집
+            all_http_failures.extend(res["http_failures"])
+            if res["reached"]:
+                any_reached = True
+            if res["ok"]:
+                result = res
+                logger.info("[BadaPromptGen] Race winner: key_idx=%d model=%s pass=%d",
+                            active_keys.index(res["key"]) if res["key"] in active_keys else -1,
+                            res["model"], res["pass_used"])
+                break
+    except concurrent.futures.TimeoutError:
+        logger.warning("[BadaPromptGen] Staggered race timeout (60s) - no winner")
+
+    # 남은 퓨처들은 결과만 폐기 (HTTP 취소 불가)
+    for f in futures:
+        if not f.done():
+            # 결과 대기 없이 그냥 버림 (urllib 취소 불가)
+            pass
+
+    if result is None:
+        # 모든 키가 실패 — 기존 에러 메시지 로직 재사용
+        if all_http_failures and not any_reached:
+            raise RuntimeError(
+                _ui_text(ui_language,
+                         f"All Gemini models failed with HTTP errors ({_summarize_http_failures(all_http_failures)}). "
+                         "This is a network/authentication/quota problem, NOT a content refusal — check the API key and connection. Enabling '🔓 Uncensored' will not help.",
+                         f"모든 Gemini 모델이 HTTP 오류로 실패했습니다 ({_summarize_http_failures(all_http_failures)}). "
+                         "콘텐츠 거부 문제가 아니라 네트워크/인증/쿼터 문제입니다 — API 키와 연결을 확인해 주세요. '🔓 무검열' 토글은 도움이 되지 않습니다.")
+            )
+        if uncensored:
+            raise RuntimeError(
+                _ui_text(ui_language,
+                         "All Gemini models failed because of quota limits or a blocked request. Check the API key and daily quota.",
+                         "모든 Gemini 모델이 할당량 초과 또는 요청 거부로 실패했습니다. "
+                         "API 키 상태와 일일 쿼터를 확인해 주세요.")
+            )
+        raise RuntimeError(
+            _ui_text(ui_language,
+                     "Gemini refused the request. Enable the '🔓 Uncensored' toggle and try again. (The 3-pass fallback is disabled when Uncensored is OFF.)",
+                     "Gemini가 요청을 거부했습니다. '🔓 무검열' 토글을 켜고 다시 시도해 주세요. "
+                     "(무검열 OFF 상태에서는 3-Pass 우회 폴백이 비활성화됩니다)")
+        )
+
+    # 성공 결과 파싱
+    pass_used = result["pass_used"]
+    model_used = result["model"]
+    result_text = result["text"]
+
+    if pass_used > 1:
+        warnings.append(_ui_text(ui_language,
+                                 f"Generated with the Pass {pass_used} fallback (3-pass).",
+                                 f"검열 우회 {pass_used}차 폴백(3-Pass)으로 생성되었습니다."))
+
+    prompt, wh_ratio, parse_warnings = parse_output(result_text, submenu)
+    parse_warning_ko = {
+        "JSON parsed successfully but 'rewritten_prompt' was empty.": "JSON은 정상적으로 분석됐지만 'rewritten_prompt' 필드가 비어 있습니다.",
+        "Recovered the prompt with the regex fallback parser.": "정규식 대체 파서로 프롬프트를 복구했습니다.",
+        "Could not parse structured JSON output; fell back to the raw response.": "구조화 JSON 출력을 해석하지 못해 원본 응답을 사용했습니다.",
+    }
+    warnings.extend(_ui_text(ui_language, warning, parse_warning_ko.get(warning, warning))
+                    for warning in parse_warnings)
+    return (prompt, wh_ratio, pass_used, model_used, warnings)
+
+
+# ─── 기존 순차 실행 로직 (키 1개일 때 호환용) ───
+def _run_sequential(registry, target, submenu, request_text, used_tensors, api_keys,
+                    duration: int, uncensored: bool, ui_language: str, aspect_ratio: str,
+                    model_mode: str | None, system_text: str, user_text: str,
+                    images_b64: list, schema, models: list, warnings: list):
+    """키가 1개일 때 사용하는 기존 순차 실행 로직 (동작 보장용)."""
+    http_failures = []
+    api_reached = False
+    exhausted_keys = set()
+    key_index = 0
+
     def payload(sys_text, attach_images, temperature):
         parts = [{"text": user_text}]
         if attach_images:
@@ -739,19 +958,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
             "generationConfig": gen_cfg,
         }
 
-    result_text, model_used, pass_used = "", "", 1
-    # Failure diagnostics: distinguish "every model failed at the HTTP level"
-    # (bad key / quota / network) from "a model answered but refused", so the
-    # final error message points at the real cause instead of a red herring.
-    http_failures = []   # [(model, detail)] — non-200 responses across all passes
-    api_reached = False  # at least one model answered with HTTP 200 (refusal or empty)
-
-    # --- 다중 API 키 로테이터 상태 ---
-    key_index = 0
-    exhausted_keys = set()
-
     def _try_key(model, sys_text, attach_images, temperature, timeout):
-        """모든 키를 순회하며 호출. 성공 시 (status, body, key) 반환, 실패 시 (status, body, None)."""
         nonlocal key_index
         if not api_keys:
             return 0, [], None
@@ -769,10 +976,12 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
                     logger.warning(f"[BadaPromptGen] 키 소진 표시: idx={key_index}")
             key_index = (key_index + 1) % len(api_keys)
             if key_index == start:
-                break  # 모든 키 순회 완료
+                break
         return 0, [], None
 
-    # ---- PASS 1: direct master compilation -------------------------------------
+    result_text, model_used, pass_used = "", "", 1
+
+    # PASS 1
     for model_index, model in enumerate(models):
         timeout = PRIMARY_MODEL_TIMEOUT if model_index == 0 else FALLBACK_MODEL_TIMEOUT
         status, body, used_key = _try_key(model, system_text, True, 0.75, timeout=timeout)
@@ -792,9 +1001,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
             logger.warning("[BadaPromptGen][Pass 1] %s returned a refusal -> Pass 2", model)
             break
 
-    # ---- PASS 2: 3D VFX technical override (images stay attached) -----------
-    # NOTE: the images used to be detached here, which silently produced
-    # image-less (hallucinated) prompts whenever PASS 1 was refused/SAFETY.
+    # PASS 2
     if not result_text and uncensored:
         pass_used = 2
         system_p2 = PASS2_SYSTEM + "\n\n" + system_text
@@ -809,7 +1016,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
                 result_text, model_used = text, model
                 break
 
-    # ---- PASS 3: cinematic metaphor bridge -------------------------------------
+    # PASS 3
     if not result_text and uncensored:
         pass_used = 3
         system_p3 = PASS3_SYSTEM
@@ -827,9 +1034,6 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
                 break
 
     if not result_text:
-        # Every model failed at the HTTP level (bad key / quota / network) — telling
-        # the user to flip the uncensored toggle would be a red herring, so surface
-        # the real cause with per-model diagnostics instead.
         if http_failures and not api_reached:
             raise RuntimeError(
                 _ui_text(ui_language,

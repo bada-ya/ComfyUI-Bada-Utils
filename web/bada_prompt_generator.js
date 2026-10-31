@@ -1374,25 +1374,105 @@ function setupNode(node) {
         scheduleCalibration(0);
     };
 
-    // Arrange widget visual order: domWidget -> duration -> request_text -> rest
-    const domIdx = node.widgets.indexOf(domWidget);
-    if (domIdx !== -1) node.widgets.splice(domIdx, 1);
+    // ── 시각적 순서 + 위치 기반 직렬화 호환 ───────────────────────────────────
+    // 이 프론트엔드(Node 2.0)는 DOM 위젯을 `position: fixed` + JS가 계산한 화면
+    // 좌표로 배치한다 — 즉 배치는 CSS 흐름이 아니라 **node.widgets 배열 순서**가
+    // 결정한다. (실측: 배열에서 domWidget을 앞/뒤로 옮기면 헤더와 입력창의 top
+    // 좌표가 서로 뒤바뀐다. CSS order·DOM 재이동은 전부 무효.)
+    //
+    // 그래서 헤더를 위에 올리려면 배열에서 domWidget이 맨 앞이어야 한다. 그런데
+    // widgets_values 는 **위치 기반**으로 저장/복원되므로, 배열을 재정렬하면 다른
+    // 순서로 저장된 옛 워크플로우는 로드 때 값이 한 칸씩 밀린다
+    // (duration ← "en", target ← 서브메뉴 이름 …). 아래에서 PG_CANON_ORDER 로
+    // 통일 저장하고, configure 에서 값 타입을 보고 옛 순서를 되돌려 이름 기준으로
+    // 복원한다.
+    const PG_CANON_ORDER = [
+        "bada_promptgen_ui", "enhance", "uncensored", "target", "submenu",
+        "aspect_ratio", "ui_language", "duration", "request_text",
+    ];
+    // 과거에 저장됐을 수 있는 위치 순서들 (한 값 = 위젯 하나).
+    const PG_LEGACY_ORDERS = [
+        PG_CANON_ORDER, // 현β 순서 (재정렬된 배열)
+        ["enhance", "uncensored", "target", "submenu", "aspect_ratio", "request_text", "duration", "ui_language", "bada_promptgen_ui"], // 재정렬 전 INPUT_TYPES 순서
+        ["bada_promptgen_ui", "enhance", "uncensored", "target", "submenu", "ui_language", "duration", "request_text"], // aspect_ratio 이전 + 재정렬
+        ["enhance", "uncensored", "target", "submenu", "request_text", "duration", "ui_language", "bada_promptgen_ui"], // aspect_ratio 이전 + INPUT_TYPES
+    ];
 
-    const durW = widgets.duration;
-    const reqW = widgets.request_text;
+    // 배열을 정본 순서로 재배열한다 (미래에 추가된 위젯은 끝에 보존).
+    const reorderToCanonical = () => {
+        const byName = {};
+        for (const w of node.widgets || []) byName[w.name] = w;
+        const extra = (node.widgets || []).filter((w) => !PG_CANON_ORDER.includes(w.name));
+        const ordered = [];
+        for (const nm of PG_CANON_ORDER) if (byName[nm]) ordered.push(byName[nm]);
+        node.widgets.length = 0;
+        node.widgets.push(...ordered, ...extra);
+    };
 
-    if (durW) {
-        const durIdx = node.widgets.indexOf(durW);
-        if (durIdx !== -1) node.widgets.splice(durIdx, 1);
-    }
-    if (reqW) {
-        const reqIdx = node.widgets.indexOf(reqW);
-        if (reqIdx !== -1) node.widgets.splice(reqIdx, 1);
-    }
+    // 값 타입이 위젯 성격과 얼마나 맞는지 점수화 — 가장 잘 맞는 옛 순서를 고른다.
+    const scoreOrder = (order, values) => {
+        if (order.length !== values.length) return -1;
+        let score = 0;
+        for (let i = 0; i < order.length; i++) {
+            const nm = order[i], v = values[i];
+            if (nm === "duration" && typeof v === "number") score++;
+            else if ((nm === "enhance" || nm === "uncensored") && typeof v === "boolean") score++;
+            else if ((nm === "target" || nm === "submenu" || nm === "aspect_ratio" ||
+                      nm === "request_text" || nm === "ui_language") && typeof v === "string") score++;
+            else if (nm === "bada_promptgen_ui" && (v === "" || v == null)) score++;
+        }
+        return score;
+    };
 
-    node.widgets.unshift(domWidget);
-    if (durW) node.widgets.push(durW);
-    if (reqW) node.widgets.push(reqW);
+    const patchConfigure = () => {
+        if (node.__bpgConfigurePatched) return;
+        node.__bpgConfigurePatched = true;
+        reorderToCanonical();
+        // 생성 시점의 기본값 — configure 는 로드 직후에 불리므로 여기서 잡은 값이
+        // 곧 "기본값"이다. (프론트엔드가 widget.options.default 를 지워서 못 쓴다.)
+        const widgetDefaults = {};
+        for (const w of node.widgets || []) widgetDefaults[w.name] = w.value;
+        const originalConfigure = node.configure;
+        node.configure = function (info) {
+            const r = originalConfigure ? originalConfigure.apply(this, arguments) : undefined;
+            try {
+                if (info && Array.isArray(info.widgets_values) && info.widgets_values.length) {
+                    const values = info.widgets_values;
+                    const names = this.widgets.map((w) => w.name);
+                    const byOrder = (order) => {
+                        const m = {};
+                        order.forEach((nm, i) => { m[nm] = values[i]; });
+                        return m;
+                    };
+                    // 기본(현재 배열 순서)이 가장 자연스러운 후보다. 더 잘 맞는
+                    // 옛 순서가 있을 때만 갈아탄다 (정상 워크플로우는 건드리지 않음).
+                    let best = names;
+                    let bestScore = scoreOrder(names, values);
+                    for (const order of PG_LEGACY_ORDERS) {
+                        const s = scoreOrder(order, values);
+                        if (s > bestScore) { bestScore = s; best = order; }
+                    }
+                    const chosen = byOrder(best);
+                    for (const w of this.widgets) {
+                        if (Object.prototype.hasOwnProperty.call(chosen, w.name) && chosen[w.name] !== undefined) {
+                            w.value = chosen[w.name];
+                        } else if (Object.prototype.hasOwnProperty.call(widgetDefaults, w.name)) {
+                            // 옛 순서에 없던 위젯(예: 나중에 추가된 aspect_ratio)은
+                            // 기본 대입이 남긴 어긋난 값을 지우고 기본값으로 되돌린다.
+                            w.value = widgetDefaults[w.name];
+                        }
+                    }
+                    // 값이 바뀌었을 수 있으니 헤더(모드·키 개수·서브메뉴 버튼)를 다시 그린다.
+                    try { node.__bpgHeader?.renderSubmenuButtons?.(); } catch (_) { /* cosmetic */ }
+                    node.setDirtyCanvas?.(true, true);
+                }
+            } catch (err) {
+                console.warn("[BadaPromptGen] configure remap failed:", err);
+            }
+            return r;
+        };
+    };
+    patchConfigure();
 
     const originalTargetCb = widgets.target.callback;
     widgets.target.callback = function (value, canvas, originNode, pos, extra) {
