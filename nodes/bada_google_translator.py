@@ -109,7 +109,7 @@ class BadaGoogleTranslator:
                 deadline=deadline,
             )
             if future is None:
-                raise RuntimeError("번역 요청이 많습니다. 잠시 후 다시 시도해 주세요.")
+                raise RuntimeError("Too many translation requests. Please try again in a moment.")
             try:
                 translated_text = future.result(timeout=max(0, deadline - time.monotonic()))
             except FutureTimeoutError as timeout_error:

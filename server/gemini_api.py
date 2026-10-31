@@ -100,7 +100,7 @@ def mark_model_dead(model, reason=""):
         fresh = model not in _DEAD_MODEL_IDS
         _DEAD_MODEL_IDS.add(model)
     if fresh:
-        logger.warning("[BadaGemini] Model retired (404) this session: %s — %s",
+        logger.warning("[BadaGemini] Model retired (404) this session: %s - %s",
                        model, reason or "model not found")
 
 
@@ -227,7 +227,7 @@ class GeminiKeyRotator:
         try:
             idx = self.keys.index(key)
             self.exhausted.add(idx)
-            logger.warning(f"[GeminiKeyRotator] 키 소진 표시: idx={idx}")
+            logger.warning("[GeminiKeyRotator] key marked exhausted: idx=%d", idx)
         except ValueError:
             pass
 
@@ -1182,7 +1182,7 @@ def register_gemini_api_routes():
 
                     # PASS 2: Anti-Censorship 3D VFX Technical Override (Decouple raw binary image triggers if blocked)
                     if not raw_result_text and not api_reached:
-                        logger.warning("[BadaGemini] PASS 1 never reached the API (transport/quota only) — "
+                        logger.warning("[BadaGemini] PASS 1 never reached the API (transport/quota only) - "
                                        "skipping PASS 2/3 instead of repeating the same failures")
                     if not raw_result_text and api_reached:
                         pass_used = 2

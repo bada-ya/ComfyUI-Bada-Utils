@@ -396,7 +396,7 @@ def _http_failure_detail(status: int, body) -> str:
     otherwise body is Gemini's error JSON (dict) or raw HTTPError text (str).
     """
     if status == 0:
-        return "network error — " + str(body)[:120]
+        return "network error: " + str(body)[:120]
     message = ""
     if isinstance(body, dict):
         err = body.get("error") or {}
@@ -428,6 +428,42 @@ def _summarize_http_failures(failures) -> str:
     if len(seen) > 3:
         summary += f" (+{len(seen) - 3} more)"
     return summary
+
+
+def _log_id(obj) -> str:
+    """ASCII identifier of a registry entry, for log lines.
+
+    Every target/submenu carries an ascii `id` (`moss`, `t2i`) plus a display
+    `name` that is Korean for the built-in prompts. `raise` messages and `logger`
+    output both reach the ComfyUI console, so they print the id, never the name.
+    Hand-edited registries can hold a non-ascii id; those are escaped rather than
+    written raw.
+    """
+    value = str((obj or {}).get("id") if isinstance(obj, dict) else (obj or "")).strip()
+    if not value:
+        return "unnamed"
+    if value.isascii():
+        return value
+    return value.encode("ascii", "backslashreplace").decode("ascii")
+
+
+# --- Failure messages: English, unconditionally. ------------------------------
+# A RuntimeError's text is shown in ComfyUI's error dialog *and* written to the
+# console (with the traceback), so `_ui_text()` is deliberately not used here —
+# the ko branch used to put whole Korean paragraphs into the log. Korean guidance
+# still reaches the user where it is read: the node's toast/warning list.
+def _err_all_http(failures) -> str:
+    return ("All Gemini models failed with HTTP errors (%s). This is a "
+            "network/authentication/quota problem, NOT a content refusal. Check the "
+            "API key and connection. Enabling 'Uncensored' will not help."
+            % _summarize_http_failures(failures))
+
+
+ERR_ALL_QUOTA = ("All Gemini models failed because of quota limits or a blocked "
+                 "request. Check the API key and daily quota.")
+
+ERR_REFUSED = ("Gemini refused the request. Enable the 'Uncensored' toggle and try "
+               "again. (The 3-pass fallback is disabled when Uncensored is OFF.)")
 
 
 def _extract_candidate_text(body) -> tuple:
@@ -803,7 +839,7 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
     # PASS2·3 은 «실제로 검열당했다» 고 확인할 때만 돈다. PASS1 이 HTTP 200 을 한 번도 못
     # 받았다면 네트워크/인증/쿼터 문제라, 같은 실패를 3번 겹쳐 쿼터만 태운다 (9회 → 3회).
     if uncensored and solo and not api_reached:
-        logger.info("[BadaPromptGen][Key %d] solo key never reached the API — dropping this key", key_index)
+        logger.info("[BadaPromptGen][Key %d] solo key never reached the API - dropping this key", key_index)
         return {"ok": False, "text": "", "model": "", "pass_used": 0,
                 "key": api_key, "reached": api_reached, "http_failures": http_failures, "exhausted": exhausted}
 
@@ -891,7 +927,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
     active_keys = api_keys[:4]
     key_count = len(active_keys)
     key_models = [key_cascade(idx, key_count) for idx in range(key_count)]
-    logger.info("[BadaPromptGen] Staggered race start: %d keys — %s", key_count,
+    logger.info("[BadaPromptGen] Staggered race start: %d keys | %s", key_count,
                 ", ".join(f"key{idx}({'+'.join(key_models[idx])}@"
                           f"{key_start_delay_s(idx)}s)" for idx in range(key_count)))
 
@@ -942,26 +978,10 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
     if result is None:
         # 모든 키가 실패 — 기존 에러 메시지 로직 재사용
         if all_http_failures and not any_reached:
-            raise RuntimeError(
-                _ui_text(ui_language,
-                         f"All Gemini models failed with HTTP errors ({_summarize_http_failures(all_http_failures)}). "
-                         "This is a network/authentication/quota problem, NOT a content refusal — check the API key and connection. Enabling '🔓 Uncensored' will not help.",
-                         f"모든 Gemini 모델이 HTTP 오류로 실패했습니다 ({_summarize_http_failures(all_http_failures)}). "
-                         "콘텐츠 거부 문제가 아니라 네트워크/인증/쿼터 문제입니다 — API 키와 연결을 확인해 주세요. '🔓 무검열' 토글은 도움이 되지 않습니다.")
-            )
+            raise RuntimeError(_err_all_http(all_http_failures))
         if uncensored:
-            raise RuntimeError(
-                _ui_text(ui_language,
-                         "All Gemini models failed because of quota limits or a blocked request. Check the API key and daily quota.",
-                         "모든 Gemini 모델이 할당량 초과 또는 요청 거부로 실패했습니다. "
-                         "API 키 상태와 일일 쿼터를 확인해 주세요.")
-            )
-        raise RuntimeError(
-            _ui_text(ui_language,
-                     "Gemini refused the request. Enable the '🔓 Uncensored' toggle and try again. (The 3-pass fallback is disabled when Uncensored is OFF.)",
-                     "Gemini가 요청을 거부했습니다. '🔓 무검열' 토글을 켜고 다시 시도해 주세요. "
-                     "(무검열 OFF 상태에서는 3-Pass 우회 폴백이 비활성화됩니다)")
-        )
+            raise RuntimeError(ERR_ALL_QUOTA)
+        raise RuntimeError(ERR_REFUSED)
 
     # 성공 결과 파싱
     pass_used = result["pass_used"]
@@ -1029,7 +1049,7 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
                     mark_model_dead(model, "HTTP 404")
                 elif status in (429, 503):
                     exhausted_keys.add(key_index)
-                    logger.warning(f"[BadaPromptGen] 키 소진 표시: idx={key_index}")
+                    logger.warning("[BadaPromptGen] key marked exhausted: idx=%d", key_index)
             key_index = (key_index + 1) % len(api_keys)
             if key_index == start:
                 break
@@ -1098,26 +1118,10 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
 
     if not result_text:
         if http_failures and not api_reached:
-            raise RuntimeError(
-                _ui_text(ui_language,
-                         f"All Gemini models failed with HTTP errors ({_summarize_http_failures(http_failures)}). "
-                         "This is a network/authentication/quota problem, NOT a content refusal — check the API key and connection. Enabling '🔓 Uncensored' will not help.",
-                         f"모든 Gemini 모델이 HTTP 오류로 실패했습니다 ({_summarize_http_failures(http_failures)}). "
-                         "콘텐츠 거부 문제가 아니라 네트워크/인증/쿼터 문제입니다 — API 키와 연결을 확인해 주세요. '🔓 무검열' 토글은 도움이 되지 않습니다.")
-            )
+            raise RuntimeError(_err_all_http(http_failures))
         if uncensored:
-            raise RuntimeError(
-                _ui_text(ui_language,
-                         "All Gemini models failed because of quota limits or a blocked request. Check the API key and daily quota.",
-                         "모든 Gemini 모델이 할당량 초과 또는 요청 거부로 실패했습니다. "
-                         "API 키 상태와 일일 쿼터를 확인해 주세요.")
-            )
-        raise RuntimeError(
-            _ui_text(ui_language,
-                     "Gemini refused the request. Enable the '🔓 Uncensored' toggle and try again. (The 3-pass fallback is disabled when Uncensored is OFF.)",
-                     "Gemini가 요청을 거부했습니다. '🔓 무검열' 토글을 켜고 다시 시도해 주세요. "
-                     "(무검열 OFF 상태에서는 3-Pass 우회 폴백이 비활성화됩니다)")
-        )
+            raise RuntimeError(ERR_ALL_QUOTA)
+        raise RuntimeError(ERR_REFUSED)
 
     if pass_used > 1:
         warnings.append(_ui_text(ui_language,
@@ -1292,16 +1296,12 @@ class BadaPromptGenerator:
 
         if target_obj is None:
             raise RuntimeError(
-                _ui_text(ui_language,
-                         f"Target model '{target}' was not found in engines_registry.json.",
-                         f"대상 모델 '{target}' 을(를) engines_registry.json 에서 찾을 수 없습니다.")
+                f"Target model '{_log_id(target)}' was not found in engines_registry.json."
             )
         if submenu_obj is None:
             raise RuntimeError(
-                _ui_text(ui_language,
-                         f"Submenu '{submenu}' was not found under '{target}'. Check it in Model Manager.",
-                         f"서브메뉴 '{submenu}' 을(를) '{target}' 에서 찾을 수 없습니다. "
-                         "설정창의 모델 관리에서 항목을 확인해 주세요.")
+                f"Submenu '{_log_id(submenu)}' was not found under '{_log_id(target)}'. "
+                "Check it in Model Manager."
             )
 
         # ---- image slot resolution ---------------------------------------
@@ -1315,11 +1315,7 @@ class BadaPromptGenerator:
         # None — an image-only run was rejected with "Invalid input" (+ the same
         # message repeated on every input, hence the "8 errors" list).
         if not (request_text or "").strip() and not tensors_present:
-            raise RuntimeError(
-                _ui_text(ui_language,
-                         "Enter a request or connect at least one image.",
-                         "요청사항을 입력하거나 이미지를 1장 이상 연결해 주세요.")
-            )
+            raise RuntimeError("Enter a request or connect at least one image.")
 
         if dropped > 0:
             if mode == "none":
@@ -1351,19 +1347,15 @@ class BadaPromptGenerator:
 
         if not (request_text or "").strip() and not used_tensors:
             raise RuntimeError(
-                _ui_text(ui_language,
-                         "This submenu does not use images and the request is empty. Enter a request or choose a submenu that uses images.",
-                         "요청사항이 비어 있고 이 서브메뉴는 이미지를 사용하지 않습니다. "
-                         "요청사항을 입력하거나 이미지를 사용하는 서브메뉴를 선택해 주세요.")
+                "This submenu does not use images and the request is empty. Enter a "
+                "request or choose a submenu that uses images."
             )
 
         api_keys = resolve_api_keys()
         if not api_keys:
             raise RuntimeError(
-                _ui_text(ui_language,
-                         "Gemini API key not found. Enter it in the node's API Key field and select Check, or save api_key in config.json.",
-                         "Gemini API 키를 찾을 수 없습니다. 노드의 '🔑 API Key' 입력란에서 [🔌 연결확인]을 누르거나 "
-                         "config.json 에 api_key 를 저장해 주세요.")
+                "Gemini API key not found. Enter it in the node's API Key field and "
+                "select Check, or save api_key in config.json."
             )
 
         # ---- identical-input quota guard ---------------------------------
@@ -1400,15 +1392,13 @@ class BadaPromptGenerator:
                                  f"⚠️ Pass {pass_used} 폴백으로 생성" + (" (이미지 포함)" if used_tensors else ""))})
 
         if not prompt:
-            raise RuntimeError(_ui_text(ui_language,
-                                        "Gemini returned an empty prompt. Please make your request more specific.",
-                                        "Gemini 가 빈 프롬프트를 반환했습니다. 요청사항을 조금 더 구체적으로 입력해 주세요."))
+            raise RuntimeError("Gemini returned an empty prompt. Please make your request more specific.")
 
         cache_store(cache_key, prompt, wh_ratio)
 
         logger.info(
             "[BadaPromptGen] %s/%s | pass=%d | model=%s | images=%d | %d chars",
-            target_obj.get("name"), submenu_obj.get("name"), pass_used, model_used,
+            _log_id(target_obj), _log_id(submenu_obj), pass_used, model_used,
             len(used_tensors), len(prompt),
         )
         return {"ui": {"bada_promptgen_toast": toasts},
