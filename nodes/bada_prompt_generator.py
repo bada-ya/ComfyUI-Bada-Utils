@@ -163,6 +163,35 @@ except Exception:  # pragma: no cover - fallback for flat module loading
     mark_model_dead = _shared.mark_model_dead
     is_model_dead = _shared.is_model_dead
 
+# ---------------------------------------------------------------------------
+# Pollinations.AI bridge (2026-11-01, round 13) — optional second provider.
+# Loaded with the same dual-path trick as server/gemini_api.py above: the flat branch is
+# the one tests use, so importing only through the package path would leave a second
+# module instance and every monkeypatch would miss the live one.
+# ---------------------------------------------------------------------------
+try:  # normal package import
+    from . import pollinations_api  # type: ignore
+except Exception:  # pragma: no cover - fallback for flat module loading
+    import importlib.util as _ilu_poll
+
+    _POLLINATIONS_PATH = os.path.join(ROOT_DIR, "nodes", "pollinations_api.py")
+    _poll_spec = _ilu_poll.spec_from_file_location("bada_pollinations_bridge", _POLLINATIONS_PATH)
+    pollinations_api = _ilu_poll.module_from_spec(_poll_spec)
+    _poll_spec.loader.exec_module(pollinations_api)
+
+# Provider ids are stored inside workflow JSON, so they are never translated.
+PROVIDER_GOOGLE = "google"
+PROVIDER_POLLINATIONS = "pollinations"
+PROVIDERS = [PROVIDER_GOOGLE, PROVIDER_POLLINATIONS]
+# The Pollinations model lives in its **own** combo, deliberately not merged into the
+# Gemini one: `resolve_model()` and the popup validate against EXACT_MODEL_IDS, and the
+# 404 retirement cache keys Gemini ids. Two combos = neither rule has to be relaxed.
+POLLINATIONS_MODELS = list(pollinations_api.available_models())
+POLLINATIONS_DEFAULT_MODEL = pollinations_api.default_model()
+# Keyless endpoint: no daily bucket, but a free route can be slower than a Gemini lite
+# call, so it gets its own timeout instead of borrowing the Gemini table.
+POLLINATIONS_TIMEOUT_S = 45
+
 # Verified fast-variant cascade — single source of truth lives in server/gemini_api.py
 # (EXACT_MODELS). Kept as an alias so _candidate_models() reads naturally.
 FALLBACK_MODELS = list(EXACT_MODEL_IDS)
@@ -391,6 +420,25 @@ def _post_generate_content(model: str, api_key: str, payload: dict, timeout: int
         return 0, str(exc)
 
 
+def _post_provider_content(model: str, api_key: str, payload: dict, timeout: int,
+                           provider: str = PROVIDER_GOOGLE):
+    """Transport dispatch for one generation pass. Returns `(status, body)`.
+
+    `PROVIDER_GOOGLE` is the untouched Gemini route. `PROVIDER_POLLINATIONS` renders the
+    *same* payload (system text + schema) through the keyless bridge, which answers in
+    the identical contract: a Gemini-shaped dict on 200, an ASCII string on failure. That
+    is what lets the 3-Pass logic, the refusal check and the failure toasts stay shared —
+    no provider branch appears anywhere below this line except for the two guards marked
+    `provider-aware`.
+    """
+    if provider == PROVIDER_POLLINATIONS:
+        schema = (payload.get("generationConfig") or {}).get("responseSchema")
+        return pollinations_api.call_text(
+            model, pollinations_api.build_messages(payload, json_schema=schema),
+            timeout=timeout or POLLINATIONS_TIMEOUT_S, json_schema=schema)
+    return _post_generate_content(model, api_key, payload, timeout=timeout)
+
+
 def _http_failure_detail(status: int, body) -> str:
     """Short diagnostic snippet for a failed generateContent call.
 
@@ -459,6 +507,25 @@ def _err_all_http(failures) -> str:
             "network/authentication/quota problem, NOT a content refusal. Check the "
             "API key and connection. Enabling 'Uncensored' will not help."
             % _summarize_http_failures(failures))
+
+
+def _err_pollinations(failures, models=None) -> str:
+    """Pollinations failure text (2026-11-01, round 13).
+
+    Deliberately separate from `_err_all_http`: that one tells the user to check the API
+    key and the daily quota, and this provider has neither. The free route is rate limited
+    per IP (live-verified: **HTTP 402** + `Retry-After`, text is one request per ~30 s), so
+    the fix is "wait", not "rotate a key". 429 is listed too because a proxy in front of
+    the service answers that way for the same condition.
+    """
+    detail = _summarize_http_failures(failures) if failures else ""
+    if detail:
+        return ("Pollinations failed (%s). This free route has no API key and no daily "
+                "quota to check - it is rate limited per IP (HTTP 402/429 + Retry-After, "
+                "one text request every ~30 seconds), so wait a moment or lower the "
+                "generation rate. Set Provider back to 'google' to use the key cascade."
+                % detail)
+    return pollinations_api.refusal_error((models or [""])[0])
 
 
 ERR_ALL_QUOTA = ("All Gemini models failed because of quota limits or a blocked "
@@ -718,12 +785,17 @@ def _tensor_digest(tensor) -> str:
 
 
 def result_cache_key(registry, target, submenu, request_text, tensors, duration=10,
-                     uncensored=True, aspect_ratio="") -> str:
+                     uncensored=True, aspect_ratio="", provider=PROVIDER_GOOGLE,
+                     pollinations_model="") -> str:
     digest = hashlib.sha256()
     digest.update(repr((
         (target or {}).get("name"), (submenu or {}).get("name"),
         (request_text or "").strip(), int(duration or 10), bool(uncensored),
         str(aspect_ratio or "").strip(),
+        # Provider is a cache axis: the same request answered by a Gemini key and by a
+        # free Pollinations model are not interchangeable texts. Old callers omit both
+        # arguments, so they keep hashing exactly the pre-round-13 key.
+        str(provider or PROVIDER_GOOGLE), str(pollinations_model or "").strip(),
     )).encode("utf-8"))
     digest.update(resolve_model(registry).encode("utf-8"))
     # 배포본과 사용자본 중 어느 쪽이 바뀌어도 캐시는 깨져야 한다 — 사용자 프롬프트 본문은
@@ -762,7 +834,8 @@ def _ui_text(ui_language, english, korean):
 def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: str,
                      user_text: str, images_b64: list, schema, uncensored: bool,
                      submenu: dict, model_mode: str | None = None,
-                     solo: bool = False, stop_event=None) -> dict:
+                     solo: bool = False, stop_event=None,
+                     provider: str = PROVIDER_GOOGLE) -> dict:
     """
     단일 API 키로 전체 3-Pass 캐스케이드를 순차 실행.
 
@@ -773,6 +846,11 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
     `stop_event` 는 레이스가 이미 정해졌음을 알리는 신호다 (승자 확정·타임아웃). 이 키는
     이길 수 없으므로 «다음 호출» 을 내보내지 않고 멈춘다 — 진행 중인 HTTP 요청은 취소할 수
     없어서(urllib) 그 요청만 남고, 쿼터와 워커를 더 쓰지 않는다.
+    `provider` 는 전송 경로만 고른다 (google|pollinations). pollinations 는 키 없는 무료
+    경로라 `models` 에는 키 캐스케이드 대신 Pollinations 모델 하나가 들어오고, «404 퇴장
+    캐시» 와 «모델별 타임아웃 표» 는 **Gemini 모델 id 기준**이므로 이 경로에서는 태우지
+    않는다 — 아래 `_model_dead` / `_timeout_for` 두 곳과 `_note_failure` 의 404 줄만 분기한다.
+    3-Pass·거부 판정·실패 진단은 같은 `(status, body)` 계약이라 그대로 재사용된다.
     «속도/균형/품질» 모드(`model_mode`)는 폐기되어 무시한다.
 
     Returns:
@@ -820,16 +898,28 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
             "generationConfig": gen_cfg,
         }
 
+    # provider-aware 가드 2곳. 둘 다 Gemini 모델 id 를 기준으로 하므로, 무료 모델에게
+    # «404 를 태우면 프로세스 전체에서 그 모델이 사라진다» / «표에 없는 모델은 기본값» 이라는
+    # 잘못된 해석을 시키지 않는다.
+    def _model_dead(model: str) -> bool:
+        return provider == PROVIDER_GOOGLE and is_model_dead(model)
+
+    def _timeout_for(model: str) -> int:
+        return model_timeout(model) if provider == PROVIDER_GOOGLE else POLLINATIONS_TIMEOUT_S
+
     def _try_model(model: str, sys_text: str, attach_images: bool, temperature: float, timeout: int):
         """단일 모델 호출. (status, body, reached) 반환"""
-        status, body = _post_generate_content(model, api_key, payload(sys_text, attach_images, temperature), timeout=timeout)
+        status, body = _post_provider_content(
+            model, api_key, payload(sys_text, attach_images, temperature), timeout, provider)
         reached = (status == 200)
         return status, body, reached
 
     def _note_failure(model, status, body, where):
         """404 는 프로세스 전체가 잊지 않도록 기록하고, 실패 진단은 누적한다."""
         http_failures.append((model, _http_failure_detail(status, body)))
-        if status == 404:
+        # 404 퇴장 처리는 Gemini 만 (provider-aware): 잠깐 아픈 무료 경로를 프로세스에서
+        # 지워버리면 재시작할 때까지 그 모델을 다시 쓸 수 없다.
+        if status == 404 and provider == PROVIDER_GOOGLE:
             mark_model_dead(model, f"Key {key_index} {where} HTTP 404")
         return status in (429, 503)
 
@@ -838,10 +928,10 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
         decided = _race_decided("Pass 1")
         if decided:
             return decided
-        if is_model_dead(model):
+        if _model_dead(model):
             logger.info("[BadaPromptGen][Key %d][Pass 1] skipping retired model %s", key_index, model)
             continue
-        status, body, reached = _try_model(model, system_text, True, 0.75, model_timeout(model))
+        status, body, reached = _try_model(model, system_text, True, 0.75, _timeout_for(model))
         if status != 200:
             logger.warning("[BadaPromptGen][Key %d][Pass 1] %s -> HTTP %s", key_index, model, status)
             if _note_failure(model, status, body, "Pass 1"):
@@ -892,9 +982,9 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
             decided = _race_decided("Pass 2")
             if decided:
                 return decided
-            if is_model_dead(model):
+            if _model_dead(model):
                 continue
-            status, body, reached = _try_model(model, system_p2, bool(images_b64), 0.5, model_timeout(model))
+            status, body, reached = _try_model(model, system_p2, bool(images_b64), 0.5, _timeout_for(model))
             if status != 200:
                 if _note_failure(model, status, body, "Pass 2"):
                     exhausted = True
@@ -914,9 +1004,9 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
             decided = _race_decided("Pass 3")
             if decided:
                 return decided
-            if is_model_dead(model):
+            if _model_dead(model):
                 continue
-            status, body, reached = _try_model(model, system_p3, bool(images_b64), 0.8, model_timeout(model))
+            status, body, reached = _try_model(model, system_p3, bool(images_b64), 0.8, _timeout_for(model))
             if status != 200:
                 if _note_failure(model, status, body, "Pass 3"):
                     exhausted = True
@@ -933,7 +1023,8 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
 def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, api_keys,
                         duration: int = 10, uncensored: bool = True, ui_language: str = "en",
                         aspect_ratio: str = "", model_mode: str | None = None,
-                        race_turn: int | None = None):
+                        race_turn: int | None = None, provider: str = PROVIDER_GOOGLE,
+                        pollinations_model: str = ""):
     """Execute the generation pipeline with multi-key staggered race.
 
     `model_mode`(속도/균형/품질)는 2026-11-01 폐기되어 받아도 무시한다 — 옛 호출·옛
@@ -943,6 +1034,11 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
     (server/gemini_api.py::next_race_turn). 회전의 목적은 «승자를 골고루 내보내기» —
     늘 같은 키가 이기면 그 키(같은 Google 프로젝트) 의 (키×모델) 일일 쿼터만 소진된다.
     테스트는 결정성을 위해 0 을 넘긴다(0 = 회전 도입 이전 배치와 동일).
+
+    `provider`(2026-11-01 라운드 13) 는 전송 경로 선택이다. 기본값 `PROVIDER_GOOGLE` 이
+    기존 동작(키 개수 캐스케이드 + 배치 회전)이고, `PROVIDER_POLLINATIONS` 는 키 없는 무료
+    경로라 «키 몇 개가 있든» 순차 경로를 탄다 — 키 없는 엔드포인트에 레이스를 시키면 같은
+    요청을 4번 중복 발송해 레이트 제한만 걸린다. `pollinations_model` 은 그 모델 이름.
 
     Returns `(prompt, wh_ratio, pass_used, model_used, warnings)`.
     Raises `RuntimeError` when every candidate model fails (or refusal without the
@@ -965,13 +1061,21 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
     user_text = build_user_prompt(request_text, target, submenu, image_count)
     schema = _schema_for(submenu)
 
-    models = _candidate_models(resolve_model(registry))
+    if provider == PROVIDER_POLLINATIONS:
+        model_name = str(pollinations_model or pollinations_api.default_model()).strip()
+        models = [model_name]
+        # 키는 있어도 쓰지 않는다 — Gemini 쿼터와 이 경로는 무관하다.
+        logger.info("[BadaPromptGen] provider=pollinations model=%s gemini_keys_ignored=%d",
+                    model_name, len(api_keys or []))
+    else:
+        models = _candidate_models(resolve_model(registry))
 
     # --- 키가 1개면 기존 순차 로직(스태거 없음) 유지 ---
-    if len(api_keys) <= 1:
+    if provider == PROVIDER_POLLINATIONS or len(api_keys) <= 1:
         return _run_sequential(registry, target, submenu, request_text, used_tensors, api_keys,
                                duration, uncensored, ui_language, aspect_ratio,
-                               system_text, user_text, images_b64, schema, models, warnings)
+                               system_text, user_text, images_b64, schema, models, warnings,
+                               provider)
 
     # --- 2개 이상: 키 개수별 캐스케이드로 스태거드 레이스 (최대 4개 키) -------
     # 어떤 키가 어떤 모델을 맡을지는 key_cascade() 가 키 «개수» 로 결정한다 (4개 = 각 모델
@@ -1089,8 +1193,13 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
 def _run_sequential(registry, target, submenu, request_text, used_tensors, api_keys,
                     duration: int, uncensored: bool, ui_language: str, aspect_ratio: str,
                     system_text: str, user_text: str,
-                    images_b64: list, schema, models: list, warnings: list):
-    """키가 1개일 때 사용하는 기존 순차 실행 로직 (동작 보장용)."""
+                    images_b64: list, schema, models: list, warnings: list,
+                    provider: str = PROVIDER_GOOGLE):
+    """키 1개(또는 키 없는 Pollinations)일 때 쓰는 순차 실행 경로.
+
+    `provider` 가 pollinations 이면 키 라운드 로빈을 타지 않는다 — 무료 경로는 키가 없고
+    동시성 이득도 없어 호출 한 번이 곧 한 생성이다. 그래서 `api_keys` 가 비어도 정상 동작한다.
+    """
     http_failures = []
     api_reached = False
     exhausted_keys = set()
@@ -1112,16 +1221,28 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
             "generationConfig": gen_cfg,
         }
 
+    # provider-aware 가드 2곳 (=`_cascade_one_key` 와 같은 규칙, 설명도 같음).
+    def _model_dead(model: str) -> bool:
+        return provider == PROVIDER_GOOGLE and is_model_dead(model)
+
+    def _timeout_for(model: str) -> int:
+        return model_timeout(model) if provider == PROVIDER_GOOGLE else POLLINATIONS_TIMEOUT_S
+
     def _try_key(model, sys_text, attach_images, temperature, timeout):
         nonlocal key_index
+        if provider == PROVIDER_POLLINATIONS:
+            # 키 없는 경로: 라운드 로빈·소진 집합·404 퇴장 모두 Gemini 측 규칙이라 거치지 않는다.
+            status, body = _post_provider_content(
+                model, "", payload(sys_text, attach_images, temperature), timeout, provider)
+            return status, body, None
         if not api_keys:
             return 0, [], None
         start = key_index
         while True:
             current_key = api_keys[key_index]
             if key_index not in exhausted_keys:
-                status, body = _post_generate_content(
-                    model, current_key, payload(sys_text, attach_images, temperature), timeout=timeout
+                status, body = _post_provider_content(
+                    model, current_key, payload(sys_text, attach_images, temperature), timeout, provider
                 )
                 if status == 200:
                     return status, body, current_key
@@ -1140,10 +1261,10 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
 
     # PASS 1
     for model in models:
-        if is_model_dead(model):
+        if _model_dead(model):
             logger.info("[BadaPromptGen][Pass 1] skipping retired model %s", model)
             continue
-        status, body, used_key = _try_key(model, system_text, True, 0.75, timeout=model_timeout(model))
+        status, body, used_key = _try_key(model, system_text, True, 0.75, timeout=_timeout_for(model))
         if status != 200:
             logger.warning("[BadaPromptGen][Pass 1] %s -> HTTP %s", model, status)
             http_failures.append((model, _http_failure_detail(status, body)))
@@ -1173,9 +1294,9 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
         pass_used = 2
         system_p2 = PASS2_SYSTEM + "\n\n" + system_text
         for model in models:
-            if is_model_dead(model):
+            if _model_dead(model):
                 continue
-            status, body, used_key = _try_key(model, system_p2, bool(images_b64), 0.5, timeout=model_timeout(model))
+            status, body, used_key = _try_key(model, system_p2, bool(images_b64), 0.5, timeout=_timeout_for(model))
             if status != 200:
                 http_failures.append((model, _http_failure_detail(status, body)))
                 continue
@@ -1192,9 +1313,9 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
         if schema:
             system_p3 += _json_directive((submenu or {}).get("output_fields") or ["rewritten_prompt"])
         for model in models:
-            if is_model_dead(model):
+            if _model_dead(model):
                 continue
-            status, body, used_key = _try_key(model, system_p3, bool(images_b64), 0.8, timeout=model_timeout(model))
+            status, body, used_key = _try_key(model, system_p3, bool(images_b64), 0.8, timeout=_timeout_for(model))
             if status != 200:
                 http_failures.append((model, _http_failure_detail(status, body)))
                 continue
@@ -1205,6 +1326,9 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
                 break
 
     if not result_text:
+        if provider == PROVIDER_POLLINATIONS:
+            # «API 키를 확인하라» 는 안내는 존재하지 않는 키를 찾게 만든다.
+            raise RuntimeError(_err_pollinations(http_failures if not api_reached else [], models))
         if http_failures and not api_reached:
             raise RuntimeError(_err_all_http(http_failures))
         if uncensored:
@@ -1339,6 +1463,21 @@ class BadaPromptGenerator:
                 # slots, so the node stays slim until more images are actually wired in.
                 "image_1": ("IMAGE",), "image_2": ("IMAGE",), "image_3": ("IMAGE",),
                 "image_4": ("IMAGE",), "image_5": ("IMAGE",), "image_6": ("IMAGE",),
+                # Second provider (2026-11-01, round 13). Appended at the **end** of the
+                # optional block on purpose: `widgets_values` is stored by position, and
+                # web/bada_prompt_generator.js keeps unknown/new widgets at the tail
+                # (`reorderToCanonical`), so a workflow saved before this widget exists
+                # shifts nothing and simply lands on the google default.
+                "provider": (list(PROVIDERS), {
+                    "default": PROVIDER_GOOGLE,
+                    "tooltip": "google = your Gemini keys (cascade + rotation). pollinations = free keyless text route (no images, rate limited).",
+                }),
+                # Its own combo, not merged into the Gemini one: resolve_model() and the
+                # popup validate against EXACT_MODEL_IDS and the 404 cache keys Gemini ids.
+                "pollinations_model": (list(POLLINATIONS_MODELS), {
+                    "default": POLLINATIONS_DEFAULT_MODEL,
+                    "tooltip": "Used only when Provider is 'pollinations'. Ignored on the Google route.",
+                }),
             },
             "hidden": {"unique_id": "UNIQUE_ID"},
         }
@@ -1369,8 +1508,14 @@ class BadaPromptGenerator:
     def generate(self, enhance=True, uncensored=True, target=None, submenu=None,
                  request_text="", duration=10, aspect_ratio="", image_1=None, image_2=None,
                  image_3=None, image_4=None, image_5=None, image_6=None, unique_id=None,
-                 ui_language="en", **kwargs):
+                 ui_language="en", provider=PROVIDER_GOOGLE, pollinations_model="", **kwargs):
         ui_language = "ko" if ui_language == "ko" else "en"
+        # Provider ids are stored in workflow JSON -> they are never translated, and an
+        # unknown/legacy value falls back to google (= the behaviour before this widget).
+        provider = str(provider or PROVIDER_GOOGLE).strip().lower()
+        if provider not in PROVIDERS:
+            provider = PROVIDER_GOOGLE
+        pollinations_model = str(pollinations_model or "").strip() or POLLINATIONS_DEFAULT_MODEL
         # Unknown / legacy values are ignored rather than forwarded: the directive builder
         # validates against the shared choice list anyway.
         aspect_ratio = str(aspect_ratio or "").strip()
@@ -1420,12 +1565,29 @@ class BadaPromptGenerator:
                                "더 붙어 있는 이미지는 무시되고 첫 한장만 사용됩니다.")
             toasts.append({"level": "warn", "msg": msg})
 
-        if used_tensors:
+        if used_tensors and provider == PROVIDER_POLLINATIONS:
+            # The keyless route has no image channel: build_messages() keeps text turns
+            # only (the anonymous tier reports vision: false), so claiming the images were
+            # analysed would be a lie.
+            toasts.append({"level": "warn",
+                           "msg": _ui_text(
+                               ui_language,
+                               f"⚠️ Pollinations is text-only: {len(used_tensors)} attached image(s) were NOT analysed. Switch Provider to 'google' for image references.",
+                               f"⚠️ Pollinations 는 텍스트 전용이라 첨부 이미지 {len(used_tensors)}장을 분석하지 않았습니다. 이미지 참조는 Provider 를 google 로 쓰세요.")})
+        elif used_tensors:
             # Visible proof that the images really travelled into the request.
             toasts.append({"level": "info",
                            "msg": _ui_text(ui_language,
                                            f"📎 {len(used_tensors)} reference image(s) included in analysis",
                                            f"📎 참조 이미지 {len(used_tensors)}장 분석에 포함")})
+        if provider == PROVIDER_POLLINATIONS:
+            # Free + keyless is the one case where "no API key" is not an error, so say
+            # which engine answered before the user starts looking for a quota.
+            toasts.append({"level": "info",
+                           "msg": _ui_text(
+                               ui_language,
+                               f"🌐 Pollinations ({pollinations_model}) free keyless route - rate limited, no Gemini quota used",
+                               f"🌐 Pollinations({pollinations_model}) 무료 비키 경로 — 레이트 제한만 있으며 Gemini 쿼터를 쓰지 않습니다")})
 
         # ---- enhance OFF -> passthrough (zero API calls) ------------------
         if not enhance:
@@ -1440,7 +1602,7 @@ class BadaPromptGenerator:
             )
 
         api_keys = resolve_api_keys()
-        if not api_keys:
+        if not api_keys and provider != PROVIDER_POLLINATIONS:
             raise RuntimeError(
                 "Gemini API key not found. Enter it in the node's API Key field and "
                 "select Check, or save api_key in config.json."
@@ -1454,7 +1616,8 @@ class BadaPromptGenerator:
         # produces a new key -> fresh API call.
         cache_key = result_cache_key(registry, target_obj, submenu_obj, request_text,
                                      used_tensors, duration=int(duration or 10),
-                                     uncensored=bool(uncensored), aspect_ratio=aspect_ratio)
+                                     uncensored=bool(uncensored), aspect_ratio=aspect_ratio,
+                                     provider=provider, pollinations_model=pollinations_model)
         cached = cache_lookup(cache_key)
         if cached:
             toasts.append({"level": "info",
@@ -1467,7 +1630,8 @@ class BadaPromptGenerator:
         prompt, wh_ratio, pass_used, model_used, warnings = run_prompt_pipeline(
             registry, target_obj, submenu_obj, request_text, used_tensors, api_keys,
             duration=int(duration or 10), uncensored=bool(uncensored), ui_language=ui_language,
-            aspect_ratio=aspect_ratio,
+            aspect_ratio=aspect_ratio, provider=provider,
+            pollinations_model=pollinations_model,
         )
 
         for warning in warnings:
@@ -1480,7 +1644,13 @@ class BadaPromptGenerator:
                                  f"⚠️ Pass {pass_used} 폴백으로 생성" + (" (이미지 포함)" if used_tensors else ""))})
 
         if not prompt:
-            raise RuntimeError("Gemini returned an empty prompt. Please make your request more specific.")
+            # Two different explanations: "the free model wrote nothing usable" is not
+            # "make your request more specific", and only the first one is actionable.
+            if provider == PROVIDER_POLLINATIONS:
+                raise RuntimeError("Pollinations returned no usable prompt. Try another "
+                                   "Pollinations model or set Provider back to google.")
+            raise RuntimeError("Gemini returned an empty prompt. Please make your request "
+                               "more specific.")
 
         cache_store(cache_key, prompt, wh_ratio)
 
