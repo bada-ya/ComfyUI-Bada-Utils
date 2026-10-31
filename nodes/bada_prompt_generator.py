@@ -89,8 +89,11 @@ JSON_API_HEADERS = {
     "Client-Version": "1.52.7",
 }
 
-PRIMARY_MODEL_TIMEOUT = 8
-FALLBACK_MODEL_TIMEOUT = 5
+# 모델별 요청 타임아웃은 server/gemini_api.py::MODEL_TIMEOUTS 가 단일 출처다 (2026-11-01
+# 실측: 3.5-flash-lite 8s / 3.1-flash-lite 12s / 3-flash-preview 12s / 3.6-flash 25s).
+# 옛 PRIMARY(8s)/FALLBACK(5s) 2단 고정값은 느린 모델(3.6-flash p50 13s)을 5초에 잘라
+# 포화 시마다 타임아웃으로 죽이는 원인이라 폐기했다.
+FALLBACK_MODEL_TIMEOUT = 12  # 모델명을 모르는 경우의 기본값
 
 MAX_IMAGE_EDGE = 1536  # keep inline payloads small while preserving caption fidelity
 # Gemini's inline_data is the bandwidth bottleneck for multi-image runs. A 1536px PNG
@@ -127,8 +130,13 @@ try:  # normal package import (ComfyUI loads custom nodes as packages)
         SAFETY_SETTINGS_BLOCK_NONE,
         build_aspect_ratio_directive,
         build_engine_system_instruction,
+        is_model_dead,
         is_refusal_response,
+        key_cascade,
+        key_start_delay_s,
+        mark_model_dead,
         model_cascade,
+        model_timeout,
         split_english_and_korean,
     )
 except Exception:  # pragma: no cover - fallback for flat module loading
@@ -147,6 +155,11 @@ except Exception:  # pragma: no cover - fallback for flat module loading
     PASS2_SYSTEM = _shared.PASS2_SYSTEM
     PASS3_SYSTEM = _shared.PASS3_SYSTEM
     model_cascade = _shared.model_cascade
+    model_timeout = _shared.model_timeout
+    key_cascade = _shared.key_cascade
+    key_start_delay_s = _shared.key_start_delay_s
+    mark_model_dead = _shared.mark_model_dead
+    is_model_dead = _shared.is_model_dead
 
 # Verified fast-variant cascade — single source of truth lives in server/gemini_api.py
 # (EXACT_MODELS). Kept as an alias so _candidate_models() reads naturally.
@@ -288,8 +301,13 @@ def resolve_model(registry: dict) -> str:
         if os.path.exists(CONFIG_FILE):
             with open(CONFIG_FILE, "r", encoding="utf-8") as fh:
                 model = (json.load(fh).get("default_model") or "").strip()
-            if model:
+            # config.json 은 옛 버전이 죽은 모델명(gemini-3.8-flash 등)으로 쓴 적이 있다.
+            # 그런 값을 그대로 주면 캐스케이드가 매 생성마다 그 모델부터 시도하고 실패한다
+            # (429 는 404 퇴장 캐시로도 막히지 않는다) — 라인업 밖이면 버린다.
+            if model in EXACT_MODEL_IDS:
                 return model
+            if model:
+                logger.warning("[BadaPromptGen] Ignoring retired default_model: %s", model)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[BadaPromptGen] Could not read config.json for the model: %s", exc)
     return str((registry or {}).get("gemini_model") or "gemini-3.5-flash-lite").strip()
@@ -425,8 +443,8 @@ def _extract_candidate_text(body) -> tuple:
 
 
 def _candidate_models(primary: str, mode: str | None = None) -> list:
-    """모드(속도/균형/품질)별 캐스케이드. mode=None 이면 기존 동작(primary → 전체 순환)."""
-    return model_cascade(primary, mode=mode)
+    """primary 우선 캐스케이드. «속도/균형/품질» 모드는 폐기되어 `mode` 는 무시된다."""
+    return model_cascade(primary)
 
 
 # ---------------------------------------------------------------------------
@@ -704,9 +722,15 @@ def _ui_text(ui_language, english, korean):
 # ─── 다중 키 스태거드 레이스: 단일 키에 대한 3-Pass 캐스케이드 실행 ───
 def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: str,
                      user_text: str, images_b64: list, schema, uncensored: bool,
-                     submenu: dict, model_mode: str | None = None) -> dict:
+                     submenu: dict, model_mode: str | None = None,
+                     solo: bool = False) -> dict:
     """
     단일 API 키로 전체 3-Pass 캐스케이드를 순차 실행.
+
+    `models` 는 이 키전용 캐스케이드다 — 노드는 키 개수별 순서를 key_cascade() 로 받는다.
+    `solo` 는 이 키가 모델 하나만 담당할 때(키 4개 배치)로, 3.6-flash 키가 25초 패스를
+    겹쳐 달리지 않도록 PASS2·3 를 넘긴다(다른 키가 같은 요청을 이미 3-Pass 로 시도한다).
+    «속도/균형/품질» 모드(`model_mode`)는 폐기되어 무시한다.
 
     Returns:
         {
@@ -746,14 +770,22 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
         reached = (status == 200)
         return status, body, reached
 
+    def _note_failure(model, status, body, where):
+        """404 는 프로세스 전체가 잊지 않도록 기록하고, 실패 진단은 누적한다."""
+        http_failures.append((model, _http_failure_detail(status, body)))
+        if status == 404:
+            mark_model_dead(model, f"Key {key_index} {where} HTTP 404")
+        return status in (429, 503)
+
     # ---- PASS 1: direct master compilation -------------------------------------
-    for model_index, model in enumerate(models):
-        timeout = PRIMARY_MODEL_TIMEOUT if model_index == 0 else FALLBACK_MODEL_TIMEOUT
-        status, body, reached = _try_model(model, system_text, True, 0.75, timeout)
+    for model in models:
+        if is_model_dead(model):
+            logger.info("[BadaPromptGen][Key %d][Pass 1] skipping retired model %s", key_index, model)
+            continue
+        status, body, reached = _try_model(model, system_text, True, 0.75, model_timeout(model))
         if status != 200:
             logger.warning("[BadaPromptGen][Key %d][Pass 1] %s -> HTTP %s", key_index, model, status)
-            http_failures.append((model, _http_failure_detail(status, body)))
-            if status in (429, 503):
+            if _note_failure(model, status, body, "Pass 1"):
                 exhausted = True
             continue
         api_reached = True
@@ -768,14 +800,22 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
             logger.warning("[BadaPromptGen][Key %d][Pass 1] %s returned a refusal -> Pass 2", key_index, model)
             break
 
+    # PASS2·3 은 «실제로 검열당했다» 고 확인할 때만 돈다. PASS1 이 HTTP 200 을 한 번도 못
+    # 받았다면 네트워크/인증/쿼터 문제라, 같은 실패를 3번 겹쳐 쿼터만 태운다 (9회 → 3회).
+    if uncensored and solo and not api_reached:
+        logger.info("[BadaPromptGen][Key %d] solo key never reached the API — dropping this key", key_index)
+        return {"ok": False, "text": "", "model": "", "pass_used": 0,
+                "key": api_key, "reached": api_reached, "http_failures": http_failures, "exhausted": exhausted}
+
     # ---- PASS 2: 3D VFX technical override (images stay attached) -----------
-    if uncensored:
+    if uncensored and api_reached and not solo:
         system_p2 = PASS2_SYSTEM + "\n\n" + system_text
         for model in models:
-            status, body, reached = _try_model(model, system_p2, bool(images_b64), 0.5, FALLBACK_MODEL_TIMEOUT)
+            if is_model_dead(model):
+                continue
+            status, body, reached = _try_model(model, system_p2, bool(images_b64), 0.5, model_timeout(model))
             if status != 200:
-                http_failures.append((model, _http_failure_detail(status, body)))
-                if status in (429, 503):
+                if _note_failure(model, status, body, "Pass 2"):
                     exhausted = True
                 continue
             api_reached = True
@@ -785,15 +825,16 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
                         "key": api_key, "reached": True, "http_failures": http_failures, "exhausted": exhausted}
 
     # ---- PASS 3: cinematic metaphor bridge -------------------------------------
-    if uncensored:
+    if uncensored and api_reached and not solo:
         system_p3 = PASS3_SYSTEM
         if schema:
             system_p3 += _json_directive((submenu or {}).get("output_fields") or ["rewritten_prompt"])
         for model in models:
-            status, body, reached = _try_model(model, system_p3, bool(images_b64), 0.8, FALLBACK_MODEL_TIMEOUT)
+            if is_model_dead(model):
+                continue
+            status, body, reached = _try_model(model, system_p3, bool(images_b64), 0.8, model_timeout(model))
             if status != 200:
-                http_failures.append((model, _http_failure_detail(status, body)))
-                if status in (429, 503):
+                if _note_failure(model, status, body, "Pass 3"):
                     exhausted = True
                 continue
             api_reached = True
@@ -810,6 +851,9 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
                         duration: int = 10, uncensored: bool = True, ui_language: str = "en",
                         aspect_ratio: str = "", model_mode: str | None = None):
     """Execute the generation pipeline with multi-key staggered race.
+
+    `model_mode`(속도/균형/품질)는 2026-11-01 폐기되어 받아도 무시한다 — 옛 호출·옛
+    워크플로가 그대로 돌아갈 수 있게 자리만 남겼다. 캐스케이드는 활성 «키 개수» 가 정한다.
 
     Returns `(prompt, wh_ratio, pass_used, model_used, warnings)`.
     Raises `RuntimeError` when every candidate model fails (or refusal without the
@@ -832,34 +876,43 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
     user_text = build_user_prompt(request_text, target, submenu, image_count)
     schema = _schema_for(submenu)
 
-    models = _candidate_models(resolve_model(registry), mode=model_mode)
+    models = _candidate_models(resolve_model(registry))
 
     # --- 키가 1개면 기존 순차 로직(스태거 없음) 유지 ---
     if len(api_keys) <= 1:
         return _run_sequential(registry, target, submenu, request_text, used_tensors, api_keys,
-                               duration, uncensored, ui_language, aspect_ratio, model_mode,
+                               duration, uncensored, ui_language, aspect_ratio,
                                system_text, user_text, images_b64, schema, models, warnings)
 
-    # --- 2개 이상: 스태거드 레이스 (최대 4개 키) ---
-    active_keys = api_keys[:4]  # 최대 4개까지만
-    logger.info("[BadaPromptGen] Staggered race start: %d keys, models=%s", len(active_keys), models)
+    # --- 2개 이상: 키 개수별 캐스케이드로 스태거드 레이스 (최대 4개 키) -------
+    # 어떤 키가 어떤 모델을 맡을지는 key_cascade() 가 키 «개수» 로 결정한다 (4개 = 각 모델
+    # 단독, 그 이하 서로 백업). 출발 지연은 key_start_delay_s: 0s / 1s / 2s / 0s —
+    # 4번째 키는 3.6-flash 단독이라 늦추면 안 된다(가장 느린 모델 + 25초 상한).
+    active_keys = api_keys[:4]
+    key_count = len(active_keys)
+    key_models = [key_cascade(idx, key_count) for idx in range(key_count)]
+    logger.info("[BadaPromptGen] Staggered race start: %d keys — %s", key_count,
+                ", ".join(f"key{idx}({'+'.join(key_models[idx])}@"
+                          f"{key_start_delay_s(idx)}s)" for idx in range(key_count)))
 
     # 전체 레이스를 위한 공통 상태 수집용
     all_http_failures = []
     any_reached = False
 
-    # 각 키별 퓨처 제출 (스태거드 시작: 0s, 1s, 2s, 3s)
+    # 각 키별 퓨처 제출 (키별 캐스케이드 + 스태거드 출발)
     futures = []
     for idx, key in enumerate(active_keys):
-        # 스태거드 지연: 각 키를 별도 스레드에서 지연 후 실행
-        def make_task(key, idx):
+        # 지연·모델 목록을 클로저 늦은 바인딩으로 물지 않게 인자로 받아 넘긴다.
+        def make_task(key, idx, models_for_key, delay_s):
             def task():
-                if idx > 0:
-                    time.sleep(idx)  # 1초, 2초, 3초 지연
-                return _cascade_one_key(key, idx, models, system_text, user_text,
-                                        images_b64, schema, uncensored, submenu, model_mode)
+                if delay_s > 0:
+                    time.sleep(delay_s)
+                return _cascade_one_key(key, idx, models_for_key, system_text, user_text,
+                                        images_b64, schema, uncensored, submenu,
+                                        solo=len(models_for_key) == 1)
             return task
-        future = _KEY_RACE_POOL.submit(make_task(key, idx))
+        future = _KEY_RACE_POOL.submit(make_task(key, idx, key_models[idx],
+                                                 key_start_delay_s(idx)))
         futures.append(future)
 
     # first-wins: 최초로 ok=True인 결과 채택, 60초 타임아웃
@@ -934,7 +987,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
 # ─── 기존 순차 실행 로직 (키 1개일 때 호환용) ───
 def _run_sequential(registry, target, submenu, request_text, used_tensors, api_keys,
                     duration: int, uncensored: bool, ui_language: str, aspect_ratio: str,
-                    model_mode: str | None, system_text: str, user_text: str,
+                    system_text: str, user_text: str,
                     images_b64: list, schema, models: list, warnings: list):
     """키가 1개일 때 사용하는 기존 순차 실행 로직 (동작 보장용)."""
     http_failures = []
@@ -971,6 +1024,9 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
                 )
                 if status == 200:
                     return status, body, current_key
+                elif status == 404:
+                    # 모델 자체가 없는 계정에서 키를 소진 취급할 이유는 없다 — 그냥 넘어간다.
+                    mark_model_dead(model, "HTTP 404")
                 elif status in (429, 503):
                     exhausted_keys.add(key_index)
                     logger.warning(f"[BadaPromptGen] 키 소진 표시: idx={key_index}")
@@ -982,9 +1038,11 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
     result_text, model_used, pass_used = "", "", 1
 
     # PASS 1
-    for model_index, model in enumerate(models):
-        timeout = PRIMARY_MODEL_TIMEOUT if model_index == 0 else FALLBACK_MODEL_TIMEOUT
-        status, body, used_key = _try_key(model, system_text, True, 0.75, timeout=timeout)
+    for model in models:
+        if is_model_dead(model):
+            logger.info("[BadaPromptGen][Pass 1] skipping retired model %s", model)
+            continue
+        status, body, used_key = _try_key(model, system_text, True, 0.75, timeout=model_timeout(model))
         if status != 200:
             logger.warning("[BadaPromptGen][Pass 1] %s -> HTTP %s", model, status)
             http_failures.append((model, _http_failure_detail(status, body)))
@@ -1001,12 +1059,15 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
             logger.warning("[BadaPromptGen][Pass 1] %s returned a refusal -> Pass 2", model)
             break
 
-    # PASS 2
-    if not result_text and uncensored:
+    # PASS 2 — PASS1 이 한 번도 HTTP 200 을 못 받았으면(=거부가 아닌 전송/쿼터 실패)
+    # 같은 실패를 3번 겹치지 않도록 건넌다. 404·429·타임아웃에 3배로 시달리던 문제.
+    if not result_text and uncensored and api_reached:
         pass_used = 2
         system_p2 = PASS2_SYSTEM + "\n\n" + system_text
         for model in models:
-            status, body, used_key = _try_key(model, system_p2, bool(images_b64), 0.5, timeout=FALLBACK_MODEL_TIMEOUT)
+            if is_model_dead(model):
+                continue
+            status, body, used_key = _try_key(model, system_p2, bool(images_b64), 0.5, timeout=model_timeout(model))
             if status != 200:
                 http_failures.append((model, _http_failure_detail(status, body)))
                 continue
@@ -1017,13 +1078,15 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
                 break
 
     # PASS 3
-    if not result_text and uncensored:
+    if not result_text and uncensored and api_reached:
         pass_used = 3
         system_p3 = PASS3_SYSTEM
         if schema:
             system_p3 += _json_directive((submenu or {}).get("output_fields") or ["rewritten_prompt"])
         for model in models:
-            status, body, used_key = _try_key(model, system_p3, bool(images_b64), 0.8, timeout=FALLBACK_MODEL_TIMEOUT)
+            if is_model_dead(model):
+                continue
+            status, body, used_key = _try_key(model, system_p3, bool(images_b64), 0.8, timeout=model_timeout(model))
             if status != 200:
                 http_failures.append((model, _http_failure_detail(status, body)))
                 continue
@@ -1224,16 +1287,6 @@ class BadaPromptGenerator:
         registry = load_registry()
         toasts = []
 
-        # 모델 모드 (속도/균형/품질) 를 config.json 에서 읽음
-        model_mode = "균형"
-        try:
-            if os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, "r", encoding="utf-8") as fh:
-                    _cfg = json.load(fh)
-                    model_mode = (_cfg.get("model_mode") or "균형").strip()
-        except Exception:
-            pass
-
         target_obj = resolve_target(registry, target)
         submenu_obj = resolve_submenu(target_obj, submenu)
 
@@ -1334,7 +1387,7 @@ class BadaPromptGenerator:
         prompt, wh_ratio, pass_used, model_used, warnings = run_prompt_pipeline(
             registry, target_obj, submenu_obj, request_text, used_tensors, api_keys,
             duration=int(duration or 10), uncensored=bool(uncensored), ui_language=ui_language,
-            aspect_ratio=aspect_ratio, model_mode=model_mode,
+            aspect_ratio=aspect_ratio,
         )
 
         for warning in warnings:

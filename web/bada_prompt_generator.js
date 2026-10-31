@@ -37,16 +37,8 @@ const KEYS_LS = "bada_gemini_api_keys";
 const DISABLED_LS = "bada_gemini_api_disabled";
 const MODEL_LS = "bada_gemini_model";
 
-// 모델 모드 (속도/균형/품질) — 값은 `server/gemini_api.py:MODE_CASCADES` 의 키와 문자열까지
-// 같아야 하는 기호 값이다. 화면 언어가 영어여도 저장 값은 한국어 리터럴로 남는다
-// (config.json·localStorage 가 그 형태로 이미 쌓여 있어 번역하면 옛 설정이 풀린다).
-// 이 셋을 고르면 새 서버 쪽 캐스케이드 표도 함께 고쳐야 한다.
-const MODE_LS = "bada_gemini_model_mode";
-const MODE_CHOICES = ["속도", "균형", "품질"];
-const MODE_DEFAULT = "균형";
-// 값 → 사전 키. `dataset.i18n` 에는 이 쪽의 실제 키 이름만 넣는다 («mode_» + 값 을 이어 붙이면
-// pg_mode_속도 같은 없는 키가 나와 언어 전환 때 키 이름이 그대로 화면에 뜬다).
-const MODE_LABEL_KEYS = { "속도": "mode_speed", "균형": "mode_balance", "품질": "mode_quality" };
+// («속도/균형/품질» 모델 모드는 2026-11-01 폐기 — 어떤 모델을 탈지는 활성 키 «개수» 가 정한다
+//  (server/gemini_api.py::KEY_CASCADES). 옛 localStorage 값 bada_gemini_model_mode 는 읽지 않는다.)
 
 // D-5 라운드 때 로컬 사전 39키를 전역 사전으로 옮기고, 전역 t() 를 가리던 섀도 t() 도 없앴다.
 // 그 자리에는 지금 pg_* 65키가 들어 있다 — D-5 이후 추가분은 tools/harness_p1h/p43_d5_keys.cjs 의
@@ -229,27 +221,8 @@ function writeModel(value) {
     return model;
 }
 
-// --- 모델 모드 (속도/균형/품질) ---------------------------------------------
-// 노드 헤더의 드롭다운과 ⚙️ 모델 설정 팝업 라디오가 이 한 곳을 함께 본다.
-// 저장된 값이 셋 중 하나가 아니면(옛 버전·직접 편집) 기본 값으로 되돌린다 —
-// 아닌 값을 그대로 두면 서버 캐스케이드 표에 없어서 «뭘로 생성됐는지» 알 수 없어진다.
-function readMode() {
-    const value = (localStorage.getItem(MODE_LS) || "").trim();
-    return MODE_CHOICES.includes(value) ? value : MODE_DEFAULT;
-}
-
-function writeMode(value) {
-    const mode = MODE_CHOICES.includes(value) ? value : MODE_DEFAULT;
-    localStorage.setItem(MODE_LS, mode);
-    return mode;
-}
-
-function modeLabel(mode) {
-    return pgT(MODE_LABEL_KEYS[MODE_CHOICES.includes(mode) ? mode : MODE_DEFAULT]);
-}
-
 let _syncTimer = null;
-function pushToServer(keys, model, mode) {
+function pushToServer(keys, model) {
     // debounce — every keystroke must not hit the server
     clearTimeout(_syncTimer);
     _syncTimer = setTimeout(async () => {
@@ -257,7 +230,6 @@ function pushToServer(keys, model, mode) {
         // 빈 배열도 그대로 보낸다 — 마지막 키를 지웠을 때 config.json 쪽 목록도 비워야 한다.
         if (Array.isArray(keys)) body.api_keys = keys;
         if (model) body.default_model = model;
-        if (mode) body.model_mode = mode;
         // 비활성 목록은 항상 미러링 (재시작·다른 브라우저에서도 유지)
         body.api_disabled = readDisabled();
         if (!Object.keys(body).length) return;
@@ -283,11 +255,6 @@ async function pullFromServer() {
         if (!readModel() && data.default_model) writeModel(data.default_model);
         if (data.api_keys && Array.isArray(data.api_keys)) writeKeys(data.api_keys);
         if (data.api_disabled && Array.isArray(data.api_disabled)) writeDisabled(data.api_disabled);
-        // 서버에는 옛 버전이 남긴 다른 값도 있을 수 있다 → 셋 중 맞는 것만 받아 온다
-        // (아니면 readMode() 이 기본 값으로 되돌리므로 저장이 안 되는 것과 같은 화면이 된다)
-        if (!localStorage.getItem(MODE_LS) && MODE_CHOICES.includes(data.model_mode)) {
-            localStorage.setItem(MODE_LS, data.model_mode);
-        }
         return data;
     } catch (err) {
         return null;
@@ -526,52 +493,15 @@ function openSettingsModal() {
     renderKeys();
     body.appendChild(keysSection);
 
-    const modeSection = el("div", "bpg-settings-section");
-    const modeTitle = el("div", "bpg-settings-section-title", pgT("model_mode"));
-    modeTitle.dataset.i18n = "model_mode";
-    modeSection.appendChild(modeTitle);
-
-    const modeRadioWrap = el("div", "bpg-settings-mode-radio");
-    const modes = MODE_CHOICES.map((value) => ({ value, label: pgT(MODE_LABEL_KEYS[value]) }));
-
-    // 헤더 드롭다운과 같은 저장 값을 본다 (여기서 저장하면 헤더도 즉시 따라간다)
-    const currentMode = readMode();
-
-    for (const m of modes) {
-        const radioWrap = el("div", "bpg-settings-radio-item");
-        const radio = el("input", "bpg-settings-radio");
-        radio.type = "radio";
-        radio.name = "bpg_model_mode";
-        radio.value = m.value;
-        if (m.value === currentMode) radio.checked = true;
-        const radioLabel = el("span", "bpg-settings-radio-label", m.label);
-        radioLabel.dataset.i18n = MODE_LABEL_KEYS[m.value];
-        radioWrap.append(radio, radioLabel);
-        radioWrap.addEventListener("click", () => {
-            radio.checked = true;
-        });
-        modeRadioWrap.appendChild(radioWrap);
-    }
-
-    modeSection.appendChild(modeRadioWrap);
-    body.appendChild(modeSection);
+    // («속도/균형/품질» 모델 모드 섹션은 2026-11-01 폐기 — 캐스케이드는 활성 키 «개수» 가 정한다)
 
     const foot = el("div", "bpg-settings-foot");
     const saveBtn = el("button", "bpg-settings-btn-save", pgT("save_settings"));
     saveBtn.type = "button";
     saveBtn.dataset.i18n = "save_settings";
     saveBtn.addEventListener("click", () => {
-        const radios = overlay.querySelectorAll('input[name="bpg_model_mode"]');
-        let selected = "균형";
-        for (const r of radios) {
-            if (r.checked) {
-                selected = r.value;
-                break;
-            }
-        }
-        const mode = writeMode(selected);
-        pushToServer(readKeys(), readModel(), mode);
-        refreshHeaderState(); // 헤더의 «속도/균형/품질» 드롭다운도 이 값으로
+        pushToServer(readKeys(), readModel());
+        refreshHeaderState(); // 헤더의 «API Key = n개» 도 이 저장 직후 갱신
         showToast(pgT("settings_saved"), "ok", 2500);
         overlay.remove();
     });
@@ -667,37 +597,12 @@ function buildHeader(node, widgets) {
     const root = el("div", "bpg-root");
     swallow(root);
 
-    // -- 모델 모드 줄 (예전 «모델 이름» 선택 자리) ----------------------------
-    // 이 자리는 한때 모델 이름을 고르는 드롭다운이었다. 그런데 노드·서버 둘 다
-    // 모드 캐스케이드(server/gemini_api.py:model_cascade) 가 속도/균형/품질 셋 중 하나로
-    // 항상 해석하므로, 여기서 고른 모델 이름은 생성 결과에 전혀 닿지 않았다(죽은 컨트롤).
-    // 같은 자리에서 이제 모드를 고른다. ⚙️ 모델 설정 팝업의 라디오와 같은 값을 공유한다.
+    // -- 모델/키 상태 줄 -------------------------------------------------------
+    // 이 자리에는 한때 «모델 이름» 드롭다운, 이어서 «속도/균형/품질» 모드 드롭다운이 있었다.
+    // 둘 다 지웠다(2026-11-01): 노드는 활성 키 «개수» 가 모델 캐스케이드를 정하므로
+    // (server/gemini_api.py::KEY_CASCADES) 여기서 고르는 값이 생성 결과에 닿지 않는 죽은
+    // 컨트롤이었다. 남는 것은 키 개수 안내와 ⚙️ 설정 버튼뿐이다.
     const row2 = el("div", "bpg-row");
-    const modeSel = el("select", "bpg-select");
-
-    function fillModes() {
-        modeSel.innerHTML = "";
-        for (const value of MODE_CHOICES) {
-            const opt = el("option", null, pgT(MODE_LABEL_KEYS[value]));
-            opt.value = value;
-            modeSel.appendChild(opt);
-        }
-    }
-
-    function renderMode() {
-        if (!modeSel.options.length) fillModes();
-        modeSel.value = readMode();
-        modeSel.title = pgT("mode_tip");
-    }
-
-    modeSel.addEventListener("change", () => {
-        // 사전에 없는 값으로의 저장은 허용하지 않는다 — readMode() 가 기본 값으로 되돌린다
-        const mode = writeMode(modeSel.value);
-        renderMode();
-        pushToServer(undefined, readModel(), mode);
-        refreshHeaderState(); // ⚓ 노드가 여러 개면 다른 노드의 드롭다운도 함께
-        showToast(`${pgT("saved")} · ${modeLabel(mode)}`, "ok", 1800);
-    });
 
     // 활성 키 개수 안내 — 글자만 놓는다(누르는 게 아님). 0개일 때만 경고색.
     const keyCount = el("span", "bpg-keycount");
@@ -714,7 +619,7 @@ function buildHeader(node, widgets) {
     settingsBtn.dataset.i18n = "settings";
     settingsBtn.title = pgT("settings_tip");
     settingsBtn.addEventListener("click", () => openSettingsModal());
-    row2.append(modeSel, keyCount, settingsBtn);
+    row2.append(keyCount, settingsBtn);
     root.appendChild(row2);
 
     // -- toggle + manage row -------------------------------------------------
@@ -923,9 +828,7 @@ function buildHeader(node, widgets) {
         });
         Object.values(cards).forEach((c) => c.paint());
         syncRatio();
-        fillModes();      // <option> 은 [data-i18n] 로 안 잡힌다 → 다시 채운다
-        renderMode();
-        renderKeyCount(); // «API Key = N 개» 도 언어에 따라 다시 쓴다
+        renderKeyCount(); // «API Key = n개» 도 언어에 따라 다시 쓴다
         localize();
         renderTargetButtons();
         renderSubmenuButtons();
@@ -943,16 +846,13 @@ function buildHeader(node, widgets) {
         return onRemoved ? onRemoved.apply(this, arguments) : undefined;
     };
 
-    fillModes();
-    renderMode();
     renderKeyCount();
-    // 서버에는 로컬이 비어 있던 값(모드·키 목록) 이 들어올 수 있다 → 그 뒤 다시 그린다
+    // 서버에는 로컬이 비어 있던 값(키 목록) 이 들어올 수 있다 → 그 뒤 다시 그린다
     pullFromServer().then((data) => {
         if (!data) return;
-        renderMode();
         renderKeyCount();
     });
-    return { root, cards, renderTargetButtons, renderSubmenuButtons, renderMode, renderKeyCount };
+    return { root, cards, renderTargetButtons, renderSubmenuButtons, renderKeyCount };
 }
 
 // ---------------------------------------------------------------------------
@@ -1209,20 +1109,18 @@ function refreshAllNodes() {
         const header = node.__bpgHeader;
         header?.renderTargetButtons?.();
         header?.renderSubmenuButtons?.();
-        header?.renderMode?.();
         header?.renderKeyCount?.();
         if (header?.cards) Object.values(header.cards).forEach((c) => c.paint());
     }
 }
 
-// 모드·활성 키 개수는 모든 ⚓ 노드가 같은 저장 값(localStorage) 을 본다.
+// 활성 키 개수는 모든 ⚓ 노드가 같은 저장 값(localStorage) 을 본다.
 // 그래서 한 노드에서 바꾸거나 팝업에서 키를 늘리면 나머지 노드 헤더도 함께 그린다.
 // (refreshAllNodes() 는 콤보 목록까지 다시 짜는 무거운 작업이라 이 둘만 갱신할 땐 쓰지 않는다)
 function refreshHeaderState() {
     for (const node of app.graph?._nodes || []) {
         if (node.type !== NODE_CLASS) continue;
         const header = node.__bpgHeader;
-        header?.renderMode?.();
         header?.renderKeyCount?.();
     }
 }

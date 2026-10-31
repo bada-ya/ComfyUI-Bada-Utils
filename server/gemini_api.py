@@ -13,6 +13,7 @@ import re
 import json
 import asyncio
 import logging
+import threading
 import aiohttp
 from aiohttp import web
 
@@ -50,46 +51,137 @@ def _registry_store():
         _REGISTRY_STORE = _module
     return _REGISTRY_STORE
 
-# 6 Fast & Robust Verified Gemini Models (실제 Google Gemini 모델명)
+# ── Gemini 모델 라인업 (2026-11-01 실측 확정, 4종만 생존) ────────────────
+# 제외한 모델과 사유는 실 키 4개로 3회 실측해 확정한 것이다(로그 sh_192801736…,
+# sh_1928608ad…, sh_1943344738…):
+#   gemini-2.5-flash / -flash-lite / -pro : 400 NOT_FOUND = 계정에서 영구 사망.
+#       ※ ListModels 는 이 3종을 아직 목록으로 돌려준다(listed but gated) → 목록만 믿으면
+#         안 되고 반드시 generateContent 응답 코드로 판단한다.
+#   gemini-3.8-flash : 무료 티어 «하루 20회»(quotaId …RequestsPerDayPerProjectPerModel-
+#       FreeTier, limit "20", retryDelay ≈ 15시간) + 503 포화 + 60초 무응답. 같은 순간
+#       3.5-flash-lite 은 4/4 HTTP 200 이었으므로 키·네트워크 문제가 아니다.
+#   gemini-2.7-flash : 404로 관측되어 제외.
+# 생존 4종의 무료 티어 실제 한도(분/하루)와 p50 실측 지연:
+#   3.5-flash-lite 1.2s · 3.1-flash-lite 1.9s · 3-flash-preview 3.0s · 3.6-flash 13.0s
+# p95 는 3.1-flash-lite(5.0s) 가 3-flash-preview(3.3s) 보다 나빠 순서가 뒤집히므로,
+# «가장 빠른 하나만» 붙은 키는 3.5-flash-lite 로 고정하고 나머지를 백업으로 물려준다.
 EXACT_MODELS = [
-    {"id": "gemini-3.5-flash-lite", "name": "Gemini 3.5 Flash-Lite (권장 ⭐)", "name_en": "Gemini 3.5 Flash-Lite (Recommended ⭐)", "desc": "1,500회/일 • 최신 초고속 영작/실시간 챗"},
-    {"id": "gemini-3.6-flash", "name": "Gemini 3.6 Flash", "name_en": "Gemini 3.6 Flash", "desc": "1,500회/일 • 표준 올라운더 Flash"},
-    {"id": "gemini-3.8-flash", "name": "Gemini 3.8 Flash", "name_en": "Gemini 3.8 Flash", "desc": "1,500회/일 • 최신 고성능 Flash"},
-    {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "name_en": "Gemini 2.5 Flash", "desc": "가격-성능 비율 최강 • 추론·코딩·과학 작업"},
-    {"id": "gemini-2.5-flash-lite", "name": "Gemini 2.5 Flash-Lite", "name_en": "Gemini 2.5 Flash-Lite", "desc": "가장 빠르고 예산 친화적인 멀티모달 모델"},
-    {"id": "gemini-3.1-flash-lite", "name": "Gemini 3.1 Flash-Lite", "name_en": "Gemini 3.1 Flash-Lite", "desc": "최고 효율 • 저지연·고처리량 작업"},
+    {"id": "gemini-3.5-flash-lite", "name": "Gemini 3.5 Flash-Lite (권장 ⭐)", "name_en": "Gemini 3.5 Flash-Lite (Recommended ⭐)", "desc": "10회/분 • 250회/일 • p50 1.2s 초고속", "max_tokens": 8192, "rpm": 10, "rpd": 250, "timeout_s": 8},
+    {"id": "gemini-3.1-flash-lite", "name": "Gemini 3.1 Flash-Lite", "name_en": "Gemini 3.1 Flash-Lite", "desc": "15회/분 • 300회/일 • p50 1.9s 총량 최대", "max_tokens": 8192, "rpm": 15, "rpd": 300, "timeout_s": 12},
+    {"id": "gemini-3-flash-preview", "name": "Gemini 3 Flash Preview", "name_en": "Gemini 3 Flash Preview", "desc": "10회/분 • 250회/일 • p50 3.0s 균형", "max_tokens": 8192, "rpm": 10, "rpd": 250, "timeout_s": 12},
+    {"id": "gemini-3.6-flash", "name": "Gemini 3.6 Flash", "name_en": "Gemini 3.6 Flash", "desc": "5회/분 • 150회/일 • p50 13.0s(지연 큼)", "max_tokens": 8192, "rpm": 5, "rpd": 150, "timeout_s": 25},
 ]
 
-# Verified fast-variant model IDs — single source of truth for every cascade below.
+# Verified model IDs — single source of truth for every cascade and whitelist below.
 EXACT_MODEL_IDS = [m["id"] for m in EXACT_MODELS]
 
-# 모드별 모델 우선순위 (캐스케이드 순서)
-#   속도: 가벼운 모델 우선 → 빠른 응답
-#   균형: 중간 무게 모델 우선 → 적당한 품질/속도
-#   품질: 무거운 모델 우선 → 높은 품질
-MODE_CASCADES = {
-    "속도": ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
-    "균형": ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"],
-    "품질": ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"],
+# 모델별 요청 타임아웃(초). 전체 레이스 상한과 달리 이것은 «한 번의 HTTP 시도» 상한이다.
+# 느린 모델(3.6-flash)에 짧은 값을 주면 트래픽 포화(503) 시 번번이 타임아웃으로 죽는다.
+MODEL_TIMEOUTS = {m["id"]: int(m.get("timeout_s") or 12) for m in EXACT_MODELS}
+
+
+def model_timeout(model, default=12):
+    """알려진 모델은 실측 기반 타임아웃, 모르는 모델은 기본값. 1초 미만으로 내려가지 않는다."""
+    return max(1, int(MODEL_TIMEOUTS.get(str(model or "").strip(), default)))
+
+
+# 404 = «이 계정에 그 모델은 없음» 이라 다시 시도해도 결과가 바뀌지 않는다.
+# 키×패스만큼 같은 404를 맞으면 그 사이 쿼터와 시간만 날아가므로 프로세스 레벨로 기억한다.
+_DEAD_MODEL_IDS = set()
+_DEAD_MODEL_LOCK = threading.Lock()
+
+
+def mark_model_dead(model, reason=""):
+    """404 를 관측한 모델을 이번 세션(프로세스) 동안 퇴장 처리한다."""
+    model = str(model or "").strip()
+    if not model:
+        return
+    with _DEAD_MODEL_LOCK:
+        fresh = model not in _DEAD_MODEL_IDS
+        _DEAD_MODEL_IDS.add(model)
+    if fresh:
+        logger.warning("[BadaGemini] Model retired (404) this session: %s — %s",
+                       model, reason or "model not found")
+
+
+def is_model_dead(model):
+    with _DEAD_MODEL_LOCK:
+        return str(model or "").strip() in _DEAD_MODEL_IDS
+
+
+def dead_model_ids():
+    with _DEAD_MODEL_LOCK:
+        return sorted(_DEAD_MODEL_IDS)
+
+
+# p50 실측 속도 순서 (가장 빠름 → 가장 느림)
+SPEED_ORDER = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite",
+               "gemini-3-flash-preview", "gemini-3.6-flash"]
+
+# ── 활성 키 개수별 캐스케이드 (2026-11-01 승인 설계) ─────────────────────
+# 키 4개 = 생존 모델 4종과 정확히 맞으니 각 키가 «자기 모델 하나만» 단독 담당한다.
+# 3.6-flash 는 RPM 5 한도가 같은 키에 겹칠 때만 문제가 되므로 단독 배치가 회피책이고,
+# 다른 3개 키가 동시에 달리느라 13초 지연이 가장 빠른 키(1.2s) 에게 가려진다.
+# 키가 3개 이하면 모델이 모자라므로 «자기 모델 → 남의 모델 백업» 순으로 나눠 쓴다.
+MAX_KEYS = 4
+KEY_CASCADES = {
+    1: [["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3-flash-preview"]],
+    2: [["gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.5-flash-lite"],
+        ["gemini-3-flash-preview", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"]],
+    3: [["gemini-3-flash-preview", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"],
+        ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3-flash-preview"],
+        ["gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-3.5-flash-lite"]],
+    4: [["gemini-3.5-flash-lite"], ["gemini-3.1-flash-lite"],
+        ["gemini-3-flash-preview"], ["gemini-3.6-flash"]],
 }
+# 키 인덱스별 출발 지연. 4번째는 3.6-flash 단독이라 늦출 이유가 없다 — 가장 느린 모델이니
+# 오히려 즉시 출발시켜 25초 상한을 확보한다.
+KEY_START_DELAYS_S = [0, 1, 2, 0]
+KEY_RACE_TIMEOUT_S = 60
 
 
-def model_cascade(primary_model, mode=None):
+def key_cascade(key_index, key_count=None):
+    """`key_index` 번 키가 시도할 모델 순서. 캐스케이드는 «활성 키 개수»가 결정한다."""
+    try:
+        idx = int(key_index)
+    except (TypeError, ValueError):
+        idx = 0
+    try:
+        count = int(key_count)
+    except (TypeError, ValueError):
+        count = MAX_KEYS
+    table = KEY_CASCADES.get(count)
+    if not table:
+        # 키가 4개를 넘으면 4종 단독 배치를 순환시키고, 0이면 1개 표를 쓴다.
+        table = KEY_CASCADES[MAX_KEYS if count > MAX_KEYS else 1]
+    return list(table[idx % len(table)])
+
+
+def key_start_delay_s(key_index):
+    """키 인덱스별 출발 지연(초). 0이면 즉시."""
+    try:
+        idx = int(key_index)
+    except (TypeError, ValueError):
+        idx = 0
+    return KEY_START_DELAYS_S[idx % len(KEY_START_DELAYS_S)]
+
+
+def model_cascade(primary_model, mode=None, skip_dead=True):
     """Requested model first, then every verified fast variant (deduped, order kept).
 
-    mode 가 "속도"/"균형"/"품질" 이면 해당 모드의 모델 우선순위를 따릅니다.
-    mode 가 None 이면 기존 동작(primary 모델 → 전체 모델 순환) 을 유지합니다.
+    «속도/균형/품질» 모드는 2026-11-01 폐기됐다. `mode` 는 옛 호출·옛 워크플로가 그대로
+    돌아갈 수 있도록 받기만 하고 무시한다. 노드의 다중 키 경주는 이 함수 대신
+    key_cascade() 를 쓴다 — 키 개수가 순서를 결정하므로 primary 가 앞뒤를 바꾸지 않는다.
     """
     models_to_try = []
-    if mode and mode in MODE_CASCADES:
-        order = MODE_CASCADES[mode]
-        for m in order:
-            if m and m not in models_to_try:
-                models_to_try.append(m)
-    else:
-        for m in [primary_model] + list(EXACT_MODEL_IDS):
-            if m and m not in models_to_try:
-                models_to_try.append(m)
+    for m in [primary_model] + list(SPEED_ORDER):
+        m = str(m or "").strip()
+        if m and m not in models_to_try:
+            models_to_try.append(m)
+    if skip_dead:
+        alive = [m for m in models_to_try if not is_model_dead(m)]
+        if alive:
+            models_to_try = alive
     return models_to_try
 
 
@@ -697,7 +789,7 @@ def register_gemini_api_routes():
                 "masked_keys": masked_keys,
                 "key_count": len(api_keys),
                 "default_model": cfg.get("default_model", "gemini-3.5-flash-lite"),
-                "model_mode": cfg.get("model_mode", "균형"),
+                # «속도/균형/품질» 모드(model_mode)는 2026-11-01 폐기되어 돌아주지 않는다.
                 "api_disabled": cfg.get("api_disabled", []),
                 "models": EXACT_MODELS,
                 "personas": GEM_PERSONAS
@@ -715,9 +807,17 @@ def register_gemini_api_routes():
                 if "api_disabled" in body:
                     new_cfg["api_disabled"] = [k.strip() for k in body["api_disabled"] if isinstance(k, str) and k.strip()]
                 if "default_model" in body:
-                    new_cfg["default_model"] = body["default_model"].strip()
-                if "model_mode" in body:
-                    new_cfg["model_mode"] = body["model_mode"].strip()
+                    # 낡은 프론트·손으로 고친 localStorage 가 죽은 모델(3.8-flash 등) 을 보내면
+                    # 아예 받지 않고 지금 값을 유지한다. 받는 순간 그 뒤 모든 생성이 404/429 를
+                    # 한 바퀴 돈 뒤에야 기본값으로 되돌아오기 때문이다(읽는 쪽의 화이트리스트는
+                    # 마지막 방어선이고, 여기가 그 소모를 막는 자리다).
+                    candidate_model = str(body["default_model"] or "").strip()
+                    if candidate_model in EXACT_MODEL_IDS:
+                        new_cfg["default_model"] = candidate_model
+                    elif candidate_model:
+                        logger.warning("[BadaGemini] Ignoring retired default_model: %s", candidate_model)
+                # «속도/균형/품질» 모드(model_mode)는 2026-11-01 폐기 — 위 switch 가 키를
+                # 항목별로만 복사하므로 옛 프론트가 보내도 저장이 안 된다. 별도 차단 불필요.
                 success = save_server_config(new_cfg)
                 return web.json_response({"success": success})
             except Exception as e:
@@ -796,7 +896,8 @@ def register_gemini_api_routes():
                     }, status=400)
 
                 primary_model = body.get("model") or cfg.get("default_model") or "gemini-3.5-flash-lite"
-                if primary_model not in ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite"]:
+                # 화이트리스트는 EXACT_MODEL_IDS 단일 출처 (옛 중복 하드코딩 2곳 정리)
+                if primary_model not in EXACT_MODEL_IDS:
                     primary_model = "gemini-3.5-flash-lite"
 
                 # --- 다중 API 키 로테이터 초기화 ---
@@ -958,8 +1059,9 @@ def register_gemini_api_routes():
                         config["responseSchema"] = structured_schema
                     return config
 
-                # Models Cascade (mode-aware: 속도 / 균형 / 품질)
-                models_to_try = model_cascade(primary_model, mode=(cfg.get("model_mode") or None))
+                # Models Cascade — primary 우선. «속도/균형/품질» 모드는 2026-11-01 폐기됐다
+                # (무료 티어 한도가 모델마다 다른데 모드 표가 그걸 모르고 죽은 모델로 보냈다).
+                models_to_try = model_cascade(primary_model)
 
                 def build_user_parts(prompt_str, attach_images=True):
                     p_list = []
@@ -1002,14 +1104,35 @@ def register_gemini_api_routes():
                         f"User Raw Scene Directive:\n{instruction or 'Analyze attached image(s) and generate detailed prompt.'}"
                     )
 
+                # 세션 기본값은 «요청마다 timeout 을 깜빡했을 때» 의 안전망일 뿐이다.
+                # aiohttp 는 요청별 timeout 이 세션 값을 덮어쓰므로 아랫줄의 값과 겹치지 않는다.
                 client_timeout = aiohttp.ClientTimeout(total=15)
+
+                def request_timeout(model):
+                    """모델별 실측 타임아웃(8/12/12/25s) — 노드와 같은 표, 같은 값.
+
+                    한때 여기에 «15초 미만으로 내리지 않는다» 는 하한이 있었다. 삭제한 이유:
+                    하한은 필요하지도 않고(요청별 timeout 이 세션 기본값을 대체한다) 실패만
+                    늦춘다. 이 경로(팝업 생성) 는 모델을 «순차» 로 시도하므로 3개 모델이 모두
+                    응답하지 않으면 PASS1 만으로도 15+15+15 = 45초를 태운다. 표를 그대로 쓰면
+                    8+12+12 = 32초로 줄고, 첫 실패 후 다음 모델로 넘어가는 데 1~3초밖에 안 걸린다.
+                    (실측 p95: 3.5-lite 2.4s / 3.1-lite 5.0s / 3-flash 3.25s — 8초라도 p95 의 3배 여유)
+                    """
+                    return aiohttp.ClientTimeout(total=model_timeout(model))
+
                 pass_used = 1
                 successful_model = None
                 raw_result_text = None
+                # PASS1 이 HTTP 200 을 단 한 번도 못 받으면 «검열로 막힌 것»이 아니라 전송·쿼터
+                # 실패다. 그럴 때 PASS2·3 까지 돌리면 같은 오류를 3번 겹쳐서 쿼터만 태운다.
+                api_reached = False
 
                 async with aiohttp.ClientSession(timeout=client_timeout) as session:
                     # PASS 1: Direct Master Compilation with Multi-Model Cascade
                     for model in models_to_try:
+                        if is_model_dead(model):
+                            logger.info("[Pass 1] Skipping retired model %s", model)
+                            continue
                         current_key = key_rotator.current()
                         if not current_key:
                             break
@@ -1024,8 +1147,9 @@ def register_gemini_api_routes():
                         }
 
                         try:
-                            async with session.post(url, json=payload_p1) as resp:
+                            async with session.post(url, json=payload_p1, timeout=request_timeout(model)) as resp:
                                 if resp.status == 200:
+                                    api_reached = True
                                     res_json = await resp.json()
                                     candidates = res_json.get("candidates") or []
                                     candidate = candidates[0] if candidates else {}
@@ -1048,14 +1172,19 @@ def register_gemini_api_routes():
                                         break
                                 else:
                                     logger.warning(f"[Pass 1] Model {model} returned HTTP {resp.status}, trying cascade...")
-                                    if resp.status in (429, 503):
+                                    if resp.status == 404:
+                                        mark_model_dead(model, "Pass 1 HTTP 404")
+                                    elif resp.status in (429, 503):
                                         key_rotator.mark_exhausted(current_key)
                                         key_rotator.advance()
                         except Exception as e_p1:
                             logger.warning(f"[Pass 1] Model {model} failed: {e_p1}")
 
                     # PASS 2: Anti-Censorship 3D VFX Technical Override (Decouple raw binary image triggers if blocked)
-                    if not raw_result_text:
+                    if not raw_result_text and not api_reached:
+                        logger.warning("[BadaGemini] PASS 1 never reached the API (transport/quota only) — "
+                                       "skipping PASS 2/3 instead of repeating the same failures")
+                    if not raw_result_text and api_reached:
                         pass_used = 2
                         deep_override_system = final_system_p1 if engine_mode in ("qwen21", "system_prompt") else PASS2_SYSTEM_BILINGUAL
 
@@ -1066,6 +1195,8 @@ def register_gemini_api_routes():
                         )
 
                         for model2 in models_to_try:
+                            if is_model_dead(model2):
+                                continue
                             current_key = key_rotator.current()
                             if not current_key:
                                 break
@@ -1083,8 +1214,9 @@ def register_gemini_api_routes():
                                 "generationConfig": generation_config(0.5)
                             }
                             try:
-                                async with session.post(url2, json=payload_p2) as resp2:
+                                async with session.post(url2, json=payload_p2, timeout=request_timeout(model2)) as resp2:
                                     if resp2.status == 200:
+                                        api_reached = True
                                         res2_json = await resp2.json()
                                         candidates2 = res2_json.get("candidates") or []
                                         cand2 = candidates2[0] if candidates2 else {}
@@ -1096,19 +1228,23 @@ def register_gemini_api_routes():
                                             break
                                     else:
                                         logger.warning(f"[Pass 2] Model {model2} returned HTTP {resp2.status}, trying cascade...")
-                                        if resp2.status in (429, 503):
+                                        if resp2.status == 404:
+                                            mark_model_dead(model2, "Pass 2 HTTP 404")
+                                        elif resp2.status in (429, 503):
                                             key_rotator.mark_exhausted(current_key)
                                             key_rotator.advance()
                             except Exception as e_p2:
                                 logger.warning(f"[Pass 2] Model {model2} failed: {e_p2}")
 
                     # PASS 3: Hollywood Director Metaphor Bridge
-                    if not raw_result_text:
+                    if not raw_result_text and api_reached:
                         pass_used = 3
                         pass3_system = final_system_p1 if engine_mode in ("qwen21", "system_prompt") else PASS3_SYSTEM_BILINGUAL
                         pass3_prompt = framed_user_prompt if engine_mode in ("qwen21", "system_prompt") else f"[MASTER CINEMATIC SCENE BLUEPRINT]\n{instruction}"
 
                         for model3 in models_to_try:
+                            if is_model_dead(model3):
+                                continue
                             current_key = key_rotator.current()
                             if not current_key:
                                 break
@@ -1123,8 +1259,9 @@ def register_gemini_api_routes():
                                 "generationConfig": generation_config(0.8)
                             }
                             try:
-                                async with session.post(url3, json=payload_p3) as resp3:
+                                async with session.post(url3, json=payload_p3, timeout=request_timeout(model3)) as resp3:
                                     if resp3.status == 200:
+                                        api_reached = True
                                         res3_json = await resp3.json()
                                         candidates3 = res3_json.get("candidates") or []
                                         cand3 = candidates3[0] if candidates3 else {}
@@ -1136,7 +1273,9 @@ def register_gemini_api_routes():
                                             break
                                     else:
                                         logger.warning(f"[Pass 3] Model {model3} returned HTTP {resp3.status}, trying cascade...")
-                                        if resp3.status in (429, 503):
+                                        if resp3.status == 404:
+                                            mark_model_dead(model3, "Pass 3 HTTP 404")
+                                        elif resp3.status in (429, 503):
                                             key_rotator.mark_exhausted(current_key)
                                             key_rotator.advance()
                             except Exception as _ignored_err:
@@ -1211,7 +1350,8 @@ def register_gemini_api_routes():
                     }, status=429)
 
                 model = body.get("model") or cfg.get("default_model") or "gemini-3.5-flash-lite"
-                if model not in ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.1-flash-lite"]:
+                # 채팅도 같은 화이트리스트를 쓴다 (옛 중복 하드코딩 정리)
+                if model not in EXACT_MODEL_IDS:
                     model = "gemini-3.5-flash-lite"
                 messages = body.get("messages", []) # Array of {role: "user"|"model", text: "...", images: [...]}
                 persona_id = body.get("persona", "universal")
@@ -1260,7 +1400,7 @@ def register_gemini_api_routes():
                     "generationConfig": {"temperature": 0.7, "maxOutputTokens": 8192}
                 }
 
-                models_to_try = model_cascade(model, mode=(cfg.get("model_mode") or None))
+                models_to_try = model_cascade(model)
 
                 client_timeout = aiohttp.ClientTimeout(total=45)
                 last_err = "No response"
@@ -1269,6 +1409,8 @@ def register_gemini_api_routes():
 
                 async with aiohttp.ClientSession(timeout=client_timeout) as session:
                     for cur_model in models_to_try:
+                        if is_model_dead(cur_model):
+                            continue
                         current_key = key_rotator.current()
                         if not current_key:
                             break
@@ -1287,7 +1429,9 @@ def register_gemini_api_routes():
                                     err_body = await resp.text()
                                     last_err = f"HTTP {resp.status}: {err_body[:200]}"
                                     logger.warning(f"[bada-AsyncGemini] Chat model {cur_model} failed: {last_err}")
-                                    if resp.status in (429, 503):
+                                    if resp.status == 404:
+                                        mark_model_dead(cur_model, "Chat HTTP 404")
+                                    elif resp.status in (429, 503):
                                         key_rotator.mark_exhausted(current_key)
                                         key_rotator.advance()
                         except Exception as req_e:

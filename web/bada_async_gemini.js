@@ -31,11 +31,15 @@ import { BadaI18n } from "./bada_i18n.js";
     }
 })();
 
-// Exact 7 Models matching bada-ya.github.io
+// Survival line-up, measured 2026-11-01 against real free-tier keys (see server/gemini_api.py).
+// gemini-3.8-flash and the whole 2.5 family are gone: 3.8 is capped at 20 requests/DAY on the
+// free tier (and saturates with 503s), the 2.5s answer 400 NOT_FOUND. A saved choice that is
+// no longer listed falls back to 3.5-flash-lite below, so old workspaces keep working.
 const EXACT_MODELS = [
     { id: "gemini-3.5-flash-lite", nameKey: "gemini_model_flash_lite_name", descKey: "gemini_model_flash_lite_desc" },
+    { id: "gemini-3.1-flash-lite", nameKey: "gemini_model_31lite_name", descKey: "gemini_model_31lite_desc" },
+    { id: "gemini-3-flash-preview", nameKey: "gemini_model_3flash_name", descKey: "gemini_model_3flash_desc" },
     { id: "gemini-3.6-flash", nameKey: "gemini_model_36_name", descKey: "gemini_model_36_desc" },
-    { id: "gemini-3.8-flash", nameKey: "gemini_model_38_name", descKey: "gemini_model_38_desc" },
 ];
 
 // 8 Engine Tabs Specification (2-row layout: row1 KREA/QWEN/MiniMax/LTX/FLUX3/MOSS, row2 system/uncensored)

@@ -113,33 +113,10 @@
     outline-offset: 1px;
 }
 
-.bpg-select {
-    box-sizing: border-box;
-    background: #1c1c1c;
-    border: 1px solid #383838;
-    border-radius: 6px;
-    color: var(--bpg-text);
-    font-size: 11px;
-    padding: 4px 6px;
-    outline: none;
-    min-width: 0;
-}
+/* («속도/균형/품질» 모델 모드 드롭다운과 그 .bpg-select 규칙은 2026-11-01 함께 사라졌다 —
+    노드는 활성 키 개수로 모델을 고르므로 헤더에 선택형 컨트롤이 남아 있을 이유가 없다.) */
 
-.bpg-select:focus {
-    border-color: #666666;
-}
-
-.bpg-row .bpg-select {
-    flex: 0 1 auto;
-    max-width: 250px;
-}
-
-.bpg-select {
-    flex: 1 1 auto;
-    cursor: pointer;
-}
-
-/* 활성 키 개수 안내 (모델 모드 드롭다운 오른쪽) — 읽는 글자이지 누르는 자리가 아니다.
+/* 활성 키 개수 안내 — 읽는 글자이지 누르는 자리가 아니다.
    .bpg-row 의 gap 이 벌려 주므로 margin 은 쓰지 않는다. 0개일 때만 경고색. */
 .bpg-keycount {
     flex: 0 0 auto;
@@ -994,66 +971,8 @@
     border-color: #aaaaaa;
 }
 
-/* --- 모델 모드 ------------------------------------------------------------ */
-.bpg-settings-mode-radio {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-top: 10px;
-}
-
-.bpg-settings-radio-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    background: #232323;
-    border: 1px solid #3a3a3a;
-    border-radius: 10px;
-    cursor: pointer;
-    transition: border-color 0.14s ease, background 0.14s ease;
-}
-
-.bpg-settings-radio-item:hover {
-    border-color: #666666;
-}
-
-.bpg-settings-radio-item input[type="radio"] {
-    appearance: none;
-    -webkit-appearance: none;
-    position: relative;
-    flex: 0 0 auto;
-    margin: 0;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: 2px solid #666666;
-    background: #141414;
-    cursor: pointer;
-    transition: border-color 0.12s ease;
-}
-
-.bpg-settings-radio-item input[type="radio"]:hover {
-    border-color: #999999;
-}
-
-.bpg-settings-radio-item input[type="radio"]:checked {
-    border-color: #dddddd;
-}
-
-.bpg-settings-radio-item input[type="radio"]:checked::after {
-    content: "";
-    position: absolute;
-    inset: 3px;
-    border-radius: 50%;
-    background: #dddddd;
-}
-
-.bpg-settings-radio-label {
-    font-size: 13.5px;
-    font-weight: 600;
-    color: #dddddd;
-}
+/* («속도/균형/품질» 모델 모드 라디오 섹션과 그 CSS 는 2026-11-01 폐기 — 캐스케이드는
+    활성 키 «개수» 가 정하므로 팝업에 모델 선택 항목을 둘 이유가 없다.) */
 
 /* --- 푸터 ----------------------------------------------------------------- */
 .bpg-settings-foot {
