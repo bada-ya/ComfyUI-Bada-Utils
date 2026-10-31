@@ -37,6 +37,10 @@ const KEYS_LS = "bada_gemini_api_keys";
 const DISABLED_LS = "bada_gemini_api_disabled";
 const MODEL_LS = "bada_gemini_model";
 
+// 활성 키 상한 — server/gemini_api.py::MAX_KEYS 와 같은 값이어야 한다 (KEY_CASCADES 가 1~4 키만
+// 안다). 헤더의 «최대 n개» 와 설정 창 노트가 이 상수를 채워 넣으므로 숫자를 여러 곳에 박지 않는다.
+const KEY_CAP = 4;
+
 // («속도/균형/품질» 모델 모드는 2026-11-01 폐기 — 어떤 모델을 탈지는 활성 키 «개수» 가 정한다
 //  (server/gemini_api.py::KEY_CASCADES). 옛 localStorage 값 bada_gemini_model_mode 는 읽지 않는다.)
 
@@ -330,7 +334,10 @@ function openSettingsModal() {
     issueBtn.dataset.i18n = "get_key";
     issueBtn.title = pgT("issue_key_tip");
     issueBtn.addEventListener("click", () => {
-        window.open("https://aistudio.google.com/app/apikey", "_blank", "noopener");
+        // «/app/apikey» 가 아니라 «/app/projects» 로 연다. 무료 한도는 프로젝트 단위로 계산되므로
+        // (실측 429 본문의 quotaId 가 …PerDayPerProjectPerModel…) 새 프로젝트를 만들어 그 안에서
+        // 키를 발급받아야 한도가 따로 돈다. 노트 세 번째 줄의 «+ 새 프로젝트 만들기» 도 이 화면에 있다.
+        window.open("https://aistudio.google.com/app/projects", "_blank", "noopener");
     });
 
     const testBtn = el("button", "bpg-settings-act", pgT("check_all_keys"));
@@ -364,6 +371,18 @@ function openSettingsModal() {
 
     addRow.append(addInput, addConfirmBtn);
     keysSection.appendChild(addRow);
+
+    // 왜 키를 여러 개 넣는지, 키가 없다면 어디서 발급받는지 — 창이 넓은데도 툴팁에 숨겨 두면
+    // 첫 사용자가 동선을 끝까지 스스로 못 끝낸다. 캐스케이드가 «활성 키 개수» 로 모델을 나누는
+    // 설계 자체이므로 이 창에서 가장 중요한 설명이다.
+    // data-i18n 을 붙이지 않는다: 언어 전환 재번역기(footer 근처 :826)는 파라미터 모르고
+    // textContent 를 통째로 덮어쓰므로 {cap}/{get} 자리가 글자로 남게 된다.
+    const note = el("div", "bpg-settings-note");
+    const noteParams = { cap: KEY_CAP, get: pgT("get_key") };
+    for (const noteKey of ["keys_note_cap", "keys_note_project", "keys_note_issue"]) {
+        note.appendChild(el("p", "bpg-settings-note-line", pgT(noteKey, noteParams)));
+    }
+    keysSection.appendChild(note);
 
     function syncServer() {
         pushToServer(readKeys(), readModel());
@@ -609,7 +628,7 @@ function buildHeader(node, widgets) {
 
     function renderKeyCount() {
         const n = enabledKeyCount();
-        keyCount.textContent = pgT("key_count", { n });
+        keyCount.textContent = pgT("key_count", { n, cap: KEY_CAP });
         keyCount.classList.toggle("bpg-keycount--zero", n === 0);
         keyCount.title = pgT("key_count_tip");
     }

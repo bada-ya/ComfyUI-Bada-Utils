@@ -562,7 +562,10 @@ function updateBellBadge() {
                 getKeyBtn.addEventListener("click", (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    window.open("https://aistudio.google.com/app/apikey", "_blank", "noopener,noreferrer");
+                    // 무료 한도는 프로젝트 단위(실측 429 quotaId: …PerDayPerProjectPerModel…)이므로
+                    // 프로젝트 화면에서 새 프로젝트를 만들어 그 안에서 키를 발급받는다.
+                    // bada_prompt_generator.js 의 [발급] 버튼과 같은 주소여야 창마다 동선이 갈라지지 않는다.
+                    window.open("https://aistudio.google.com/app/projects", "_blank", "noopener,noreferrer");
                 });
             }
 

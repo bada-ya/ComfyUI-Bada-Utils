@@ -934,6 +934,23 @@
     display: none;
 }
 
+/* «API 키» 목록 아래 설명 노트 — 값이 아니라 이유를 적는 자리라 본문보다 흐리게.
+   팝업 본문(.bpg-settings-body)은 스크롤되므로 여기서 몇 줄을 써도 창이 커지지 않는다. */
+.bpg-settings-note {
+    margin-top: 10px;
+    color: #9a9a9a;
+    font-size: 12.5px;
+    line-height: 1.55;
+}
+
+.bpg-settings-note p {
+    margin: 0;
+}
+
+.bpg-settings-note p + p {
+    margin-top: 6px;
+}
+
 .bpg-settings-key-input {
     flex: 1 1 auto;
     min-width: 0;

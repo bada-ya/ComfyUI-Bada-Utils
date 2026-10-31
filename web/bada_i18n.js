@@ -1089,8 +1089,15 @@ export const BadaI18n = {
             "pg_key_disabled": "Disabled key",
             // «속도/균형/품질» 모드(pg_model_mode / pg_mode_speed|balance|quality / pg_mode_tip)는
             // 2026-11-01 폐기 — 캐스케이드는 활성 키 «개수» 가 모델을 정하므로 선택 항목이 없다.
-            "pg_key_count": "API Key = {n} (up to 4 allowed)",
+            // {cap} 는 web/bada_prompt_generator.js::KEY_CAP (= server/gemini_api.py::MAX_KEYS) 이 채운다.
+            "pg_key_count": "API Key = {n} (up to {cap} allowed)",
             "pg_key_count_tip": "Enabled keys split the Gemini models and run at the same time — more keys means faster, first answer wins. Manage them in ⚙️ Model Settings.",
+            // ⚙️ 설정 창 «API 키» 섹션 아래 노트 3줄 — {cap}·{get} 은 호출측이 채운다.
+            // {get} 은 발급 단추의 실 라벨(pg_get_key = "Get Key") 을 그대로 심는다 — 그래서 이 문장을 손으로 옮기면 안 된다.
+            // Note: this text must not contain the words Speed / Balance / Quality.
+            "pg_keys_note_cap": "Up to {cap} keys. Enabled keys split the Gemini models and run at the same time, so the first answer to finish is the one used — more keys really is faster.",
+            "pg_keys_note_project": "Keys from separate accounts, or from different projects of one account, go further: the free tier counts every project on its own.",
+            "pg_keys_note_issue": "No key yet? {get} → sign in → \"+ New project\" → give it a name → \"Create project\" → \"Create API key\" → copy the key and paste it here.",
 
             // --- P4-3 D-5 · Gemini 채팅 기록 로컬 사전·인라인 문구 이관 (web/bada_gemini_chat_history.js) · 42키 ---
             "chat_hist_title": "🕐 Chat history",
@@ -2205,8 +2212,14 @@ export const BadaI18n = {
             "pg_key_disabled": "비활성 키",
             // «속도/균형/품질» 모드(pg_model_mode / pg_mode_speed|balance|quality / pg_mode_tip)는
             // 2026-11-01 폐기 — 캐스케이드는 활성 키 «개수» 가 모델을 정하므로 선택 항목이 없다.
-            "pg_key_count": "API Key = {n}개 (최대 4개까지 가능합니다.)",
+            // {cap} 는 web/bada_prompt_generator.js::KEY_CAP (= server/gemini_api.py::MAX_KEYS) 이 채운다.
+            "pg_key_count": "API Key = {n}개 (최대 {cap}개까지 가능합니다.)",
             "pg_key_count_tip": "활성 키가 제미나이 모델을 나눠 맡아 동시에 시도합니다 — 키가 많을수록 빠르고, 먼저 끝낸 결과가 쓰입니다. ⚙️ 모델 설정에서 키를 관리합니다.",
+            // ⚙️ 설정 창 «API 키» 섹션 아래 노트 3줄 — {cap}·{get} 은 호출측이 채운다.
+            // {get} 은 발급 단추의 실 라벨(pg_get_key = "발급") 을 그대로 심는다 — 그래서 이 문장을 손으로 옮기면 안 된다.
+            "pg_keys_note_cap": "최대 {cap}개까지 등록할 수 있습니다. 활성 키가 제미나이 모델을 나눠 맡아 동시에 시도하므로, 키가 많을수록 먼저 끝나는 결과가 쓰여 실제로 더 빠릅니다.",
+            "pg_keys_note_project": "서로 다른 계정, 또는 같은 계정이라도 «다른 프로젝트»의 키를 넣으면 무료 한도가 프로젝트별로 계산되어 한도 소진에 유리합니다.",
+            "pg_keys_note_issue": "키가 없다면 [{get}] → 로그인 → «+ 새 프로젝트 만들기» → 이름을 알맞게 입력 → «프로젝트 만들기» → «키 만들기» → 발급된 키를 복사해 이 창에 붙여 넣기.",
 
             // --- P4-3 D-5 · Gemini 채팅 기록 로컬 사전·인라인 문구 이관 (web/bada_gemini_chat_history.js) · 42키 ---
             "chat_hist_title": "🕐 채팅 기록",
