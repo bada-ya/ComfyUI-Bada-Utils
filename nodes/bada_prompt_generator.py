@@ -122,6 +122,7 @@ try:  # normal package import (ComfyUI loads custom nodes as packages)
         build_aspect_ratio_directive,
         build_engine_system_instruction,
         is_refusal_response,
+        model_cascade,
         split_english_and_korean,
     )
 except Exception:  # pragma: no cover - fallback for flat module loading
@@ -139,6 +140,7 @@ except Exception:  # pragma: no cover - fallback for flat module loading
     EXACT_MODEL_IDS = _shared.EXACT_MODEL_IDS
     PASS2_SYSTEM = _shared.PASS2_SYSTEM
     PASS3_SYSTEM = _shared.PASS3_SYSTEM
+    model_cascade = _shared.model_cascade
 
 # Verified fast-variant cascade — single source of truth lives in server/gemini_api.py
 # (EXACT_MODELS). Kept as an alias so _candidate_models() reads naturally.
@@ -242,6 +244,7 @@ def resolve_api_keys(explicit: str = "") -> list:
     """다중 API 키 목록을 반환. 단일 키도 리스트로 래핑.
 
     우선순위: 명시적 키 > config.json api_keys(리스트) > config.json api_key(단일) > GEMINI_API_KEY(env)
+    `api_disabled` 에 들어 있는 키(모델 설정 팝업에서 체크 해제한 키)는 제외한다.
     """
     if explicit and explicit.strip():
         return [explicit.strip()]
@@ -249,12 +252,18 @@ def resolve_api_keys(explicit: str = "") -> list:
         if os.path.exists(CONFIG_FILE):
             with open(CONFIG_FILE, "r", encoding="utf-8") as fh:
                 cfg = json.load(fh)
+                disabled = cfg.get("api_disabled", [])
+                off = set()
+                if isinstance(disabled, list):
+                    off = {k.strip() for k in disabled if isinstance(k, str) and k.strip()}
                 keys = cfg.get("api_keys", [])
                 if keys and isinstance(keys, list):
-                    return [k.strip() for k in keys if k.strip()]
-                single = cfg.get("api_key", "").strip()
+                    # 목록이 있으면 그 목록이 정답이다 — 전부 비활성이면 빈 목록을 돌려주고
+                    # env 키로 몰래 넘어가지 않는다 (사용자가 끈 키를 쓰지 않기 위해).
+                    return [k.strip() for k in keys if k.strip() and k.strip() not in off]
+                single = (cfg.get("api_key") or "").strip()
                 if single:
-                    return [single]
+                    return [] if single in off else [single]
     except Exception as exc:  # noqa: BLE001
         logger.warning("[BadaPromptGen] Could not read config.json: %s", exc)
     env_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
@@ -409,12 +418,9 @@ def _extract_candidate_text(body) -> tuple:
     return (text, finish)
 
 
-def _candidate_models(primary: str) -> list:
-    ordered = [primary]
-    for model in FALLBACK_MODELS:
-        if model not in ordered:
-            ordered.append(model)
-    return ordered
+def _candidate_models(primary: str, mode: str | None = None) -> list:
+    """모드(속도/균형/품질)별 캐스케이드. mode=None 이면 기존 동작(primary → 전체 순환)."""
+    return model_cascade(primary, mode=mode)
 
 
 # ---------------------------------------------------------------------------
@@ -691,7 +697,7 @@ def _ui_text(ui_language, english, korean):
 
 def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, api_keys,
                         duration: int = 10, uncensored: bool = True, ui_language: str = "en",
-                        aspect_ratio: str = ""):
+                        aspect_ratio: str = "", model_mode: str | None = None):
     """Execute the generation pipeline.
 
     Returns `(prompt, wh_ratio, pass_used, model_used, warnings)`.
@@ -715,7 +721,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
     user_text = build_user_prompt(request_text, target, submenu, image_count)
     schema = _schema_for(submenu)
 
-    models = _candidate_models(resolve_model(registry))
+    models = _candidate_models(resolve_model(registry), mode=model_mode)
 
     def payload(sys_text, attach_images, temperature):
         parts = [{"text": user_text}]
@@ -1014,6 +1020,16 @@ class BadaPromptGenerator:
         registry = load_registry()
         toasts = []
 
+        # 모델 모드 (속도/균형/품질) 를 config.json 에서 읽음
+        model_mode = "균형"
+        try:
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, "r", encoding="utf-8") as fh:
+                    _cfg = json.load(fh)
+                    model_mode = (_cfg.get("model_mode") or "균형").strip()
+        except Exception:
+            pass
+
         target_obj = resolve_target(registry, target)
         submenu_obj = resolve_submenu(target_obj, submenu)
 
@@ -1114,7 +1130,7 @@ class BadaPromptGenerator:
         prompt, wh_ratio, pass_used, model_used, warnings = run_prompt_pipeline(
             registry, target_obj, submenu_obj, request_text, used_tensors, api_keys,
             duration=int(duration or 10), uncensored=bool(uncensored), ui_language=ui_language,
-            aspect_ratio=aspect_ratio,
+            aspect_ratio=aspect_ratio, model_mode=model_mode,
         )
 
         for warning in warnings:

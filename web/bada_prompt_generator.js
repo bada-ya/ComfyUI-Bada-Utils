@@ -33,7 +33,8 @@ function __badaWatchBodyRemount(fn) { __badaBodyWatchers.add(fn); __badaEnsureBo
 const NODE_CLASS = "BadaPromptGenerator";
 const REGISTRY_URL = "/api/bada/promptgen/registry";
 const CONFIG_URL = "/api/bada/gemini/config";
-const KEY_LS = "bada_gemini_api_key";
+const KEYS_LS = "bada_gemini_api_keys";
+const DISABLED_LS = "bada_gemini_api_disabled";
 const MODEL_LS = "bada_gemini_model";
 
 const FALLBACK_MODELS = [
@@ -120,15 +121,90 @@ function showToast(msg, level = "info", ms = 3000) {
 //   localStorage  = browser-side source of truth (shared with Gemini Studio)
 //   config.json   = server-side mirror the queue node reads (resolve_api_key)
 // ---------------------------------------------------------------------------
-function readKey() {
-    return (localStorage.getItem(KEY_LS) || "").trim();
+function readKeys() {
+    try {
+        const raw = localStorage.getItem(KEYS_LS);
+        if (!raw) return [];
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr.filter((k) => k && k.trim()) : [];
+    } catch (_) {
+        return [];
+    }
 }
 
-function writeKey(value) {
-    const key = (value || "").trim();
-    if (key) localStorage.setItem(KEY_LS, key);
-    else localStorage.removeItem(KEY_LS);
-    return key;
+function writeKeys(keys) {
+    const arr = Array.isArray(keys) ? keys.filter((k) => k && k.trim()) : [];
+    if (arr.length) localStorage.setItem(KEYS_LS, JSON.stringify(arr));
+    else localStorage.removeItem(KEYS_LS);
+    return arr;
+}
+
+function addKey(key) {
+    const k = (key || "").trim();
+    if (!k) return readKeys();
+    const cur = readKeys();
+    if (cur.includes(k)) return cur;
+    cur.push(k);
+    writeKeys(cur);
+    return cur;
+}
+
+function removeKey(key) {
+    const k = (key || "").trim();
+    const cur = readKeys().filter((x) => x !== k);
+    writeKeys(cur);
+    return cur;
+}
+
+// --- 키 활성/비활성 -------------------------------------------------------
+// 전체 키 목록은 그대로 두고, "비활성" 목록만 따로 보관한다. config.json 에도
+// 같은 목록을 미러링해 재시작·다른 브라우저에서도 상태가 유지된다.
+function readDisabled() {
+    try {
+        const raw = localStorage.getItem(DISABLED_LS);
+        if (!raw) return [];
+        const arr = JSON.parse(raw);
+        return Array.isArray(arr) ? arr.filter((k) => k && k.trim()) : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function writeDisabled(list) {
+    const arr = Array.isArray(list)
+        ? [...new Set(list.filter((k) => k && k.trim()))]
+        : [];
+    if (arr.length) localStorage.setItem(DISABLED_LS, JSON.stringify(arr));
+    else localStorage.removeItem(DISABLED_LS);
+    return arr;
+}
+
+function isKeyEnabled(key) {
+    return !readDisabled().includes(key);
+}
+
+function setKeyEnabled(key, enabled) {
+    const rest = readDisabled().filter((k) => k !== key);
+    if (!enabled) rest.push(key);
+    return writeDisabled(rest);
+}
+
+// 실제 API 호출에 쓰이는 키 (활성 키만)
+function enabledKeys() {
+    const disabled = readDisabled();
+    return readKeys().filter((k) => !disabled.includes(k));
+}
+
+function maskKey(key) {
+    const k = String(key || "");
+    return k.length > 8 ? k.slice(0, 4) + "••••••••" + k.slice(-4) : "••••••••";
+}
+
+// 이미 등록된 키인지 검사 (대소문자/공백만 다른 것은 같은 키로 간주)
+function findDuplicateKey(key, list = readKeys()) {
+    const k = String(key || "").trim();
+    if (!k) return null;
+    return list.find((x) => String(x || "").trim() === k) || null;
 }
 
 function readModel() {
@@ -142,13 +218,17 @@ function writeModel(value) {
 }
 
 let _syncTimer = null;
-function pushToServer(key, model) {
+function pushToServer(keys, model, mode) {
     // debounce — every keystroke must not hit the server
     clearTimeout(_syncTimer);
     _syncTimer = setTimeout(async () => {
         const body = {};
-        if (typeof key === "string") body.api_key = key;
+        // 빈 배열도 그대로 보낸다 — 마지막 키를 지웠을 때 config.json 쪽 목록도 비워야 한다.
+        if (Array.isArray(keys)) body.api_keys = keys;
         if (model) body.default_model = model;
+        if (mode) body.model_mode = mode;
+        // 비활성 목록은 항상 미러링 (재시작·다른 브라우저에서도 유지)
+        body.api_disabled = readDisabled();
         if (!Object.keys(body).length) return;
         try {
             const res = await fetch(CONFIG_URL, {
@@ -170,6 +250,11 @@ async function pullFromServer() {
         const data = await res.json();
         if (!data || !data.success) return null;
         if (!readModel() && data.default_model) writeModel(data.default_model);
+        if (data.api_keys && Array.isArray(data.api_keys)) writeKeys(data.api_keys);
+        if (data.api_disabled && Array.isArray(data.api_disabled)) writeDisabled(data.api_disabled);
+        if (!localStorage.getItem("bada_gemini_model_mode") && data.model_mode) {
+            localStorage.setItem("bada_gemini_model_mode", data.model_mode);
+        }
         return data;
     } catch (err) {
         return null;
@@ -207,6 +292,267 @@ function keyFailMessage(data) {
     // 문자열이 우연히 걸려 진짜 이유를 지우면 안 되어 길이 제한을 둔다.
     const dup = KEY_FAIL_ECHO_CODES.has(code) || (why.length >= 8 && base.includes(why));
     return why && !dup ? `${base} — ${why}` : base;
+}
+
+// ---------------------------------------------------------------------------
+// 설정 모달 (API 키 다중 관리 + 모델 모드 선택)
+// ---------------------------------------------------------------------------
+function openSettingsModal() {
+    const existing = document.getElementById("bpg-settings-modal");
+    if (existing) existing.remove();
+
+    const overlay = el("div", "bpg-settings-overlay");
+    overlay.id = "bpg-settings-modal";
+
+    const panel = el("div", "bpg-settings-panel");
+
+    const head = el("div", "bpg-settings-head");
+    const headTitle = el("div", "bpg-settings-title", pgT("settings"));
+    headTitle.dataset.i18n = "settings";
+    const headClose = el("button", "bpg-settings-close", "✕");
+    headClose.type = "button";
+    headClose.title = pgT("close");
+    headClose.addEventListener("click", () => overlay.remove());
+    head.append(headTitle, headClose);
+
+    const body = el("div", "bpg-settings-body");
+
+    const keysSection = el("div", "bpg-settings-section");
+
+    // --- 헤더: 🔑 API 키 ........................ [발급] [연결확인] [키 추가]
+    const keysHead = el("div", "bpg-settings-keys-head");
+    const keysTitle = el("div", "bpg-settings-section-title", pgT("api_keys_title"));
+    keysTitle.dataset.i18n = "api_keys_title";
+    const keysActions = el("div", "bpg-settings-keys-actions");
+
+    const issueBtn = el("button", "bpg-settings-act", pgT("get_key"));
+    issueBtn.type = "button";
+    issueBtn.dataset.i18n = "get_key";
+    issueBtn.title = pgT("issue_key_tip");
+    issueBtn.addEventListener("click", () => {
+        window.open("https://aistudio.google.com/app/apikey", "_blank", "noopener");
+    });
+
+    const testBtn = el("button", "bpg-settings-act", pgT("check_all_keys"));
+    testBtn.type = "button";
+    testBtn.dataset.i18n = "check_all_keys";
+
+    const addToggleBtn = el("button", "bpg-settings-act bpg-settings-act--accent", pgT("add_key"));
+    addToggleBtn.type = "button";
+    addToggleBtn.dataset.i18n = "add_key";
+
+    keysActions.append(issueBtn, testBtn, addToggleBtn);
+    keysHead.append(keysTitle, keysActions);
+    keysSection.appendChild(keysHead);
+
+    const keysList = el("div", "bpg-settings-key-items");
+    keysSection.appendChild(keysList);
+
+    // 입력 행 — "키 추가" 를 눌렀을 때만 나타난다.
+    const addRow = el("div", "bpg-settings-add-row");
+    addRow.hidden = true;
+
+    const addInput = el("input", "bpg-settings-key-input");
+    addInput.type = "password";
+    addInput.placeholder = pgT("key_placeholder");
+    addInput.spellcheck = false;
+    addInput.autocomplete = "off";
+
+    const addConfirmBtn = el("button", "bpg-settings-add-confirm", pgT("add"));
+    addConfirmBtn.type = "button";
+    addConfirmBtn.dataset.i18n = "add";
+
+    addRow.append(addInput, addConfirmBtn);
+    keysSection.appendChild(addRow);
+
+    function syncServer() {
+        pushToServer(readKeys(), readModel());
+    }
+
+    function renderKeys() {
+        keysList.replaceChildren();
+        const keys = readKeys();
+        const disabled = readDisabled();
+        if (!keys.length) {
+            keysList.appendChild(el("div", "bpg-settings-key-empty", pgT("keys_empty")));
+            return;
+        }
+        for (const key of keys) {
+            const enabled = !disabled.includes(key);
+            const item = el("div",
+                "bpg-settings-key-item" + (enabled ? "" : " bpg-settings-key-item--off"));
+
+            // 활성/비활성 — 체크하면 ✓ 표시, 다시 누르면 해제
+            const check = el("button", "bpg-settings-key-check", enabled ? "✓" : "");
+            check.type = "button";
+            check.setAttribute("role", "checkbox");
+            check.setAttribute("aria-checked", String(enabled));
+            check.title = pgT(enabled ? "key_disable_tip" : "key_enable_tip");
+            check.addEventListener("click", () => {
+                setKeyEnabled(key, !enabled);
+                renderKeys();
+                syncServer();
+            });
+
+            const label = el("span", "bpg-settings-key-masked", maskKey(key));
+            label.title = enabled ? key : pgT("key_disabled");
+
+            // 눈 — 마스킹 ↔ 전체 키
+            let revealed = false;
+            const eye = el("button", "bpg-settings-key-eye", "👁");
+            eye.type = "button";
+            eye.title = pgT("show_key");
+            eye.addEventListener("click", () => {
+                revealed = !revealed;
+                label.textContent = revealed ? key : maskKey(key);
+                eye.textContent = revealed ? "🙈" : "👁";
+                eye.title = pgT(revealed ? "hide_key" : "show_key");
+                eye.classList.toggle("bpg-settings-key-eye--on", revealed);
+            });
+
+            // 삭제 — 브라우저 기본 confirm (확인/취소)
+            const del = el("button", "bpg-settings-key-del", "✕");
+            del.type = "button";
+            del.title = pgT("del_key");
+            del.addEventListener("click", () => {
+                if (!confirm(pgT("confirm_delete_key", { key: maskKey(key) }))) return;
+                removeKey(key);
+                writeDisabled(readDisabled().filter((k) => k !== key));
+                renderKeys();
+                syncServer();
+            });
+
+            item.append(check, label, eye, del);
+            keysList.appendChild(item);
+        }
+    }
+
+    function submitAdd() {
+        const raw = (addInput.value || "").trim();
+        if (!raw) {
+            showToast(pgT("key_required"), "warn", 3400);
+            return;
+        }
+        // 중복 — 이미 등록된 키는 추가하지 않고 입력칸을 그대로 남겨 사용자가 고칠 수 있게 한다.
+        if (findDuplicateKey(raw)) {
+            showToast(pgT("key_duplicate"), "warn", 4200);
+            addInput.focus();
+            addInput.select?.();
+            return;
+        }
+        addKey(raw);
+        // 새 키는 기본 활성 — 혹시 이전에 비활성으로 남아 있었어도 해제
+        writeDisabled(readDisabled().filter((k) => k !== raw));
+        addInput.value = "";
+        addRow.hidden = true;
+        addToggleBtn.classList.remove("bpg-settings-act--open");
+        renderKeys();
+        syncServer();
+    }
+
+    addToggleBtn.addEventListener("click", () => {
+        const show = addRow.hidden;
+        addRow.hidden = !show;
+        addToggleBtn.classList.toggle("bpg-settings-act--open", show);
+        if (show) addInput.focus();
+    });
+    addConfirmBtn.addEventListener("click", submitAdd);
+    addInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            submitAdd();
+        } else if (e.key === "Escape") {
+            addRow.hidden = true;
+            addToggleBtn.classList.remove("bpg-settings-act--open");
+        }
+    });
+
+    testBtn.addEventListener("click", async () => {
+        // 연결확인은 "활성 키"만 검사한다.
+        const keys = enabledKeys();
+        if (!keys.length) {
+            showToast(pgT("key_required"), "warn", 3400);
+            return;
+        }
+        testBtn.disabled = true;
+        testBtn.textContent = pgT("testing");
+        let okCount = 0;
+        for (const key of keys) {
+            if (await verifyKey(key)) okCount++;
+        }
+        showToast(`${pgT("keys_checked")}: ${okCount}/${keys.length}`,
+            okCount === keys.length ? "ok" : "warn", 5000);
+        testBtn.disabled = false;
+        testBtn.textContent = pgT("check_all_keys");
+    });
+
+    renderKeys();
+    body.appendChild(keysSection);
+
+    const modeSection = el("div", "bpg-settings-section");
+    const modeTitle = el("div", "bpg-settings-section-title", pgT("model_mode"));
+    modeTitle.dataset.i18n = "model_mode";
+    modeSection.appendChild(modeTitle);
+
+    const modeRadioWrap = el("div", "bpg-settings-mode-radio");
+    const modes = [
+        { value: "속도", label: pgT("mode_speed") },
+        { value: "균형", label: pgT("mode_balance") },
+        { value: "품질", label: pgT("mode_quality") },
+    ];
+
+    let currentMode = localStorage.getItem("bada_gemini_model_mode") || "균형";
+
+    for (const m of modes) {
+        const radioWrap = el("div", "bpg-settings-radio-item");
+        const radio = el("input", "bpg-settings-radio");
+        radio.type = "radio";
+        radio.name = "bpg_model_mode";
+        radio.value = m.value;
+        if (m.value === currentMode) radio.checked = true;
+        const radioLabel = el("span", "bpg-settings-radio-label", m.label);
+        radioLabel.dataset.i18n = "mode_" + m.value;
+        radioWrap.append(radio, radioLabel);
+        radioWrap.addEventListener("click", () => {
+            radio.checked = true;
+        });
+        modeRadioWrap.appendChild(radioWrap);
+    }
+
+    modeSection.appendChild(modeRadioWrap);
+    body.appendChild(modeSection);
+
+    const foot = el("div", "bpg-settings-foot");
+    const saveBtn = el("button", "bpg-settings-btn-save", pgT("save_settings"));
+    saveBtn.type = "button";
+    saveBtn.dataset.i18n = "save_settings";
+    saveBtn.addEventListener("click", () => {
+        const radios = overlay.querySelectorAll('input[name="bpg_model_mode"]');
+        let selected = "균형";
+        for (const r of radios) {
+            if (r.checked) {
+                selected = r.value;
+                break;
+            }
+        }
+        localStorage.setItem("bada_gemini_model_mode", selected);
+        pushToServer(readKeys(), readModel(), selected);
+        showToast(pgT("settings_saved"), "ok", 2500);
+        overlay.remove();
+    });
+    const closeBtn = el("button", "bpg-settings-btn-close", pgT("close"));
+    closeBtn.type = "button";
+    closeBtn.dataset.i18n = "close";
+    closeBtn.addEventListener("click", () => overlay.remove());
+    foot.append(saveBtn, closeBtn);
+
+    panel.append(head, body, foot);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) overlay.remove();
+    });
 }
 
 // export: 노드를 실제로 만들지 않고 이 확인 경로만 검사할 수 있게 (회귀 테스트용)
@@ -292,56 +638,6 @@ function buildHeader(node, widgets) {
     const root = el("div", "bpg-root");
     swallow(root);
 
-    const title = el("div", "bpg-sec-title", pgT("api_header"));
-    title.dataset.i18n = "api_header";
-    root.appendChild(title);
-
-    // -- API key row -------------------------------------------------------
-    const row1 = el("div", "bpg-row");
-    const keyInput = el("input", "bpg-key");
-    keyInput.type = "password";
-    keyInput.placeholder = pgT("key_placeholder");
-    keyInput.spellcheck = false;
-    keyInput.autocomplete = "off";
-    keyInput.value = readKey();
-
-    const eye = el("button", "bpg-icon-btn", "👁");
-    eye.type = "button";
-    eye.title = pgT("show_key");
-    eye.addEventListener("click", () => {
-        keyInput.type = keyInput.type === "password" ? "text" : "password";
-        eye.classList.toggle("bpg-icon-btn--on", keyInput.type === "text");
-        eye.title = pgT(keyInput.type === "password" ? "show_key" : "hide_key");
-    });
-
-    const issueBtn = el("button", "bpg-btn", pgT("get_key"));
-    issueBtn.type = "button";
-    issueBtn.dataset.i18n = "get_key";
-    issueBtn.title = pgT("issue_key_tip");
-    issueBtn.addEventListener("click", () => {
-        window.open("https://aistudio.google.com/app/apikey", "_blank", "noopener");
-    });
-
-    const testBtn = el("button", "bpg-btn bpg-btn--accent", pgT("check_key"));
-    testBtn.type = "button";
-    testBtn.dataset.i18n = "check_key";
-    testBtn.addEventListener("click", async () => {
-        testBtn.disabled = true;
-        testBtn.textContent = pgT("testing");
-        const key = writeKey(keyInput.value);
-        const ok = await verifyKey(key);
-        if (ok) pushToServer(key);
-        testBtn.disabled = false;
-        testBtn.textContent = pgT("check_key");
-    });
-
-    keyInput.addEventListener("input", () => pushToServer(writeKey(keyInput.value)));
-    keyInput.addEventListener("blur", () => pushToServer(writeKey(keyInput.value)));
-    keyInput.addEventListener("paste", () => setTimeout(() => pushToServer(writeKey(keyInput.value)), 30));
-
-    row1.append(keyInput, eye, issueBtn, testBtn);
-    root.appendChild(row1);
-
     // -- priority model row --------------------------------------------------
     const row2 = el("div", "bpg-row");
     const modelSel = el("select", "bpg-select");
@@ -366,33 +662,12 @@ function buildHeader(node, widgets) {
         showToast(`${pgT("saved")} · ${model}`, "ok", 1800);
     });
     row2.appendChild(modelSel);
-
-    // 시스템 프롬프트 관리 sits next to the model select (where the old
-    // "LocalStorage 자동 저장" notice was) so the toggle row below only has to
-    // fit three controls instead of four on a narrow node.
-    const manageBtn = el("button", "bpg-btn bpg-btn--manage", pgT("manage"));
-    manageBtn.type = "button";
-    manageBtn.dataset.i18n = "manage";
-    manageBtn.title = pgT("manage_tip");
-    manageBtn.addEventListener("click", async () => {
-        manageBtn.disabled = true;
-        try {
-            const mod = await import("./bada_promptgen_modal.js");
-            await mod.openPromptGenModal({
-                registry: REGISTRY,
-                onSaved: async () => {
-                    await fetchRegistry(true);
-                    refreshAllNodes();
-                },
-            });
-        } catch (err) {
-            console.error("[BadaPromptGen] modal load failed:", err);
-            showToast(pgT("manage_load_fail"), "err", 5000);
-        } finally {
-            manageBtn.disabled = false;
-        }
-    });
-    row2.appendChild(manageBtn);
+    const settingsBtn = el("button", "bpg-btn bpg-btn--manage", pgT("settings"));
+    settingsBtn.type = "button";
+    settingsBtn.dataset.i18n = "settings";
+    settingsBtn.title = pgT("settings_tip");
+    settingsBtn.addEventListener("click", () => openSettingsModal());
+    row2.appendChild(settingsBtn);
     root.appendChild(row2);
 
     // -- toggle + manage row -------------------------------------------------
@@ -405,9 +680,7 @@ function buildHeader(node, widgets) {
         card.title = pgT(tipKey);
         const label = el("span", "bpg-card-label", pgT(labelKey));
         label.dataset.i18n = labelKey;
-        const switchEl = el("span", "bpg-switch");
-        switchEl.appendChild(el("i"));
-        card.append(label, switchEl);
+        card.append(label);
         const paint = () => {
             card.classList.toggle("bpg-card--on", !!widget.value);
             card.title = pgT(tipKey);
@@ -490,6 +763,31 @@ function buildHeader(node, widgets) {
     });
     syncRatio();
     row3.appendChild(ratioBox);
+
+    // -- 시스템 프롬프트 버튼 (화면 비율 카드 바로 오른쪽, 같은 행) --------
+    const systemPromptBtn = el("button", "bpg-btn bpg-btn--manage bpg-btn--inline", pgT("system_prompt"));
+    systemPromptBtn.type = "button";
+    systemPromptBtn.dataset.i18n = "system_prompt";
+    systemPromptBtn.title = pgT("system_prompt_tip");
+    systemPromptBtn.addEventListener("click", async () => {
+        systemPromptBtn.disabled = true;
+        try {
+            const mod = await import("./bada_promptgen_modal.js");
+            await mod.openPromptGenModal({
+                registry: REGISTRY,
+                onSaved: async () => {
+                    await fetchRegistry(true);
+                    refreshAllNodes();
+                },
+            });
+        } catch (err) {
+            console.error("[BadaPromptGen] modal load failed:", err);
+            showToast(pgT("manage_load_fail"), "err", 5000);
+        } finally {
+            systemPromptBtn.disabled = false;
+        }
+    });
+    row3.appendChild(systemPromptBtn);
     root.appendChild(row3);
 
     const targetGroup = el("div", "bpg-picker-group");
@@ -569,10 +867,7 @@ function buildHeader(node, widgets) {
         if (widgets.duration) widgets.duration.tooltip = pgT("duration_tip");
         const requestInput = widgets.request_text?.inputEl || widgets.request_text?.element;
         if (requestInput) requestInput.placeholder = pgT("request_placeholder");
-        keyInput.placeholder = pgT("key_placeholder");
-        eye.title = pgT(keyInput.type === "password" ? "show_key" : "hide_key");
-        issueBtn.title = pgT("issue_key_tip");
-        manageBtn.title = pgT("manage_tip");
+        settingsBtn.title = pgT("settings_tip");
     }
 
     const langSub = () => {

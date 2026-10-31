@@ -63,6 +63,35 @@ EXACT_MODELS = [
 # Verified fast-variant model IDs — single source of truth for every cascade below.
 EXACT_MODEL_IDS = [m["id"] for m in EXACT_MODELS]
 
+# 모드별 모델 우선순위 (캐스케이드 순서)
+#   속도: 가벼운 모델 우선 → 빠른 응답
+#   균형: 중간 무게 모델 우선 → 적당한 품질/속도
+#   품질: 무거운 모델 우선 → 높은 품질
+MODE_CASCADES = {
+    "속도": ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-3.5-flash-lite"],
+    "균형": ["gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash"],
+    "품질": ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"],
+}
+
+
+def model_cascade(primary_model, mode=None):
+    """Requested model first, then every verified fast variant (deduped, order kept).
+
+    mode 가 "속도"/"균형"/"품질" 이면 해당 모드의 모델 우선순위를 따릅니다.
+    mode 가 None 이면 기존 동작(primary 모델 → 전체 모델 순환) 을 유지합니다.
+    """
+    models_to_try = []
+    if mode and mode in MODE_CASCADES:
+        order = MODE_CASCADES[mode]
+        for m in order:
+            if m and m not in models_to_try:
+                models_to_try.append(m)
+    else:
+        for m in [primary_model] + list(EXACT_MODEL_IDS):
+            if m and m not in models_to_try:
+                models_to_try.append(m)
+    return models_to_try
+
 
 class GeminiKeyRotator:
     """여러 Gemini API 키를 순환하며 사용할 수 있게 하는 로테이터.
@@ -128,26 +157,22 @@ def load_api_keys(cfg: dict) -> list:
     """config.json에서 API 키 목록을 로드.
 
     우선순위: api_keys(리스트) > api_key(단일) > GEMINI_API_KEY(환경변수)
+    `api_disabled` 에 들어 있는 키(사용자가 체크 해제한 키)는 결과에서 제외한다.
     """
     keys = cfg.get("api_keys", [])
     if keys and isinstance(keys, list):
-        return [k.strip() for k in keys if k.strip()]
-    single = cfg.get("api_key", "").strip()
-    if single:
-        return [single]
-    env_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if env_key:
-        return [env_key]
-    return []
-
-
-def model_cascade(primary_model):
-    """Requested model first, then every verified fast variant (deduped, order kept)."""
-    models_to_try = []
-    for m in [primary_model] + list(EXACT_MODEL_IDS):
-        if m and m not in models_to_try:
-            models_to_try.append(m)
-    return models_to_try
+        keys = [k.strip() for k in keys if k.strip()]
+    else:
+        single = (cfg.get("api_key") or "").strip()
+        keys = [single] if single else []
+    if not keys:
+        env_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        keys = [env_key] if env_key else []
+    disabled = cfg.get("api_disabled", [])
+    if keys and isinstance(disabled, list) and disabled:
+        off = {k.strip() for k in disabled if isinstance(k, str) and k.strip()}
+        keys = [k for k in keys if k not in off]
+    return keys
 
 
 # ---------------------------------------------------------------------------
@@ -667,6 +692,8 @@ def register_gemini_api_routes():
                 "masked_keys": masked_keys,
                 "key_count": len(api_keys),
                 "default_model": cfg.get("default_model", "gemini-3.5-flash-lite"),
+                "model_mode": cfg.get("model_mode", "균형"),
+                "api_disabled": cfg.get("api_disabled", []),
                 "models": EXACT_MODELS,
                 "personas": GEM_PERSONAS
             })
@@ -679,9 +706,13 @@ def register_gemini_api_routes():
                 if "api_key" in body:
                     new_cfg["api_key"] = body["api_key"].strip()
                 if "api_keys" in body:
-                    new_cfg["api_keys"] = [k.strip() for k in body["api_keys"] if k.strip()]
+                    new_cfg["api_keys"] = [k.strip() for k in body["api_keys"] if isinstance(k, str) and k.strip()]
+                if "api_disabled" in body:
+                    new_cfg["api_disabled"] = [k.strip() for k in body["api_disabled"] if isinstance(k, str) and k.strip()]
                 if "default_model" in body:
                     new_cfg["default_model"] = body["default_model"].strip()
+                if "model_mode" in body:
+                    new_cfg["model_mode"] = body["model_mode"].strip()
                 success = save_server_config(new_cfg)
                 return web.json_response({"success": success})
             except Exception as e:
@@ -922,8 +953,8 @@ def register_gemini_api_routes():
                         config["responseSchema"] = structured_schema
                     return config
 
-                # Models Cascade (Starting with requested model, fallback through verified fast variants)
-                models_to_try = model_cascade(primary_model)
+                # Models Cascade (mode-aware: 속도 / 균형 / 품질)
+                models_to_try = model_cascade(primary_model, mode=(cfg.get("model_mode") or None))
 
                 def build_user_parts(prompt_str, attach_images=True):
                     p_list = []
@@ -1224,7 +1255,7 @@ def register_gemini_api_routes():
                     "generationConfig": {"temperature": 0.7, "maxOutputTokens": 8192}
                 }
 
-                models_to_try = model_cascade(model)
+                models_to_try = model_cascade(model, mode=(cfg.get("model_mode") or None))
 
                 client_timeout = aiohttp.ClientTimeout(total=45)
                 last_err = "No response"

@@ -56,6 +56,7 @@
 
 .bpg-row--toggles {
     margin-top: 1px;
+    flex-wrap: nowrap;
 }
 
 .bpg-picker-group {
@@ -146,9 +147,6 @@
     border-color: #666666;
 }
 
-/* Model select shares row 2 with the 시스템 프롬프트 관리 button. Cap its width so it
-   cannot starve the button — "🚀 Gemini 3.5 Flash-Lite (권장 ⭐)" still fits inside the
-   cap, and any leftover width goes to the button rather than the dropdown. */
 .bpg-row .bpg-select {
     flex: 0 1 auto;
     max-width: 250px;
@@ -198,9 +196,18 @@
     color: #dddddd;
     flex: 0 0 auto;
     white-space: nowrap;
-    /* Row 2 is [model select] [spacer] [manage] — the button is pinned to the right edge
-       regardless of how wide the model name renders. */
     margin-left: auto;
+}
+
+/* 화면 비율 카드 오른쪽에 붙는 인라인 버튼 (같은 행 유지) */
+.bpg-btn--inline {
+    flex: 0 0 auto;
+    margin-left: 0;
+    padding: 4px 5px;
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
 }
 
 .bpg-icon-btn {
@@ -214,14 +221,108 @@
 }
 
 /* --------------------------------------------------------------------------
+   API Key list (multi-key management)
+   -------------------------------------------------------------------------- */
+.bpg-key-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.bpg-key-items {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+
+.bpg-key-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    background: #1c1c1c;
+    border: 1px solid #383838;
+    border-radius: 6px;
+    min-width: 0;
+}
+
+.bpg-key-masked {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: "D2Coding", "Consolas", monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.4px;
+    color: #bbbbbb;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bpg-key-del {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    border: 1px solid #383838;
+    border-radius: 4px;
+    background: #141414;
+    color: #aaaaaa;
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.12s ease, color 0.12s ease;
+}
+
+.bpg-key-del:hover:not(:disabled) {
+    border-color: #e63946;
+    color: #ffffff;
+}
+
+.bpg-key-empty {
+    padding: 6px 8px;
+    color: #777777;
+    font-size: 10.5px;
+    text-align: center;
+}
+
+.bpg-key-add {
+    flex: 0 0 auto;
+    min-width: 0;
+}
+
+.bpg-key-add input {
+    box-sizing: border-box;
+    background: #1c1c1c;
+    border: 1px solid #383838;
+    border-radius: 6px;
+    color: var(--bpg-text);
+    font-size: 10.5px;
+    font-family: "D2Coding", "Consolas", monospace;
+    letter-spacing: 0.4px;
+    padding: 4px 6px;
+    outline: none;
+    min-width: 120px;
+}
+
+.bpg-key-add input:focus {
+    border-color: #666666;
+}
+
+/* --------------------------------------------------------------------------
    Toggle cards (🔥 증강 / 🔓 무검열)
    -------------------------------------------------------------------------- */
 .bpg-card {
+    box-sizing: border-box;
     flex: 1 1 0;
     min-width: 0;
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: center;
     gap: 6px;
     padding: 5px 7px;
     background: #1c1c1c;
@@ -231,10 +332,10 @@
     transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
 }
 
-/* Below this width the three controls would squeeze "증강 / 무검열 / 화면 비율"
-   into unreadable ellipses, so wrap them onto a second line instead. */
 .bpg-row--toggles .bpg-card {
-    flex: 1 1 116px;
+    flex: 0 1 68px;
+    min-width: 0;
+    justify-content: center;
 }
 
 .bpg-card:hover {
@@ -250,57 +351,35 @@
     text-overflow: ellipsis;
 }
 
-.bpg-switch {
-    position: relative;
-    flex: 0 0 auto;
-    width: 26px;
-    height: 14px;
-    border-radius: 999px;
-    background: #333333;
-    border: 1px solid #444444;
-    transition: background 0.16s ease, border-color 0.16s ease;
-}
-
-.bpg-switch i {
-    position: absolute;
-    top: 1px;
-    left: 1px;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: #777777;
-    transition: transform 0.16s cubic-bezier(0.4, 1.4, 0.5, 1), background 0.16s ease;
-}
-
 .bpg-card--on {
-    background: #282828;
-    border-color: #777777;
-    box-shadow: none;
+    background: #333333;
+    border-color: #aaaaaa;
+    box-shadow: inset 0 0 8px rgba(255, 255, 255, 0.1);
 }
 
 .bpg-card--on .bpg-card-label {
     color: #ffffff;
 }
 
-.bpg-card--on .bpg-switch {
-    background: #444444;
-    border-color: #888888;
-}
-
-.bpg-card--on .bpg-switch i {
-    transform: translateX(12px);
-    background: #ffffff;
-}
+/* 제거된 스위치 스타일 (미사용) */
 
 /* --------------------------------------------------------------------------
-   Aspect ratio picker (sits to the right of 🔓 무검열)
-   Shares the card look but is not click-to-toggle: the <select> owns the input,
-   so clicks must reach the dropdown rather than flipping a boolean.
+   Aspect ratio picker
    -------------------------------------------------------------------------- */
 .bpg-card--ratio {
-    flex: 1.5 1 138px;
+    flex: 1 1 104px;
     cursor: default;
     gap: 5px;
+}
+
+.bpg-row--toggles .bpg-card--ratio {
+    flex: 1 1 100px;
+    min-width: 88px;
+}
+
+.bpg-card--ratio .bpg-card-label {
+    min-width: 0;
+    flex: 0 1 auto;
 }
 
 .bpg-card--ratio:hover {
@@ -310,9 +389,9 @@
 .bpg-ratio-select {
     flex: 0 0 auto;
     max-width: 62px;
-    height: 18px;
-    padding: 0 2px;
-    font-size: 10.5px;
+    height: 20px;
+    padding: 0 3px;
+    font-size: 11.5px;
     font-weight: 700;
     text-align: center;
     color: var(--bpg-dim);
@@ -320,6 +399,16 @@
     border: 1px solid #444444;
     border-radius: 5px;
     cursor: pointer;
+}
+
+/* 펼친 목록은 브라우저가 그리므로 option 에 직접 크기를 준다 (Chrome/Edge 지원). */
+.bpg-ratio-select option {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.7;
+    padding: 6px 10px;
+    color: #eeeeee;
+    background: #2a2a2a;
 }
 
 .bpg-ratio-select:focus {
@@ -333,7 +422,6 @@
     border-color: #8a8a8a;
 }
 
-/* Backend widget missing (ComfyUI not restarted): mark the control as dead. */
 .bpg-card--ratio.bpg-card--broken {
     border-color: #a33a3a;
     box-shadow: 0 0 0 1px #a33a3a inset;
@@ -350,7 +438,8 @@
     position: fixed;
     right: 18px;
     bottom: 18px;
-    z-index: 99998;
+    /* 설정 모달(99999)보다 위에 있어야 팝업 안에서 누른 단추의 결과가 보인다. */
+    z-index: 100001;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
@@ -718,5 +807,403 @@
 .bpgm-btn--save {
     background: #333333;
     border-color: #777777;
+    color: #ffffff;
+}
+
+/* ==========================================================================
+   설정 모달 (bpg-settings-*) — API 키 다중 관리 + 모델 모드
+   ========================================================================== */
+.bpg-settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(3px);
+    font-family: inherit;
+}
+
+.bpg-settings-panel {
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    width: min(700px, 94vw);
+    max-height: min(780px, 92vh);
+    background: #1c1c1c;
+    border: 1px solid #3a3a3a;
+    border-radius: 14px;
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.75);
+    color: #eeeeee;
+    font-size: 13.5px;
+    line-height: 1.4;
+    overflow: hidden;
+}
+
+.bpg-settings-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid #3a3a3a;
+    background: #242424;
+}
+
+.bpg-settings-title {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+    color: #ffffff;
+}
+
+.bpg-settings-close {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    border: 1px solid #3a3a3a;
+    background: #141414;
+    color: #cccccc;
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.bpg-settings-close:hover {
+    border-color: #e63946;
+    background: #2a1414;
+    color: #ffffff;
+}
+
+.bpg-settings-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 18px 20px;
+    overflow-y: auto;
+}
+
+.bpg-settings-section {
+    margin-bottom: 18px;
+}
+
+.bpg-settings-section-title {
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    color: #aaaaaa;
+    text-transform: uppercase;
+}
+
+/* --- API 키 헤더: 제목 + [발급] [연결확인] [키 추가] ---------------------- */
+.bpg-settings-keys-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.bpg-settings-keys-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.bpg-settings-act {
+    flex: 0 0 auto;
+    background: #282828;
+    border: 1px solid #444444;
+    border-radius: 7px;
+    color: #dddddd;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.14s ease, border-color 0.14s ease, opacity 0.14s ease;
+}
+
+.bpg-settings-act:hover:not(:disabled) {
+    background: #333333;
+    border-color: #777777;
+    color: #ffffff;
+}
+
+.bpg-settings-act:disabled {
+    opacity: 0.55;
+    cursor: progress;
+}
+
+.bpg-settings-act--accent,
+.bpg-settings-act--open {
+    background: #3a3a3a;
+    border-color: #888888;
+    color: #ffffff;
+}
+
+/* --- 키 목록 -------------------------------------------------------------- */
+.bpg-settings-key-items {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.bpg-settings-key-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: #232323;
+    border: 1px solid #3a3a3a;
+    border-radius: 9px;
+    min-width: 0;
+    transition: border-color 0.12s ease, opacity 0.12s ease;
+}
+
+.bpg-settings-key-item--off {
+    opacity: 0.45;
+    border-style: dashed;
+}
+
+.bpg-settings-key-check {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 5px;
+    border: 1px solid #666666;
+    background: #141414;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 900;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.bpg-settings-key-check:hover {
+    border-color: #aaaaaa;
+}
+
+.bpg-settings-key-item:not(.bpg-settings-key-item--off) .bpg-settings-key-check {
+    background: #4a4a4a;
+    border-color: #bbbbbb;
+}
+
+.bpg-settings-key-masked {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: "D2Coding", "Consolas", monospace;
+    font-size: 12.5px;
+    letter-spacing: 0.4px;
+    color: #cccccc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bpg-settings-key-eye,
+.bpg-settings-key-del {
+    flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border-radius: 6px;
+    border: 1px solid #3a3a3a;
+    background: #141414;
+    color: #aaaaaa;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.bpg-settings-key-eye:hover {
+    border-color: #888888;
+    color: #ffffff;
+}
+
+.bpg-settings-key-eye--on {
+    border-color: #999999;
+    background: #333333;
+    color: #ffffff;
+}
+
+.bpg-settings-key-del:hover {
+    border-color: #e63946;
+    background: #2a1414;
+    color: #ffffff;
+}
+
+.bpg-settings-key-empty {
+    padding: 14px 10px;
+    color: #777777;
+    font-size: 12.5px;
+    text-align: center;
+    border: 1px dashed #3a3a3a;
+    border-radius: 9px;
+}
+
+/* --- 키 추가 입력 행 ("키 추가" 를 눌렀을 때만) --------------------------- */
+.bpg-settings-add-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.bpg-settings-add-row[hidden] {
+    display: none;
+}
+
+.bpg-settings-key-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    box-sizing: border-box;
+    background: #1c1c1c;
+    border: 1px solid #555555;
+    border-radius: 7px;
+    color: #eeeeee;
+    font-size: 12.5px;
+    font-family: "D2Coding", "Consolas", monospace;
+    letter-spacing: 0.4px;
+    padding: 8px 10px;
+    outline: none;
+}
+
+.bpg-settings-key-input:focus {
+    border-color: #999999;
+}
+
+.bpg-settings-add-confirm {
+    flex: 0 0 auto;
+    background: #3a3a3a;
+    border: 1px solid #888888;
+    border-radius: 7px;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 16px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.bpg-settings-add-confirm:hover {
+    background: #474747;
+    border-color: #aaaaaa;
+}
+
+/* --- 모델 모드 ------------------------------------------------------------ */
+.bpg-settings-mode-radio {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.bpg-settings-radio-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: #232323;
+    border: 1px solid #3a3a3a;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border-color 0.14s ease, background 0.14s ease;
+}
+
+.bpg-settings-radio-item:hover {
+    border-color: #666666;
+}
+
+.bpg-settings-radio-item input[type="radio"] {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex: 0 0 auto;
+    margin: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid #666666;
+    background: #141414;
+    cursor: pointer;
+    transition: border-color 0.12s ease;
+}
+
+.bpg-settings-radio-item input[type="radio"]:hover {
+    border-color: #999999;
+}
+
+.bpg-settings-radio-item input[type="radio"]:checked {
+    border-color: #dddddd;
+}
+
+.bpg-settings-radio-item input[type="radio"]:checked::after {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    background: #dddddd;
+}
+
+.bpg-settings-radio-label {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #dddddd;
+}
+
+/* --- 푸터 ----------------------------------------------------------------- */
+.bpg-settings-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid #3a3a3a;
+    background: #242424;
+}
+
+.bpg-settings-btn-save,
+.bpg-settings-btn-close {
+    flex: 0 0 auto;
+    background: #282828;
+    border: 1px solid #444444;
+    border-radius: 8px;
+    color: #dddddd;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 9px 22px;
+    cursor: pointer;
+    transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.bpg-settings-btn-save {
+    background: #3a3a3a;
+    border-color: #888888;
+    color: #ffffff;
+}
+
+.bpg-settings-btn-save:hover,
+.bpg-settings-btn-close:hover {
+    background: #474747;
+    border-color: #aaaaaa;
     color: #ffffff;
 }
