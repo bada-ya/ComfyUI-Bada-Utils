@@ -462,8 +462,9 @@ def _err_all_http(failures) -> str:
 ERR_ALL_QUOTA = ("All Gemini models failed because of quota limits or a blocked "
                  "request. Check the API key and daily quota.")
 
-ERR_REFUSED = ("Gemini refused the request. Enable the 'Uncensored' toggle and try "
-               "again. (The 3-pass fallback is disabled when Uncensored is OFF.)")
+ERR_REFUSED = ("Gemini refused this request on every model of the key cascade. Enable the "
+               "'Uncensored' toggle and try again. (The 3-pass fallback is disabled when "
+               "Uncensored is OFF.)")
 
 
 def _extract_candidate_text(body) -> tuple:
@@ -764,8 +765,9 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
     단일 API 키로 전체 3-Pass 캐스케이드를 순차 실행.
 
     `models` 는 이 키전용 캐스케이드다 — 노드는 키 개수별 순서를 key_cascade() 로 받는다.
-    `solo` 는 이 키가 모델 하나만 담당할 때(키 4개 배치)로, 3.6-flash 키가 25초 패스를
-    겹쳐 달리지 않도록 PASS2·3 를 넘긴다(다른 키가 같은 요청을 이미 3-Pass 로 시도한다).
+    `solo` 는 이 키가 모델 하나만 담당할 때(키 4개 배치)로, API 를 한 번도 못 만난 키만
+    PASS2·3 를 타기 전에 일찍 내린다. (`not solo` 로 PASS2·3 를 통째로 건너뛰던 때는 키 4개
+    배치에서 넷 다 단독이라 우회 시도가 0회가 됐다 — 2026-11-01 제거.)
     «속도/균형/품질» 모드(`model_mode`)는 폐기되어 무시한다.
 
     Returns:
@@ -826,25 +828,38 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
             continue
         api_reached = True
         text, finish = _extract_candidate_text(body)
+        # A refusal condemns this model, not the whole request. With Uncensored ON, PASS2
+        # re-runs the same list under the bypass prompt, so stopping here is cheap; with it
+        # OFF nothing else would ever run and the key gave up after a single call. So when
+        # Uncensored is OFF, fall through to the next model of this key's cascade.
+        refused_next = "Pass 2" if uncensored else "next model"
         if finish == "SAFETY":
-            logger.warning("[BadaPromptGen][Key %d][Pass 1] %s hit finishReason=SAFETY -> Pass 2", key_index, model)
-            break
+            logger.warning("[BadaPromptGen][Key %d][Pass 1] %s hit finishReason=SAFETY -> %s",
+                           key_index, model, refused_next)
+            if uncensored:
+                break
+            continue
         if text and not is_refusal_response(text):
             return {"ok": True, "text": text, "model": model, "pass_used": 1,
                     "key": api_key, "reached": True, "http_failures": http_failures, "exhausted": exhausted}
         if text:
-            logger.warning("[BadaPromptGen][Key %d][Pass 1] %s returned a refusal -> Pass 2", key_index, model)
-            break
+            logger.warning("[BadaPromptGen][Key %d][Pass 1] %s returned a refusal -> %s",
+                           key_index, model, refused_next)
+            if uncensored:
+                break
+            continue
 
     # PASS2·3 은 «실제로 검열당했다» 고 확인할 때만 돈다. PASS1 이 HTTP 200 을 한 번도 못
     # 받았다면 네트워크/인증/쿼터 문제라, 같은 실패를 3번 겹쳐 쿼터만 태운다 (9회 → 3회).
+    # 단독 키(키 4개 배치)도 예외가 아니다 — 예전엔 `not solo` 로 건너뛴다가 «네 키 모두
+    # 거절 → 끝» 이 되었다(키 4개에서는 넷 다 단독이라 대신 시도할 키가 없었다).
     if uncensored and solo and not api_reached:
         logger.info("[BadaPromptGen][Key %d] solo key never reached the API - dropping this key", key_index)
         return {"ok": False, "text": "", "model": "", "pass_used": 0,
                 "key": api_key, "reached": api_reached, "http_failures": http_failures, "exhausted": exhausted}
 
     # ---- PASS 2: 3D VFX technical override (images stay attached) -----------
-    if uncensored and api_reached and not solo:
+    if uncensored and api_reached:
         system_p2 = PASS2_SYSTEM + "\n\n" + system_text
         for model in models:
             if is_model_dead(model):
@@ -861,7 +876,7 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
                         "key": api_key, "reached": True, "http_failures": http_failures, "exhausted": exhausted}
 
     # ---- PASS 3: cinematic metaphor bridge -------------------------------------
-    if uncensored and api_reached and not solo:
+    if uncensored and api_reached:
         system_p3 = PASS3_SYSTEM
         if schema:
             system_p3 += _json_directive((submenu or {}).get("output_fields") or ["rewritten_prompt"])
@@ -1069,15 +1084,22 @@ def _run_sequential(registry, target, submenu, request_text, used_tensors, api_k
             continue
         api_reached = True
         text, finish = _extract_candidate_text(body)
+        # Same rule as the race path: a refusal condemns this model only. Uncensored OFF
+        # leaves PASS2·3 switched off, so keep walking the model list instead of quitting.
+        refused_next = "Pass 2" if uncensored else "next model"
         if finish == "SAFETY":
-            logger.warning("[BadaPromptGen][Pass 1] %s hit finishReason=SAFETY -> Pass 2", model)
-            break
+            logger.warning("[BadaPromptGen][Pass 1] %s hit finishReason=SAFETY -> %s", model, refused_next)
+            if uncensored:
+                break
+            continue
         if text and not is_refusal_response(text):
             result_text, model_used, pass_used = text, model, 1
             break
         if text:
-            logger.warning("[BadaPromptGen][Pass 1] %s returned a refusal -> Pass 2", model)
-            break
+            logger.warning("[BadaPromptGen][Pass 1] %s returned a refusal -> %s", model, refused_next)
+            if uncensored:
+                break
+            continue
 
     # PASS 2 — PASS1 이 한 번도 HTTP 200 을 못 받았으면(=거부가 아닌 전송/쿼터 실패)
     # 같은 실패를 3번 겹치지 않도록 건넌다. 404·429·타임아웃에 3배로 시달리던 문제.
