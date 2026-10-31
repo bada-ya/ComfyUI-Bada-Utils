@@ -636,9 +636,14 @@ def _int_field(body: dict, key: str, default: int) -> int:
         raise ValueError(f"'{key}' must be a number") from None
 
 
-def _gemini_test_error_code(status: int) -> str:
+def _gemini_test_error_code(status: int, err_msg: str = "") -> str:
     # 프론트 사전 키로 쓰는 기호 값. 사람이 읽는 문구는 error 에 그대로 두고, 이 값은
     # 언어와 무관하게 "어떤 종류 실패인지"만 전달한다 (401/403 = 키 문제, 429 = 한도).
+    # Google 은 키 오타에도 401/403 이 아니라 400 을 던진다(10-31 실측) — 상태 코드만
+    # 믿으면 사용자는 "키가 잘못되었습니다" 대신 "요청이 거절되었습니다" 를 본다.
+    text = (err_msg or "").lower()
+    if "api key not valid" in text or "api key not found" in text or "api_key_invalid" in text:
+        return "invalid_key"
     if status in (401, 403):
         return "invalid_key"
     if status == 429:
@@ -757,7 +762,7 @@ def register_gemini_api_routes():
                                 "success": False,
                                 "error": err_msg,
                                 "status_code": resp.status,
-                                "code": _gemini_test_error_code(resp.status)
+                                "code": _gemini_test_error_code(resp.status, err_msg)
                             })
             except asyncio.TimeoutError:
                 # ClientTimeout(total=8) 초과 경로. 이 예는 str(e) 가 빈 문자열인 경우가 많아

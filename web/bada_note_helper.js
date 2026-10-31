@@ -1156,11 +1156,21 @@ function getBadaDomButtonLabel(node) {
     return { icon: "\ud83c\udf10", on: false };
 }
 
+// 툴팁 문구는 한 곳에서 푼다 — 생성 시점과 이후 갱신이 서로 다른 언어를 못 고르게 한다.
+// 언어는 getBadaLanguage() 우선(Comfy 설정이 BadaI18n 보다 앞선다 — 이 파일의 기존 규칙).
+function getBadaDomButtonTooltip() {
+    return BadaI18n.tAt(getBadaLanguage(), "note_translate_tooltip");
+}
+
 function syncBadaDomButton(node) {
     const btn = findBadaDomButton(node);
     if (!btn) return;
     const info = getBadaDomButtonLabel(node);
     if (btn.textContent !== info.icon) btn.textContent = info.icon;
+    // Nodes 2.0 버튼은 생성 시점 title 만 갖고 있어서 언어를 바꿔도 옛 언어로 남았다.
+    // 이 함수는 1.2초 동기화 타이머가 이미 다시 부르므로 여기서 갱신하면 언어 전환이 반영된다.
+    const tip = getBadaDomButtonTooltip();
+    if (btn.title !== tip) btn.title = tip;
     btn.classList.toggle("bada-dom-on", !!info.on);
     const collapsed = (node.flags && node.flags.collapsed) || node.collapsed;
     btn.style.display = collapsed ? "none" : "";
@@ -1224,7 +1234,7 @@ function attachBadaDomHeaderButton(node) {
         btn.className = BADA_DOM_BTN_CLASS;
         btn.type = "button";
         btn.setAttribute("data-bada-for", String(node.id));
-        btn.title = BadaI18n.t("note_translate_tooltip");
+        btn.title = getBadaDomButtonTooltip();
         btn.addEventListener("pointerdown", (e) => { e.stopPropagation(); });
         btn.addEventListener("mousedown", (e) => { e.stopPropagation(); });
         btn.addEventListener("click", (e) => {
