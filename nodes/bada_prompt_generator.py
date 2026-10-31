@@ -760,7 +760,7 @@ def _ui_text(ui_language, english, korean):
 def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: str,
                      user_text: str, images_b64: list, schema, uncensored: bool,
                      submenu: dict, model_mode: str | None = None,
-                     solo: bool = False) -> dict:
+                     solo: bool = False, stop_event=None) -> dict:
     """
     단일 API 키로 전체 3-Pass 캐스케이드를 순차 실행.
 
@@ -768,6 +768,9 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
     `solo` 는 이 키가 모델 하나만 담당할 때(키 4개 배치)로, API 를 한 번도 못 만난 키만
     PASS2·3 를 타기 전에 일찍 내린다. (`not solo` 로 PASS2·3 를 통째로 건너뛰던 때는 키 4개
     배치에서 넷 다 단독이라 우회 시도가 0회가 됐다 — 2026-11-01 제거.)
+    `stop_event` 는 레이스가 이미 정해졌음을 알리는 신호다 (승자 확정·타임아웃). 이 키는
+    이길 수 없으므로 «다음 호출» 을 내보내지 않고 멈춘다 — 진행 중인 HTTP 요청은 취소할 수
+    없어서(urllib) 그 요청만 남고, 쿼터와 워커를 더 쓰지 않는다.
     «속도/균형/품질» 모드(`model_mode`)는 폐기되어 무시한다.
 
     Returns:
@@ -785,6 +788,19 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
     http_failures = []
     api_reached = False
     exhausted = False
+
+    def _gave_up() -> dict:
+        return {"ok": False, "text": "", "model": "", "pass_used": 0,
+                "key": api_key, "reached": api_reached,
+                "http_failures": http_failures, "exhausted": exhausted}
+
+    def _race_decided(where: str):
+        """이미 승자가 정해졌다면 그 결과를 담는다 (두 번 로그를 남기지 않는다)."""
+        if stop_event is not None and stop_event.is_set():
+            logger.info("[BadaPromptGen][Key %d] race already decided - stopping this key (%s)",
+                        key_index, where)
+            return _gave_up()
+        return None
 
     def payload(sys_text, attach_images, temperature):
         parts = [{"text": user_text}]
@@ -817,6 +833,9 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
 
     # ---- PASS 1: direct master compilation -------------------------------------
     for model in models:
+        decided = _race_decided("Pass 1")
+        if decided:
+            return decided
         if is_model_dead(model):
             logger.info("[BadaPromptGen][Key %d][Pass 1] skipping retired model %s", key_index, model)
             continue
@@ -855,13 +874,22 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
     # 거절 → 끝» 이 되었다(키 4개에서는 넷 다 단독이라 대신 시도할 키가 없었다).
     if uncensored and solo and not api_reached:
         logger.info("[BadaPromptGen][Key %d] solo key never reached the API - dropping this key", key_index)
-        return {"ok": False, "text": "", "model": "", "pass_used": 0,
-                "key": api_key, "reached": api_reached, "http_failures": http_failures, "exhausted": exhausted}
+        return _gave_up()
+
+    # PASS2·3 으로 넘어가기 전에 레이스 결과를 한 번 더 본다. 여기서부터는 «져도 이길 수 없는»
+    # 구간이라, 승자가 이미 정해졌다면 3.6-flash(25초·150회/일) 같은 비싼 모델의 우회 패스를
+    # 태울 이유가 전혀 없다.
+    decided = _race_decided("before Pass 2")
+    if decided:
+        return decided
 
     # ---- PASS 2: 3D VFX technical override (images stay attached) -----------
     if uncensored and api_reached:
         system_p2 = PASS2_SYSTEM + "\n\n" + system_text
         for model in models:
+            decided = _race_decided("Pass 2")
+            if decided:
+                return decided
             if is_model_dead(model):
                 continue
             status, body, reached = _try_model(model, system_p2, bool(images_b64), 0.5, model_timeout(model))
@@ -881,6 +909,9 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
         if schema:
             system_p3 += _json_directive((submenu or {}).get("output_fields") or ["rewritten_prompt"])
         for model in models:
+            decided = _race_decided("Pass 3")
+            if decided:
+                return decided
             if is_model_dead(model):
                 continue
             status, body, reached = _try_model(model, system_p3, bool(images_b64), 0.8, model_timeout(model))
@@ -894,8 +925,7 @@ def _cascade_one_key(api_key: str, key_index: int, models: list, system_text: st
                 return {"ok": True, "text": text, "model": model, "pass_used": 3,
                         "key": api_key, "reached": True, "http_failures": http_failures, "exhausted": exhausted}
 
-    return {"ok": False, "text": "", "model": "", "pass_used": 0,
-            "key": api_key, "reached": api_reached, "http_failures": http_failures, "exhausted": exhausted}
+    return _gave_up()
 
 
 def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, api_keys,
@@ -950,20 +980,30 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
     all_http_failures = []
     any_reached = False
 
+    # 레이스가 정해졌다는 신호 (승자 확정 또는 타임아웃). 진 키는 «다음 호출» 을 내보내지 않고
+    # 물러난다 — 진행 중인 urllib 요청은 취소할 수 없지만(urllib), 다음 패스·다음 모델로 넘어가는
+    # 것은 막을 수 있다. 막지 않으면 승자가 1.3초에 정해진 뒤에도 3.6-flash(5회/분·150회/일·
+    # 25초 상한) 가 Pass 2·3 을 태우고 워커 4개 중 하나를 붙잡고 있게 된다.
+    race_decided = threading.Event()
+
     # 각 키별 퓨처 제출 (키별 캐스케이드 + 스태거드 출발)
     futures = []
     for idx, key in enumerate(active_keys):
-        # 지연·모델 목록을 클로저 늦은 바인딩으로 물지 않게 인자로 받아 넘긴다.
-        def make_task(key, idx, models_for_key, delay_s):
+        # 지연·모델 목록·정지 신호를 클로저 늦은 바인딩으로 물지 않게 인자로 받아 넘긴다.
+        def make_task(key, idx, models_for_key, delay_s, stop_event):
             def task():
-                if delay_s > 0:
+                # 스태거 지연은 그대로 두되, 이미 정해진 레이스라면 대기조차 하지 않는다.
+                # (wait() 로 바꿀 수도 있지만 그러면 이 지연이 «스태거» 라는 사실 — 그리고
+                #  test_node_cascade 가 눈으로 확인하는 0/1/2/0s — 이 관측 불가능해진다.)
+                if delay_s > 0 and not stop_event.is_set():
                     time.sleep(delay_s)
                 return _cascade_one_key(key, idx, models_for_key, system_text, user_text,
                                         images_b64, schema, uncensored, submenu,
-                                        solo=len(models_for_key) == 1)
+                                        solo=len(models_for_key) == 1,
+                                        stop_event=stop_event)
             return task
         future = _KEY_RACE_POOL.submit(make_task(key, idx, key_models[idx],
-                                                 key_start_delay_s(idx)))
+                                                 key_start_delay_s(idx), race_decided))
         futures.append(future)
 
     # first-wins: 최초로 ok=True인 결과 채택, 60초 타임아웃
@@ -983,8 +1023,12 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
                 break
     except concurrent.futures.TimeoutError:
         logger.warning("[BadaPromptGen] Staggered race timeout (60s) - no winner")
+    finally:
+        # 승자 확정(break) 과 타임아웃·예외를 모두 여기서 지난다 — 이 시점 이후 어떤 키도
+        # 새로운 요청을 내보내지 않는다.
+        race_decided.set()
 
-    # 남은 퓨처들은 결과만 폐기 (HTTP 취소 불가)
+    # 남은 퓨처들은 결과만 폐기 (진행 중인 HTTP 는 취소 불가, 다음 호출만 위 신호로 차단)
     for f in futures:
         if not f.done():
             # 결과 대기 없이 그냥 버림 (urllib 취소 불가)
