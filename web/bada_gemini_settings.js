@@ -627,10 +627,11 @@ export function openSettingsModal({ onClose, refreshHeaderFn } = {}) {
     // QUALITY_KEY_CASCADES × generation_mode) 가 정하고, ⚙️ 창은 키 전용 창이다.
     // 여기에 모델 위젯을 다시 놓으면 그 순간 프론트가 모델 목록의 두 번째 출처가 된다.
 
-    // 구 버전이 남긴 «선택 모델» 값 정리. 읽는 코드가 없어 무해하기는 하지만, 남아 있으면
+    // 구 버전이 남긴 «선택 모델»·«3단 모드» 값 정리. 읽는 코드가 없어 무해하기는 하지만, 남아 있으면
     // «어디선가 쓰는 값 아닌가» 라는 오해가 헷갈림의 씨가 된다 — 구 라인업 이름(3.8-flash 등) 이
-    // 이 키에 박혀 돌아다니는 것도 여기가 마지막이다.
+    // 이 키에 박혀 돌아다니는 것도 여기가 마지막이다. (모듈 로드 시의 마이그레이션도 같은 일을 한다.)
     localStorage.removeItem("bada_gemini_model");
+    localStorage.removeItem("bada_gemini_model_mode");
 
     const foot = el("div", "bpg-settings-foot");
     const saveBtn = el("button", "bpg-settings-btn-save", pgT("save_settings"));
@@ -664,9 +665,13 @@ export function migrateLegacySingleKey() {
         pushToServer(readKeys());
         localStorage.removeItem("bada_gemini_api_key");
     }
-    // «bada_gemini_model» 은 더 이상 어디서도 읽지 않는 유물이다 (모델 설정 제거, 2026-11-01).
-    // 예전에는 여기서 구 버전 선택값을 이어받았지만, 이제는 반대로 지우는 쪽이 migrate 다.
+    // «bada_gemini_model»·«bada_gemini_model_mode» 는 더 이상 어디서도 읽지 않는 유물이다
+    // (모델 설정 제거, 2026-11-01). 예전에는 여기서 구 버전 선택값을 이어받았지만, 이제는 반대로
+    // 지우는 쪽이 migrate 다. 값이 남아 있으면 «어디선가 쓰는 값 아닌가» 라는 오해가 다음 라운드의
+    // 시간을 잡아먹고, 구 라인업 이름(3.8-flash)·폐기된 3단 모드 값이 브라우저에 떠 다니게 된다.
+    // (현행 «속도|품질» 은 다른 키다: PG 는 `generation_mode` 위젯, ⚓ Async 는 «bada_gemini_gen_mode».)
     localStorage.removeItem("bada_gemini_model");
+    localStorage.removeItem("bada_gemini_model_mode");
 }
 
 // 모듈 로드 시 자동 마이그레이션

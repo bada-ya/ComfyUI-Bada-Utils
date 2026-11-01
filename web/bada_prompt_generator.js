@@ -44,7 +44,8 @@ const NODE_CLASS = "BadaPromptGenerator";
 const REGISTRY_URL = "/api/bada/promptgen/registry";
 
 // («속도/균형/품질» 3단 모드는 2026-11-01 폐기 — 어떤 모델을 탈지는 활성 키 «개수» 가 정한다
-//  (server/gemini_api.py::KEY_CASCADES). 옛 localStorage 값 bada_gemini_model_mode 는 읽지 않는다.
+//  (server/gemini_api.py::KEY_CASCADES). 옛 localStorage 값 bada_gemini_model_mode 는 읽지 않고,
+//  공통 모듈의 마이그레이션이 브라우저에서 지워 버린다 (bada_gemini_settings.js).
 //  라운드 14 에서 «속도/품질» 2단이 `generation_mode` 위젯으로 돌아왔다 — 캐스케이드 표를
 //  실제로 바꾸는 컨트롤이고(QUALITY_KEY_CASCADES), 저장 위치도 위젯(워크플로우 JSON)이다.)
 

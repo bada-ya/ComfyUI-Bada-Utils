@@ -11,6 +11,7 @@ Ported from https://bada-ya.github.io/AI-Prompt-Studio-and-Text-Transformer/:
 import os
 import re
 import json
+import time
 import asyncio
 import logging
 import threading
@@ -75,10 +76,12 @@ EXACT_MODELS = [
 # Verified model IDs — single source of truth for every cascade and whitelist below.
 EXACT_MODEL_IDS = [m["id"] for m in EXACT_MODELS]
 
-# «먼저 시도하는 모델» 사용자 선택은 2026-11-01 제거됐다. 이 값은 두 곳에만 쓰이는 시드다:
+# «먼저 시도하는 모델» 사용자 선택은 2026-11-01 제거됐다. 이 값은 세 곳에 쓰이는 시드다:
 #   1) 키가 1개라 캐스케이드가 순차로 도는 경우의 첫 모델 (attempt_plan 의 `primary`)
-#   2) config.json 의 `default_model` 이 죽은 값일 때 되돌릴 값
-# 키 2개 이상의 배치는 전부 KEY_CASCADES/QUALITY_KEY_CASCADES 가 정하므로 이 값과 무관하다.
+#   2) 채팅이 한 메시지에 쓸 모델 — chat 은 model_cascade 의 첫 칸을 키 개수와 무관하게 존중한다
+#      (생성과 달리 채팅은 «말투» 가 상태라 턴마다 모델이 바뀌면 안 된다. 2026-11-01 라운드 17)
+#   3) config.json 의 `default_model` 이 죽은 값일 때 되돌릴 값
+# 생성의 키 2개 이상 배치는 전부 KEY_CASCADES/QUALITY_KEY_CASCADES 가 정하므로 이 값과 무관하다.
 DEFAULT_MODEL_ID = EXACT_MODEL_IDS[0] if EXACT_MODEL_IDS else "gemini-3.5-flash-lite"
 
 # 모델별 요청 타임아웃(초). 전체 레이스 상한과 달리 이것은 «한 번의 HTTP 시도» 상한이다.
@@ -118,6 +121,65 @@ def is_model_dead(model):
 def dead_model_ids():
     with _DEAD_MODEL_LOCK:
         return sorted(_DEAD_MODEL_IDS)
+
+
+# ── «지금은 쉬는 키» 세션 기억 (2026-11-01 라운드 17) ───────────────────────
+# GeminiKeyRotator 의 소진 기록은 **요청 한 개 수명**이다 (인스턴스가 핸들러 지역). 그건
+# «이번 생성 안에서 같은 키를 두 번 만지지 않기» 에는 정확한 설계이고 그대로 둔다. 다만
+# 채팅은 메시지 단위로 키를 돌려 쓰는 경로라 그 경계에 맞지 않는다: 안 죽은 키가 내 차례가
+# 되면 그 턴 전체가 429 를 기다려야 하고, 그 일이 매 턴 반복된다. 그래서 «키만 순환»
+# 하는 경로가 쓸 세션 기억을 따로 둔다 — 모델 퇴장(_DEAD_MODEL_IDS) 과 같은 자리·같은 형태.
+# **파일로 저장하지 않는다.** ⚙️ 창이 유일한 키 저장소이고, 디스크에 키 상태가 살아남으면
+# «창에서 지운 키가 어딘가에서 부활» 하는 통로로 쓰인다. 생성 레이스·큐 노드와 동시에
+# 건드릴 것도 없다 (두 경로는 요청 단위 소진으로 계속 간다).
+# TTL 을 두는 이유: 하루 쿼터는 밤이 지나야 돌아오지만, «지웠다가 다시 등록한 키» 를 무기한
+# 건너뛰면 그 키는 이번 실행에서 영영 못 쓴다. 만료되면 다시 시도하고 여전하면 다시 표시된다.
+EXHAUSTED_KEY_TTL_S = 600
+_EXHAUSTED_KEYS = {}  # 키 문자열 → 표시 시각 (time.monotonic)
+_EXHAUSTED_KEYS_LOCK = threading.Lock()
+
+
+def mark_key_exhausted(key, reason=""):
+    """쿼터·인증 실패를 관측한 키를 한동안 건너뛴 목록에 넣는다. 키 문자열은 로그에 남기지 않는다."""
+    key = str(key or "").strip()
+    if not key:
+        return
+    with _EXHAUSTED_KEYS_LOCK:
+        fresh = key not in _EXHAUSTED_KEYS
+        _EXHAUSTED_KEYS[key] = time.monotonic()
+    if fresh:
+        logger.warning("[BadaGemini] Key skipped for %ds this session - %s",
+                       EXHAUSTED_KEY_TTL_S, reason or "quota/auth failure")
+
+
+def key_exhausted(key) -> bool:
+    """세션 기억이 «지금은 쉬는 키» 로 갖고 있는지. TTL 이 지났으면 그 자리에서 해제."""
+    key = str(key or "").strip()
+    if not key:
+        return False
+    with _EXHAUSTED_KEYS_LOCK:
+        seen = _EXHAUSTED_KEYS.get(key)
+        if seen is None:
+            return False
+        if time.monotonic() - seen > EXHAUSTED_KEY_TTL_S:
+            del _EXHAUSTED_KEYS[key]
+            return False
+        return True
+
+
+def exhausted_key_count() -> int:
+    with _EXHAUSTED_KEYS_LOCK:
+        return len(_EXHAUSTED_KEYS)
+
+
+def clear_exhausted_keys() -> int:
+    """⚙️ 창이 키 목록을 저장한 자리에서 부른다 (방금 켜거나 다시 등록한 키의 기억을 지운다)."""
+    with _EXHAUSTED_KEYS_LOCK:
+        n = len(_EXHAUSTED_KEYS)
+        _EXHAUSTED_KEYS.clear()
+    if n:
+        logger.info("[BadaGemini] Cleared %d remembered resting key(s) after a key save", n)
+    return n
 
 
 # p50 실측 속도 순서 (가장 빠름 → 가장 느림)
@@ -699,6 +761,14 @@ ASPECT_RATIO_CHOICES = (
     "16:9", "9:16", "21:9", "9:21", "2:1", "1:2",
 )
 
+# 공식 PE 키의 접두어 (2026-11-01). `engines_registry.json::official_prompts` 는
+# `qwen_t2i`/`qwen_i2i` 인데 `targets` 의 id 는 `qwen21` 이다. 생성 라우트가
+# `f"{engine_mode}_{submode}"` 만 보면 QWEN2.1 은 T2I·I2I 전부 official = {} 가 되어
+# "Official QWEN21 prompt 'qwen21_t2i' is missing." HTTP 500 으로 누른 즉시 죽었다.
+# flux3·moss 는 접두어가 id 와 우연히 같아 통과했기 때문에 «QWEN 만» 안 됐다.
+# ⚓ Bada Prompt Generator 는 targets.submenus 로 접근하는 별도 경로라 영향이 없었다.
+OFFICIAL_PROMPT_PREFIX = {"qwen21": "qwen"}
+
 
 def build_aspect_ratio_directive(aspect_ratio, ratio_field=""):
     """
@@ -1038,6 +1108,10 @@ def register_gemini_api_routes():
                 # («속도/균형/품질» 모드(model_mode) 와 같은 방식: 위 switch 가 키 항목별로만
                 # 복사하므로 아래 save_server_config 에는 키·api_disabled 만 도달한다.)
                 success = save_server_config(new_cfg)
+                if "api_keys" in body or "api_disabled" in body:
+                    # «지금은 쉬는 키» 세션 기억도 이 자리에서 지운다. 안 지우면 ⚙️ 창에서 방금
+                    # 다시 켜거나 다시 등록한 키가 최대 TTL 초까지 건너뛰 대상 그대로 남는다.
+                    clear_exhausted_keys()
                 return web.json_response({"success": success})
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=400)
@@ -1114,6 +1188,11 @@ def register_gemini_api_routes():
                         "error": "사용 가능한 Gemini API 키가 없습니다. ⚙️ 키 설정에서 키를 등록해 주세요.",
                         "code": "no_key",
                     }, status=400)
+                # PG 와 같은 상한 (run_prompt_pipeline 은 활성 키를 4개로 잘라 쓴다). 5개째부터는
+                # 4종 단독 배치를 순환시키기 때문에 같은 모델을 두 키가 동시에 받게 된다 —
+                # 레이스로 바꾸기 전에는 순차라 숨었던 중복 발송.
+                if len(keys) > MAX_KEYS:
+                    keys = keys[:MAX_KEYS]
 
                 # `body["model"]` 은 받지 않는다 (2026-11-01 모델 설정 제거): 요청이 모델을
                 # 고르면 서버 배치가 아니라 프론트가 고른 모델이 1순위가 되어 키별 배치 규칙이
@@ -1166,7 +1245,6 @@ def register_gemini_api_routes():
                 structured_schema = None
                 system_prompt_entry = None
                 system_prompt_output_format = "text"
-                image_count = len(images)
                 if engine_mode in ("qwen21", "flux3", "moss"):
                     if submode not in ("t2i", "i2i"):
                         return web.json_response({"success": False, "error": f"Choose {engine_mode.upper()} T2I or I2I mode."}, status=400)
@@ -1178,7 +1256,13 @@ def register_gemini_api_routes():
                         # 프론트는 6장으로 제한하지만, API 를 직접 호출하거나 오래된
                         # 탭이 남아 있을 수 있으므로 서버에서도 한 번 더 방어한다.
                         images = images[:MAX_QWEN_I2I_IMAGES]
-                    prompt_key = {"t2i": f"{engine_mode}_t2i", "i2i": f"{engine_mode}_i2i"}.get(submode)
+                    # 절단 «후» 장수를 센다. 아랫줄의 참조 이미지 지시문이 «N 장이 이 순서로
+                    # 첨부됨» 을 직접 쓰는데, 절단 전 값을 두면 T2I 에서 6장을 보낸 요청이
+                    # <image1> 만 있는데 6장이 있다고 말하는 지시문으로 모델에 전달된다.
+                    image_count = len(images)
+                    # 접두어는 위 OFFICIAL_PROMPT_PREFIX 가 정한다 (qwen21 → qwen).
+                    pe_prefix = OFFICIAL_PROMPT_PREFIX.get(engine_mode, engine_mode)
+                    prompt_key = {"t2i": f"{pe_prefix}_t2i", "i2i": f"{pe_prefix}_i2i"}.get(submode)
                     if not prompt_key:
                         return web.json_response({"success": False, "error": f"Invalid {engine_mode} submode."}, status=400)
                     # 공식 PE 프롬프트와 targets 정의는 배포본 고윳값이므로 배포본만 읽는다.
@@ -1345,9 +1429,9 @@ def register_gemini_api_routes():
 
                     한때 여기에 «15초 미만으로 내리지 않는다» 는 하한이 있었다. 삭제한 이유:
                     하한은 필요하지도 않고(요청별 timeout 이 세션 기본값을 대체한다) 실패만
-                    늦춘다. 이 경로(팝업 생성) 는 모델을 «순차» 로 시도하므로 3개 모델이 모두
-                    응답하지 않으면 PASS1 만으로도 15+15+15 = 45초를 태운다. 표를 그대로 쓰면
-                    8+12+12 = 32초로 줄고, 첫 실패 후 다음 모델로 넘어가는 데 1~3초밖에 안 걸린다.
+                    늦춘다. 이 경로는 2026-11-01 부터 키별로 병렬 레이스이지만, 키 «안» 에서는
+                    여전히 순서대로 시도한다 — 즉 이번 생성의 PASS1 상한은 «그 키가 맡은 모델들의
+                    합» 이고, 표를 쓰면 8/12/12/25초다 (15초 하한을 두면 45초로 늘었다).
                     (실측 p95: 3.5-lite 2.4s / 3.1-lite 5.0s / 3-flash 3.25s — 8초라도 p95 의 3배 여유)
                     """
                     return aiohttp.ClientTimeout(total=model_timeout(model))
@@ -1360,60 +1444,97 @@ def register_gemini_api_routes():
                 api_reached = False
 
                 async with aiohttp.ClientSession(timeout=client_timeout) as session:
-                    # PASS 1: Direct Master Compilation — PG 배치(attempts) 순회.
+                    # PASS 1: Direct Master Compilation — ⚓ Bada Prompt Generator 와 **같은 레이스** (2026-11-01).
+                    # `attempts`(attempt_plan) 는 «키 → 담당 모델 목록」 을 순서대로 펴 둔 값이다.
+                    # PG 는 이를 키별로 나눠 key_start_delay_s 만큼 출발을 어긋나게 병렬로 띄운다
+                    # (speed 0/1/2/0s, quality 0/1/2/5s) — 그 표를 여기서 그대로 부르고, 키 «안»
+                    # 에서는 전처럼 순서대로 시도한다. 옛 구현은 plan 전체를 한 줄로 기다렸다:
+                    # 첫 키가 25초(3-flash-preview) 를 다 태우면 뒤의 3키는 시도조차 안 돼서
+                    # «키 4개를 나눠 쓰지 않는다» 가 그대로 체감됐고, 품질 모드의 3.5-lite
+                    # 백업(5초 지연) 은 지연표 기반이라 순차 경로에서는 존재하지도 않았다.
+                    # 승자가 정해지면 잔여 요청은 PG 처럼 취소한다.
+                    key_groups = []
                     for kidx, model in attempts:
-                        if is_model_dead(model):
-                            logger.info("[Pass 1] Skipping retired model %s", model)
-                            continue
-                        if key_rotator.all_exhausted():
-                            break
-                        if key_rotator.is_index_exhausted(kidx):
-                            continue  # 이 키는 이미 소진 — 담당 모델 목록째 건너뜀
-                        current_key = keys[kidx]
-                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={current_key}"
-                        payload_p1 = {
-                            "contents": [{"role": "user", "parts": build_user_parts(framed_user_prompt, attach_images=True)}],
-                            "system_instruction": {"parts": [{"text": final_system_p1}]},
-                            "safetySettings": SAFETY_SETTINGS_BLOCK_NONE,
-                            "generationConfig": generation_config(
-                                0.4 if (engine_mode == "krea" and submode == "storyboard") else 0.75
-                            )
-                        }
+                        if key_groups and key_groups[-1][0] == kidx:
+                            key_groups[-1][1].append(model)
+                        else:
+                            key_groups.append((kidx, [model]))
 
-                        try:
-                            async with session.post(url, json=payload_p1, timeout=request_timeout(model)) as resp:
-                                if resp.status == 200:
-                                    api_reached = True
-                                    res_json = await resp.json()
-                                    candidates = res_json.get("candidates") or []
-                                    candidate = candidates[0] if candidates else {}
-                                    finish_reason = candidate.get("finishReason", "")
+                    async def race_key(kidx, models):
+                        """키 1개가 담당 모델을 순서대로 시도한다. 성공하면 (키번호, 모델, 텍스트)."""
+                        nonlocal api_reached
+                        delay_s = key_start_delay_s(kidx, len(keys), race_turn, mode=generation_mode)
+                        if delay_s > 0:
+                            await asyncio.sleep(delay_s)  # PG 의 «스태거드 출발» 과 같은 표·같은 칸
+                        for model in models:
+                            if is_model_dead(model):
+                                logger.info("[Pass 1] Skipping retired model %s", model)
+                                continue
+                            if key_rotator.all_exhausted() or key_rotator.is_index_exhausted(kidx):
+                                break  # 이 키는 이미 소진 — 담당 모델 목록째 건너뜀
+                            current_key = keys[kidx]
+                            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={current_key}"
+                            payload_p1 = {
+                                "contents": [{"role": "user", "parts": build_user_parts(framed_user_prompt, attach_images=True)}],
+                                "system_instruction": {"parts": [{"text": final_system_p1}]},
+                                "safetySettings": SAFETY_SETTINGS_BLOCK_NONE,
+                                "generationConfig": generation_config(
+                                    0.4 if (engine_mode == "krea" and submode == "storyboard") else 0.75
+                                )
+                            }
+                            try:
+                                async with session.post(url, json=payload_p1, timeout=request_timeout(model)) as resp:
+                                    if resp.status == 200:
+                                        api_reached = True
+                                        res_json = await resp.json()
+                                        candidates = res_json.get("candidates") or []
+                                        candidate = candidates[0] if candidates else {}
+                                        finish_reason = candidate.get("finishReason", "")
 
-                                    if finish_reason == "SAFETY":
-                                        logger.warning(f"[Pass 1] Model {model} hit SAFETY finishReason. Advancing to Pass 2...")
-                                        break
+                                        if finish_reason == "SAFETY":
+                                            logger.warning(f"[Pass 1] Model {model} hit SAFETY finishReason. Advancing to Pass 2...")
+                                            return None
 
-                                    parts = candidate.get("content", {}).get("parts", [])
-                                    text = "".join([p.get("text", "") for p in parts]).strip()
+                                        parts = candidate.get("content", {}).get("parts", [])
+                                        text = "".join([p.get("text", "") for p in parts]).strip()
 
-                                    if text and not is_refusal_response(text):
-                                        raw_result_text = text
-                                        successful_model = model
-                                        pass_used = 1
-                                        break
-                                    elif text and is_refusal_response(text):
-                                        logger.warning(f"[Pass 1] Model {model} returned refusal disclaimer. Advancing to Pass 2...")
-                                        break
-                                else:
-                                    logger.warning(f"[Pass 1] Model {model} returned HTTP {resp.status}, trying cascade...")
-                                    if resp.status == 404:
-                                        mark_model_dead(model, "Pass 1 HTTP 404")
-                                    elif resp.status in (429, 503):
-                                        # 키 소진 표시만 — plan 은 이미 «이 키의 남은 모델» 을
-                                        # 알고 있으므로 advance() 로 인덱스를 밀 필요 없다.
-                                        key_rotator.mark_exhausted(current_key)
-                        except Exception as e_p1:
-                            logger.warning(f"[Pass 1] Model {model} failed: {e_p1}")
+                                        if text and not is_refusal_response(text):
+                                            return (kidx, model, text)
+                                        if text:
+                                            logger.warning(f"[Pass 1] Model {model} returned refusal disclaimer. Advancing to Pass 2...")
+                                            return None
+                                    else:
+                                        logger.warning(f"[Pass 1] Model {model} returned HTTP {resp.status}, trying cascade...")
+                                        if resp.status == 404:
+                                            mark_model_dead(model, "Pass 1 HTTP 404")
+                                        elif resp.status in (429, 503):
+                                            # 키 소진 표시만 — plan 은 이미 «이 키의 남은 모델» 을
+                                            # 알고 있으므로 advance() 로 인덱스를 밀 필요 없다.
+                                            key_rotator.mark_exhausted(current_key)
+                            except Exception as e_p1:
+                                logger.warning(f"[Pass 1] Model {model} failed: {e_p1}")
+                        return None
+
+                    pending = {asyncio.ensure_future(race_key(kidx, models)) for kidx, models in key_groups}
+                    while pending and not raw_result_text:
+                        done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                        for task in done:
+                            try:
+                                won = task.result()
+                            except Exception as e_race:
+                                logger.warning("[Pass 1] Race task failed: %s", e_race)
+                                continue
+                            if won and not raw_result_text:
+                                win_key_idx, successful_model, raw_result_text = won
+                                pass_used = 1
+                                # PG 의 «Race winner» 와 같은 서식. 어느 키가 어느 모델로 이겼는지가
+                                # 비용 분산의 유일한 증적이라 남긴다 (키 × 모델 이 쿼터 단위).
+                                logger.info("[BadaGemini] Race winner: key_idx=%d model=%s pass=1",
+                                            win_key_idx, successful_model)
+                    if pending:
+                        for task in pending:
+                            task.cancel()
+                        await asyncio.gather(*pending, return_exceptions=True)
 
                     # PASS 2: Anti-Censorship 3D VFX Technical Override (Decouple raw binary image triggers if blocked)
                     if not raw_result_text and not api_reached:
@@ -1441,7 +1562,13 @@ def register_gemini_api_routes():
                             payload_p2 = {
                                 "contents": [{"role": "user", "parts": build_user_parts(
                                     deep_framed_prompt,
-                                    attach_images=(engine_mode in ("qwen21", "system_prompt") and bool(images)),
+                                    # 이미지는 PASS 1 과 똑같이 붙인다. `images` 는 위쪽에서 이미
+                                    # 모드별 한도(T2I 1장 / I2I 6장) 로 잘린 상태이고, 시스템
+                                    # 지시문에는 «N 장이 첨부됨» 이 적혀 있다 — 여기서 빼면 그
+                                    # 문장이 거짓이 되어 모델이 참고 이미지를 지어낸다. 옛 조건은
+                                    # qwen21|system_prompt 만 붙여서 FLUX3·MOSS·MiniMax·LTX 의
+                                    # PASS2·3 이 텍스트만으로 다시 썼다.
+                                    attach_images=bool(images),
                                 )}],
                                 "system_instruction": {"parts": [{"text": (
                                     final_system_p1 if engine_mode in ("qwen21", "system_prompt")
@@ -1490,7 +1617,7 @@ def register_gemini_api_routes():
                             payload_p3 = {
                                 "contents": [{"role": "user", "parts": build_user_parts(
                                     pass3_prompt,
-                                    attach_images=(engine_mode in ("qwen21", "system_prompt") and bool(images)),
+                                    attach_images=bool(images),   # PASS 1·2 와 같은 규칙 (위 주석 참조)
                                 )}],
                                 "system_instruction": {"parts": [{"text": pass3_system}]},
                                 "safetySettings": SAFETY_SETTINGS_BLOCK_NONE,
@@ -1585,6 +1712,12 @@ def register_gemini_api_routes():
                         "code": "no_key",
                     }, status=400)
 
+                # 생성과 같은 상한 (generate 의 4개 절단과 같은 이유). 아래 키 순환은 «활성 키
+                # 목록» 을 한 바퀴 도는 구조라서, 여기서 자르지 않으면 5번째 키도 차례를 받아
+                # 같은 모델에 같은 요청을 겹발송한다.
+                if len(keys) > MAX_KEYS:
+                    keys = keys[:MAX_KEYS]
+
                 key_rotator = GeminiKeyRotator(keys)
                 if key_rotator.all_exhausted():
                     return web.json_response({
@@ -1594,7 +1727,7 @@ def register_gemini_api_routes():
                     }, status=429)
 
                 # `body["model"]` 은 받지 않는다 (2026-11-01 모델 설정 제거) — 생성과 동일.
-                # 순차(키 1개) 시드만 config 기본값이고, 나머지는 attempt_plan 이 정한다.
+                # 시드는 config 기본값. 채팅은 이 시드를 «이번 대화의 모델» 로 존중한다 (아래 배치 주석).
                 model = cfg.get("default_model") or DEFAULT_MODEL_ID
                 # 채팅도 같은 화이트리스트를 쓴다 (옛 중복 하드코딩 정리)
                 if model not in EXACT_MODEL_IDS:
@@ -1648,23 +1781,61 @@ def register_gemini_api_routes():
                     "generationConfig": {"temperature": 0.7, "maxOutputTokens": 8192}
                 }
 
-                # PG 와 같은 배치 (key × mode 표). 채팅도 생성과 같은 순서로 돈다.
-                chat_attempts = attempt_plan(keys, mode=generation_mode,
-                                             turn=next_race_turn(), primary=model)
+                # ── 채팅 배치 (2026-11-01 라운드 17): «키만» 순환시키고 모델은 한 메시지당 하나.
+                # 생성과 반대로 가는 것이 의도다. 생성은 배치 n개를 빨리 뽑는 레이스지만, 채팅은
+                # 사람 하나가 답 하나를 기다리는 여러 턴이라 목적이 다르다 (예측 가능한 지연 +
+                # 쿼터 분산 + 말투 유지).
+                #   ① 첫 주자 키를 메시지마다 돌린다. 전에는 attempt_plan 의 turn 이 «키 0 이 맡는
+                #      모델» 만 회전시키고 시도는 언제나 키 0 앞에서 시작했기 때문에, 평범한 날의
+                #      쿼터가 1번 키(= 한 Google 프로젝트) 에게만 몰렸다.
+                #   ② 한 메시지 안에서 모델은 하나다. 키 2개+ 에서 attempt_plan 은 시드를 무시하므로
+                #      그대로 두면 턴마다 다른 모델이 답한다 — 생성과 달리 채팅은 «말투» 가 상태이고
+                #      모델이 바뀌면 그 말투가 흔들린다. [속도|품질] 은 model_cascade 의 그 표로
+                #      어느 모델을 먼저 쓰는지 정한다 (사용자가 모드를 바꾸면 그때 모델이 바뀐다).
+                #   ③ 그 모델이 죽거나 막혔을 때만 표의 다음 모델로 승격한다 (아래 slot).
+                turn = next_race_turn()
+                visit = [(turn + i) % len(keys) for i in range(len(keys))]
+                # «지금은 쉬는 키» (세션 기억) 는 이번 메시지에서 빼 버린다. 안 빼면 그 키가 내
+                # 차례인 턴 전체가 429 를 처음부터 끝까지 기다려야 한다.
+                visit = [kidx for kidx in visit if not key_exhausted(keys[kidx])]
+                if not visit:
+                    return web.json_response({
+                        "success": False,
+                        "error": "모든 Gemini API 키가 잠시 쉬는 중입니다. ⚙️ 키 설정에서 새 키를 등록해 주세요.",
+                        "code": "all_keys_exhausted",
+                    }, status=429)
+                # model_cascade = 생성 경로가 «키 1개» 일 때 쓰는 그 표 (404 로 퇴장한 모델은 빠져 있다).
+                models = model_cascade(model, mode=generation_mode)
+                logger.info("[BadaGemini] chat plan keys=%d order=%s mode=%s model=%s resting=%d",
+                            len(visit), visit, generation_mode, models[0] if models else "-",
+                            exhausted_key_count())
 
                 client_timeout = aiohttp.ClientTimeout(total=45)
                 last_err = "No response"
                 reply_text = None
                 successful_model = None
+                slot = 0  # models[slot] = 이번 메시지가 쓸 모델. 막히거나 죽어야만 한 칸 전진한다.
 
                 async with aiohttp.ClientSession(timeout=client_timeout) as session:
-                    for kidx, cur_model in chat_attempts:
-                        if is_model_dead(cur_model):
-                            continue
+                    # 키는 «번호» 로 밟는다. `for kidx in visit:` 이면 키가 하나뿐인 날 모델 승격이
+                    # 헛돈다 — 승격된 모델을 맡을 다음 키가 없어서 그 자리에서 루프가 끝나기 때문
+                    # (옛 attempt_plan 은 키 1개일 때 그 키로 4종 모두 돌았다). 아래 마지막 분기가
+                    # «다음 키는 없는데 모델을 승격했다» 면 같은 키에서 그 모델을 한 번 더 만난다.
+                    key_pos = 0
+                    while key_pos < len(visit):
+                        model_promoted = False  # 이번 시도가 «모델» 탓이었는가 (404·SAFETY)
                         if key_rotator.all_exhausted():
                             break
+                        kidx = visit[key_pos]
                         if key_rotator.is_index_exhausted(kidx):
+                            key_pos += 1
                             continue
+                        while slot < len(models) and is_model_dead(models[slot]):
+                            slot += 1
+                        if slot >= len(models):
+                            last_err = "살아 있는 모델이 없다 (404 로 모두 퇴장)"
+                            break
+                        cur_model = models[slot]
                         current_key = keys[kidx]
                         url = f"https://generativelanguage.googleapis.com/v1beta/models/{cur_model}:generateContent?key={current_key}"
                         try:
@@ -1673,21 +1844,53 @@ def register_gemini_api_routes():
                                     data = await resp.json()
                                     candidates = data.get("candidates") or []
                                     candidate = candidates[0] if candidates else {}
+                                    finish_reason = candidate.get("finishReason", "")
                                     parts = candidate.get("content", {}).get("parts", [])
-                                    reply_text = "".join([p.get("text", "") for p in parts]).strip()
-                                    successful_model = cur_model
-                                    break
+                                    text = "".join([p.get("text", "") for p in parts]).strip()
+                                    if finish_reason == "SAFETY":
+                                        # 막힘은 «모델» 의 성질에 가깝다. 키만 바꿔 보면 같은 벽을
+                                        # 키 개수만큼 다시 만납니다 → 모델을 한 칸 승격시킨다.
+                                        last_err = f"SAFETY filtered (model={cur_model})"
+                                        logger.warning("[bada-AsyncGemini] Chat %s - promoting model", last_err)
+                                        slot += 1
+                                        model_promoted = True
+                                    elif not text:
+                                        # 200 이면서 텍스트가 없는 응답. 전에는 이것이 «성공» 이어서
+                                        # 빈 답장이 사용자에게 그대로 갔다 — 채팅이 말없이 죽은 것처럼
+                                        # 보이던 유일한 경로. 응답 단위 사고라 같은 모델의 다른 키를 만난다.
+                                        last_err = f"빈 응답 (finishReason={finish_reason or 'UNSPECIFIED'})"
+                                        logger.warning("[bada-AsyncGemini] Chat %s - next key", last_err)
+                                    else:
+                                        reply_text = text
+                                        successful_model = cur_model
+                                        logger.info("[BadaGemini] chat answered: key_idx=%d model=%s",
+                                                    kidx, cur_model)
+                                        break
                                 else:
                                     err_body = await resp.text()
                                     last_err = f"HTTP {resp.status}: {err_body[:200]}"
-                                    logger.warning(f"[bada-AsyncGemini] Chat model {cur_model} failed: {last_err}")
+                                    logger.warning("[bada-AsyncGemini] Chat key_idx=%d model %s failed: %s",
+                                                   kidx, cur_model, last_err)
                                     if resp.status == 404:
                                         mark_model_dead(cur_model, "Chat HTTP 404")
-                                    elif resp.status in (429, 503):
+                                        slot += 1  # 다음 시도는 승격된 모델을 받는다
+                                        model_promoted = True
+                                    elif resp.status in (429, 503, 401, 403):
+                                        # 429/503 = 그 키의 쿼터·용량, 401/403 = 그 키 자체가 잘못된 열쇠.
+                                        # 둘 다 «다음 키» 로 피해야 할 실패라 이번 요청뿐 아니라 세션 기억에도
+                                        # 남긴다 (TTL 이 지나면 저절로 다시 시도 대상에 들어온다).
                                         key_rotator.mark_exhausted(current_key)
+                                        mark_key_exhausted(current_key, f"HTTP {resp.status}")
                         except Exception as req_e:
                             last_err = str(req_e)
-                            logger.warning(f"[bada-AsyncGemini] Chat model {cur_model} exception: {req_e}")
+                            logger.warning("[bada-AsyncGemini] Chat key_idx=%d model %s exception: %s",
+                                           kidx, cur_model, req_e)
+                        if key_pos + 1 < len(visit):
+                            key_pos += 1  # 다음 키로 (승격했다면 승격된 모델을 그 키에게 맡긴다)
+                        elif model_promoted and slot < len(models):
+                            continue  # 키가 하나뿐인 날: 같은 키에서 승격된 모델을 만난다
+                        else:
+                            break
 
                 if reply_text is not None:
                     return web.json_response({
@@ -1695,11 +1898,19 @@ def register_gemini_api_routes():
                         "reply": reply_text,
                         "model": successful_model,
                     })
-                else:
+                if key_rotator.all_exhausted():
+                    # 실패의 원인이 «키» 로 확정된 경우. 원문(HTTP 본문) 을 그대로 주면 프론트가
+                    # Google영 문구를 사용자에게 보여준다 — 생성과 같은 code 로 답해 프론트가
+                    # 자기 언어(«키 할당량 소진») 로 옮기게 한다.
                     return web.json_response({
                         "success": False,
-                        "error": f"Chat response failed: {last_err}"
-                    }, status=400)
+                        "error": f"Chat response failed: {last_err}",
+                        "code": "all_keys_exhausted",
+                    }, status=429)
+                return web.json_response({
+                    "success": False,
+                    "error": f"Chat response failed: {last_err}"
+                }, status=400)
 
             except Exception as e:
                 logger.error(f"[bada-AsyncGemini] Chat exception: {e}", exc_info=True)

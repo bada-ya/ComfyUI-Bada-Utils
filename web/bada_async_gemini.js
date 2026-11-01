@@ -135,8 +135,14 @@ const GEM_PERSONAS_LIST = [
 // ============================================================================
 const IMAGE_ANALYSIS_MAX_EDGE = 1024;   // long-edge cap for vision/prompt work
 const IMAGE_ANALYSIS_JPEG_QUALITY = 0.82;
-const MAX_IMAGES_T2I = 1;               // KREA2 general, QWEN2.1 T2I, storyboard…
-const MAX_IMAGES_I2I = 6;               // QWEN2.1 I2I (reference set)
+const MAX_IMAGES_T2I = 1;               // KREA2 general, QWEN2.1/FLUX3/MOSS T2I
+const MAX_IMAGES_I2I = 6;               // QWEN2.1/FLUX3/MOSS I2I (reference set)
+// 영상·시스템 탭의 첨부 한도 (2026-11-01 요처: «모든 탭 최소 5장»). I2I 참조 세트와
+// 같은 6장을 쓴다 — 안내 문구(gemini_hint_multi_images «최대 6장») 도 이미 이 값이다.
+const MAX_IMAGES_MULTI = MAX_IMAGES_I2I;
+// T2I/I2I 서브모드 쌍을 쓰는 엔진. 첨부 한도와 «I2I 는 이미지 필수» 검증이 이 표 하나를
+// 같이 본다 — 한 곳에서 바꿔야 두 규칙이 같이 따라가도록 둔다.
+const I2I_SUBMODE_ENGINES = ["qwen21", "flux3", "moss"];
 
 /**
  * Downscale + recompress a single image to a Gemini-friendly DataURL.
@@ -163,13 +169,34 @@ function downscaleImageForGemini(dataUrl, maxEdge = IMAGE_ANALYSIS_MAX_EDGE) {
     });
 }
 
-/** How many images the active engine/submode accepts. */
-function currentImageLimit(engine, qwenSubMode) {
-    if (engine === "qwen21") return qwenSubMode === "i2i" ? MAX_IMAGES_I2I : MAX_IMAGES_T2I;
-    if (engine === "flux3") return flux3Sub === "i2i" ? MAX_IMAGES_I2I : MAX_IMAGES_T2I;
-    if (engine === "moss") return mossSub === "i2i" ? MAX_IMAGES_I2I : MAX_IMAGES_T2I;
+/**
+ * 첨부 가능한 이미지 장수 — 엔진·서브모드 «인자만» 본다 (2026-11-01).
+ *
+ * 옛 구현은 인자를 하나 받고 flux3·moss 는 자유 변수(flux3Sub·mossSub) 를 읽었다.
+ * 그 변수는 registerExtension 안에 선언되고 이 함수는 모듈 최상위라서, 두 엔진의
+ * 첨부 핸들러는 호출마다 ReferenceError 였다. handleFiles 는 Promise 이고 호출측이
+ * await 하지 않아 그 거부는 콘솔에도 남지 않게 사라졌고, for 문 전체가 중단됐으므로
+ * 사용자가 본 결과는 «1장» 이 아니라 «0장» 이었다.
+ *
+ * 장수 표 (요처: 모든 탭 최소 5장 이상):
+ *   - QWEN2.1 · FLUX3 · MOSS : T2I 1장 / I2I 6장 (서버도 같은 값으로 자른다)
+ *   - MiniMax · LTX · 시스템 : 6장. 영상 엔진은 이미지를 «소비» 하지 않는 서브모드
+ *     (T2VA 등) 가 있지만 Studio 의 첨부는 Gemini 가 «보고» 프롬프트에 녹이는 재료이므로
+ *     서브모드와 무관하게 같은 한도를 쓴다. 서버는 이 셋을 자르지 않는다 — 즉 아래
+ *     값이 유일한 게이트다.
+ *   - KREA2 : 기존 동작 그대로 1장.
+ */
+function currentImageLimit(engine, subMode) {
     if (engine === "uncensored") return Infinity;   // chat tab has its own picker
-    return MAX_IMAGES_T2I;                        // krea / minimax / ltx / system
+    if (I2I_SUBMODE_ENGINES.includes(engine))
+        return subMode === "i2i" ? MAX_IMAGES_I2I : MAX_IMAGES_T2I;
+    if (engine === "minimax" || engine === "ltx" || engine === "system_prompt") return MAX_IMAGES_MULTI;
+    return MAX_IMAGES_T2I;                           // krea (general·storyboard) 와 모르는 엔진은 안전하게 1장
+}
+
+/** I2I 편집 = 참조 이미지가 반드시 붙어 있어야 하는 모드인지. */
+function requiresReferenceImage(engine, subMode) {
+    return I2I_SUBMODE_ENGINES.includes(engine) && subMode === "i2i";
 }
 
 // ============================================================================
@@ -258,6 +285,26 @@ app.registerExtension({
             if (!FLUX3_SUBMODES.some(submode => submode.id === flux3Sub)) flux3Sub = "t2i";
             let mossSub = localStorage.getItem("bada_moss_sub") || "t2i";
             if (!MOSS_SUBMODES.some(submode => submode.id === mossSub)) mossSub = "t2i";
+            // «지금 선택된 서브모드» 를 한 곳에서 조립한다 (2026-11-01). 첨부 한도
+            // (currentImageLimit)·I2I 필수 첨부 검증·전송 payload 의 `submode` 세 곳이
+            // 서로 다른 값을 읽는 일이 없도록 — 옛 payload 는 엔진별 삼항 중첩을 다시
+            // 풀어 썼고, 첨부 한도는 다른 변수를 읽으면서 엇갈렸다.
+            function activeSubMode() {
+                if (activeEngine === "minimax") return minimaxSub;
+                if (activeEngine === "ltx") return ltxSub;
+                if (activeEngine === "qwen21") return qwenSub;
+                if (activeEngine === "flux3") return flux3Sub;
+                if (activeEngine === "moss") return mossSub;
+                if (activeEngine === "krea") return kreaSub;
+                return "";
+            }
+            // 안내문({mode}) 에 들어갈 모드 이름 — 예: "MiniMax REF2VA", "FLUX.3 I2I".
+            function activeModeLabel() {
+                const eng = ENGINES.find(item => item.id === activeEngine);
+                const base = eng ? BadaI18n.t(eng.nameKey) : BadaI18n.t("gemini_current_mode");
+                const sub = activeSubMode();
+                return sub ? `${base} ${String(sub).toUpperCase()}` : base;
+            }
             let userSystemPrompts = [];
             // 📜 시스템 탭의 상태 안내문구 (예전 promptInfo 박스의 내용을 placeholder 로 이관)
             let systemHintText = "";
@@ -910,27 +957,48 @@ let refreshChatLengthNotice = () => {};
             imgSection.appendChild(thumbContainer);
             promptStudioContainer.appendChild(imgSection);
 
-            // 이미지 첨부: 모드별 장수 제한을 먼저 걸고, Gemini 전송 전에 브라우저에서
-            // 1024px/JPEG 로 축소한다 (원본 그대로면 base64 변환 후 20MB 를 넘어 실패한다).
+            // «최대 N장» 안내 한 줄 — 첨부 초과와 모드 전환 클램프가 같은 문구를 쓴다.
+            // 옛 구현은 QWEN2.1 I2I 를 빼면 {mode} 를 빈 문자열로 넣어 문구가 «현재 모드» 로 굳었다.
+            function showImageLimitToast(limit) {
+                showToast(
+                    BadaI18n.t("gemini_image_limit_reached", {
+                        mode: activeModeLabel(),
+                        limit,
+                    }),
+                    "error", 3500,
+                );
+            }
+
+            // 첨부 목록은 탭·서브모드 전환을 살아남는다 (붙여넣은 재료를 잃지 않는다).
+            // 그래서 모드가 바뀐 자리에서 새 한도만큼만 남히고 버린 장수를 알려준다 —
+            // 안 하면 I2I 에서 6장 붙인 뒤 T2I 로 옮겼을 때 프론트는 6장을 그대로 보내고
+            // 서버가 몰래 1장으로 자르므로, «참고 이미지 5장이 왜 반영이 안 됐지?» 가 된다.
+            function clampUploadedImagesToMode() {
+                const limit = currentImageLimit(activeEngine, activeSubMode());
+                if (uploadedImages.length <= limit) return;
+                uploadedImages = uploadedImages.slice(0, limit);
+                renderThumbnails();
+                showImageLimitToast(limit);
+            }
+
             async function handleFiles(files) {
-                const incoming = Array.from(files).filter(f => f && f.type && f.type.startsWith("image/"));
+                const incoming = Array.from(files || []).filter(f => f && f.type && f.type.startsWith("image/"));
                 if (!incoming.length) return;
 
-                const limit = currentImageLimit(activeEngine, qwenSub);
+                // 장수 게이트는 currentImageLimit 하나만 본다. 옛 구현은 파일을 하나씩
+                // 처리하면서 매번 제한을 확인하고 가득 차면 반복문을 빠져나왔는데, 그 결과
+                // 5장을 한 번에 붙여넣으면 1장만 들어가고 나머지는 이유도 없이 사라졌다.
+                // 지금은 들어올 수 있는 만큼만 미리 받아두고 초과분을 한 번에 안내한다.
+                const limit = currentImageLimit(activeEngine, activeSubMode());
+                const room = limit - uploadedImages.length;
+                if (room <= 0) {
+                    showImageLimitToast(limit);
+                    return;
+                }
+                const accepted = incoming.slice(0, room);
+                if (accepted.length < incoming.length) showImageLimitToast(limit);
 
-                for (const file of incoming) {
-                    if (uploadedImages.length >= limit) {
-                        showToast(
-                            BadaI18n.t("gemini_image_limit_reached", {
-                                mode: activeEngine === "qwen21" && qwenSub === "i2i"
-                                    ? "I2I"
-                                    : BadaI18n.t("gemini_current_mode"),
-                                limit,
-                            }),
-                            "error", 3500,
-                        );
-                        break;
-                    }
+                for (const file of accepted) {
                     try {
                         const rawDataUrl = await readFileAsDataUrl(file);
                         const { dataUrl } = await downscaleImageForGemini(rawDataUrl);
@@ -1645,6 +1713,9 @@ let refreshChatLengthNotice = () => {};
             // -------------------------------------------------------------
             function renderSubmodePanel() {
                 submodePanel.innerHTML = "";
+                // 서브모드 패널이 다시 그려지는 자리 = 엔진이든 서브모드든 모드가 바뀐 순간.
+                // 탭 전환·서브모드 카드 클릭·시스템 프롬프트 갱신 등 모든 경로가 여기로 온다.
+                clampUploadedImagesToMode();
 
                 if (activeEngine === "minimax") {
                     const headerRow = document.createElement("div");
@@ -1946,6 +2017,9 @@ let refreshChatLengthNotice = () => {};
                             desc: BadaI18n.t(sub.descKey),
                         }),
                         BadaI18n.t("gemini_hint_minimax_input"),
+                        // 영상 엔진도 6장까지 첨부할 수 있다 (2026-11-01) — 붙인 이미지는 Gemini 가 «보고»
+                        // 프롬프트에 녹인다. 안내를 안 붙이면 «여기서는 이미지를 못 붙이는 건가» 가 된다.
+                        BadaI18n.t("gemini_hint_multi_images"),
                         BadaI18n.t("gemini_hint_minimax_example"),
                     ]);
                     generateBtn.className = "bada-btn-generate minimax";
@@ -1960,6 +2034,7 @@ let refreshChatLengthNotice = () => {};
                             desc: BadaI18n.t(sub.descKey),
                         }),
                         BadaI18n.t("gemini_hint_ltx_input"),
+                        BadaI18n.t("gemini_hint_multi_images"),
                         BadaI18n.t("gemini_hint_ltx_example"),
                     ]);
                     generateBtn.className = "bada-btn-generate ltx";
@@ -2048,6 +2123,7 @@ let refreshChatLengthNotice = () => {};
                         BadaI18n.t("gemini_hint_system_selected"),
                         systemHintText,
                         BadaI18n.t("gemini_hint_system_input"),
+                        BadaI18n.t("gemini_hint_multi_images"),
                     ]);
                     generateBtn.className = "bada-btn-generate system-prompt";
                     generateBtn.innerHTML = `<span>📜</span> <span>${BadaI18n.t("gemini_generate_system")}</span>`;
@@ -2099,7 +2175,7 @@ let refreshChatLengthNotice = () => {};
                     return;
                 }
 
-                if (activeEngine === "qwen21" && qwenSub === "i2i" && uploadedImages.length === 0) {
+                if (requiresReferenceImage(activeEngine, activeSubMode()) && uploadedImages.length === 0) {
                     showToast(BadaI18n.t("gemini_generate_need_i2i_image"), "error", 3000);
                     return;
                 }
@@ -2144,9 +2220,7 @@ let refreshChatLengthNotice = () => {};
                             // 어떤 키가 어떤 모델을 맡을지는 서버 표(KEY_CASCADES × 모드) 가 정한다.
                             generation_mode: readGenMode(),
                             engine_mode: activeEngine,
-                            submode: activeEngine === "minimax"
-                                ? minimaxSub
-                                : (activeEngine === "ltx" ? ltxSub : (activeEngine === "qwen21" ? qwenSub : (activeEngine === "flux3" ? flux3Sub : (activeEngine === "moss" ? mossSub : kreaSub)))),
+                            submode: activeSubMode(),
                             duration: durationSec,
                             cut_count: storyboardCutCount,
                             is_nsfw: isNSFW,
@@ -2986,7 +3060,8 @@ let refreshChatLengthNotice = () => {};
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
                                 // «api_key»/«model» 은 보내지 않는다 — 서버가 config.json 의
-                                // 활성 키를 읽고, 모델 순서는 키 배치 표 × 모드로 정한다.
+                                // 활성 키를 읽고, 키는 메시지마다 돌리고 쓸 모델은 [속도|품질]
+                                // 표가 정한다 (2026-11-01 라운드 17: 채팅은 키만 순환).
                                 generation_mode: readGenMode(),
                                 persona: selectedGemPersona,
                                 system_prompt_id: selectedGemPromptId,
