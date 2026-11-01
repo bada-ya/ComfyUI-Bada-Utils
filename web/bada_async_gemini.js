@@ -16,6 +16,14 @@
 
 import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
+import {
+    openSettingsModal,
+    displayKeyCount,
+    flushToServer,
+    pullFromServer,
+    KEY_CAP,
+    migrateLegacySingleKey,
+} from "./bada_gemini_settings.js";
 
 // Dynamically inject CSS stylesheet
 (function loadStylesheet() {
@@ -31,16 +39,10 @@ import { BadaI18n } from "./bada_i18n.js";
     }
 })();
 
-// Survival line-up, measured 2026-11-01 against real free-tier keys (see server/gemini_api.py).
-// gemini-3.8-flash and the whole 2.5 family are gone: 3.8 is capped at 20 requests/DAY on the
-// free tier (and saturates with 503s), the 2.5s answer 400 NOT_FOUND. A saved choice that is
-// no longer listed falls back to 3.5-flash-lite below, so old workspaces keep working.
-const EXACT_MODELS = [
-    { id: "gemini-3.5-flash-lite", nameKey: "gemini_model_flash_lite_name", descKey: "gemini_model_flash_lite_desc" },
-    { id: "gemini-3.1-flash-lite", nameKey: "gemini_model_31lite_name", descKey: "gemini_model_31lite_desc" },
-    { id: "gemini-3-flash-preview", nameKey: "gemini_model_3flash_name", descKey: "gemini_model_3flash_desc" },
-    { id: "gemini-3.6-flash", nameKey: "gemini_model_36_name", descKey: "gemini_model_36_desc" },
-];
+// 모델 목록/선택은 2026-11-01 완전 제거됐다 — 모델은 서버 표(KEY_CASCADES/
+// QUALITY_KEY_CASCADES × generation_mode) 가 정한다. 요청 본문에 `model` 을 넣는
+// 순간 그 값이 캐스케이드의 1순위가 되어 «서버가 고른 배치» 라는 규칙이 깨진다.
+// (캐스케이드 표의 원본은 server/gemini_api.py)
 
 // 8 Engine Tabs Specification (2-row layout: row1 KREA/QWEN/MiniMax/LTX/FLUX3/MOSS, row2 system/uncensored)
 const ENGINES = [
@@ -355,8 +357,8 @@ let refreshChatLengthNotice = () => {};
 
             // The header row (duplicate ⚓ title + ZERO-REFUSAL / NON-BLOCKING badges) was
             // removed: it duplicated the node title directly above it and, once the title
-            // went, was left as an empty full-width box costing a row. The 🔔 bell already
-            // lives in the API-key label row.
+            // went, was left as an empty full-width box costing a row. The 🔔 bell lives in
+            // the ⚙️ settings bar below.
 
             // Error Log Modal
             const errorModalOverlay = document.createElement("div");
@@ -411,10 +413,23 @@ let refreshChatLengthNotice = () => {};
                 updateBellBadge();
             }
 
+            // 서버가 `code` 로 내려주는 실패는 사용자 언어로 옮겨 적는다. 서버 error 텍스트는
+            // 서버 로그에 남기기 좋은 한국어 한 언어뿐이라, 그것을 그대로 띄우면 영어 사용자의
+            // 벨에 한국어가 박힌다. 모르는 code 는 서버 원문으로 답한다(새 코드는 새 번역을 얻기 전까지 그 상태로도 읽힌다).
+            const SERVER_ERROR_KEYS = {
+                no_key: "gemini_error_no_key",
+                all_keys_exhausted: "gemini_error_keys_exhausted",
+            };
+            function serverErrorText(data, fallback) {
+                const i18nKey = SERVER_ERROR_KEYS[(data && data.code) || ""];
+                if (i18nKey) return BadaI18n.t(i18nKey);
+                return (data && data.error) || fallback;
+            }
+
             // The in-panel "⚓ Bada Async Gemini Studio" title duplicated the node title directly
-// above it, costing a whole row. The 🔔 bell moved down into the API-key label row
-// (where the "LocalStorage 자동 저장" text used to sit), removing one more row.
-function updateBellBadge() {
+            // above it, costing a whole row. The 🔔 bell now sits in the ⚙️ settings bar below,
+            // which removed one more row.
+            function updateBellBadge() {
                 const bellBtn = root.querySelector("#bada-error-bell");
                 const badgeEl = root.querySelector("#bada-bell-badge");
                 if (!badgeEl || !bellBtn) return;
@@ -465,81 +480,109 @@ function updateBellBadge() {
                 }, duration);
             }
 
-            // 2. 🔑 API Key & Priority Model (맨위에서 두번째 - 모든 4대 탭 공통 적용!)
+            // 2. ⚙️ 설정 바 — [속도|품질] · «API Key = n» · [⚙️ 키 설정] · 🔔 오류 로그
+            // 이 자리에 있던 키 입력칸+눈, [발급], [연결확인], 우선순위 모델 드롭다운은
+            // 2026-11-01 삭제 — 키 관리는 ⚙️(공용 창) 에서, 모델 선택은 같은 날 기능 자체가
+            // 사라져 서버 표(KEY_CASCADES × generation_mode) 가 정한다.
             const configSection = document.createElement("div");
             configSection.className = "bada-section bada-config-top-section";
             configSection.style.cssText = "flex: 0 0 auto !important; margin: 0 0 2px 0; padding: 6px 8px; background: rgba(0,0,0,0.25); border: 1px solid var(--bada-border); border-radius: var(--bada-radius-md);";
-            configSection.innerHTML = `
-                <div class="bada-label bada-config-label" style="margin-bottom: 4px;">
-                    <div class="bada-config-title-group">
-                        <span class="bada-config-title-text">${BadaI18n.t("gemini_config_title")}</span>
-                        <div class="bada-key-actions">
-                            <button type="button" id="bada-btn-get-key" class="bada-key-action-btn" title="${BadaI18n.t("gemini_get_key_tooltip")}">
-                                <span class="bada-action-icon">↗️</span><span class="bada-action-text">${BadaI18n.t("gemini_get_key")}</span>
-                            </button>
-                            <button type="button" id="bada-btn-test-key" class="bada-key-action-btn" title="${BadaI18n.t("gemini_test_key_tooltip")}">
-                                <span class="bada-action-icon">🔌</span><span class="bada-action-text">${BadaI18n.t("gemini_check")}</span>
-                            </button>
-                        </div>
-                    </div>
-                    <span class="bada-config-bell-slot">
-                        <button type="button" id="bada-error-bell" class="bada-bell-btn" title="${BadaI18n.t("gemini_error_log_title")}">
-                            <span class="bada-bell-icon">🔔</span>
-                            <span class="bada-bell-badge" id="bada-bell-badge" style="display: none;">0</span>
-                        </button>
-                    </span>
-                </div>
-            `;
-            const configRow = document.createElement("div");
-            configRow.className = "bada-config-row";
 
-            const inputGroup = document.createElement("div");
-            inputGroup.className = "bada-input-group";
-            const apiKeyInput = document.createElement("input");
-            apiKeyInput.className = "bada-input";
-            apiKeyInput.type = "password";
-            apiKeyInput.placeholder = "Gemini API Key (••••••••)";
-            const savedKey = localStorage.getItem("bada_gemini_api_key") || "";
-            if (savedKey) apiKeyInput.value = savedKey;
+            const settingsBar = document.createElement("div");
+            settingsBar.className = "bada-settings-bar";
 
-            apiKeyInput.addEventListener("input", () => {
-                localStorage.setItem("bada_gemini_api_key", apiKeyInput.value.trim());
+            // ── [속도 | 품질] 세그먼트 ──
+            // 모양은 PG 헤더의 .bpg-mode 패밀리를 그대로 따른다 (PG CSS 가 전역 주입됨).
+            // 지금은 UI 상태만 저장한다 (localStorage). 2단계(멀티 키 레이스)에서
+            // gemini_api.py::key_cascade(mode=) 에 이 값을 연결한다.
+            const GEN_MODE_LS = "bada_gemini_gen_mode";
+            const GEN_MODES = [["speed", "pg_gen_mode_speed"], ["quality", "pg_gen_mode_quality"]];
+            const readGenMode = () => (localStorage.getItem(GEN_MODE_LS) === "quality" ? "quality" : "speed");
+
+            const modeBox = document.createElement("div");
+            modeBox.className = "bpg-mode";
+            const modeBtns = {};
+            for (const [modeValue, labelKey] of GEN_MODES) {
+                const modeBtn = document.createElement("button");
+                modeBtn.className = "bpg-mode-btn";
+                modeBtn.type = "button";
+                modeBtn.dataset.mode = modeValue;
+                modeBtn.addEventListener("click", () => {
+                    localStorage.setItem(GEN_MODE_LS, modeValue);
+                    paintMode();
+                });
+                modeBtns[modeValue] = modeBtn;
+                modeBox.appendChild(modeBtn);
+            }
+
+            function paintMode() {
+                const current = readGenMode();
+                for (const [modeValue, labelKey] of GEN_MODES) {
+                    const on = modeValue === current;
+                    modeBtns[modeValue].classList.toggle("bpg-mode-btn--on", on);
+                    modeBtns[modeValue].setAttribute("aria-pressed", String(on));
+                    modeBtns[modeValue].textContent = BadaI18n.t(labelKey);
+                }
+                modeBox.title = BadaI18n.t("pg_gen_mode_tip");
+            }
+
+            // ── «API Key = n» — 표시 + 설명 툴팁만. 클릭 동작은 없음 (PG와 동일) ──
+            const keyCount = document.createElement("span");
+            keyCount.className = "bpg-keycount";
+            function renderKeyCount() {
+                // PG 와 같은 함수 — 지역 사본 우선, 없으면 서버가 세어 준 활성 개수 (:591 근방 pull)
+                const n = displayKeyCount();
+                keyCount.textContent = BadaI18n.t("pg_key_count", { n, cap: KEY_CAP });
+                keyCount.classList.toggle("bpg-keycount--zero", n === 0);
+                keyCount.title = BadaI18n.t("pg_key_count_tip");
+            }
+
+            // ⚙️ 키 설정 버튼 — Bada Prompt Generator와 동일한 설정 창 공유 (키 전용 창).
+            // ⚠️ 사전 키는 «pg_settings»/«pg_settings_tip» («settings» 로 조회하면 사전에
+            // 없어서 키 문자열이 그대로 화면에 나온다). ⚙️ 는 값에 이미 포함.
+            const settingsBtn = document.createElement("button");
+            settingsBtn.className = "bpg-btn bpg-btn--manage";
+            settingsBtn.type = "button";
+            settingsBtn.addEventListener("click", () => {
+                // refreshHeaderFn: 창에서 키를 더/빼/끄는 즉시 «API Key = n» 와 툴팁이 따라 간다.
+                openSettingsModal({ refreshHeaderFn: paintSettingsBar });
             });
 
-            const toggleEyeBtn = document.createElement("button");
-            toggleEyeBtn.className = "bada-toggle-eye";
-            toggleEyeBtn.type = "button";
-            toggleEyeBtn.innerHTML = "👁️";
-            toggleEyeBtn.onclick = (e) => {
-                e.preventDefault();
-                apiKeyInput.type = apiKeyInput.type === "password" ? "text" : "password";
-            };
-            inputGroup.appendChild(apiKeyInput);
-            inputGroup.appendChild(toggleEyeBtn);
+            // 🔔 오류 로그 벨 — 구 config 라벨 행 삭제로 함께 이곳으로 이사왔다.
+            const bellSlot = document.createElement("span");
+            bellSlot.className = "bada-config-bell-slot";
+            bellSlot.innerHTML = `
+                <button type="button" id="bada-error-bell" class="bada-bell-btn" title="${BadaI18n.t("gemini_error_bell_tooltip")}">
+                    <span class="bada-bell-icon">🔔</span>
+                    <span class="bada-bell-badge" id="bada-bell-badge" style="display: none;">0</span>
+                </button>`;
 
-            const modelSelect = document.createElement("select");
-            modelSelect.className = "bada-select";
-            EXACT_MODELS.forEach(m => {
-                const opt = document.createElement("option");
-                opt.value = m.id;
-                opt.textContent = BadaI18n.t(m.nameKey);
-                modelSelect.appendChild(opt);
-            });
-            const rawSaved = localStorage.getItem("bada_gemini_model") || "gemini-3.5-flash-lite";
-            const validIds = EXACT_MODELS.map(m => m.id);
-            const savedModel = validIds.includes(rawSaved) ? rawSaved : "gemini-3.5-flash-lite";
-            modelSelect.value = savedModel;
-            localStorage.setItem("bada_gemini_model", savedModel);
-            modelSelect.addEventListener("change", () => {
-                localStorage.setItem("bada_gemini_model", modelSelect.value);
-            });
-
-            configRow.appendChild(inputGroup);
-            configRow.appendChild(modelSelect);
-            configSection.appendChild(configRow);
+            settingsBar.append(modeBox, keyCount, settingsBtn, bellSlot);
+            configSection.appendChild(settingsBar);
             root.appendChild(configSection);
 
-            // Wired here, not next to the header: the bell now lives in the config label row,
+            // 첫 그림. 구 단일 키 마이그레이션은 «n» 을 세기 전에 먼저 끝난 있어야 한다.
+            function paintSettingsBar() {
+                paintMode();
+                renderKeyCount();
+                settingsBtn.textContent = BadaI18n.t("pg_settings");
+                // «현재 모델: …» 줄은 2026-11-01 사라진 기능의 잔재였다 — 모델은 서버 표가 정하고
+                // 사용자에게는 노출하지 않는다. 툴팁은 PG 와 같은 한 줄이며, 이 한 곳이 유일한
+                // 수정 지점이다 (updateAllStaticLabels() 도 같은 키를 부른다).
+                settingsBtn.title = BadaI18n.t("pg_settings_tip");
+                const bellBtn = bellSlot.querySelector("#bada-error-bell");
+                // 툴팁은 updateAllStaticLabels() 과 같은 키를 쓴다 — 두 곳이 서로 다른 키를
+                // 부르면 나중에 실행되는 쪽이 이겨서, 언어를 바꿀 때마다 값이 뒤바뀐다.
+                if (bellBtn) bellBtn.title = BadaI18n.t("gemini_error_bell_tooltip");
+            }
+            migrateLegacySingleKey();
+            paintSettingsBar();
+            // 서버는 키 «개수» 의 다른 출처다 (평문은 오지 않는다). 이 브라우저에 사본이 없을
+            // 때 헤더가 «0개» 로 서 있지 않도록 답을 받고 다시 그리며, PG 도 같은 절차를 하지만
+            // ⚓ Async 단독으로 열린 워크플로우에서는 Async 가 스스로 물어야 한다.
+            pullFromServer().then(() => paintSettingsBar());
+
+            // Wired here, not next to the header: the bell lives in the ⚙️ settings bar,
             // which only exists once configSection has been built.
             const errorBellBtn = root.querySelector("#bada-error-bell");
             if (errorBellBtn) {
@@ -553,134 +596,6 @@ function updateBellBadge() {
                 };
                 updateBellBadge();
             }
-
-            // Button Event Handlers: 발급 (AI Studio 새 탭) & 연결확인 (API Test)
-            const getKeyBtn = configSection.querySelector("#bada-btn-get-key");
-            const testKeyBtn = configSection.querySelector("#bada-btn-test-key");
-
-            if (getKeyBtn) {
-                getKeyBtn.addEventListener("click", (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    // 무료 한도는 프로젝트 단위(실측 429 quotaId: …PerDayPerProjectPerModel…)이므로
-                    // 프로젝트 화면에서 새 프로젝트를 만들어 그 안에서 키를 발급받는다.
-                    // bada_prompt_generator.js 의 [발급] 버튼과 같은 주소여야 창마다 동선이 갈라지지 않는다.
-                    window.open("https://aistudio.google.com/app/projects", "_blank", "noopener,noreferrer");
-                });
-            }
-
-            if (testKeyBtn) {
-                testKeyBtn.addEventListener("click", async (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (testKeyBtn.dataset.busy === "true") return;
-
-                    let curKey = (apiKeyInput.value || localStorage.getItem("bada_gemini_api_key") || "").trim();
-
-                    // If input box was empty but localStorage had it, sync into input box
-                    if (!apiKeyInput.value && curKey) {
-                        apiKeyInput.value = curKey;
-                    }
-
-                    if (!curKey) {
-                        showToast(BadaI18n.t("gemini_key_required"), "error", 3500);
-                        apiKeyInput.focus();
-                        return;
-                    }
-
-                    testKeyBtn.dataset.busy = "true";
-                    testKeyBtn.classList.remove("success", "error");
-                    testKeyBtn.classList.add("testing");
-
-                    const origIcon = "🔌";
-                    const iconSpan = testKeyBtn.querySelector(".bada-action-icon");
-                    const textSpan = testKeyBtn.querySelector(".bada-action-text");
-
-                    if (iconSpan) iconSpan.innerHTML = '<span class="bada-spinner-tiny">⏳</span>';
-                    if (textSpan) textSpan.textContent = BadaI18n.t("gemini_testing");
-
-                    const startTime = Date.now();
-                    const testAbort = new AbortController();
-                    const timeoutTimer = setTimeout(() => testAbort.abort(), 6000);
-
-                    try {
-                        // Direct browser fetch to Google Generative Language API (Ultra-fast ~0.3-0.5s, exactly like Prompt Studio!)
-                        const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(curKey)}`;
-                        const res = await fetch(listUrl, { signal: testAbort.signal });
-                        clearTimeout(timeoutTimer);
-                        const latency = Date.now() - startTime;
-                        const data = await res.json().catch(() => ({}));
-
-                        testKeyBtn.classList.remove("testing");
-
-                        if (res.ok) {
-                            // 1. Success! Save to LocalStorage
-                            localStorage.setItem("bada_gemini_api_key", curKey);
-                            // 2. Sync to ComfyUI backend config in background (fire-and-forget)
-                            fetch("/api/bada/gemini/config", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ api_key: curKey })
-                            }).catch(() => {});
-
-                            testKeyBtn.classList.add("success");
-                            if (iconSpan) iconSpan.textContent = "✅";
-                            if (textSpan) textSpan.textContent = `${latency}ms`;
-                            showToast(
-                                BadaI18n.t("gemini_test_success", { latency }),
-                                "success",
-                                3500
-                            );
-                        } else {
-                            const errMsg = data?.error?.message || `HTTP ${res.status}`;
-                            testKeyBtn.classList.add("error");
-                            if (iconSpan) iconSpan.textContent = "❌";
-                            if (textSpan) textSpan.textContent = BadaI18n.t("gemini_error");
-                            showToast(
-                                (BadaI18n.t("gemini_auth_failed")) + errMsg,
-                                "error",
-                                5000
-                            );
-                            addErrorLog(BadaI18n.t("gemini_api_connection_test"), errMsg);
-                        }
-                    } catch (err) {
-                        clearTimeout(timeoutTimer);
-                        testKeyBtn.classList.remove("testing");
-                        testKeyBtn.classList.add("error");
-                        if (iconSpan) iconSpan.textContent = "❌";
-                        if (textSpan) textSpan.textContent = BadaI18n.t("gemini_error");
-
-                        const errDesc = err.name === "AbortError"
-                            ? (BadaI18n.t("gemini_timeout_6s"))
-                            : (err.message || "Network error");
-
-                        showToast(
-                            (BadaI18n.t("gemini_connection_error")) + errDesc,
-                            "error",
-                            5000
-                        );
-                        addErrorLog(BadaI18n.t("gemini_api_connection_test"), errDesc);
-                    } finally {
-                        clearTimeout(timeoutTimer);
-                        setTimeout(() => {
-                            testKeyBtn.dataset.busy = "false";
-                            testKeyBtn.classList.remove("success", "error", "testing");
-                            if (iconSpan) iconSpan.textContent = origIcon;
-                            if (textSpan) textSpan.textContent = BadaI18n.t("gemini_check");
-                        }, 3500);
-                    }
-                });
-            }
-
-            // Fetch server config if present
-            fetch("/api/bada/gemini/config")
-                .then(r => r.json())
-                .then(data => {
-                    if (data.success && !apiKeyInput.value && data.has_key) {
-                        apiKeyInput.placeholder = data.masked_key || "Using Server/ENV Key ✅";
-                    }
-                })
-                .catch(() => {});
 
             // 3. 4 Engine Tabs Navigation
             const engineNav = document.createElement("div");
@@ -1029,7 +944,7 @@ function updateBellBadge() {
                 renderThumbnails();
                 // NO success toast on purpose (user request, 2026-10-05). `.bada-toast` is a
                 // block child of the card's flex column, so it inserted a full-width banner
-                // above the API-key row: the node grew, then shrank again when the toast timed
+                // above the ⚙️ settings bar: the node grew, then shrank again when the toast timed
                 // out, and the panel visibly jerked on every paste. The thumbnail strip that
                 // just re-rendered IS the confirmation. Error toasts below stay — they are
                 // rare, and they carry information the user must not miss.
@@ -2171,8 +2086,12 @@ function updateBellBadge() {
                 }
 
                 const instruction = instructionTextarea.value.trim();
-                const key = apiKeyInput.value.trim();
-                const model = modelSelect.value;
+                // 키 입력칸은 삭제됐으므로 ⚙️ 키 설정 창이 저장한 목록이 유일한 출처다.
+                // 실행 본문에는 키를 실지 않는다 — 서버가 config.json 을 직접 읽고 활성 키
+                // 전부를 회전시키므로 429 가 나와도 다음 키로 넘어간다(옛 버전은 첫 키 하나로
+                // 회전자를 묶어 키가 4개여도 «전부 소진» 으로 죽었다).
+                // `model` 도 실지 않는다 (2026-11-01 모델 설정 제거): 어떤 키가 어떤 모델을
+                // 맡을지는 서버 표가 정하고, 요청이 모델을 고르면 그 규칙이 깨진다.
 
                 if (!instruction && uploadedImages.length === 0) {
                     showToast(BadaI18n.t("gemini_generate_need_input"), "error", 3000);
@@ -2213,12 +2132,17 @@ function updateBellBadge() {
             // timer and a Stop control.
 
                 try {
+                    // 창에서 키·모델을 고치고 저장이 디바운스에 남아 있으면(최대 0.4초) 서버가
+                    // 옛 config.json 을 읽어 한 박자 늦는다. 생성은 서버의 사전을 읽으므로 먼저 밀어 넣는다.
+                    await flushToServer();
                     const resp = await fetch("/api/bada/gemini/generate", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                            api_key: key,
-                            model: model,
+                            // «api_key» 는 보내지 않는다 (2026-11-01) — 서버가 config.json 의
+                            // 활성 키 전부를 출처로 읽고 회전시킨다. «model» 도 보내지 않는다 —
+                            // 어떤 키가 어떤 모델을 맡을지는 서버 표(KEY_CASCADES × 모드) 가 정한다.
+                            generation_mode: readGenMode(),
                             engine_mode: activeEngine,
                             submode: activeEngine === "minimax"
                                 ? minimaxSub
@@ -2273,7 +2197,7 @@ function updateBellBadge() {
                         // config section and shoved the whole panel — every engine tab included —
                         // downwards. The generate button already reads "생성 완료! (N초)".
                     } else {
-                        const errMsg = data.error || (BadaI18n.t("gemini_generate_unknown_error"));
+                        const errMsg = serverErrorText(data, BadaI18n.t("gemini_generate_unknown_error"));
                         showToast(`❌ ${BadaI18n.t("gemini_error")}: ${errMsg}`, "error", 5000);
                         addErrorLog(BadaI18n.t("gemini_error_log_engine", { engine: activeEngine.toUpperCase() }), errMsg);
                     }
@@ -2448,7 +2372,7 @@ function updateBellBadge() {
                     // 알림 없음. 「새 채팅」 의 결과는 화면 자체가 말해준다 — 스레드가 빈
                     // 「무경엄 제미나이 자유 대화」 안내로 즉시 바뀐다. 여기서 토스트를
                     // 띄우면 아무 정보 없는 문구가 1.5초 동안 머리 위를 덮었다가 사라져,
-                    // 방금 지운 자리(=API Key 행)에 또 다른 요소가 잠깐 겹쳐 보였다.
+                    // 방금 지운 자리(=⚙️ 설정 바)에 또 다른 요소가 잠깐 겹쳐 보였다.
                     // 잘못 누른 것처럼 느껴지므로 아예 알리지 않는다.
                 };
 
@@ -2979,8 +2903,9 @@ function updateBellBadge() {
                     const text = chatTextarea.value.trim();
                     if (!text && chatUploadedImages.length === 0) return;
 
-                    const key = apiKeyInput.value.trim();
-                    const model = modelSelect.value;
+                    // 키는 ⚙️ 키 설정 창이 저장한 목록을 서버가 직접 읽고, 본문에는 키를 실지
+                    // 않는다. «model» 도 실지 않는다 — 채팅도 생성과 같은 서버 표(KEY_CASCADES ×
+                    // generation_mode) 로 모델이 정해진다 (2026-11-01 모델 설정 제거).
 
                     // Add user message
                     const userMsg = {
@@ -3054,12 +2979,15 @@ function updateBellBadge() {
                     }, 100);
 
                     try {
+                        // 생성 탭과 같은 규칙 — 보류 중인 ⚙️ 창 저장을 먼저 붙여 넣는다.
+                        await flushToServer();
                         const resp = await fetch("/api/bada/gemini/chat", {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({
-                                api_key: key,
-                                model: model,
+                                // «api_key»/«model» 은 보내지 않는다 — 서버가 config.json 의
+                                // 활성 키를 읽고, 모델 순서는 키 배치 표 × 모드로 정한다.
+                                generation_mode: readGenMode(),
                                 persona: selectedGemPersona,
                                 system_prompt_id: selectedGemPromptId,
                                 messages: chatMessages
@@ -3088,10 +3016,10 @@ function updateBellBadge() {
                             persistChatHistory(turnOriginals);
                         // No completion toast here on purpose: `.bada-toast` is a block
                         // child of the card's flex column, so it inserted a full-width
-                        // banner above the API-key row and pushed the panel down. The
+                        // banner above the ⚙️ settings bar and pushed the panel down. The
                         // reply bubble already renders "⏱️ N.N초 완료" inline.
                         } else {
-                            const errDesc = data.error || (BadaI18n.t("gemini_chat_no_response"));
+                            const errDesc = serverErrorText(data, BadaI18n.t("gemini_chat_no_response"));
                             showToast((BadaI18n.t("gemini_chat_error")) + errDesc, "error", 4000);
                             addErrorLog(BadaI18n.t("gemini_chat_log_title"), errDesc);
                         }
@@ -3161,8 +3089,8 @@ function updateBellBadge() {
                 if (activeEngine === "uncensored") handleChatImageFiles(pasteFiles);
                 else handleFiles(pasteFiles);
                 // No success toast (user request, 2026-10-05): `.bada-toast` is a block child of
-                // the card's flex column, so it inserted a banner above the API-key row, the node
-                // grew, and it shrank back when the toast expired — a visible jerk on every
+                // the card's flex column, so it inserted a banner above the ⚙️ settings bar, the
+                // node grew, and it shrank back when the toast expired — a visible jerk on every
                 // paste. The thumbnail row that just re-rendered is the confirmation.
             };
 
@@ -3182,33 +3110,8 @@ function updateBellBadge() {
                 // Aspect ratio picker labels + chips (rebuild for the active language)
                 syncAspectPicker();
 
-                // Config section
-                const cfgTitle = configSection.querySelector(".bada-config-title-text");
-                if (cfgTitle) cfgTitle.textContent = BadaI18n.t("gemini_config_title");
-
-                const curGetKeyBtn = configSection.querySelector("#bada-btn-get-key");
-                const curTestKeyBtn = configSection.querySelector("#bada-btn-test-key");
-                if (curGetKeyBtn) {
-                    const textSpan = curGetKeyBtn.querySelector(".bada-action-text");
-                    if (textSpan) textSpan.textContent = BadaI18n.t("gemini_get_key");
-                    curGetKeyBtn.title = BadaI18n.t("gemini_get_key_tooltip");
-                }
-                if (curTestKeyBtn && curTestKeyBtn.dataset.busy !== "true") {
-                    const textSpan = curTestKeyBtn.querySelector(".bada-action-text");
-                    if (textSpan) textSpan.textContent = BadaI18n.t("gemini_check");
-                    curTestKeyBtn.title = BadaI18n.t("gemini_test_key_tooltip");
-                }
-
-                // Model select options
-                const currentModelVal = modelSelect.value;
-                modelSelect.innerHTML = "";
-                EXACT_MODELS.forEach(m => {
-                    const opt = document.createElement("option");
-                    opt.value = m.id;
-                    opt.textContent = BadaI18n.t(m.nameKey);
-                    modelSelect.appendChild(opt);
-                });
-                modelSelect.value = currentModelVal;
+                // 설정 바 (속도/품질 · «API Key = n» · ⚙️ 버튼 · 🔔 벨 타이틀)
+                paintSettingsBar();
 
                 // Dropzone & Image hints
                 const imgLabel = imgLabelRow.querySelector("#bada-img-label");

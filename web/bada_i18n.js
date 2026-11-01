@@ -594,14 +594,13 @@ export const BadaI18n = {
             "gemini_chat_send": "Send message",
             "gemini_error_clear_btn": "🗑️ Clear",
             "gemini_error_bell_tooltip": "Error Notifications",
-            "gemini_model_flash_lite_name": "🚀 Gemini 3.5 Flash-Lite (Recommended ⭐)",
-            "gemini_model_flash_lite_desc": "10/min · 250/day · p50 1.2s — fastest",
-            "gemini_model_31lite_name": "⚡ Gemini 3.1 Flash-Lite",
-            "gemini_model_31lite_desc": "15/min · 300/day · p50 1.9s — largest daily quota",
-            "gemini_model_3flash_name": "🌀 Gemini 3 Flash Preview",
-            "gemini_model_3flash_desc": "10/min · 250/day · p50 3.0s — balanced",
-            "gemini_model_36_name": "✨ Gemini 3.6 Flash",
-            "gemini_model_36_desc": "5/min · 150/day · p50 13.0s — slow, saturates often",
+            // 서버가 `code` 로 알려주는 실패 (server/gemini_api.py::resolve_keys 게이트).
+            // 서버 error 텍스트는 로그용으로 한국어가 정확하므로, 화면에는 이 쪽을 얹는다.
+            "gemini_error_no_key": "No usable Gemini API key. Open ⚙️ Key settings to add one.",
+            "gemini_error_keys_exhausted": "Every registered Gemini API key has used up its quota. Add a new key in ⚙️ Key settings.",
+            // 모델 이름표·한도 설명은 2026-11-01 삭제 — 서버가 GET config::models 로 name(ko)·
+            // name_en(en)·rpm·rpd 를 함께 주는데 여기에 같은 것을 두 줄 더 적으면, 서버가 모델을
+            // 퇴장시킨 날 창에는 그 모델이 그대로 뜬다(옛 드롭다운이 죽은 바로 그 방식).
             "gemini_engine_krea_name": "KREA 2",
             "gemini_engine_krea_tag": "Photorealism",
             "gemini_engine_qwen21_name": "QWEN2.1",
@@ -1068,11 +1067,16 @@ export const BadaI18n = {
             "pg_aspect_ratio_tip": "The selected aspect ratio applies to every tab (KREA2 / QWEN2.1 / MINIMAX H3 / LTX2.5 / System Prompt) and is given to Gemini for analysis.",
             "pg_aspect_ratio_broken": "⚠️ The aspect ratio is not reaching Gemini. Please restart ComfyUI.",
             "pg_general": "General",
-            "pg_settings": "⚙️ Model Settings",
-            "pg_settings_tip": "API key & model settings",
+            "pg_settings": "⚙️ Key Settings",
+            "pg_settings_tip": "API key settings",
             "pg_settings_saved": "Settings saved",
             "pg_save_settings": "Save",
             "pg_close": "Close",
+                    // ── 키 목록이 «서버에만» 있는 브라우저 ─────────────────────────────────────
+            // GET 은 더 이상 키 평문을 주지 않으므로, 다른 브라우저/site data 초기화 뒤에는
+            // 목록이 비어 있어도 서버에는 키가 있다. «키 없음» 과 «이 브라우저에 사본 없음» 을
+            // 구분해 주지 않으면 사용자는 없는 키를 넣거나 저장 버튼으로 서버 값을 지울까 불안해한다.
+            "pg_keys_server_only": "{n} key(s) are set on the server — this browser may hold only some of them. Saving without adding a key leaves the server untouched.",
             "pg_keys_empty": "No API keys registered",
             "pg_del_key": "Delete key",
             "pg_add_key": "Add Key",
@@ -1091,7 +1095,7 @@ export const BadaI18n = {
             // 2026-11-01 폐기 — 캐스케이드는 활성 키 «개수» 가 모델을 정하므로 선택 항목이 없다.
             // {cap} 는 web/bada_prompt_generator.js::KEY_CAP (= server/gemini_api.py::MAX_KEYS) 이 채운다.
             "pg_key_count": "API Key = {n} (up to {cap} allowed)",
-            "pg_key_count_tip": "Enabled keys split the Gemini models and run at the same time — more keys means faster, first answer wins. Manage them in ⚙️ Model Settings.",
+            "pg_key_count_tip": "Enabled keys split the Gemini models and run at the same time — more keys means faster, first answer wins. Manage them in ⚙️ Key Settings.",
             // 생성 모드 [속도 | 품질] (2026-11-01 라운드 14). 이 두 단어는 헤더 세그먼트의
             // 라벨이고, 워크플로우에는 «speed»/«quality» id 로 저장된다 (번역되지 않음).
             "pg_gen_mode_speed": "Speed",
@@ -1104,6 +1108,9 @@ export const BadaI18n = {
             "pg_keys_note_cap": "Up to {cap} keys. Enabled keys split the Gemini models and run at the same time, so the first answer to finish is the one used — more keys really is faster.",
             "pg_keys_note_project": "Keys from separate accounts, or from different projects of one account, go further: the free tier counts every project on its own.",
             "pg_keys_note_issue": "No key yet? {get} → sign in → \"+ New project\" → give it a name → \"Create project\" → \"Create API key\" → copy the key and paste it here.",
+            // «모델» 섹션 문구(pg_models_*) 와 «현재 모델» 툴팁(pg_current_model_tip) 은
+            // 2026-11-01 모델 설정 제거로 삭제 — 프론트는 모델 이름을 어디서도 보여주지 않고,
+            // 어떤 키가 어떤 모델을 맡는지는 서버 표(server/gemini_api.py) 만이 안다.
 
             // --- P4-3 D-5 · Gemini 채팅 기록 로컬 사전·인라인 문구 이관 (web/bada_gemini_chat_history.js) · 42키 ---
             "chat_hist_title": "🕐 Chat history",
@@ -1723,14 +1730,13 @@ export const BadaI18n = {
             "gemini_chat_send": "메시지 보내기",
             "gemini_error_clear_btn": "🗑️ 비우기",
             "gemini_error_bell_tooltip": "오류 알림 내역",
-            "gemini_model_flash_lite_name": "🚀 Gemini 3.5 Flash-Lite (권장 ⭐)",
-            "gemini_model_flash_lite_desc": "10회/분 · 250회/일 · p50 1.2초 — 가장 빠름",
-            "gemini_model_31lite_name": "⚡ Gemini 3.1 Flash-Lite",
-            "gemini_model_31lite_desc": "15회/분 · 300회/일 · p50 1.9초 — 하루 총량 최대",
-            "gemini_model_3flash_name": "🌀 Gemini 3 Flash Preview",
-            "gemini_model_3flash_desc": "10회/분 · 250회/일 · p50 3.0초 — 균형",
-            "gemini_model_36_name": "✨ Gemini 3.6 Flash",
-            "gemini_model_36_desc": "5회/분 · 150회/일 · p50 13.0초 — 느리고 포화 잦음",
+            // 서버가 `code` 로 알려주는 실패 (server/gemini_api.py::resolve_keys 게이트).
+            // 서버 error 텍스트는 로그용으로 한국어가 정확하므로, 화면에는 이 쪽을 얹는다.
+            "gemini_error_no_key": "사용 가능한 Gemini API 키가 없습니다. ⚙️ 키 설정에서 키를 등록해 주세요.",
+            "gemini_error_keys_exhausted": "등록된 Gemini API 키의 할당량이 모두 소진됐습니다. ⚙️ 키 설정에서 새 키를 추가해 주세요.",
+            // 모델 이름표·한도 설명은 2026-11-01 삭제 — 서버가 GET config::models 로 name(ko)·
+            // name_en(en)·rpm·rpd 를 함께 주는데 여기에 같은 것을 두 줄 더 적으면, 서버가 모델을
+            // 퇴장시킨 날 창에는 그 모델이 그대로 뜬다(옛 드롭다운이 죽은 바로 그 방식).
             "gemini_engine_krea_name": "KREA 2",
             "gemini_engine_krea_tag": "Photorealism",
             "gemini_engine_qwen21_name": "QWEN2.1",
@@ -2197,11 +2203,12 @@ export const BadaI18n = {
             "pg_aspect_ratio_tip": "선택한 화면비가 모든 메뉴(KREA2 / QWEN2.1 / MINIMAX H3 / LTX2.5 / 시스템 프롬프트)에 공통 적용되어 Gemini가 분석에 활용합니다.",
             "pg_aspect_ratio_broken": "⚠️ 화면비 값이 전달되지 않습니다. ComfyUI를 재시작해 주세요.",
             "pg_general": "일반",
-            "pg_settings": "⚙️ 모델 설정",
-            "pg_settings_tip": "API 키 및 모델 설정",
+            "pg_settings": "⚙️ 키 설정",
+            "pg_settings_tip": "API 키 설정",
             "pg_settings_saved": "설정 저장됨",
             "pg_save_settings": "저장",
             "pg_close": "닫기",
+            "pg_keys_server_only": "서버에 {n}개의 키가 설정돼 있습니다 — 이 브라우저에는 사본이 없습니다. 키를 추가하지 않고 저장하면 서버 값은 그대로 유지됩니다.",
             "pg_keys_empty": "등록된 API 키가 없습니다",
             "pg_del_key": "키 삭제",
             "pg_add_key": "키 추가",
@@ -2220,7 +2227,7 @@ export const BadaI18n = {
             // 2026-11-01 폐기 — 캐스케이드는 활성 키 «개수» 가 모델을 정하므로 선택 항목이 없다.
             // {cap} 는 web/bada_prompt_generator.js::KEY_CAP (= server/gemini_api.py::MAX_KEYS) 이 채운다.
             "pg_key_count": "API Key = {n}개 (최대 {cap}개까지 가능합니다.)",
-            "pg_key_count_tip": "활성 키가 제미나이 모델을 나눠 맡아 동시에 시도합니다 — 키가 많을수록 빠르고, 먼저 끝낸 결과가 쓰입니다. ⚙️ 모델 설정에서 키를 관리합니다.",
+            "pg_key_count_tip": "활성 키가 제미나이 모델을 나눠 맡아 동시에 시도합니다 — 키가 많을수록 빠르고, 먼저 끝낸 결과가 쓰입니다. ⚙️ 키 설정에서 키를 관리합니다.",
             // 생성 모드 [속도 | 품질] (2026-11-01 라운드 14) — 헤더 세그먼트 라벨.
             "pg_gen_mode_speed": "속도",
             "pg_gen_mode_quality": "품질",
@@ -2231,6 +2238,9 @@ export const BadaI18n = {
             "pg_keys_note_cap": "최대 {cap}개까지 등록할 수 있습니다. 활성 키가 제미나이 모델을 나눠 맡아 동시에 시도하므로, 키가 많을수록 먼저 끝나는 결과가 쓰여 실제로 더 빠릅니다.",
             "pg_keys_note_project": "서로 다른 계정, 또는 같은 계정이라도 «다른 프로젝트»의 키를 넣으면 무료 한도가 프로젝트별로 계산되어 한도 소진에 유리합니다.",
             "pg_keys_note_issue": "키가 없다면 [{get}] → 로그인 → «+ 새 프로젝트 만들기» → 이름을 알맞게 입력 → «프로젝트 만들기» → «키 만들기» → 발급된 키를 복사해 이 창에 붙여 넣기.",
+            // «모델» 섹션 문구(pg_models_*) 와 «현재 모델» 툴팁(pg_current_model_tip) 은
+            // 2026-11-01 모델 설정 제거로 삭제 — 프론트는 모델 이름을 어디서도 보여주지 않고,
+            // 어떤 키가 어떤 모델을 맡는지는 서버 표(server/gemini_api.py) 만이 안다.
 
             // --- P4-3 D-5 · Gemini 채팅 기록 로컬 사전·인라인 문구 이관 (web/bada_gemini_chat_history.js) · 42키 ---
             "chat_hist_title": "🕐 채팅 기록",

@@ -12,6 +12,16 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { BadaI18n } from "./bada_i18n.js";
+// ⚙️ 설정 창과 API 키 저장소는 공통 모듈 한 곳 (2026-11-01). 이제 두 노드의 ⚙️ 창은
+// 문자 그대로 같은 함수다 — 키를 더/빼/끄는 즉시 양쪽 탭에 동시에 닿는다.
+// («먼저 시도하는 모델» 선택은 같은 날 제거되어 이 파일에 모델 코드가 없다.)
+import {
+    openSettingsModal,
+    pullFromServer,
+    displayKeyCount,
+    KEY_CAP,
+    setToastHandler,
+} from "./bada_gemini_settings.js";
 
 // Shared document.body remount watcher: one MutationObserver per module, rAF-coalesced.
 // Replaces the previous per-node observers (Nodes 2.0 Vue-overlay remount self-heal).
@@ -32,14 +42,6 @@ function __badaWatchBodyRemount(fn) { __badaBodyWatchers.add(fn); __badaEnsureBo
 
 const NODE_CLASS = "BadaPromptGenerator";
 const REGISTRY_URL = "/api/bada/promptgen/registry";
-const CONFIG_URL = "/api/bada/gemini/config";
-const KEYS_LS = "bada_gemini_api_keys";
-const DISABLED_LS = "bada_gemini_api_disabled";
-const MODEL_LS = "bada_gemini_model";
-
-// 활성 키 상한 — server/gemini_api.py::MAX_KEYS 와 같은 값이어야 한다 (KEY_CASCADES 가 1~4 키만
-// 안다). 헤더의 «최대 n개» 와 설정 창 노트가 이 상수를 채워 넣으므로 숫자를 여러 곳에 박지 않는다.
-const KEY_CAP = 4;
 
 // («속도/균형/품질» 3단 모드는 2026-11-01 폐기 — 어떤 모델을 탈지는 활성 키 «개수» 가 정한다
 //  (server/gemini_api.py::KEY_CASCADES). 옛 localStorage 값 bada_gemini_model_mode 는 읽지 않는다.
@@ -121,454 +123,20 @@ function showToast(msg, level = "info", ms = 3000) {
 }
 
 // ---------------------------------------------------------------------------
-// API key / model helpers
-//   localStorage  = browser-side source of truth (shared with Gemini Studio)
-//   config.json   = server-side mirror the queue node reads (resolve_api_key)
+// API key / model helpers · 설정 모달 · 키 연결확인  →  ./bada_gemini_settings.js
 // ---------------------------------------------------------------------------
-function readKeys() {
-    try {
-        const raw = localStorage.getItem(KEYS_LS);
-        if (!raw) return [];
-        const arr = JSON.parse(raw);
-        return Array.isArray(arr) ? arr.filter((k) => k && k.trim()) : [];
-    } catch (_) {
-        return [];
-    }
-}
-
-function writeKeys(keys) {
-    const arr = Array.isArray(keys) ? keys.filter((k) => k && k.trim()) : [];
-    if (arr.length) localStorage.setItem(KEYS_LS, JSON.stringify(arr));
-    else localStorage.removeItem(KEYS_LS);
-    return arr;
-}
-
-function addKey(key) {
-    const k = (key || "").trim();
-    if (!k) return readKeys();
-    const cur = readKeys();
-    if (cur.includes(k)) return cur;
-    cur.push(k);
-    writeKeys(cur);
-    return cur;
-}
-
-function removeKey(key) {
-    const k = (key || "").trim();
-    const cur = readKeys().filter((x) => x !== k);
-    writeKeys(cur);
-    return cur;
-}
-
-// --- 키 활성/비활성 -------------------------------------------------------
-// 전체 키 목록은 그대로 두고, "비활성" 목록만 따로 보관한다. config.json 에도
-// 같은 목록을 미러링해 재시작·다른 브라우저에서도 상태가 유지된다.
-function readDisabled() {
-    try {
-        const raw = localStorage.getItem(DISABLED_LS);
-        if (!raw) return [];
-        const arr = JSON.parse(raw);
-        return Array.isArray(arr) ? arr.filter((k) => k && k.trim()) : [];
-    } catch (_) {
-        return [];
-    }
-}
-
-function writeDisabled(list) {
-    const arr = Array.isArray(list)
-        ? [...new Set(list.filter((k) => k && k.trim()))]
-        : [];
-    if (arr.length) localStorage.setItem(DISABLED_LS, JSON.stringify(arr));
-    else localStorage.removeItem(DISABLED_LS);
-    return arr;
-}
-
-function isKeyEnabled(key) {
-    return !readDisabled().includes(key);
-}
-
-function setKeyEnabled(key, enabled) {
-    const rest = readDisabled().filter((k) => k !== key);
-    if (!enabled) rest.push(key);
-    return writeDisabled(rest);
-}
-
-// 실제 API 호출에 쓰이는 키 (활성 키만)
-function enabledKeys() {
-    const disabled = readDisabled();
-    return readKeys().filter((k) => !disabled.includes(k));
-}
-
-// 노드 헤더에 «API Key = N 개» 로 보여 주는 값. 등록 키 전체가 아니라 **활성 키**만 센다
-// (비활성 키는 어떤 호출에도 쓰이지므로 개수를 세도 실행에 도움이 안 된다).
-function enabledKeyCount() {
-    return enabledKeys().length;
-}
-
-function maskKey(key) {
-    const k = String(key || "");
-    return k.length > 8 ? k.slice(0, 4) + "••••••••" + k.slice(-4) : "••••••••";
-}
-
-// 이미 등록된 키인지 검사 (대소문자/공백만 다른 것은 같은 키로 간주)
-function findDuplicateKey(key, list = readKeys()) {
-    const k = String(key || "").trim();
-    if (!k) return null;
-    return list.find((x) => String(x || "").trim() === k) || null;
-}
-
-function readModel() {
-    return (localStorage.getItem(MODEL_LS) || "").trim();
-}
-
-function writeModel(value) {
-    const model = (value || "").trim();
-    if (model) localStorage.setItem(MODEL_LS, model);
-    return model;
-}
-
-let _syncTimer = null;
-function pushToServer(keys, model) {
-    // debounce — every keystroke must not hit the server
-    clearTimeout(_syncTimer);
-    _syncTimer = setTimeout(async () => {
-        const body = {};
-        // 빈 배열도 그대로 보낸다 — 마지막 키를 지웠을 때 config.json 쪽 목록도 비워야 한다.
-        if (Array.isArray(keys)) body.api_keys = keys;
-        if (model) body.default_model = model;
-        // 비활성 목록은 항상 미러링 (재시작·다른 브라우저에서도 유지)
-        body.api_disabled = readDisabled();
-        if (!Object.keys(body).length) return;
-        try {
-            const res = await fetch(CONFIG_URL, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!data.success) console.warn("[BadaPromptGen] config.json sync failed:", data.error);
-        } catch (err) {
-            console.warn("[BadaPromptGen] config.json sync error:", err);
-        }
-    }, 600);
-}
-
-async function pullFromServer() {
-    try {
-        const res = await fetch(`${CONFIG_URL}?ts=${Date.now()}`);
-        const data = await res.json();
-        if (!data || !data.success) return null;
-        if (!readModel() && data.default_model) writeModel(data.default_model);
-        if (data.api_keys && Array.isArray(data.api_keys)) writeKeys(data.api_keys);
-        if (data.api_disabled && Array.isArray(data.api_disabled)) writeDisabled(data.api_disabled);
-        return data;
-    } catch (err) {
-        return null;
-    }
-}
-
-// 서버 /gemini/test 가 실패마다 싣는 기호 값(code) → 이 파일 사전 키. 사전에 없는(= 미래의)
-// 코드나 구버전 서버가 코드를 안 준 응답은 원문만 붙여 보여주므로 화면이 침묵하지 않는다.
-const KEY_FAIL_KEYS = {
-    no_key: "key_required",
-    invalid_key: "key_fail_invalid_key",
-    quota: "key_fail_quota",
-    bad_request: "key_fail_request",
-    upstream: "key_fail_upstream",
-    timeout: "key_fail_timeout",
-    unreachable: "key_fail_unreachable",
-};
-
-// 서버가 "자기 문구"를 그대로 되돌려 보내는 코드 (server/gemini_api.py 의 고정 문자열).
-// 이 경우 원문을 붙이면 같은 말을 두 번 읽게 되고, 언어를 바꾼 화면에선 남의 언어
-// 문장이 이유 자리에 뜨므로 코드로 판정해 붙이지 않는다.
-const KEY_FAIL_ECHO_CODES = new Set(["no_key"]);
-
-// 서버 원문(Google 메시지)은 언어가 섞여 있어 보조 자리에만 쓴다. 길이가 천 자인 응답도
-// 있으므로 토스트에서 자른다 — 잘린 줄은 … 로 표시해 원문이 짧지 않았음을 남긴다.
-function keyFailMessage(data) {
-    const raw = String((data && (data.error || data.message)) || "").replace(/\s+/g, " ").trim();
-    const why = raw.length > 90 ? `${raw.slice(0, 90)}…` : raw;
-    const code = String((data && data.code) || "");
-    // code 는 외부에서 온 문자열이라 그 자체로 사전 검색에 쓴다. 프로토타입을 타고
-    // 올라가 "constructor" 같은 값이 사전 키로 잡히지 않도록 객체 자체의 키만 인정한다.
-    const known = Object.prototype.hasOwnProperty.call(KEY_FAIL_KEYS, code);
-    const base = known ? pgT(KEY_FAIL_KEYS[code]) : pgT("key_fail");
-    // 구버전 서버가 코드를 안 주는 경우를 대비해 문자열 동일성도 본다. 지나치게 짧은
-    // 문자열이 우연히 걸려 진짜 이유를 지우면 안 되어 길이 제한을 둔다.
-    const dup = KEY_FAIL_ECHO_CODES.has(code) || (why.length >= 8 && base.includes(why));
-    return why && !dup ? `${base} — ${why}` : base;
-}
-
-// ---------------------------------------------------------------------------
-// 설정 모달 (API 키 다중 관리 + 모델 모드 선택)
-// ---------------------------------------------------------------------------
-function openSettingsModal() {
-    const existing = document.getElementById("bpg-settings-modal");
-    if (existing) existing.remove();
-
-    const overlay = el("div", "bpg-settings-overlay");
-    overlay.id = "bpg-settings-modal";
-
-    const panel = el("div", "bpg-settings-panel");
-
-    const head = el("div", "bpg-settings-head");
-    const headTitle = el("div", "bpg-settings-title", pgT("settings"));
-    headTitle.dataset.i18n = "settings";
-    const headClose = el("button", "bpg-settings-close", "✕");
-    headClose.type = "button";
-    headClose.title = pgT("close");
-    headClose.addEventListener("click", () => overlay.remove());
-    head.append(headTitle, headClose);
-
-    const body = el("div", "bpg-settings-body");
-
-    const keysSection = el("div", "bpg-settings-section");
-
-    // --- 헤더: 🔑 API 키 ........................ [발급] [연결확인] [키 추가]
-    const keysHead = el("div", "bpg-settings-keys-head");
-    const keysTitle = el("div", "bpg-settings-section-title", pgT("api_keys_title"));
-    keysTitle.dataset.i18n = "api_keys_title";
-    const keysActions = el("div", "bpg-settings-keys-actions");
-
-    const issueBtn = el("button", "bpg-settings-act", pgT("get_key"));
-    issueBtn.type = "button";
-    issueBtn.dataset.i18n = "get_key";
-    issueBtn.title = pgT("issue_key_tip");
-    issueBtn.addEventListener("click", () => {
-        // «/app/apikey» 가 아니라 «/app/projects» 로 연다. 무료 한도는 프로젝트 단위로 계산되므로
-        // (실측 429 본문의 quotaId 가 …PerDayPerProjectPerModel…) 새 프로젝트를 만들어 그 안에서
-        // 키를 발급받아야 한도가 따로 돈다. 노트 세 번째 줄의 «+ 새 프로젝트 만들기» 도 이 화면에 있다.
-        window.open("https://aistudio.google.com/app/projects", "_blank", "noopener");
-    });
-
-    const testBtn = el("button", "bpg-settings-act", pgT("check_all_keys"));
-    testBtn.type = "button";
-    testBtn.dataset.i18n = "check_all_keys";
-
-    const addToggleBtn = el("button", "bpg-settings-act bpg-settings-act--accent", pgT("add_key"));
-    addToggleBtn.type = "button";
-    addToggleBtn.dataset.i18n = "add_key";
-
-    keysActions.append(issueBtn, testBtn, addToggleBtn);
-    keysHead.append(keysTitle, keysActions);
-    keysSection.appendChild(keysHead);
-
-    const keysList = el("div", "bpg-settings-key-items");
-    keysSection.appendChild(keysList);
-
-    // 입력 행 — "키 추가" 를 눌렀을 때만 나타난다.
-    const addRow = el("div", "bpg-settings-add-row");
-    addRow.hidden = true;
-
-    const addInput = el("input", "bpg-settings-key-input");
-    addInput.type = "password";
-    addInput.placeholder = pgT("key_placeholder");
-    addInput.spellcheck = false;
-    addInput.autocomplete = "off";
-
-    const addConfirmBtn = el("button", "bpg-settings-add-confirm", pgT("add"));
-    addConfirmBtn.type = "button";
-    addConfirmBtn.dataset.i18n = "add";
-
-    addRow.append(addInput, addConfirmBtn);
-    keysSection.appendChild(addRow);
-
-    // 왜 키를 여러 개 넣는지, 키가 없다면 어디서 발급받는지 — 창이 넓은데도 툴팁에 숨겨 두면
-    // 첫 사용자가 동선을 끝까지 스스로 못 끝낸다. 캐스케이드가 «활성 키 개수» 로 모델을 나누는
-    // 설계 자체이므로 이 창에서 가장 중요한 설명이다.
-    // data-i18n 을 붙이지 않는다: 언어 전환 재번역기(footer 근처 :826)는 파라미터 모르고
-    // textContent 를 통째로 덮어쓰므로 {cap}/{get} 자리가 글자로 남게 된다.
-    const note = el("div", "bpg-settings-note");
-    const noteParams = { cap: KEY_CAP, get: pgT("get_key") };
-    for (const noteKey of ["keys_note_cap", "keys_note_project", "keys_note_issue"]) {
-        note.appendChild(el("p", "bpg-settings-note-line", pgT(noteKey, noteParams)));
-    }
-    keysSection.appendChild(note);
-
-    function syncServer() {
-        pushToServer(readKeys(), readModel());
-        // 키를 더하거나 빼거나 끈 즉시 모든 ⚓ 노드의 «API Key = N 개» 가 따라 간다.
-        // (지금은 이 창이 열려 있어 헤더가 안 보이더라도, 닫은 뒤 헤더가 옛 숫자를
-        //  계속 달고 있는 쪽이 더 나쁜 상태다)
-        refreshHeaderState();
-    }
-
-    function renderKeys() {
-        keysList.replaceChildren();
-        const keys = readKeys();
-        const disabled = readDisabled();
-        if (!keys.length) {
-            keysList.appendChild(el("div", "bpg-settings-key-empty", pgT("keys_empty")));
-            return;
-        }
-        for (const key of keys) {
-            const enabled = !disabled.includes(key);
-            const item = el("div",
-                "bpg-settings-key-item" + (enabled ? "" : " bpg-settings-key-item--off"));
-
-            // 활성/비활성 — 체크하면 ✓ 표시, 다시 누르면 해제
-            const check = el("button", "bpg-settings-key-check", enabled ? "✓" : "");
-            check.type = "button";
-            check.setAttribute("role", "checkbox");
-            check.setAttribute("aria-checked", String(enabled));
-            check.title = pgT(enabled ? "key_disable_tip" : "key_enable_tip");
-            check.addEventListener("click", () => {
-                setKeyEnabled(key, !enabled);
-                renderKeys();
-                syncServer();
-            });
-
-            const label = el("span", "bpg-settings-key-masked", maskKey(key));
-            label.title = enabled ? key : pgT("key_disabled");
-
-            // 눈 — 마스킹 ↔ 전체 키
-            let revealed = false;
-            const eye = el("button", "bpg-settings-key-eye", "👁");
-            eye.type = "button";
-            eye.title = pgT("show_key");
-            eye.addEventListener("click", () => {
-                revealed = !revealed;
-                label.textContent = revealed ? key : maskKey(key);
-                eye.textContent = revealed ? "🙈" : "👁";
-                eye.title = pgT(revealed ? "hide_key" : "show_key");
-                eye.classList.toggle("bpg-settings-key-eye--on", revealed);
-            });
-
-            // 삭제 — 브라우저 기본 confirm (확인/취소)
-            const del = el("button", "bpg-settings-key-del", "✕");
-            del.type = "button";
-            del.title = pgT("del_key");
-            del.addEventListener("click", () => {
-                if (!confirm(pgT("confirm_delete_key", { key: maskKey(key) }))) return;
-                removeKey(key);
-                writeDisabled(readDisabled().filter((k) => k !== key));
-                renderKeys();
-                syncServer();
-            });
-
-            item.append(check, label, eye, del);
-            keysList.appendChild(item);
-        }
-    }
-
-    function submitAdd() {
-        const raw = (addInput.value || "").trim();
-        if (!raw) {
-            showToast(pgT("key_required"), "warn", 3400);
-            return;
-        }
-        // 중복 — 이미 등록된 키는 추가하지 않고 입력칸을 그대로 남겨 사용자가 고칠 수 있게 한다.
-        if (findDuplicateKey(raw)) {
-            showToast(pgT("key_duplicate"), "warn", 4200);
-            addInput.focus();
-            addInput.select?.();
-            return;
-        }
-        addKey(raw);
-        // 새 키는 기본 활성 — 혹시 이전에 비활성으로 남아 있었어도 해제
-        writeDisabled(readDisabled().filter((k) => k !== raw));
-        addInput.value = "";
-        addRow.hidden = true;
-        addToggleBtn.classList.remove("bpg-settings-act--open");
-        renderKeys();
-        syncServer();
-    }
-
-    addToggleBtn.addEventListener("click", () => {
-        const show = addRow.hidden;
-        addRow.hidden = !show;
-        addToggleBtn.classList.toggle("bpg-settings-act--open", show);
-        if (show) addInput.focus();
-    });
-    addConfirmBtn.addEventListener("click", submitAdd);
-    addInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-            e.preventDefault();
-            submitAdd();
-        } else if (e.key === "Escape") {
-            addRow.hidden = true;
-            addToggleBtn.classList.remove("bpg-settings-act--open");
-        }
-    });
-
-    testBtn.addEventListener("click", async () => {
-        // 연결확인은 "활성 키"만 검사한다.
-        const keys = enabledKeys();
-        if (!keys.length) {
-            showToast(pgT("key_required"), "warn", 3400);
-            return;
-        }
-        testBtn.disabled = true;
-        testBtn.textContent = pgT("testing");
-        let okCount = 0;
-        for (const key of keys) {
-            if (await verifyKey(key)) okCount++;
-        }
-        showToast(`${pgT("keys_checked")}: ${okCount}/${keys.length}`,
-            okCount === keys.length ? "ok" : "warn", 5000);
-        testBtn.disabled = false;
-        testBtn.textContent = pgT("check_all_keys");
-    });
-
-    renderKeys();
-    body.appendChild(keysSection);
-
-    // («속도/균형/품질» 모델 모드 섹션은 2026-11-01 폐기 — 캐스케이드는 활성 키 «개수» 가 정한다)
-
-    const foot = el("div", "bpg-settings-foot");
-    const saveBtn = el("button", "bpg-settings-btn-save", pgT("save_settings"));
-    saveBtn.type = "button";
-    saveBtn.dataset.i18n = "save_settings";
-    saveBtn.addEventListener("click", () => {
-        pushToServer(readKeys(), readModel());
-        refreshHeaderState(); // 헤더의 «API Key = n개» 도 이 저장 직후 갱신
-        showToast(pgT("settings_saved"), "ok", 2500);
-        overlay.remove();
-    });
-    const closeBtn = el("button", "bpg-settings-btn-close", pgT("close"));
-    closeBtn.type = "button";
-    closeBtn.dataset.i18n = "close";
-    closeBtn.addEventListener("click", () => overlay.remove());
-    foot.append(saveBtn, closeBtn);
-
-    panel.append(head, body, foot);
-    overlay.appendChild(panel);
-    document.body.appendChild(overlay);
-
-    overlay.addEventListener("click", (e) => {
-        if (e.target === overlay) overlay.remove();
-    });
-}
-
-// export: 노드를 실제로 만들지 않고 이 확인 경로만 검사할 수 있게 (회귀 테스트용)
-export async function verifyKey(key) {
-    const target = (key || "").trim();
-    if (!target) {
-        showToast(pgT("key_required"), "warn", 3400);
-        return false;
-    }
-    try {
-        const res = await fetch("/api/bada/gemini/test", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ api_key: target }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (data.success) {
-            showToast(pgT("key_ok"), "ok", 2600);
-            return true;
-        }
-        // 실패 이유 없이 "연결 실패"만 뜨면 사용자가 키 문제인지 네트워크인지 못 가른다 (P2-A)
-        showToast(keyFailMessage(data), "err", 6200);
-        return false;
-    } catch (err) {
-        console.warn("[BadaPromptGen] API key check failed:", err);
-        // fetch 자체가 실패하면(서버 종료) 이유 문자열은 사용자에게 소용없다 → 정해진 문구
-        showToast(pgT("key_fail_unreachable"), "err", 6200);
-        return false;
-    }
-}
+// 2026-11-01 여기에 있던 것 (readKeys/writeKeys·활성 목록·pushToServer·pullFromServer·
+// openSettingsModal·verifyKey) 을 전부 지우고 공통 모듈 한 벌로 대체했다. «남기는 것이
+// 하나도 없다» 는 사실이 요점이다. 키 저장소와 설정 창 코드가 두 파일에 동시에 있는
+// 날에는 두 ⚙️ 창이 서로 다른 모양·서로 다른 모델 목록으로 자라나고, 사용자는 어느 창이
+// 진짜인지 판정하느라 생성을 한 번씩 잃는다.
+//
+// 이 파일이 여전히 하는 일은 헤더의 «API Key = n개» 를 공통 저장소(displayKeyCount) 로
+// 그리고 ⚙️ 버튼을 이 노드의 헤더 갱신(refreshHeaderState) 에 연결하는 것뿐이다.
+//
+// 토스트만 예외로 이 파일 것을 쓴다 — 노드마다 자기 토스트 스택(최대 5개) 을 유지하려면
+// 설정 창도 같은 구현을 부르게 주입하는 편이 맞다.
+setToastHandler(showToast);
 
 // ---------------------------------------------------------------------------
 // Stylesheet injection
@@ -679,7 +247,9 @@ function buildHeader(node, widgets) {
     const keyCount = el("span", "bpg-keycount");
 
     function renderKeyCount() {
-        const n = enabledKeyCount();
+        // displayKeyCount(): 지역 사본이 있으면 그 개수, 이 브라우저가 키를 한 번도 만진 적이
+        // 없으면 서버가 알려준 활성 개수 (GET 은 키 평문을 주지 않으므로 세어 준 값만 온다).
+        const n = displayKeyCount();
         keyCount.textContent = pgT("key_count", { n, cap: KEY_CAP });
         keyCount.classList.toggle("bpg-keycount--zero", n === 0);
         keyCount.title = pgT("key_count_tip");
@@ -688,8 +258,13 @@ function buildHeader(node, widgets) {
     const settingsBtn = el("button", "bpg-btn bpg-btn--manage", pgT("settings"));
     settingsBtn.type = "button";
     settingsBtn.dataset.i18n = "settings";
+    // ⚙️ 툴팁은 ⚓ Async 설정 바와 같은 한 줄이다 («무엇을 하러 가는 창인지»). «현재 모델»
+    // 줄은 모델 설정 제거(2026-11-01) 로 함께 사라졌다 — 모델은 서버 표가 정하고 화면에
+    // 모델명을 어디에도 쓰지 않는다.Async 측 paintSettingsBar 와 같은 키(«pg_settings_tip»)
+    // 를 부르는 것이 두 노드 동일성의 규격이다.
     settingsBtn.title = pgT("settings_tip");
-    settingsBtn.addEventListener("click", () => openSettingsModal());
+    // refreshHeaderFn: 창에서 키를 더/빼/끄는 즉시 이 노드 헤더(«API Key = n»)가 따라 간다.
+    settingsBtn.addEventListener("click", () => openSettingsModal({ refreshHeaderFn: refreshHeaderState }));
     row2.append(modeBox, keyCount, settingsBtn);
     root.appendChild(row2);
 
@@ -890,6 +465,8 @@ function buildHeader(node, widgets) {
         if (widgets.duration) widgets.duration.tooltip = pgT("duration_tip");
         const requestInput = widgets.request_text?.inputEl || widgets.request_text?.element;
         if (requestInput) requestInput.placeholder = pgT("request_placeholder");
+        // ⚙️ 툴팁은 데이터셋 재번역(textContent) 대상이 아니라 여기서 직접 갱신한다 —
+        // 위 한 줄(textContent) 과 이 한 줄(title) 을 합친 것이 ⚙️ 버튼의 전부이다.
         settingsBtn.title = pgT("settings_tip");
     }
 
@@ -919,7 +496,8 @@ function buildHeader(node, widgets) {
     };
 
     renderKeyCount();
-    // 서버에는 로컬이 비어 있던 값(키 목록) 이 들어올 수 있다 → 그 뒤 다시 그린다
+    // 서버 답은 키 «개수» 정보만 싣는다 (평문은 오지 않는다). 이 브라우저에 사본이 없을 때
+    // 헤더가 «0개» 로 빨개지지 않도록, 답을 받은 뒤 개수를 다시 그린다.
     pullFromServer().then((data) => {
         if (!data) return;
         renderKeyCount();
@@ -1658,3 +1236,4 @@ app.registerExtension({
         };
     },
 });
+

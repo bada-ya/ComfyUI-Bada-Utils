@@ -300,7 +300,7 @@ def resolve_api_keys(explicit: str = "") -> list:
     """다중 API 키 목록을 반환. 단일 키도 리스트로 래핑.
 
     우선순위: 명시적 키 > config.json api_keys(리스트) > config.json api_key(단일) > GEMINI_API_KEY(env)
-    `api_disabled` 에 들어 있는 키(모델 설정 팝업에서 체크 해제한 키)는 제외한다.
+    `api_disabled` 에 들어 있는 키(⚙️ 키 설정 창에서 체크 해제한 키) 는 제외한다.
     """
     if explicit and explicit.strip():
         return [explicit.strip()]
@@ -313,9 +313,10 @@ def resolve_api_keys(explicit: str = "") -> list:
                 if isinstance(disabled, list):
                     off = {k.strip() for k in disabled if isinstance(k, str) and k.strip()}
                 keys = cfg.get("api_keys", [])
-                if keys and isinstance(keys, list):
-                    # 목록이 있으면 그 목록이 정답이다 — 전부 비활성이면 빈 목록을 돌려주고
-                    # env 키로 몰래 넘어가지 않는다 (사용자가 끈 키를 쓰지 않기 위해).
+                if isinstance(keys, list):
+                    # 목록이 «존재»하면 그 목록이 정답이다(값이 아니라 존재가 권위). 전부 비활성이면
+                    # 빈 목록을 돌려주고 env 키로 몰래 넘어가지 않는다 (사용자가 끈 키를 쓰지 않기 위해).
+                    # ⚙️ 창은 키를 다 지워도 api_keys: [] 를 저장하므로, 빈 목록 구제 = 방금 지운 키 부활.
                     return [k.strip() for k in keys if k.strip() and k.strip() not in off]
                 single = (cfg.get("api_key") or "").strip()
                 if single:

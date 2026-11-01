@@ -75,6 +75,12 @@ EXACT_MODELS = [
 # Verified model IDs — single source of truth for every cascade and whitelist below.
 EXACT_MODEL_IDS = [m["id"] for m in EXACT_MODELS]
 
+# «먼저 시도하는 모델» 사용자 선택은 2026-11-01 제거됐다. 이 값은 두 곳에만 쓰이는 시드다:
+#   1) 키가 1개라 캐스케이드가 순차로 도는 경우의 첫 모델 (attempt_plan 의 `primary`)
+#   2) config.json 의 `default_model` 이 죽은 값일 때 되돌릴 값
+# 키 2개 이상의 배치는 전부 KEY_CASCADES/QUALITY_KEY_CASCADES 가 정하므로 이 값과 무관하다.
+DEFAULT_MODEL_ID = EXACT_MODEL_IDS[0] if EXACT_MODEL_IDS else "gemini-3.5-flash-lite"
+
 # 모델별 요청 타임아웃(초). 전체 레이스 상한과 달리 이것은 «한 번의 HTTP 시도» 상한이다.
 # 느린 모델(3.6-flash)에 짧은 값을 주면 트래픽 포화(503) 시 번번이 타임아웃으로 죽는다.
 MODEL_TIMEOUTS = {m["id"]: int(m.get("timeout_s") or 12) for m in EXACT_MODELS}
@@ -300,6 +306,30 @@ def model_cascade(primary_model, mode=None, skip_dead=True):
     return models_to_try
 
 
+def attempt_plan(keys: list, mode=None, turn=0, primary=None) -> list:
+    """(key_index, model) 시도 목록 — ⚓ Bada Prompt Generator 노드의 배치 규칙을 따른다.
+
+    «먼저 시도하는 모델» 선택이 2026-11-01 제거되면서 요청이 모델을 고르지 않는다.
+    어떤 키가 어떤 모델을 맡는지는 PG 와 같은 표가 정한다:
+
+    * 키 1개  = PG 의 순차 경로와 같게 `model_cascade(primary, mode)` 전체를 그 키로.
+    * 키 2개+ = PG 의 레이스 표 `key_cascade(키번호, 키개수, turn, mode)` 를 키별로 펴서,
+      한 키가 자기 우선 목록을 다 돌고 다음 키로 넘어간다. PG 와 다른 점은 경주(스태거)를
+      하지 않는 것뿐 — 「누가 어떤 모델을 맡고 모드가 순서를 어떻게 바꾸나」는 같은 표·같은
+      turn 을 쓴다. 429/503 으로 키가 소진되면 그 키의 남은 줄은 통째로 건너뛴다.
+    """
+    n = len(keys)
+    if n < 1:
+        return []
+    if n == 1:
+        return [(0, m) for m in model_cascade(primary or DEFAULT_MODEL_ID, mode=mode)]
+    plan = []
+    for kidx in range(n):
+        for m in key_cascade(kidx, n, turn, mode=mode):
+            plan.append((kidx, m))
+    return plan
+
+
 class GeminiKeyRotator:
     """여러 Gemini API 키를 순환하며 사용할 수 있게 하는 로테이터.
 
@@ -346,6 +376,11 @@ class GeminiKeyRotator:
         except ValueError:
             pass
 
+    def is_index_exhausted(self, idx: int) -> bool:
+        """`idx` 번 키가 이미 소진됐는지. 키 배치(plan) 가 «이 시도 = 이 키» 를 직접
+        가리키므로 current()/advance() 대신 이 판정만 쓴다 (2026-11-01)."""
+        return idx in self.exhausted
+
     def all_exhausted(self) -> bool:
         """모든 키가 소진됐는지 확인"""
         return len(self.exhausted) >= len(self.keys) if self.keys else True
@@ -361,25 +396,57 @@ class GeminiKeyRotator:
 
 
 def load_api_keys(cfg: dict) -> list:
-    """config.json에서 API 키 목록을 로드.
+    """config.json에서 API 키 목록을 로드 — 두 스튜디오(web) 핸들러의 유일한 키 출처.
 
     우선순위: api_keys(리스트) > api_key(단일) > GEMINI_API_KEY(환경변수)
-    `api_disabled` 에 들어 있는 키(사용자가 체크 해제한 키)는 결과에서 제외한다.
+    `api_disabled` 에 들어 있는 키(⚙️ 키 설정에서 체크 해제한 키) 는 결과에서 제외한다.
+
+    권위는 값이 아니라 «항목의 존재»가 가진다(2026-11-01). ⚙️ 창은 키를 전부 지워도
+    `api_keys: []` 를 저장하는데, 빈 목록을 «값 없음» 으로 읽는 순간 방금 지운 키가 레거시
+    `api_key` 필드와 환경변수에서 되살아난다. 설정 바에서 키를 0개로 만들고도 지워진 키로
+    조용히 생성 성공하던 사고가 이 물러섬 때문에 생겼다. 목록이 존재하는 한 그것이 정답이고,
+    활성 키가 0개면 빈 목록을 돌려준다(nodes/bada_prompt_generator.py::resolve_api_keys 와 같은 규칙).
     """
-    keys = cfg.get("api_keys", [])
-    if keys and isinstance(keys, list):
-        keys = [k.strip() for k in keys if k.strip()]
-    else:
-        single = (cfg.get("api_key") or "").strip()
-        keys = [single] if single else []
-    if not keys:
-        env_key = os.environ.get("GEMINI_API_KEY", "").strip()
-        keys = [env_key] if env_key else []
     disabled = cfg.get("api_disabled", [])
-    if keys and isinstance(disabled, list) and disabled:
+    off = set()
+    if isinstance(disabled, list):
         off = {k.strip() for k in disabled if isinstance(k, str) and k.strip()}
-        keys = [k for k in keys if k not in off]
-    return keys
+
+    if isinstance(cfg.get("api_keys"), list):
+        keys = [k.strip() for k in cfg["api_keys"] if isinstance(k, str) and k.strip()]
+        return [k for k in keys if k not in off]
+
+    single = (cfg.get("api_key") or "").strip()
+    if single:
+        return [] if single in off else [single]
+    env_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    return [env_key] if env_key else []
+
+
+def resolve_keys(body: dict, cfg: dict) -> list:
+    """generate/chat 요청이 쓸 키 목록 — 키 해석 단일 지점(2026-11-01).
+
+    ⚙️ 키 설정 창이 유일한 입력 UI 이고 config.json 이 유일한 사실이다. Async·PG 프론트
+    모두 요청 본문에 키를 실어 보내지 않으므로 정상 경로는 언제나 `load_api_keys(cfg)` 다.
+    (옛 Async 는 활성 키 중 첫 개만 보내서, 그 키가 429 를 만나도 회전자에 다른 키가 없고
+    그래서 키가 4개 있어도 «전부 소진» 으로 죽었다.)
+
+    본문 키는 확장 직전에 캐시된 JS 가 실어 보내는 경우만 남는다: 서버에 «설정된 키 자체가
+    하나도 없을 때» 한 번의 시도로 받는다. 키가 설정돼 있는데 전부 비활성인 상태에서는 본문을
+    보지 않는다 — 사용자가 방금 끈 키를 되돌려주는 길이 되기 때문이다.
+    """
+    keys = load_api_keys(cfg)
+    if keys:
+        return keys
+    configured = (
+        isinstance(cfg.get("api_keys"), list)
+        or bool((cfg.get("api_key") or "").strip())
+        or bool(os.environ.get("GEMINI_API_KEY", "").strip())
+    )
+    if configured:
+        return []
+    legacy = (body.get("api_key") or "").strip()
+    return [legacy] if legacy else []
 
 
 # ---------------------------------------------------------------------------
@@ -581,6 +648,28 @@ def save_server_config(data):
     except Exception as e:
         logger.error(f"[bada-AsyncGemini] Failed to save config.json: {e}")
         return False
+
+def normalize_stored_model():
+    """config.json 의 `default_model` 을 살아 있는 라인업으로 되돌린다 (부팅 시 1회).
+
+    «먼저 시도하는 모델» 선택이 2026-11-01 사라졌으므로 이 값은 사용자가 고칠 수 없다.
+    그런데 구 버전이 저장한 파일에 퇴장 모델(3.8-flash 등) 이 박혀 있으면, 읽을 때마다
+    화이트리스트로 걸려 매번 기본값으로 되돌아가는 소모가 생성마다 반복된다. 부팅 때
+    파일 자체를 고쳐 두면 그 소모가 사라지고, GET config 가 보여주는 값도 실제 사용값과
+    같아진다. 값이 이미 정상이면 파일을 건드리지 않는다(불필요 쓰기·로그 금지).
+    """
+    cfg = load_server_config()
+    stored = str(cfg.get("default_model") or "").strip()
+    if stored in EXACT_MODEL_IDS:
+        return stored
+    save_server_config({"default_model": DEFAULT_MODEL_ID})
+    if stored:
+        logger.warning("[BadaGemini] default_model %r 은(는) 더 이상 제공되지 않아 %s 로 리셋했습니다.",
+                       stored, DEFAULT_MODEL_ID)
+    else:
+        logger.info("[BadaGemini] default_model 이 비어 있어 %s 로 초기화했습니다.", DEFAULT_MODEL_ID)
+    return DEFAULT_MODEL_ID
+
 
 def clean_base64_image(image_str):
     mime = "image/png"
@@ -879,16 +968,22 @@ def register_gemini_api_routes():
 
         routes = server.PromptServer.instance.routes
 
+        # 부팅 정합성: config.json 의 순차 시드(`default_model`) 를 현재 라인업에 맞춘다.
+        # ⚙️ 창에서 모델을 고르는 기능이 사라졌으므로, 낡은 파일의 죽은 값은 여기서 한 번에 정리한다.
+        normalize_stored_model()
+
         @routes.get("/api/bada/gemini/config")
         async def get_config_handler(request):
             cfg = load_server_config()
+            # 목록이 설정돼 있으면 그 자체를 답한다. «전부 삭제»(api_keys: []) 상태에서
+            # 레거시 단일 키·환경변수를 목록에 담아 주면 ⚙️ 창이 지운 키를 다시 보여주고,
+            # 사용자는 확인 한 번으로 그 키를 되살리게 된다(읽는 쪽의 존재권위와 같은 원칙).
             env_key = os.environ.get("GEMINI_API_KEY", "").strip()
-            saved_key = cfg.get("api_key", "").strip()
-            api_keys = cfg.get("api_keys", [])
-            if not api_keys and saved_key:
-                api_keys = [saved_key]
-            elif not api_keys and env_key:
-                api_keys = [env_key]
+            if isinstance(cfg.get("api_keys"), list):
+                api_keys = [k.strip() for k in cfg["api_keys"] if isinstance(k, str) and k.strip()]
+            else:
+                saved_key = (cfg.get("api_key") or "").strip()
+                api_keys = [saved_key] if saved_key else ([env_key] if env_key else [])
 
             masked_keys = []
             for k in api_keys:
@@ -897,16 +992,28 @@ def register_gemini_api_routes():
                 else:
                     masked_keys.append("••••••••")
 
+            # 활성 개수는 여기서 세어 준다. 프론트가 직접 세려면 `api_disabled` 의 평문 값이
+            # 필요한데, 그 값 자체가 키 문자열이라 아래 원칙(평문 미반환) 에 걸린다.
+            disabled = {str(x).strip() for x in cfg.get("api_disabled", []) if isinstance(x, str) and str(x).strip()}
+            key_count_enabled = len([k for k in api_keys if k not in disabled])
+
+            # ⚠️ 평문 키는 이 응답의 사실이 아니다 (2026-11-01). `api_keys`·`api_disabled` 를
+            # 그대로 실어 보내면 config.json 을 열지 않아도 HTTP 한 번으로 키 전부가 옮겨 다닌다.
+            # ComfyUI 는 127.0.0.1 만 듣지만, 그 앞에는 브라우저 확장·히스토리·화면 공유·
+            # 로그 복사가 전부 놓여 있다 (실제 사례: GET 응답을 대화창에 붙여 넣어 키 4개가 노출됨).
+            # 프론트가 필요로 하는 것은 «개수» 와 «마스킹» 뿐이므로 그 둘만 돌려준다.
+            # 키의 평문은 여전히 config.json 에 있고, 쓰기는 POST 한 경로뿐이다.
             return web.json_response({
                 "success": True,
                 "has_key": bool(api_keys),
-                "api_keys": api_keys,
                 "masked_keys": masked_keys,
                 "key_count": len(api_keys),
-                "default_model": cfg.get("default_model", "gemini-3.5-flash-lite"),
+                "key_count_enabled": key_count_enabled,
+                "default_model": cfg.get("default_model") or DEFAULT_MODEL_ID,
                 # «속도/균형/품질» 모드(model_mode)는 2026-11-01 폐기되어 돌아주지 않는다.
-                "api_disabled": cfg.get("api_disabled", []),
-                "models": EXACT_MODELS,
+                # «models» 라인업 목록은 보내지 않는다 (2026-11-01 모델 설정 제거) —
+                # 프론트가 모델 목록을 소비하는 순간 캐스케이드 규칙의 두 번째 출처가 된다.
+                # 라인업·배치는 서버(KEY_CASCADES/QUALITY_KEY_CASCADES) 안에만 있다.
                 "personas": GEM_PERSONAS
             })
 
@@ -919,20 +1026,17 @@ def register_gemini_api_routes():
                     new_cfg["api_key"] = body["api_key"].strip()
                 if "api_keys" in body:
                     new_cfg["api_keys"] = [k.strip() for k in body["api_keys"] if isinstance(k, str) and k.strip()]
+                    # ⚙️ 창이 키 목록을 저장하는 순간 레거시 단일 필드는 구닥다리가 된다.
+                    # 남겨 두면 «api_keys: [] + api_key: 옛 키» 라는 이중 장부가 생겨, 지운 키가
+                    # 생성 경로나마 살아나는 구멍으로 남는다 — 창이 유일한 입력 UI 라는 규칙의 뒷정리.
+                    new_cfg["api_key"] = ""
                 if "api_disabled" in body:
                     new_cfg["api_disabled"] = [k.strip() for k in body["api_disabled"] if isinstance(k, str) and k.strip()]
-                if "default_model" in body:
-                    # 낡은 프론트·손으로 고친 localStorage 가 죽은 모델(3.8-flash 등) 을 보내면
-                    # 아예 받지 않고 지금 값을 유지한다. 받는 순간 그 뒤 모든 생성이 404/429 를
-                    # 한 바퀴 돈 뒤에야 기본값으로 되돌아오기 때문이다(읽는 쪽의 화이트리스트는
-                    # 마지막 방어선이고, 여기가 그 소모를 막는 자리다).
-                    candidate_model = str(body["default_model"] or "").strip()
-                    if candidate_model in EXACT_MODEL_IDS:
-                        new_cfg["default_model"] = candidate_model
-                    elif candidate_model:
-                        logger.warning("[BadaGemini] Ignoring retired default_model: %s", candidate_model)
-                # «속도/균형/품질» 모드(model_mode)는 2026-11-01 폐기 — 위 switch 가 키를
-                # 항목별로만 복사하므로 옛 프론트가 보내도 저장이 안 된다. 별도 차단 불필요.
+                # «default_model» 은 받지 않는다 (2026-11-01 모델 설정 제거): 낡은 프론트가
+                # 보내도 조용히 무시한다 — «먼저 시도하는 모델» 이라는 사용자 입력이 없어졌으니
+                # 순차 시드의 기본값은 서버가 소유하고 부팅 시 정상화된다(:1125 근방).
+                # («속도/균형/품질» 모드(model_mode) 와 같은 방식: 위 switch 가 키 항목별로만
+                # 복사하므로 아래 save_server_config 에는 키·api_disabled 만 도달한다.)
                 success = save_server_config(new_cfg)
                 return web.json_response({"success": success})
             except Exception as e:
@@ -1001,26 +1105,30 @@ def register_gemini_api_routes():
                 body = await request.json()
 
                 cfg = load_server_config()
-                req_key = (body.get("api_key") or "").strip()
-                api_key = req_key or cfg.get("api_key", "").strip() or os.environ.get("GEMINI_API_KEY", "").strip()
-
-                if not api_key:
+                # 키 해석은 resolve_keys 단일 지점 — ⚙️ 창이 저장한 config.json 이 출처이고,
+                # 활성 키 전부를 회전자에 통째로 넘긴다(429 를 만나면 다음 키로 넘어가게).
+                keys = resolve_keys(body, cfg)
+                if not keys:
                     return web.json_response({
                         "success": False,
-                        "error": "Gemini API key is required. Please enter it in the top API Key field or set the GEMINI_API_KEY environment variable."
+                        "error": "사용 가능한 Gemini API 키가 없습니다. ⚙️ 키 설정에서 키를 등록해 주세요.",
+                        "code": "no_key",
                     }, status=400)
 
-                primary_model = body.get("model") or cfg.get("default_model") or "gemini-3.5-flash-lite"
+                # `body["model"]` 은 받지 않는다 (2026-11-01 모델 설정 제거): 요청이 모델을
+                # 고르면 서버 배치가 아니라 프론트가 고른 모델이 1순위가 되어 키별 배치 규칙이
+                # 깨진다. 순차 경로(키 1개)의 시드만 config 의 기본값을 쓴다 — PG 노드가
+                # resolve_model() 로 읽는 그 값이고, 서버 부팅 시 정상화된다.
+                primary_model = cfg.get("default_model") or DEFAULT_MODEL_ID
                 # 화이트리스트는 EXACT_MODEL_IDS 단일 출처 (옛 중복 하드코딩 2곳 정리)
                 if primary_model not in EXACT_MODEL_IDS:
-                    primary_model = "gemini-3.5-flash-lite"
+                    primary_model = DEFAULT_MODEL_ID
+                # «속도/품질»(라운드 14) 은 요청마다 받는다 — PG 큐 노드는 네이티브 위젯,
+                # Async 는 설정 바의 [속도|품질] 세그먼트가 같은 값의 입력창이다. 여기가 그 값을
+                # 캐스케이드 표에 넘기는 자리이고, 없으면 기본(속도) 순서로 돈다.
+                generation_mode = normalize_generation_mode(body.get("generation_mode"))
 
-                # --- 다중 API 키 로테이터 초기화 ---
-                req_key = (body.get("api_key") or "").strip()
-                if req_key:
-                    key_rotator = GeminiKeyRotator([req_key])
-                else:
-                    key_rotator = GeminiKeyRotator(load_api_keys(cfg))
+                key_rotator = GeminiKeyRotator(keys)
                 if key_rotator.all_exhausted():
                     return web.json_response({
                         "success": False,
@@ -1174,9 +1282,18 @@ def register_gemini_api_routes():
                         config["responseSchema"] = structured_schema
                     return config
 
-                # Models Cascade — primary 우선. «속도/균형/품질» 모드는 2026-11-01 폐기됐다
-                # (무료 티어 한도가 모델마다 다른데 모드 표가 그걸 모르고 죽은 모델로 보냈다).
-                models_to_try = model_cascade(primary_model)
+                # Models Cascade — PG 와 같은 배치: 키가 모델을 맡는다 (attempt_plan).
+                # «속도/품질» 모드(라운드 14) 는 위쪽에서 받은 값으로 표를 고른다. turn 은
+                # PG 레이스와 같은 전역 카운터 — «승자 키» 를 돌려 비용 분산되는 배치도 공유한다.
+                race_turn = next_race_turn()
+                attempts = attempt_plan(keys, mode=generation_mode, turn=race_turn,
+                                        primary=primary_model)
+                # 배치 전부를 한 줄로 남긴다 — «어느 키가 어느 모델을 먼저 시도했나» 가 이 기능의
+                # 전부인데 개수만 남기면 표가 뒤집히거나 mode 가 새지 않은 것을 생성 로그로
+                # 확인할 방법이 사라진다. (모델 id 에서 `gemini-` 접두만 걷어 한 줄에 담는다.)
+                plan_note = " → ".join("k%d:%s" % (k, str(m).replace("gemini-", "")) for k, m in attempts)
+                logger.info("[BadaGemini] plan keys=%d mode=%s turn=%d attempts=%d | %s",
+                            len(keys), generation_mode, race_turn, len(attempts), plan_note)
 
                 def build_user_parts(prompt_str, attach_images=True):
                     p_list = []
@@ -1243,14 +1360,16 @@ def register_gemini_api_routes():
                 api_reached = False
 
                 async with aiohttp.ClientSession(timeout=client_timeout) as session:
-                    # PASS 1: Direct Master Compilation with Multi-Model Cascade
-                    for model in models_to_try:
+                    # PASS 1: Direct Master Compilation — PG 배치(attempts) 순회.
+                    for kidx, model in attempts:
                         if is_model_dead(model):
                             logger.info("[Pass 1] Skipping retired model %s", model)
                             continue
-                        current_key = key_rotator.current()
-                        if not current_key:
+                        if key_rotator.all_exhausted():
                             break
+                        if key_rotator.is_index_exhausted(kidx):
+                            continue  # 이 키는 이미 소진 — 담당 모델 목록째 건너뜀
+                        current_key = keys[kidx]
                         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={current_key}"
                         payload_p1 = {
                             "contents": [{"role": "user", "parts": build_user_parts(framed_user_prompt, attach_images=True)}],
@@ -1290,8 +1409,9 @@ def register_gemini_api_routes():
                                     if resp.status == 404:
                                         mark_model_dead(model, "Pass 1 HTTP 404")
                                     elif resp.status in (429, 503):
+                                        # 키 소진 표시만 — plan 은 이미 «이 키의 남은 모델» 을
+                                        # 알고 있으므로 advance() 로 인덱스를 밀 필요 없다.
                                         key_rotator.mark_exhausted(current_key)
-                                        key_rotator.advance()
                         except Exception as e_p1:
                             logger.warning(f"[Pass 1] Model {model} failed: {e_p1}")
 
@@ -1309,12 +1429,14 @@ def register_gemini_api_routes():
                             f"{instruction}"
                         )
 
-                        for model2 in models_to_try:
+                        for kidx2, model2 in attempts:
                             if is_model_dead(model2):
                                 continue
-                            current_key = key_rotator.current()
-                            if not current_key:
+                            if key_rotator.all_exhausted():
                                 break
+                            if key_rotator.is_index_exhausted(kidx2):
+                                continue
+                            current_key = keys[kidx2]
                             url2 = f"https://generativelanguage.googleapis.com/v1beta/models/{model2}:generateContent?key={current_key}"
                             payload_p2 = {
                                 "contents": [{"role": "user", "parts": build_user_parts(
@@ -1347,7 +1469,6 @@ def register_gemini_api_routes():
                                             mark_model_dead(model2, "Pass 2 HTTP 404")
                                         elif resp2.status in (429, 503):
                                             key_rotator.mark_exhausted(current_key)
-                                            key_rotator.advance()
                             except Exception as e_p2:
                                 logger.warning(f"[Pass 2] Model {model2} failed: {e_p2}")
 
@@ -1357,12 +1478,14 @@ def register_gemini_api_routes():
                         pass3_system = final_system_p1 if engine_mode in ("qwen21", "system_prompt") else PASS3_SYSTEM_BILINGUAL
                         pass3_prompt = framed_user_prompt if engine_mode in ("qwen21", "system_prompt") else f"[MASTER CINEMATIC SCENE BLUEPRINT]\n{instruction}"
 
-                        for model3 in models_to_try:
+                        for kidx3, model3 in attempts:
                             if is_model_dead(model3):
                                 continue
-                            current_key = key_rotator.current()
-                            if not current_key:
+                            if key_rotator.all_exhausted():
                                 break
+                            if key_rotator.is_index_exhausted(kidx3):
+                                continue
+                            current_key = keys[kidx3]
                             url3 = f"https://generativelanguage.googleapis.com/v1beta/models/{model3}:generateContent?key={current_key}"
                             payload_p3 = {
                                 "contents": [{"role": "user", "parts": build_user_parts(
@@ -1392,7 +1515,6 @@ def register_gemini_api_routes():
                                             mark_model_dead(model3, "Pass 3 HTTP 404")
                                         elif resp3.status in (429, 503):
                                             key_rotator.mark_exhausted(current_key)
-                                            key_rotator.advance()
                             except Exception as _ignored_err:
                                 logger.debug("[Bada] ignored: %s", _ignored_err, exc_info=True)
 
@@ -1452,11 +1574,18 @@ def register_gemini_api_routes():
             try:
                 body = await request.json()
                 cfg = load_server_config()
-                req_key = (body.get("api_key") or "").strip()
-                if req_key:
-                    key_rotator = GeminiKeyRotator([req_key])
-                else:
-                    key_rotator = GeminiKeyRotator(load_api_keys(cfg))
+                # 키 해석은 생성 핸들러와 같은 단일 지점 — 제미나이 대화 탭이 크레아~시스템
+                # 탭과 다른 열쇠로 열리지 않도록(옛 버전은 여기에만 «키 없음» 게이트가 없어
+                # 7개 탭이 400 으로 죽는 동안 이 탭만 돈다).
+                keys = resolve_keys(body, cfg)
+                if not keys:
+                    return web.json_response({
+                        "success": False,
+                        "error": "사용 가능한 Gemini API 키가 없습니다. ⚙️ 키 설정에서 키를 등록해 주세요.",
+                        "code": "no_key",
+                    }, status=400)
+
+                key_rotator = GeminiKeyRotator(keys)
                 if key_rotator.all_exhausted():
                     return web.json_response({
                         "success": False,
@@ -1464,10 +1593,14 @@ def register_gemini_api_routes():
                         "code": "all_keys_exhausted",
                     }, status=429)
 
-                model = body.get("model") or cfg.get("default_model") or "gemini-3.5-flash-lite"
+                # `body["model"]` 은 받지 않는다 (2026-11-01 모델 설정 제거) — 생성과 동일.
+                # 순차(키 1개) 시드만 config 기본값이고, 나머지는 attempt_plan 이 정한다.
+                model = cfg.get("default_model") or DEFAULT_MODEL_ID
                 # 채팅도 같은 화이트리스트를 쓴다 (옛 중복 하드코딩 정리)
                 if model not in EXACT_MODEL_IDS:
-                    model = "gemini-3.5-flash-lite"
+                    model = DEFAULT_MODEL_ID
+                # «속도/품질» 은 생성 탭 7개와 이 탭이 같은 표를 돌게 한다 (generate 와 동일).
+                generation_mode = normalize_generation_mode(body.get("generation_mode"))
                 messages = body.get("messages", []) # Array of {role: "user"|"model", text: "...", images: [...]}
                 persona_id = body.get("persona", "universal")
                 # Gemini-only system prompt (engines_registry.json :: gemini_prompts). Empty = built-in persona.
@@ -1515,7 +1648,9 @@ def register_gemini_api_routes():
                     "generationConfig": {"temperature": 0.7, "maxOutputTokens": 8192}
                 }
 
-                models_to_try = model_cascade(model)
+                # PG 와 같은 배치 (key × mode 표). 채팅도 생성과 같은 순서로 돈다.
+                chat_attempts = attempt_plan(keys, mode=generation_mode,
+                                             turn=next_race_turn(), primary=model)
 
                 client_timeout = aiohttp.ClientTimeout(total=45)
                 last_err = "No response"
@@ -1523,12 +1658,14 @@ def register_gemini_api_routes():
                 successful_model = None
 
                 async with aiohttp.ClientSession(timeout=client_timeout) as session:
-                    for cur_model in models_to_try:
+                    for kidx, cur_model in chat_attempts:
                         if is_model_dead(cur_model):
                             continue
-                        current_key = key_rotator.current()
-                        if not current_key:
+                        if key_rotator.all_exhausted():
                             break
+                        if key_rotator.is_index_exhausted(kidx):
+                            continue
+                        current_key = keys[kidx]
                         url = f"https://generativelanguage.googleapis.com/v1beta/models/{cur_model}:generateContent?key={current_key}"
                         try:
                             async with session.post(url, json=payload) as resp:
@@ -1548,7 +1685,6 @@ def register_gemini_api_routes():
                                         mark_model_dead(cur_model, "Chat HTTP 404")
                                     elif resp.status in (429, 503):
                                         key_rotator.mark_exhausted(current_key)
-                                        key_rotator.advance()
                         except Exception as req_e:
                             last_err = str(req_e)
                             logger.warning(f"[bada-AsyncGemini] Chat model {cur_model} exception: {req_e}")

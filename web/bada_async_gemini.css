@@ -858,119 +858,28 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   color: var(--bada-text-muted);
 }
 
-.bada-config-label {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 6px !important;
-  min-width: 0 !important;
-}
-
-.bada-config-title-group {
+/* ── ⚙️ 설정 바 ────────────────────────────────────────────────────────────────
+   [속도|품질] 세그먼트 · «API Key = n» · [⚙️ 키 설정] · 🔔 오류 로그
+   세그먼트와 키 개수 표시의 모양은 ⚓ Bada Prompt Generator 의 .bpg-mode /
+   .bpg-keycount 가 그대로 담당한다 (PG 가 시작 시 CSS 를 전역 주입).
+   여기에 남는 것은 정렬뿐이다.
+   (구 «🔑 API Key & 우선순위 모델 선택» 섹션 — .bada-config-label,
+   .bada-key-action-btn, .bada-input-group, .bada-toggle-eye 등 — 은
+   2026-11-01 설정 창으로 통합되면서 CSS째 삭제됐다.) ── */
+.bada-settings-bar {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  width: 100%;
   flex-wrap: nowrap;
 }
 
-.bada-config-title-text {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--bada-text-muted);
-  white-space: nowrap;
-}
-
-.bada-key-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.bada-key-action-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 4px;
-  color: #cbd5e1;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1.5px 6px;
-  cursor: pointer;
-  transition: all 0.16s ease;
-  white-space: nowrap;
-  line-height: 1.3;
-  user-select: none;
-}
-
-.bada-key-action-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.32);
-  color: #fff;
-  transform: translateY(-1px);
-}
-
-.bada-key-action-btn:active {
-  transform: translateY(0);
-}
-
-.bada-key-action-btn.testing {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.4);
-  color: #93c5fd;
-  cursor: wait;
-}
-
-.bada-key-action-btn.success {
-  background: #3d3d3d;
-  border-color: #666666;
-  color: #ffffff;
-}
-
-.bada-key-action-btn.error {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: #ef4444;
-  color: #fca5a5;
-}
-
-.bada-spinner-tiny {
-  display: inline-block;
-  animation: badaSpinTiny 0.8s linear infinite;
-}
-
-@keyframes badaSpinTiny {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* 가로 폭 축소 시 텍스트 숨기고 아이콘만 노출 (노드가 380px 이하로 극도로 좁아질 때만 아이콘 전용 전환) */
-@container (max-width: 380px) {
-  .bada-key-action-btn .bada-action-text {
-    display: none !important;
-  }
-  .bada-key-action-btn {
-    padding: 1.5px 5px !important;
-  }
-}
-
-.bada-compact-width .bada-key-action-btn .bada-action-text {
-  display: none !important;
-}
-.bada-compact-width .bada-key-action-btn {
-  padding: 1.5px 5px !important;
-}
-
-@container (max-width: 340px) {
-  .bada-config-label .bada-subtext {
-    display: none !important;
-  }
-}
-.bada-ultra-compact .bada-config-label .bada-subtext {
-  display: none !important;
+/* PG 헤더용 .bpg-btn--manage 에 «margin-left: auto» 가 걸려 있다. 여기서는 🔔 벨이
+   같은 줄 맨 오른쪽을 차지하므로 단추는 왼쪽 덩어리에 붙여 둔다. 그대로 두면
+   auto 마진 두 개가 남는 폭을 반씩 나눠 단추 줄이 가운데서 갈라진다. */
+.bada-settings-bar .bpg-btn--manage {
+  margin-left: 0;
 }
 
 .bada-subtext {
@@ -979,13 +888,13 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   white-space: nowrap;
 }
 
-/* The 🔔 bell now lives in the API-key label row (it used to sit in the header next to
-   the badges). `margin-left: auto` keeps it in the right-hand corner it occupied there. */
+/* 🔔 오류 로그 벨 — margin-left: auto 로 설정 바 맨 오른쪽에 붙인다. */
 .bada-config-bell-slot {
   display: flex;
   align-items: center;
   margin-left: auto;
   padding-left: 6px;
+  flex-shrink: 0;
 }
 
 /* Stop / Cancel Buttons */
@@ -1031,50 +940,9 @@ div[data-testid="node-widget"]:has(.bada-async-gemini-root) {
   transform: scale(1.08) !important;
 }
 
-.bada-config-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  width: 100%;
-}
-
-.bada-input-group {
-  position: relative;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.bada-input {
-  width: 100%;
-  background: var(--bada-bg-input);
-  border: 1px solid var(--bada-border);
-  border-radius: var(--bada-radius-sm);
-  padding: 6px 30px 6px 8px;
-  color: #fff;
-  font-size: 11px;
-  font-family: 'Fira Code', monospace;
-  outline: none;
-  min-width: 0;
-  box-sizing: border-box;
-}
-
-.bada-input:focus {
-  border-color: #10b981;
-}
-
-.bada-toggle-eye {
-  position: absolute;
-  right: 6px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--bada-text-dim);
-}
-
+/* 키 입력칸(.bada-input/.bada-input-group/.bada-toggle-eye)과 행 레이아웃
+   (.bada-config-row)은 2026-11-01 삭제 — 키 관리는 «⚙️ 키 설정» 창이 담당한다.
+   .bada-select 는 프롬프트 프리셋 드롭다운에서 계속 사용한다. */
 .bada-select {
   background: var(--bada-bg-input);
   border: 1px solid var(--bada-border);
