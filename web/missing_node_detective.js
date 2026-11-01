@@ -16,6 +16,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { BadaI18n } from "./bada_i18n.js";
+import { escapeHtml } from "./bada_shared.js";
 
 // 1. Dynamic Stylesheet Injection
 const link = document.createElement("link");
@@ -646,13 +647,13 @@ export async function showMissingNodeModal(node) {
                         installBtn.innerHTML = `<span>📦</span><span>${BadaI18n.t("detective_retry_install")}</span>`;
                         statusBox.innerHTML = `
                             <div style="color: #f87171; font-weight: 700;">❌ ${BadaI18n.t("detective_install_failed")}</div>
-                            <div style="color: #94a3b8; font-size: 11.5px; word-break: break-all;">${result.error || "Unknown error"}</div>
+                            <div style="color: #94a3b8; font-size: 11.5px; word-break: break-all;">${escapeHtml(result.error || "Unknown error")}</div>
                         `;
                     }
                 } catch (err) {
                     installBtn.disabled = false;
                     installBtn.innerHTML = `<span>📦</span><span>${BadaI18n.t("detective_retry_install")}</span>`;
-                    statusBox.innerHTML = `<div style="color: #f87171;">❌ ${err.message}</div>`;
+                    statusBox.innerHTML = `<div style="color: #f87171;">❌ ${escapeHtml(err.message)}</div>`;
                 }
             });
 

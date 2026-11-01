@@ -16,6 +16,7 @@
 
 import { app } from "../../scripts/app.js";
 import { BadaI18n } from "./bada_i18n.js";
+import { escapeHtml } from "./bada_shared.js";
 import {
     openSettingsModal,
     displayKeyCount,
@@ -443,10 +444,10 @@ let refreshChatLengthNotice = () => {};
                 listEl.innerHTML = errorLogs.map(item => `
                     <div class="bada-error-item">
                         <div class="bada-error-meta">
-                            <span class="bada-error-source">[${item.source}]</span>
-                            <span>${item.time}</span>
+                            <span class="bada-error-source">[${escapeHtml(item.source)}]</span>
+                            <span>${escapeHtml(item.time)}</span>
                         </div>
-                        <div class="bada-error-text">${item.msg}</div>
+                        <div class="bada-error-text">${escapeHtml(item.msg)}</div>
                     </div>
                 `).join("");
             }

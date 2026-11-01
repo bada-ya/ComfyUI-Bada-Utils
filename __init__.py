@@ -43,7 +43,7 @@ def _ensure_cloud_deps():
     )
     try:
         # aiohttp / Pillow already ship with ComfyUI, so install only the 2 Google libs.
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, "-m", "pip", "install",
              "google-api-python-client", "google-auth-oauthlib"],
             stdout=subprocess.DEVNULL,
@@ -51,7 +51,13 @@ def _ensure_cloud_deps():
             timeout=60,
             check=False,
         )
-        logger.info("[ComfyUI-Bada-Utils] Cloud Sync dependencies installed — usable this session.")
+        if result.returncode == 0:
+            logger.info("[ComfyUI-Bada-Utils] Cloud Sync dependencies installed — usable this session.")
+        else:
+            logger.warning(
+                "[ComfyUI-Bada-Utils] Cloud Sync dependency install exited with "
+                "code %s (ignored; will retry next startup).", result.returncode
+            )
     except subprocess.TimeoutExpired:
         logger.warning(
             "[ComfyUI-Bada-Utils] Cloud Sync dependency install timed out after 60s "

@@ -372,6 +372,15 @@ def build_workflow_tree(root_dir):
     except Exception:
         pass
     meta_data = load_workflow_metadata(root_dir)
+    root_real = os.path.realpath(root_dir)
+
+    def is_within_root(candidate):
+        try:
+            candidate_real = os.path.realpath(candidate)
+            common = os.path.commonpath((root_real, candidate_real))
+            return os.path.normcase(common) == os.path.normcase(root_real)
+        except (OSError, ValueError):
+            return False
 
     def scan_dir(current_dir, rel_path=""):
         folder_name = "Root" if not rel_path else os.path.basename(current_dir)
@@ -386,23 +395,30 @@ def build_workflow_tree(root_dir):
         }
 
         try:
-            entries = sorted(os.scandir(current_dir), key=lambda e: (not e.is_dir(), e.name.lower()))
+            entries = sorted(os.scandir(current_dir), key=lambda e: (not e.is_dir(follow_symlinks=False), e.name.lower()))
         except Exception as e:
             logger.warning(f"[Bada-Utils] Failed to scan dir {current_dir}: {e}")
             return node
 
-        file_names_set = {e.name.lower() for e in entries if e.is_file()}
+        file_names_set = {e.name.lower() for e in entries if e.is_file(follow_symlinks=False)}
 
         for entry in entries:
             if entry.name.startswith("."):
                 continue  # Skip hidden files like .index.json, .bada_meta.json
             entry_rel = os.path.join(rel_path, entry.name) if rel_path else entry.name
 
-            if entry.is_dir():
+            try:
+                is_junction = getattr(entry, "is_junction", lambda: False)()
+                if entry.is_symlink() or is_junction or not is_within_root(entry.path):
+                    continue
+            except OSError:
+                continue
+
+            if entry.is_dir(follow_symlinks=False):
                 sub_node = scan_dir(entry.path, entry_rel)
                 node["folders"].append(sub_node)
                 node["count"] += sub_node["count"]
-            elif entry.is_file():
+            elif entry.is_file(follow_symlinks=False):
                 lower_name = entry.name.lower()
                 # Skip companion thumbnail files from standalone workflow listing
                 if lower_name.endswith((".thumb.png", ".thumb.jpg", ".thumb.webp", ".thumb.jpeg")):

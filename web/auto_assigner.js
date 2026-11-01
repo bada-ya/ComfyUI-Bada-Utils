@@ -1221,7 +1221,7 @@ class AutoModelAssigner {
                                     installBtn.innerHTML = `<span>📦</span><span>${BadaI18n.t("aa_btn_retry_install")}</span>`;
                                     statusBox.innerHTML = `
                                         <div style="color: #f87171; font-weight: 700;">❌ ${BadaI18n.t("aa_status_install_failed")}</div>
-                                        <div style="color: #94a3b8; font-size: 0.8rem; word-break: break-all;">${result.error || "Unknown error"}</div>
+                                        <div style="color: #94a3b8; font-size: 0.8rem; word-break: break-all;">${escapeHtml(result.error || "Unknown error")}</div>
                                     `;
 
                                     allSameCards.forEach(otherCard => {
@@ -1237,7 +1237,7 @@ class AutoModelAssigner {
                             } catch (err) {
                                 installBtn.disabled = false;
                                 installBtn.innerHTML = `<span>📦</span><span>${BadaI18n.t("aa_btn_retry_install")}</span>`;
-                                statusBox.innerHTML = `<div style="color: #f87171;">❌ ${err.message}</div>`;
+                                statusBox.innerHTML = `<div style="color: #f87171;">❌ ${escapeHtml(err.message)}</div>`;
 
                                 allSameCards.forEach(otherCard => {
                                     if (otherCard === card) return;
