@@ -139,14 +139,26 @@ _EXHAUSTED_KEYS = {}  # 키 문자열 → 표시 시각 (time.monotonic)
 _EXHAUSTED_KEYS_LOCK = threading.Lock()
 
 
+def _prune_expired_exhausted_keys_locked(now):
+    """Remove expired entries while the caller holds _EXHAUSTED_KEYS_LOCK."""
+    expired = [
+        key for key, seen_at in _EXHAUSTED_KEYS.items()
+        if now - seen_at > EXHAUSTED_KEY_TTL_S
+    ]
+    for key in expired:
+        del _EXHAUSTED_KEYS[key]
+
+
 def mark_key_exhausted(key, reason=""):
     """쿼터·인증 실패를 관측한 키를 한동안 건너뛴 목록에 넣는다. 키 문자열은 로그에 남기지 않는다."""
     key = str(key or "").strip()
     if not key:
         return
+    now = time.monotonic()
     with _EXHAUSTED_KEYS_LOCK:
+        _prune_expired_exhausted_keys_locked(now)
         fresh = key not in _EXHAUSTED_KEYS
-        _EXHAUSTED_KEYS[key] = time.monotonic()
+        _EXHAUSTED_KEYS[key] = now
     if fresh:
         logger.warning("[BadaGemini] Key skipped for %ds this session - %s",
                        EXHAUSTED_KEY_TTL_S, reason or "quota/auth failure")
@@ -157,18 +169,16 @@ def key_exhausted(key) -> bool:
     key = str(key or "").strip()
     if not key:
         return False
+    now = time.monotonic()
     with _EXHAUSTED_KEYS_LOCK:
-        seen = _EXHAUSTED_KEYS.get(key)
-        if seen is None:
-            return False
-        if time.monotonic() - seen > EXHAUSTED_KEY_TTL_S:
-            del _EXHAUSTED_KEYS[key]
-            return False
-        return True
+        _prune_expired_exhausted_keys_locked(now)
+        return key in _EXHAUSTED_KEYS
 
 
 def exhausted_key_count() -> int:
+    now = time.monotonic()
     with _EXHAUSTED_KEYS_LOCK:
+        _prune_expired_exhausted_keys_locked(now)
         return len(_EXHAUSTED_KEYS)
 
 
