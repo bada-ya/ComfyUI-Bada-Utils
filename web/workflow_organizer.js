@@ -266,6 +266,11 @@ class WorkflowsPlusManager {
             if (!detail.syncing) {
                 this.applyGDriveSyncingState(false);
                 this.checkGDriveStatus();
+                // Drive may have changed workflow files outside the browser.
+                setTimeout(() => {
+                    this.loadTree();
+                    this.detectActiveWorkflowFromUI();
+                }, 300);
             }
         });
     }
@@ -1561,6 +1566,12 @@ class WorkflowsPlusManager {
                             // usually already fetched the change, and fetching it twice rebuilds
                             // the tree twice.
                             setTimeout(() => self.loadTreeIfStale(), 1200);
+
+                            // A file may arrive from Drive after the save dialog listed files.
+                            // Explain the conflict and refresh the tree without overwriting anything.
+                            if (res?.status === 409 && method === "POST" && /\/userdata\//i.test(url)) {
+                                self.showToast(BadaI18n.t("wf_save_conflict_refreshed"), true);
+                            }
 
                             // 파일 저장 및 변경 시 실시간 동기화 트리거
                             if (res && res.ok) {

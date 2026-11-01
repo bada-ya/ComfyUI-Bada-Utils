@@ -2613,6 +2613,22 @@ def _perform_sync_blocking():
                     to_upload.append(rel_path)
                 elif r_mtime > l_mtime + 1:
                     to_download.append(rel_path)
+                elif l_meta.get("size") != r_meta.get("size"):
+                    # Use the old snapshot only when it identifies exactly one changed side.
+                    base_meta = base_snapshot.get(rel_path) if base_snapshot else None
+                    base_size = base_meta.get("size") if isinstance(base_meta, dict) else None
+                    local_size = l_meta.get("size")
+                    remote_size = r_meta.get("size")
+                    if base_size is not None and local_size == base_size and remote_size != base_size:
+                        to_download.append(rel_path)
+                    elif base_size is not None and remote_size == base_size and local_size != base_size:
+                        to_upload.append(rel_path)
+                    else:
+                        logger.warning(
+                            "[GDrive] Ambiguous same-time size conflict; preserving both sides: %s "
+                            "(local=%s, remote=%s, base=%s)",
+                            rel_path, local_size, remote_size, base_size,
+                        )
                 # 동일하면 no-op
 
             # [CASE 2: 로컬에만 있음] — 커스텀 대상도 워크플로우와 동일한 삭제 전파 정책.
