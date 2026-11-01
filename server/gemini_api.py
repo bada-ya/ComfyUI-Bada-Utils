@@ -142,6 +142,52 @@ KEY_START_DELAYS_S = [0, 1, 2, 0]
 KEY_RACE_TIMEOUT_S = 60
 
 
+# ── 생성 모드: 속도 / 품질 (2026-11-01 라운드 14) ────────────────────────────
+# «속도» = 위 표 그대로. 늘 3.5-flash-lite(p50 1.2s)가 이기므로 응답이 가장 빠르다.
+# «품질» = 3.5-flash-lite 를 선두에서 빼고 느리지만 긴 문맥을 쓰는 모델을 먼저 출격시킨다.
+#   레이스는 «먼저 끝난 쪽» 이 이기므로, 품질 모델이 실제로 이기려면 3.5-flash-lite 의
+#   출발을 늦춰야 한다. 3.5-flash-lite 는 1.2초만에 끝나므로 2초 지연으로는 여전히 이긴다
+#   (그래서 품질 표의 마지막 칸은 5초 — 고품질 모델이 6초 안에 못 끝내면 그때만 백업 등판).
+#   지연 값은 실측 로그를 보고 조정할 수 있게 표 하나에 모아 둔다.
+GENERATION_MODES = ("speed", "quality")
+DEFAULT_GENERATION_MODE = "speed"
+
+# 품질 우선 순서 (품질↑ → 속도↑). 3.5-flash-lite 는 «폴백» 이므로 맨 뒤.
+QUALITY_ORDER = ["gemini-3.6-flash", "gemini-3-flash-preview",
+                 "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]
+
+# 품질 모드의 키 개수별 캐스케이드. 키 4개 = 각 모델 단독(3.5-lite 는 5초 뒤 백업),
+# 키가 모자라면 «고품질 모델 → 3.5-lite 백업» 순으로 물려준다.
+QUALITY_KEY_CASCADES = {
+    1: [["gemini-3.6-flash", "gemini-3-flash-preview", "gemini-3.1-flash-lite",
+         "gemini-3.5-flash-lite"]],
+    2: [["gemini-3.6-flash", "gemini-3-flash-preview", "gemini-3.5-flash-lite"],
+        ["gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]],
+    3: [["gemini-3.6-flash", "gemini-3.5-flash-lite"],
+        ["gemini-3-flash-preview", "gemini-3.5-flash-lite"],
+        ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]],
+    4: [["gemini-3.6-flash"], ["gemini-3-flash-preview"],
+        ["gemini-3.1-flash-lite"], ["gemini-3.5-flash-lite"]],
+}
+# 품질 모드의 출발 지연. 마지막 칸(5s)이 «고품질 모델의 단독 질주 시간» 이다 —
+# 3.5-flash-lite 는 이 시간이 지나야 출발하므로, 그 전에 고품질 모델이 성공하면
+# 품질 모드에서 lite 가 이길 수 없다.
+QUALITY_KEY_START_DELAYS_S = [0, 1, 2, 5]
+
+
+def normalize_generation_mode(mode) -> str:
+    """알 수 없는 값은 기본값(속도)으로 되돌린다. 워크플로우 JSON 의 값은 번역하지 않는다."""
+    value = str(mode or "").strip().lower()
+    return value if value in GENERATION_MODES else DEFAULT_GENERATION_MODE
+
+
+def _mode_tables(mode):
+    """모드별 (캐스케이드 표, 지연 표) 쌍. 두 표는 같은 `turn` 으로 함께 돈다."""
+    if normalize_generation_mode(mode) == "quality":
+        return QUALITY_KEY_CASCADES, QUALITY_KEY_START_DELAYS_S
+    return KEY_CASCADES, KEY_START_DELAYS_S
+
+
 # ── 배치 회전 (2026-11-01 라운드 12) ─────────────────────────────────────────
 # 위 표의 «행» 은 키 번호에 붙박이가 아니라 **생성마다 한 칸씩** 돈다. 승자가 매번 같은
 # 키에서 나오면 그 키(= 같은 Google 프로젝트) 의 버킷만 깎이기 때문이다. 무료 티어 한도는
@@ -181,11 +227,14 @@ def _as_turn(turn) -> int:
         return 0
 
 
-def key_cascade(key_index, key_count=None, turn=0):
+def key_cascade(key_index, key_count=None, turn=0, mode=DEFAULT_GENERATION_MODE):
     """`key_index` 번 키가 시도할 모델 순서. 캐스케이드는 «활성 키 개수»가 결정한다.
 
     `turn`(기본 0) 만큼 표를 회전시킨 행을 돌려준다. 기본값은 회전 도입 이전 동작과
     완전히 같아서 옛 호출자는 아무것도 모른다.
+
+    `mode` 는 «속도(speed)/품질(quality)» 이다. 기본값 speed = 위 표 그대로이고,
+    quality 는 3.5-flash-lite 를 선두에서 뺀 표(QUALITY_KEY_CASCADES)를 쓴다.
     """
     try:
         idx = int(key_index)
@@ -195,41 +244,52 @@ def key_cascade(key_index, key_count=None, turn=0):
         count = int(key_count)
     except (TypeError, ValueError):
         count = MAX_KEYS
-    table = KEY_CASCADES.get(count)
+    cascades, _delays = _mode_tables(mode)
+    table = cascades.get(count)
     if not table:
         # 키가 4개를 넘으면 4종 단독 배치를 순환시키고, 0이면 1개 표를 쓴다.
-        table = KEY_CASCADES[MAX_KEYS if count > MAX_KEYS else 1]
+        table = cascades[MAX_KEYS if count > MAX_KEYS else 1]
     return list(table[(idx + _as_turn(turn)) % len(table)])
 
 
-def key_start_delay_s(key_index, key_count=None, turn=0):
+def key_start_delay_s(key_index, key_count=None, turn=0, mode=DEFAULT_GENERATION_MODE):
     """키 인덱스별 출발 지연(초). 0이면 즉시.
 
     `key_count` 를 주면 그 개수만큼의 앞 지연 슬롯만 쓴다(키 2개 → 0s/1s). `turn` 은
     `key_cascade` 와 **같은 값**을 넘겨야 프로필(모델+지연)이 짝째로 회전한다.
+    `mode` 는 `key_cascade` 와 같은 값이어야 한다 — 지연만 속도 표에서 오면 품질 모드의
+    3.5-flash-lite 가 0초에 출발해 버린다.
     """
     try:
         idx = int(key_index)
     except (TypeError, ValueError):
         idx = 0
+    _cascades, delays = _mode_tables(mode)
     try:
         slots = int(key_count)
     except (TypeError, ValueError):
-        slots = len(KEY_START_DELAYS_S)
-    if slots < 1 or slots > len(KEY_START_DELAYS_S):
-        slots = len(KEY_START_DELAYS_S)
-    return KEY_START_DELAYS_S[(idx + _as_turn(turn)) % slots]
+        slots = len(delays)
+    if slots < 1 or slots > len(delays):
+        slots = len(delays)
+    return delays[(idx + _as_turn(turn)) % slots]
 
 
 def model_cascade(primary_model, mode=None, skip_dead=True):
     """Requested model first, then every verified fast variant (deduped, order kept).
 
-    «속도/균형/품질» 모드는 2026-11-01 폐기됐다. `mode` 는 옛 호출·옛 워크플로가 그대로
-    돌아갈 수 있도록 받기만 하고 무시한다. 노드의 다중 키 경주는 이 함수 대신
-    key_cascade() 를 쓴다 — 키 개수가 순서를 결정하므로 primary 가 앞뒤를 바꾸지 않는다.
+    `mode` 는 «속도(speed)/품질(quality)» 이다(2026-11-01 라운드 14). 기본값·None 은
+    폐기 이전과 같은 속도 순서([primary] + SPEED_ORDER)이고, quality 는 QUALITY_ORDER 를
+    앞세우고 primary 를 맨 뒤로 보낸다(요청 모델이 보통 3.5-flash-lite 라서).
+
+    노드의 다중 키 경주는 이 함수 대신 key_cascade() 를 쓴다 — 키 개수가 순서를
+    결정하므로 primary 가 앞뒤를 바꾸지 않는다.
     """
+    if normalize_generation_mode(mode) == "quality":
+        seed = list(QUALITY_ORDER) + [primary_model]
+    else:
+        seed = [primary_model] + list(SPEED_ORDER)
     models_to_try = []
-    for m in [primary_model] + list(SPEED_ORDER):
+    for m in seed:
         m = str(m or "").strip()
         if m and m not in models_to_try:
             models_to_try.append(m)

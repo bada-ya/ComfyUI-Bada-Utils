@@ -125,6 +125,8 @@ NODE_ASPECT_RATIOS = (
 try:  # normal package import (ComfyUI loads custom nodes as packages)
     from ..server.gemini_api import (  # type: ignore
         EXACT_MODEL_IDS,
+        GENERATION_MODES,
+        DEFAULT_GENERATION_MODE,
         PASS2_SYSTEM,
         PASS3_SYSTEM,
         SAFETY_SETTINGS_BLOCK_NONE,
@@ -138,6 +140,7 @@ try:  # normal package import (ComfyUI loads custom nodes as packages)
         model_cascade,
         model_timeout,
         next_race_turn,
+        normalize_generation_mode,
         split_english_and_korean,
     )
 except Exception:  # pragma: no cover - fallback for flat module loading
@@ -153,6 +156,8 @@ except Exception:  # pragma: no cover - fallback for flat module loading
     is_refusal_response = _shared.is_refusal_response
     split_english_and_korean = _shared.split_english_and_korean
     EXACT_MODEL_IDS = _shared.EXACT_MODEL_IDS
+    GENERATION_MODES = _shared.GENERATION_MODES
+    DEFAULT_GENERATION_MODE = _shared.DEFAULT_GENERATION_MODE
     PASS2_SYSTEM = _shared.PASS2_SYSTEM
     PASS3_SYSTEM = _shared.PASS3_SYSTEM
     model_cascade = _shared.model_cascade
@@ -160,6 +165,7 @@ except Exception:  # pragma: no cover - fallback for flat module loading
     key_cascade = _shared.key_cascade
     key_start_delay_s = _shared.key_start_delay_s
     next_race_turn = _shared.next_race_turn
+    normalize_generation_mode = _shared.normalize_generation_mode
     mark_model_dead = _shared.mark_model_dead
     is_model_dead = _shared.is_model_dead
 
@@ -549,8 +555,12 @@ def _extract_candidate_text(body) -> tuple:
 
 
 def _candidate_models(primary: str, mode: str | None = None) -> list:
-    """primary 우선 캐스케이드. «속도/균형/품질» 모드는 폐기되어 `mode` 는 무시된다."""
-    return model_cascade(primary)
+    """primary 우선 캐스케이드. `mode` 는 «speed»(기본) / «quality» (2026-11-01 라운드 14).
+
+    speed 는 [primary] + SPEED_ORDER, quality 는 QUALITY_ORDER + [primary] — 품질 모드에서
+    3.5-flash-lite(요청 기본값)가 선두에 남으면 순차 경로에서도 품질 모델을 못 쓴다.
+    """
+    return model_cascade(primary, mode=mode)
 
 
 # ---------------------------------------------------------------------------
@@ -786,7 +796,7 @@ def _tensor_digest(tensor) -> str:
 
 def result_cache_key(registry, target, submenu, request_text, tensors, duration=10,
                      uncensored=True, aspect_ratio="", provider=PROVIDER_GOOGLE,
-                     pollinations_model="") -> str:
+                     pollinations_model="", generation_mode="") -> str:
     digest = hashlib.sha256()
     digest.update(repr((
         (target or {}).get("name"), (submenu or {}).get("name"),
@@ -796,6 +806,11 @@ def result_cache_key(registry, target, submenu, request_text, tensors, duration=
         # free Pollinations model are not interchangeable texts. Old callers omit both
         # arguments, so they keep hashing exactly the pre-round-13 key.
         str(provider or PROVIDER_GOOGLE), str(pollinations_model or "").strip(),
+        # Generation mode is a cache axis too (2026-11-01 라운드 14): the whole point of
+        # «품질» is a different model writing the prompt, so speed -> quality with the same
+        # request must NOT return the cached speed text. Empty default keeps old callers
+        # hashing the pre-round-14 key.
+        str(generation_mode or "").strip(),
     )).encode("utf-8"))
     digest.update(resolve_model(registry).encode("utf-8"))
     # 배포본과 사용자본 중 어느 쪽이 바뀌어도 캐시는 깨져야 한다 — 사용자 프롬프트 본문은
@@ -1024,11 +1039,18 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
                         duration: int = 10, uncensored: bool = True, ui_language: str = "en",
                         aspect_ratio: str = "", model_mode: str | None = None,
                         race_turn: int | None = None, provider: str = PROVIDER_GOOGLE,
-                        pollinations_model: str = ""):
+                        pollinations_model: str = "",
+                        generation_mode: str = "speed"):
     """Execute the generation pipeline with multi-key staggered race.
 
-    `model_mode`(속도/균형/품질)는 2026-11-01 폐기되어 받아도 무시한다 — 옛 호출·옛
-    워크플로가 그대로 돌아갈 수 있게 자리만 남겼다. 캐스케이드는 활성 «키 개수» 가 정한다.
+    `generation_mode`(2026-11-01 라운드 14) 은 «speed»(기본) / «quality» 이다.
+    speed = 지금까지의 배치(3.5-flash-lite 선두)이고, quality = 3.5-flash-lite 를
+    5초 지연 백업으로 밀어내고 3.6-flash / 3-flash-preview 를 선두에 세운다
+    (server/gemini_api.py::QUALITY_KEY_CASCADES). 키 1개 순차 경로에서도 모델 순서가
+    quality 로 바뀐다.
+
+    `model_mode`(옛 «속도/균형/품질»)는 폐기된 자리다 — 옛 호출·옛 워크플로가 그대로
+    돌아갈 수 있게 받기만 하고 무시한다. 새 모드는 `generation_mode` 다.
 
     `race_turn` 은 키↔모델 배치 회전 칸수다. None(기본) 이면 생성마다 한 칸씩 앞으로 돈다
     (server/gemini_api.py::next_race_turn). 회전의 목적은 «승자를 골고루 내보내기» —
@@ -1068,7 +1090,7 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
         logger.info("[BadaPromptGen] provider=pollinations model=%s gemini_keys_ignored=%d",
                     model_name, len(api_keys or []))
     else:
-        models = _candidate_models(resolve_model(registry))
+        models = _candidate_models(resolve_model(registry), generation_mode)
 
     # --- 키가 1개면 기존 순차 로직(스태거 없음) 유지 ---
     if provider == PROVIDER_POLLINATIONS or len(api_keys) <= 1:
@@ -1078,11 +1100,12 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
                                provider)
 
     # --- 2개 이상: 키 개수별 캐스케이드로 스태거드 레이스 (최대 4개 키) -------
-    # 어떤 키가 어떤 모델을 맡을지는 key_cascade() 가 키 «개수» 로 결정한다 (4개 = 각 모델
-    # 단독, 그 이하 서로 백업). 출발 지연은 key_start_delay_s: 0s / 1s / 2s / 0s —
-    # 4번째 키는 3.6-flash 단독이라 늦추면 안 된다(가장 느린 모델 + 25초 상한).
+    # 어떤 키가 어떤 모델을 맡을지는 key_cascade() 가 키 «개수» 와 «모드» 로 결정한다
+    # (4개 = 각 모델 단독, 그 이하 서로 백업). 출발 지연도 같은 모드의 표를 쓴다 —
+    # speed 는 0s / 1s / 2s / 0s, quality 는 0s / 1s / 2s / 5s (3.5-lite 백업).
     active_keys = api_keys[:4]
     key_count = len(active_keys)
+    race_mode = normalize_generation_mode(generation_mode)
 
     # 배치 회전: «프로필(모델 목록 + 출발 지연)» 이 생성마다 한 칸씩 돈다. 늘 key0 만
     # 이기면 그 키의 (키 × 모델) 일일 버킷만 깎인다 — 무료 티어 한도 단위가 프로젝트×모델
@@ -1096,9 +1119,12 @@ def run_prompt_pipeline(registry, target, submenu, request_text, used_tensors, a
             turn = int(race_turn)
         except (TypeError, ValueError):
             turn = 0
-    key_delays = [key_start_delay_s(idx, key_count, turn) for idx in range(key_count)]
-    key_models = [key_cascade(idx, key_count, turn) for idx in range(key_count)]
-    logger.info("[BadaPromptGen] Staggered race start: %d keys turn=%d | %s", key_count, turn,
+    key_delays = [key_start_delay_s(idx, key_count, turn, mode=race_mode)
+                  for idx in range(key_count)]
+    key_models = [key_cascade(idx, key_count, turn, mode=race_mode)
+                  for idx in range(key_count)]
+    logger.info("[BadaPromptGen] Staggered race start: %d keys mode=%s turn=%d | %s",
+                key_count, race_mode, turn,
                 ", ".join(f"key{idx}({'+'.join(key_models[idx])}@"
                           f"{key_delays[idx]}s)" for idx in range(key_count)))
 
@@ -1478,6 +1504,16 @@ class BadaPromptGenerator:
                     "default": POLLINATIONS_DEFAULT_MODEL,
                     "tooltip": "Used only when Provider is 'pollinations'. Ignored on the Google route.",
                 }),
+                # Generation mode (2026-11-01, round 14) — «speed» / «quality». Same
+                # append-at-the-end rule as `provider`: an old workflow has no value for
+                # this slot, so the frontend restores the default and nothing shifts.
+                # The header draws a [속도|품질] segmented control and hides this widget.
+                "generation_mode": (list(GENERATION_MODES), {
+                    "default": DEFAULT_GENERATION_MODE,
+                    "tooltip": "speed = fastest model wins (gemini-3.5-flash-lite first). "
+                               "quality = slower, richer models start first and the lite "
+                               "model only departs 5s later as a backup.",
+                }),
             },
             "hidden": {"unique_id": "UNIQUE_ID"},
         }
@@ -1508,7 +1544,8 @@ class BadaPromptGenerator:
     def generate(self, enhance=True, uncensored=True, target=None, submenu=None,
                  request_text="", duration=10, aspect_ratio="", image_1=None, image_2=None,
                  image_3=None, image_4=None, image_5=None, image_6=None, unique_id=None,
-                 ui_language="en", provider=PROVIDER_GOOGLE, pollinations_model="", **kwargs):
+                 ui_language="en", provider=PROVIDER_GOOGLE, pollinations_model="",
+                 generation_mode=DEFAULT_GENERATION_MODE, **kwargs):
         ui_language = "ko" if ui_language == "ko" else "en"
         # Provider ids are stored in workflow JSON -> they are never translated, and an
         # unknown/legacy value falls back to google (= the behaviour before this widget).
@@ -1516,6 +1553,9 @@ class BadaPromptGenerator:
         if provider not in PROVIDERS:
             provider = PROVIDER_GOOGLE
         pollinations_model = str(pollinations_model or "").strip() or POLLINATIONS_DEFAULT_MODEL
+        # Workflow JSON holds the raw id ("speed"/"quality") -> never translated, and an
+        # unknown value falls back to speed (= the behaviour before this widget).
+        generation_mode = normalize_generation_mode(generation_mode)
         # Unknown / legacy values are ignored rather than forwarded: the directive builder
         # validates against the shared choice list anyway.
         aspect_ratio = str(aspect_ratio or "").strip()
@@ -1617,7 +1657,8 @@ class BadaPromptGenerator:
         cache_key = result_cache_key(registry, target_obj, submenu_obj, request_text,
                                      used_tensors, duration=int(duration or 10),
                                      uncensored=bool(uncensored), aspect_ratio=aspect_ratio,
-                                     provider=provider, pollinations_model=pollinations_model)
+                                     provider=provider, pollinations_model=pollinations_model,
+                                     generation_mode=generation_mode)
         cached = cache_lookup(cache_key)
         if cached:
             toasts.append({"level": "info",
@@ -1632,6 +1673,7 @@ class BadaPromptGenerator:
             duration=int(duration or 10), uncensored=bool(uncensored), ui_language=ui_language,
             aspect_ratio=aspect_ratio, provider=provider,
             pollinations_model=pollinations_model,
+            generation_mode=generation_mode,
         )
 
         for warning in warnings:

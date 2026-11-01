@@ -113,8 +113,8 @@
     outline-offset: 1px;
 }
 
-/* («속도/균형/품질» 모델 모드 드롭다운과 그 .bpg-select 규칙은 2026-11-01 함께 사라졌다 —
-    노드는 활성 키 개수로 모델을 고르므로 헤더에 선택형 컨트롤이 남아 있을 이유가 없다.) */
+/* («속도/균형/품질» 3단 드롭다운과 그 .bpg-select 규칙은 2026-11-01 함께 사라졌다 —
+    라운드 14 에서 «속도/품질» 2단 세그먼트(.bpg-mode, 아래)만 살아 있는 컨트롤로 돌아왔다.) */
 
 /* 활성 키 개수 안내 — 읽는 글자이지 누르는 자리가 아니다.
    .bpg-row 의 gap 이 벌려 주므로 margin 은 쓰지 않는다. 0개일 때만 경고색. */
@@ -128,6 +128,51 @@
 
 .bpg-keycount--zero {
     color: #ff8a80;
+}
+
+/* 생성 모드 [속도 | 품질] (2026-11-01 라운드 14) — 두 칸짜리 세그먼트.
+   «API Key = n개» 안내와 같은 줄 왼쪽에 놓인다. 줄이 좁아지면 .bpg-row 의 wrap 이
+   ⚙️ 설정 단추를 다음 줄로 내리고, 높이 보정이 그만큼 다시 잰다. */
+.bpg-mode {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    border: 1px solid #3e3e3e;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.bpg-mode-btn {
+    border: 0;
+    background: #242424;
+    color: #9a9a9a;
+    font: inherit;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 4px 7px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.12s ease, background 0.12s ease;
+}
+
+.bpg-mode-btn + .bpg-mode-btn {
+    border-left: 1px solid #3e3e3e;
+}
+
+.bpg-mode-btn:hover {
+    color: #ffffff;
+}
+
+.bpg-mode-btn--on {
+    background: #3a3a3a;
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.bpg-mode-btn:focus-visible {
+    outline: 2px solid #888888;
+    outline-offset: -2px;
 }
 
 .bpg-btn {

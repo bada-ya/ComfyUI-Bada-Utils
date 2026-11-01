@@ -41,8 +41,10 @@ const MODEL_LS = "bada_gemini_model";
 // 안다). 헤더의 «최대 n개» 와 설정 창 노트가 이 상수를 채워 넣으므로 숫자를 여러 곳에 박지 않는다.
 const KEY_CAP = 4;
 
-// («속도/균형/품질» 모델 모드는 2026-11-01 폐기 — 어떤 모델을 탈지는 활성 키 «개수» 가 정한다
-//  (server/gemini_api.py::KEY_CASCADES). 옛 localStorage 값 bada_gemini_model_mode 는 읽지 않는다.)
+// («속도/균형/품질» 3단 모드는 2026-11-01 폐기 — 어떤 모델을 탈지는 활성 키 «개수» 가 정한다
+//  (server/gemini_api.py::KEY_CASCADES). 옛 localStorage 값 bada_gemini_model_mode 는 읽지 않는다.
+//  라운드 14 에서 «속도/품질» 2단이 `generation_mode` 위젯으로 돌아왔다 — 캐스케이드 표를
+//  실제로 바꾸는 컨트롤이고(QUALITY_KEY_CASCADES), 저장 위치도 위젯(워크플로우 JSON)이다.)
 
 // D-5 라운드 때 로컬 사전 39키를 전역 사전으로 옮기고, 전역 t() 를 가리던 섀도 t() 도 없앴다.
 // 그 자리에는 지금 pg_* 65키가 들어 있다 — D-5 이후 추가분은 tools/harness_p1h/p43_d5_keys.cjs 의
@@ -617,11 +619,61 @@ function buildHeader(node, widgets) {
     swallow(root);
 
     // -- 모델/키 상태 줄 -------------------------------------------------------
-    // 이 자리에는 한때 «모델 이름» 드롭다운, 이어서 «속도/균형/품질» 모드 드롭다운이 있었다.
+    // 이 자리에는 한때 «모델 이름» 드롭다운, 이어서 «속도/균형/품질» 3단 드롭다운이 있었다.
     // 둘 다 지웠다(2026-11-01): 노드는 활성 키 «개수» 가 모델 캐스케이드를 정하므로
     // (server/gemini_api.py::KEY_CASCADES) 여기서 고르는 값이 생성 결과에 닿지 않는 죽은
-    // 컨트롤이었다. 남는 것은 키 개수 안내와 ⚙️ 설정 버튼뿐이다.
+    // 컨트롤이었다. 라운드 14 에서 «속도/품질» 2단만 세그먼트로 되살렸다 — 이번에는
+    // 캐스케이드 표를 실제로 바꾸는 살아 있는 컨트롤이다(QUALITY_KEY_CASCADES).
     const row2 = el("div", "bpg-row");
+
+    // -- 생성 모드 [속도 | 품질] (2026-11-01 라운드 14) ------------------------
+    // 네이티브 `generation_mode` 위젯을 숨기고 이 컨트롤이 값만 바꾼다 (aspect_ratio 와
+    // 같은 방식 — 값은 워크플로우에 그대로 직렬화된다). 속도 = 3.5-flash-lite 선두
+    // (p50 1.2s 로 가장 빠름), 품질 = 3.6-flash / 3-flash-preview 선두 + 3.5-flash-lite 는
+    // 5초 지연 백업 (server/gemini_api.py::QUALITY_KEY_CASCADES).
+    const modeWidget = widgets.generation_mode;
+    const modeBox = el("div", "bpg-mode");
+    const modeButtons = {};
+    const GEN_MODES = [["speed", "gen_mode_speed"], ["quality", "gen_mode_quality"]];
+
+    function paintMode() {
+        const current = String(modeWidget?.value || "speed");
+        for (const [value, button] of Object.entries(modeButtons)) {
+            const on = value === current;
+            button.classList.toggle("bpg-mode-btn--on", on);
+            button.setAttribute("aria-pressed", String(on));
+        }
+        modeBox.title = pgT("gen_mode_tip");
+    }
+
+    for (const [value, labelKey] of GEN_MODES) {
+        const button = el("button", "bpg-mode-btn", pgT(labelKey));
+        button.type = "button";
+        button.dataset.i18n = labelKey;
+        button.dataset.mode = value;
+        button.addEventListener("click", () => {
+            if (!modeWidget) {
+                // 실행 중인 ComfyUI 가 이 위젯이 없던 옛 노드 모듈을 들고 있다 — 누르면
+                // 값이 사라지는 대신 이유를 화면에 남긴다 (aspect_ratio 와 같은 처리).
+                console.warn(
+                    "[BadaPromptGen] `generation_mode` widget not found — ComfyUI is running "
+                    + "the old node module. Restart ComfyUI, otherwise the mode is discarded.",
+                );
+                showToast(pgT("gen_mode_broken"), "err", 6000);
+                paintMode();
+                return;
+            }
+            if (modeWidget.value === value) return;
+            const previous = modeWidget.value;
+            modeWidget.value = value;
+            paintMode();
+            if (node.onWidgetChanged) node.onWidgetChanged(modeWidget.name, value, previous, modeWidget);
+            node.setDirtyCanvas?.(true, true);
+        });
+        modeButtons[value] = button;
+        modeBox.appendChild(button);
+    }
+    paintMode();
 
     // 활성 키 개수 안내 — 글자만 놓는다(누르는 게 아님). 0개일 때만 경고색.
     const keyCount = el("span", "bpg-keycount");
@@ -638,7 +690,7 @@ function buildHeader(node, widgets) {
     settingsBtn.dataset.i18n = "settings";
     settingsBtn.title = pgT("settings_tip");
     settingsBtn.addEventListener("click", () => openSettingsModal());
-    row2.append(keyCount, settingsBtn);
+    row2.append(modeBox, keyCount, settingsBtn);
     root.appendChild(row2);
 
     // -- toggle + manage row -------------------------------------------------
@@ -846,6 +898,7 @@ function buildHeader(node, widgets) {
             target.textContent = pgT(target.dataset.i18n);
         });
         Object.values(cards).forEach((c) => c.paint());
+        paintMode();
         syncRatio();
         renderKeyCount(); // «API Key = n개» 도 언어에 따라 다시 쓴다
         localize();
@@ -871,7 +924,7 @@ function buildHeader(node, widgets) {
         if (!data) return;
         renderKeyCount();
     });
-    return { root, cards, renderTargetButtons, renderSubmenuButtons, renderKeyCount };
+    return { root, cards, renderTargetButtons, renderSubmenuButtons, renderKeyCount, paintMode };
 }
 
 // ---------------------------------------------------------------------------
@@ -1145,7 +1198,7 @@ function refreshHeaderState() {
 }
 
 function setupNode(node) {
-    const widgetNames = ["enhance", "uncensored", "target", "submenu", "request_text", "duration", "ui_language", "aspect_ratio"];
+    const widgetNames = ["enhance", "uncensored", "target", "submenu", "request_text", "duration", "ui_language", "aspect_ratio", "generation_mode"];
     const widgets = {};
     for (const name of widgetNames) widgets[name] = widgetByName(node, name);
     if (!widgets.target || !widgets.submenu) {
@@ -1174,6 +1227,13 @@ function setupNode(node) {
         widgets.aspect_ratio.hidden = true;
         widgets.aspect_ratio.type = "hidden";
         if (widgets.aspect_ratio.computeSize) widgets.aspect_ratio.computeSize = () => [0, -4];
+    }
+    // Same for the generation-mode combo: the [속도|품질] segmented control in the header
+    // owns the value, the widget only carries it into the workflow JSON.
+    if (widgets.generation_mode) {
+        widgets.generation_mode.hidden = true;
+        widgets.generation_mode.type = "hidden";
+        if (widgets.generation_mode.computeSize) widgets.generation_mode.computeSize = () => [0, -4];
     }
     syncDurationFor(node);
 
@@ -1381,6 +1441,7 @@ function setupNode(node) {
                     }
                     // 값이 바뀌었을 수 있으니 헤더(모드·키 개수·서브메뉴 버튼)를 다시 그린다.
                     try { node.__bpgHeader?.renderSubmenuButtons?.(); } catch (_) { /* cosmetic */ }
+                    try { node.__bpgHeader?.paintMode?.(); } catch (_) { /* cosmetic */ }
                     node.setDirtyCanvas?.(true, true);
                 }
             } catch (err) {
