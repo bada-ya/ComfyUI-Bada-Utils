@@ -939,11 +939,16 @@ function setupNode(node) {
         const wrapH = Math.round(wrap.getBoundingClientRect().height / scale);
         if (contentH < 8) return;
         if (wrapH < 8) {
-            // Node 2.0에서 호스트 실측이 잠시 0이 되는 구간(재렌더 중) — 카드 자체만
-            // 믿고 grow-only로 보정한다. (줄어드는 방향은 절대 취하지 않는다)
-            const grown = contentH + 16;
-            if (grown - domHeight > 1) {
-                domHeight = grown;
+            // Vue 오버레이는 wrapper 높이가 0으로 보고되는 경우가 있다. 그때도
+            // 초기 추정치(262px)를 붙들고 있으면 헤더 아래에 그대로 큰 빈칸이 남는다.
+            // Vue에서는 카드 실측 + 작은 안전 여백으로 줄이거나 늘리고, 1.X는 기존처럼
+            // wrapper 측정이 잠시 끊긴 동안에는 grow-only로 겹침을 방지한다.
+            const measured = contentH + 16;
+            const shouldUpdate = isVueNodes()
+                ? Math.abs(measured - domHeight) > 1
+                : measured - domHeight > 1;
+            if (shouldUpdate) {
+                domHeight = measured;
                 calibrations += 1;
                 const need = node.computeSize ? node.computeSize() : [HEADER_WIDTH + 26, 520];
                 if (node.size[0] + 1 < need[0] || node.size[1] + 1 < need[1]) {
