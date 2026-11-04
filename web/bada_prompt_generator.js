@@ -12,6 +12,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { BadaI18n } from "./bada_i18n.js";
+import { isVueNodes } from "./bada_compat.js";
 // ⚙️ 설정 창과 API 키 저장소는 공통 모듈 한 곳 (2026-11-01). 이제 두 노드의 ⚙️ 창은
 // 문자 그대로 같은 함수다 — 키를 더/빼/끄는 즉시 양쪽 탭에 동시에 닿는다.
 // («먼저 시도하는 모델» 선택은 같은 날 제거되어 이 파일에 모델 코드가 없다.)
@@ -389,6 +390,58 @@ function buildHeader(node, widgets) {
     row3.appendChild(systemPromptBtn);
     root.appendChild(row3);
 
+    // Provider selection is part of the DOM header. Keep the backend widgets hidden
+    // so they still serialize with the workflow without appearing as raw rows below.
+    const providerWidget = widgets.provider;
+    const pollinationsModelWidget = widgets.pollinations_model;
+    const providerRow = el("div", "bpg-provider-row");
+    const providerLabel = el("span", "bpg-provider-label", pgT("provider"));
+    providerLabel.dataset.i18n = "provider";
+    const providerSelect = el("select", "bpg-provider-select");
+    for (const value of providerWidget?.options?.values || ["google", "pollinations"]) {
+        const option = el("option", null, value === "google" ? pgT("provider_google") : pgT("provider_pollinations"));
+        option.value = value;
+        option.dataset.providerValue = value;
+        providerSelect.appendChild(option);
+    }
+    const pollinationsLabel = el("span", "bpg-provider-label", pgT("pollinations_model"));
+    pollinationsLabel.dataset.i18n = "pollinations_model";
+    const modelSelect = el("select", "bpg-provider-select bpg-provider-select--model");
+    for (const value of pollinationsModelWidget?.options?.values || []) {
+        const option = el("option", null, value);
+        option.value = value;
+        modelSelect.appendChild(option);
+    }
+    providerRow.append(providerLabel, providerSelect, pollinationsLabel, modelSelect);
+
+    function syncProviderControls() {
+        providerSelect.value = providerWidget?.value || "google";
+        modelSelect.value = pollinationsModelWidget?.value || modelSelect.options[0]?.value || "";
+        const showModel = providerSelect.value === "pollinations";
+        pollinationsLabel.hidden = !showModel;
+        modelSelect.hidden = !showModel;
+        for (const option of providerSelect.options) {
+            option.textContent = pgT(option.dataset.providerValue === "google" ? "provider_google" : "provider_pollinations");
+        }
+    }
+    providerSelect.addEventListener("change", () => {
+        if (!providerWidget) return;
+        const previous = providerWidget.value;
+        providerWidget.value = providerSelect.value;
+        if (node.onWidgetChanged) node.onWidgetChanged(providerWidget.name, providerWidget.value, previous, providerWidget);
+        syncProviderControls();
+        node.setDirtyCanvas?.(true, true);
+    });
+    modelSelect.addEventListener("change", () => {
+        if (!pollinationsModelWidget) return;
+        const previous = pollinationsModelWidget.value;
+        pollinationsModelWidget.value = modelSelect.value;
+        if (node.onWidgetChanged) node.onWidgetChanged(pollinationsModelWidget.name, modelSelect.value, previous, pollinationsModelWidget);
+        node.setDirtyCanvas?.(true, true);
+    });
+    syncProviderControls();
+    root.appendChild(providerRow);
+
     const targetGroup = el("div", "bpg-picker-group");
     const targetLabel = el("div", "bpg-picker-label", pgT("target"));
     targetLabel.dataset.i18n = "target";
@@ -444,7 +497,7 @@ function buildHeader(node, widgets) {
     renderTargetButtons();
     renderSubmenuButtons();
 
-    const WIDGET_LABELS = ["target", "submenu", "request_text", "duration"];
+    const WIDGET_LABELS = ["target", "submenu", "request_text", "duration", "provider", "pollinations_model"];
 
     function localize() {
         const displayTitle = "⚓ Bada Prompt Generator";
@@ -482,6 +535,7 @@ function buildHeader(node, widgets) {
         localize();
         renderTargetButtons();
         renderSubmenuButtons();
+        syncProviderControls();
         node.setDirtyCanvas?.(true, true);
     };
     localize();
@@ -503,7 +557,7 @@ function buildHeader(node, widgets) {
         if (!data) return;
         renderKeyCount();
     });
-    return { root, cards, renderTargetButtons, renderSubmenuButtons, renderKeyCount, paintMode };
+    return { root, cards, renderTargetButtons, renderSubmenuButtons, renderKeyCount, paintMode, syncProviderControls };
 }
 
 // ---------------------------------------------------------------------------
@@ -777,7 +831,7 @@ function refreshHeaderState() {
 }
 
 function setupNode(node) {
-    const widgetNames = ["enhance", "uncensored", "target", "submenu", "request_text", "duration", "ui_language", "aspect_ratio", "generation_mode"];
+    const widgetNames = ["enhance", "uncensored", "target", "submenu", "request_text", "duration", "ui_language", "aspect_ratio", "generation_mode", "provider", "pollinations_model"];
     const widgets = {};
     for (const name of widgetNames) widgets[name] = widgetByName(node, name);
     if (!widgets.target || !widgets.submenu) {
@@ -813,6 +867,13 @@ function setupNode(node) {
         widgets.generation_mode.hidden = true;
         widgets.generation_mode.type = "hidden";
         if (widgets.generation_mode.computeSize) widgets.generation_mode.computeSize = () => [0, -4];
+    }
+    for (const name of ["provider", "pollinations_model"]) {
+        const w = widgets[name];
+        if (!w) continue;
+        w.hidden = true;
+        w.type = "hidden";
+        if (w.computeSize) w.computeSize = () => [0, -4];
     }
     syncDurationFor(node);
 
@@ -892,7 +953,9 @@ function setupNode(node) {
             }
             return;
         }
-        const slack = Math.max(0, domHeight - wrapH);   // label strip the wrapper eats
+        // Vue Nodes 2.0's overlay host can include unrelated reserved space in its
+        // measured box. Counting that as wrapper slack creates a large blank gap.
+        const slack = isVueNodes() ? 16 : Math.max(0, domHeight - wrapH);
         const next = contentH + slack;
         if (Math.abs(next - domHeight) <= 1) return;
         domHeight = next;
@@ -1021,6 +1084,7 @@ function setupNode(node) {
                     // 값이 바뀌었을 수 있으니 헤더(모드·키 개수·서브메뉴 버튼)를 다시 그린다.
                     try { node.__bpgHeader?.renderSubmenuButtons?.(); } catch (_) { /* cosmetic */ }
                     try { node.__bpgHeader?.paintMode?.(); } catch (_) { /* cosmetic */ }
+                    try { node.__bpgHeader?.syncProviderControls?.(); } catch (_) { /* cosmetic */ }
                     node.setDirtyCanvas?.(true, true);
                 }
             } catch (err) {
