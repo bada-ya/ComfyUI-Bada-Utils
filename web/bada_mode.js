@@ -68,17 +68,60 @@ function isExplicitlyOn(value) {
     return text === "true" || text === "1" || text === "on" || text === "enabled" || text === "vue";
 }
 
-function readStoredRendererSettings() {
-    const raw = safe(function () { return localStorage.getItem("Comfy.Settings"); }, null);
-    if (!raw) return [];
-    const parsed = safe(function () { return JSON.parse(raw); }, null);
-    if (!parsed || typeof parsed !== "object") return [];
+// The renderer toggle is not written to storage until the user changes it, so a
+// storage-only probe never sees the default-on state of a fresh profile and the
+// verdict fell back to "legacy" even with Nodes 2.0 active. Ask the live settings
+// registry first; the storage scans below stay as a fallback for early calls.
+const LIVE_MODE_SETTING_IDS = ["Comfy.VueNodes.Enabled"];
+// LiteGraph.* ids match MODE_SETTING_PATTERN but are canvas perf knobs, and their
+// numeric values would read as an explicit "on" through isExplicitlyOn.
+const LIVE_MODE_SETTING_EXCLUDE = /^LiteGraph\./i;
+
+function readLiveRendererSettings() {
+    const api = safe(function () { return app && app.ui && app.ui.settings; }, null);
+    if (!api || typeof api.getSettingValue !== "function") return [];
+    const ids = new Set(LIVE_MODE_SETTING_IDS);
+    safe(function () {
+        Object.keys(api.settingsLookup || {}).forEach(function (id) {
+            if (LIVE_MODE_SETTING_EXCLUDE.test(id)) return;
+            if (MODE_SETTING_PATTERN.test(id)) ids.add(id);
+        });
+    });
     const hits = [];
-    Object.keys(parsed).forEach(function (key) {
-        if (!MODE_SETTING_PATTERN.test(key)) return;
-        let value = parsed[key];
+    ids.forEach(function (id) {
+        const value = safe(function () { return api.getSettingValue(id); }, undefined);
+        if (value === undefined || value === null) return;
+        hits.push({ key: id, value: value, enabled: isExplicitlyOn(value) });
+    });
+    return hits;
+}
+
+function readStoredRendererSettings() {
+    const hits = readLiveRendererSettings();
+    const seen = new Set(hits.map(function (item) { return item.key; }));
+
+    // Old builds keep one JSON blob under "Comfy.Settings"; current builds write
+    // one "Comfy.Settings.<id>" key per changed setting.
+    const record = function (key, value) {
+        if (!key || seen.has(key) || !MODE_SETTING_PATTERN.test(key)) return;
+        seen.add(key);
         if (value && typeof value === "object" && "value" in value) value = value.value;
         hits.push({ key: key, value: value, enabled: isExplicitlyOn(value) });
+    };
+
+    const raw = safe(function () { return localStorage.getItem("Comfy.Settings"); }, null);
+    const parsed = raw ? safe(function () { return JSON.parse(raw); }, null) : null;
+    if (parsed && typeof parsed === "object") {
+        Object.keys(parsed).forEach(function (key) { record(key, parsed[key]); });
+    }
+    safe(function () {
+        const prefix = "Comfy.Settings.";
+        for (let i = 0; i < localStorage.length; i += 1) {
+            const storageKey = localStorage.key(i);
+            if (!storageKey || storageKey.indexOf(prefix) !== 0) continue;
+            const value = safe(function () { return JSON.parse(localStorage.getItem(storageKey)); }, undefined);
+            record(storageKey.slice(prefix.length), value);
+        }
     });
     return hits;
 }

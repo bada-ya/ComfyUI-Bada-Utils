@@ -938,6 +938,13 @@ function setupNode(node) {
     };
     requestAnimationFrame(syncVueGridSizing);
     setTimeout(syncVueGridSizing, 100);
+    // The renderer verdict can settle *after* the node is built (the probe needs a
+    // mounted Vue node or a readable settings registry). Without this hook a fresh
+    // load keeps the auto grid track until the user toggles Nodes 2.0 by hand.
+    let unwatchMode = null;
+    if (window.BadaMode && typeof window.BadaMode.onModeChange === "function") {
+        unwatchMode = window.BadaMode.onModeChange(() => syncVueGridSizing());
+    }
 
     // ---- height calibration (overlap guard) --------------------------------
     // Measure what the panel actually renders, plus the slack the DOM-widget wrapper
@@ -1277,6 +1284,10 @@ function setupNode(node) {
         if (unwatchRemount) {
             unwatchRemount();
             unwatchRemount = null;
+        }
+        if (unwatchMode) {
+            unwatchMode();
+            unwatchMode = null;
         }
         delete this.__bpgSyncHeaderWidth;
         delete this.__bpgRecalibrate;
