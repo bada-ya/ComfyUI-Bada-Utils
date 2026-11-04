@@ -761,6 +761,15 @@ function widgetByName(node, name) {
     return (node.widgets || []).find((w) => w.name === name);
 }
 
+function setWidgetHidden(widget, hidden) {
+    if (!widget) return;
+    widget.hidden = hidden;
+    // Nodes 2.0's Vue WidgetGrid derives row visibility from options.hidden,
+    // while LiteGraph 1.X reads widget.hidden. Keep both renderers in sync.
+    widget.options = widget.options || {};
+    widget.options.hidden = hidden;
+}
+
 function syncDurationFor(node) {
     const duration = widgetByName(node, "duration");
     if (!duration) return;
@@ -772,7 +781,7 @@ function syncDurationFor(node) {
 
     const target = String(widgetByName(node, "target")?.value || "");
     const visible = /MINIMAX\s*H3|LTX\s*2\.5/i.test(target);
-    duration.hidden = !visible;
+    setWidgetHidden(duration, !visible);
     if (visible) {
         duration.type = duration.__bpgOriginalType || "number";
         if (duration.__bpgOriginalComputeSize) duration.computeSize = duration.__bpgOriginalComputeSize;
@@ -845,33 +854,33 @@ function setupNode(node) {
     for (const name of ["enhance", "uncensored", "target", "submenu"]) {
         const w = widgets[name];
         if (!w) continue;
-        w.hidden = true;
+        setWidgetHidden(w, true);
         w.type = "hidden";
         if (w.computeSize) w.computeSize = () => [0, -4];
     }
     if (widgets.ui_language) {
-        widgets.ui_language.hidden = true;
+        setWidgetHidden(widgets.ui_language, true);
         widgets.ui_language.type = "hidden";
         if (widgets.ui_language.computeSize) widgets.ui_language.computeSize = () => [0, -4];
     }
     // The native aspect_ratio combo is driven by the DOM picker in the header; keep the
     // widget so the value still serializes into the prompt, but stop drawing it twice.
     if (widgets.aspect_ratio) {
-        widgets.aspect_ratio.hidden = true;
+        setWidgetHidden(widgets.aspect_ratio, true);
         widgets.aspect_ratio.type = "hidden";
         if (widgets.aspect_ratio.computeSize) widgets.aspect_ratio.computeSize = () => [0, -4];
     }
     // Same for the generation-mode combo: the [속도|품질] segmented control in the header
     // owns the value, the widget only carries it into the workflow JSON.
     if (widgets.generation_mode) {
-        widgets.generation_mode.hidden = true;
+        setWidgetHidden(widgets.generation_mode, true);
         widgets.generation_mode.type = "hidden";
         if (widgets.generation_mode.computeSize) widgets.generation_mode.computeSize = () => [0, -4];
     }
     for (const name of ["provider", "pollinations_model"]) {
         const w = widgets[name];
         if (!w) continue;
-        w.hidden = true;
+        setWidgetHidden(w, true);
         w.type = "hidden";
         if (w.computeSize) w.computeSize = () => [0, -4];
     }
