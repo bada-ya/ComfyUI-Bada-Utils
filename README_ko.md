@@ -10,12 +10,8 @@
 
 ### 💡 "ComfyUI를 매일 사용하면서 느꼈던 소소하지만 답답했던 불편점들을 하나씩 직접 고치고 다듬어 만든 실전 유틸리티 모음집입니다."
 
-**📦 현재 배포 버전: `v1.0.3`** — 전체 변경 사항은 [릴리즈 노트 (한국어)](RELEASE_NOTES_v1.0.3_ko.md) · [English](RELEASE_NOTES_v1.0.3.md)를 확인하세요.
-호환성 수정 버전으로, LoadImage 해결사가 더 이상 `LGraphNode.prototype.configure`를
-가로채지 않아 **ComfyUI-Impact-Pack** 설치 환경에서도 `findInputSlot is not a function`
-오류 없이 워크플로우가 정상 로드됩니다. [`v1.0.1`](RELEASE_NOTES_v1.0.1_ko.md)의 주요 기능은 그대로입니다 —
-저장 시 폴더 선택, 워크플로우 원클릭 번역기, 제미나이 기반 프롬프트 생성기,
-제미나이 채팅 기록(썸네일 포함), 사이드바 다중 선택 이동.
+**📦 현재 배포 버전: `v1.0.4`** — 전체 변경 사항은 [릴리즈 노트 (한국어)](RELEASE_NOTES_v1.0.4_ko.md) · [English](RELEASE_NOTES_v1.0.4.md)를 확인하세요.
+Prompt Generator와 Async Gemini Studio에 Qwen2.1, FLUX.3, MOSS를 추가하고, Google Drive 동기화 대상에 워크플로·사용자 지정 대상·Bada Utils 설정 파일·Gemini 채팅 기록을 포함했습니다. ComfyUI Nodes 2.0도 지원합니다.
 
 [🇺🇸 English Documentation (README.md)](README.md) •
 [🛠️ 8대 핵심 도구 요약](#-8대-핵심-도구-목록) •

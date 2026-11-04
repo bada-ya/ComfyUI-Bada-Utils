@@ -10,13 +10,8 @@
 
 ### 💡 "A pragmatic collection of utilities crafted to fix small, annoying friction points discovered while building workflows in ComfyUI every single day."
 
-**📦 Current release: `v1.0.3`** — [release notes (EN)](RELEASE_NOTES_v1.0.3.md) · [한국어](RELEASE_NOTES_v1.0.3_ko.md)
-Compatibility fix: the LoadImage fixer no longer hooks `LGraphNode.prototype.configure`,
-so workflows load normally when **ComfyUI-Impact-Pack** is installed instead of failing
-with `findInputSlot is not a function`. Everything from
-[`v1.0.1`](RELEASE_NOTES_v1.0.1.md) still applies — Save-As folder picker, one-click
-workflow translator, Gemini-backed prompt generator, Gemini chat history with
-thumbnails, and sidebar multi-select moves.
+**📦 Current release: `v1.0.4`** — [release notes (EN)](RELEASE_NOTES_v1.0.4.md) · [한국어](RELEASE_NOTES_v1.0.4_ko.md)
+Adds Qwen2.1, FLUX.3, and MOSS to Prompt Generator and Async Gemini Studio; expands Google Drive sync to workflows, user-defined targets, Bada Utils settings, and Gemini chat history; and adds ComfyUI Nodes 2.0 support.
 
 [English Documentation](#-8-flagship-tools-overview) •
 [🇰🇷 한국어 설명서 보기 (README_ko.md)](README_ko.md) •
