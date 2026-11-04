@@ -915,6 +915,30 @@ function setupNode(node) {
         });
     }
 
+    // Nodes 2.0's WidgetGrid marks DOM widgets with computeLayoutSize as `auto`
+    // grid tracks. The header DOM is positioned separately over that placeholder;
+    // stretching the empty grid row divides spare node height into a blank gap before
+    // request_text. Remove only that auto-track hint in Vue mode. Re-registering the
+    // widget refreshes the renderer's cached hasLayoutSize flag; LiteGraph 1.X keeps
+    // its original sizing method.
+    const syncVueGridSizing = () => {
+        if (!domWidget) return;
+        const vueMode = isVueNodes();
+        if (vueMode) {
+            if (!Object.prototype.hasOwnProperty.call(domWidget, "__bpgOriginalComputeLayoutSize")) {
+                domWidget.__bpgOriginalComputeLayoutSize = domWidget.computeLayoutSize;
+            }
+            domWidget.computeLayoutSize = undefined;
+        } else if (Object.prototype.hasOwnProperty.call(domWidget, "__bpgOriginalComputeLayoutSize")) {
+            domWidget.computeLayoutSize = domWidget.__bpgOriginalComputeLayoutSize;
+        }
+        if (node.id != null && node.graph && typeof domWidget.setNodeId === "function") {
+            domWidget.setNodeId(node.id);
+        }
+    };
+    requestAnimationFrame(syncVueGridSizing);
+    setTimeout(syncVueGridSizing, 100);
+
     // ---- height calibration (overlap guard) --------------------------------
     // Measure what the panel actually renders, plus the slack the DOM-widget wrapper
     // eats, and report *that* to LiteGraph, so the canvas box and the panel always match.
@@ -1194,6 +1218,7 @@ function setupNode(node) {
                 // 카드 폭을 node.size에서 다시 계산할 수 있는 유일한 창이다.
                 if (enforceNodeFloor()) app.graph?.setDirtyCanvas?.(true, true);
                 syncHeaderWidth();
+                syncVueGridSizing();
                 scheduleCalibration(50);
                 scheduleCalibration(600);
             }
