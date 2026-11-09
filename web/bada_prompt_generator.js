@@ -390,57 +390,10 @@ function buildHeader(node, widgets) {
     row3.appendChild(systemPromptBtn);
     root.appendChild(row3);
 
-    // Provider selection is part of the DOM header. Keep the backend widgets hidden
-    // so they still serialize with the workflow without appearing as raw rows below.
-    const providerWidget = widgets.provider;
-    const pollinationsModelWidget = widgets.pollinations_model;
-    const providerRow = el("div", "bpg-provider-row");
-    const providerLabel = el("span", "bpg-provider-label", pgT("provider"));
-    providerLabel.dataset.i18n = "provider";
-    const providerSelect = el("select", "bpg-provider-select");
-    for (const value of providerWidget?.options?.values || ["google", "pollinations"]) {
-        const option = el("option", null, value === "google" ? pgT("provider_google") : pgT("provider_pollinations"));
-        option.value = value;
-        option.dataset.providerValue = value;
-        providerSelect.appendChild(option);
-    }
-    const pollinationsLabel = el("span", "bpg-provider-label", pgT("pollinations_model"));
-    pollinationsLabel.dataset.i18n = "pollinations_model";
-    const modelSelect = el("select", "bpg-provider-select bpg-provider-select--model");
-    for (const value of pollinationsModelWidget?.options?.values || []) {
-        const option = el("option", null, value);
-        option.value = value;
-        modelSelect.appendChild(option);
-    }
-    providerRow.append(providerLabel, providerSelect, pollinationsLabel, modelSelect);
-
-    function syncProviderControls() {
-        providerSelect.value = providerWidget?.value || "google";
-        modelSelect.value = pollinationsModelWidget?.value || modelSelect.options[0]?.value || "";
-        const showModel = providerSelect.value === "pollinations";
-        pollinationsLabel.hidden = !showModel;
-        modelSelect.hidden = !showModel;
-        for (const option of providerSelect.options) {
-            option.textContent = pgT(option.dataset.providerValue === "google" ? "provider_google" : "provider_pollinations");
-        }
-    }
-    providerSelect.addEventListener("change", () => {
-        if (!providerWidget) return;
-        const previous = providerWidget.value;
-        providerWidget.value = providerSelect.value;
-        if (node.onWidgetChanged) node.onWidgetChanged(providerWidget.name, providerWidget.value, previous, providerWidget);
-        syncProviderControls();
-        node.setDirtyCanvas?.(true, true);
-    });
-    modelSelect.addEventListener("change", () => {
-        if (!pollinationsModelWidget) return;
-        const previous = pollinationsModelWidget.value;
-        pollinationsModelWidget.value = modelSelect.value;
-        if (node.onWidgetChanged) node.onWidgetChanged(pollinationsModelWidget.name, modelSelect.value, previous, pollinationsModelWidget);
-        node.setDirtyCanvas?.(true, true);
-    });
-    syncProviderControls();
-    root.appendChild(providerRow);
+    // The provider row was removed on request (2026-11-09). The native `provider` /
+    // `pollinations_model` widgets stay hidden (see setupNode) and keep their serialized
+    // value, which defaults to "google", so generation is unchanged. Re-add a control
+    // here only if the free Pollinations route needs a visible UI again.
 
     const targetGroup = el("div", "bpg-picker-group");
     const targetLabel = el("div", "bpg-picker-label", pgT("target"));
@@ -535,7 +488,6 @@ function buildHeader(node, widgets) {
         localize();
         renderTargetButtons();
         renderSubmenuButtons();
-        syncProviderControls();
         node.setDirtyCanvas?.(true, true);
     };
     localize();
@@ -557,7 +509,7 @@ function buildHeader(node, widgets) {
         if (!data) return;
         renderKeyCount();
     });
-    return { root, cards, renderTargetButtons, renderSubmenuButtons, renderKeyCount, paintMode, syncProviderControls };
+    return { root, cards, renderTargetButtons, renderSubmenuButtons, renderKeyCount, paintMode };
 }
 
 // ---------------------------------------------------------------------------
@@ -1129,7 +1081,6 @@ function setupNode(node) {
                     // 값이 바뀌었을 수 있으니 헤더(모드·키 개수·서브메뉴 버튼)를 다시 그린다.
                     try { node.__bpgHeader?.renderSubmenuButtons?.(); } catch (_) { /* cosmetic */ }
                     try { node.__bpgHeader?.paintMode?.(); } catch (_) { /* cosmetic */ }
-                    try { node.__bpgHeader?.syncProviderControls?.(); } catch (_) { /* cosmetic */ }
                     node.setDirtyCanvas?.(true, true);
                 }
             } catch (err) {
