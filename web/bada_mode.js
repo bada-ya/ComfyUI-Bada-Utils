@@ -213,6 +213,7 @@ function fetchBackendVersion() {
 export function detect(opts) {
     const options = opts || {};
     const vueNodeCount = countVueNodeElements();
+    const lgVueMode = safe(function () { return typeof window !== "undefined" && window.LiteGraph && window.LiteGraph.vueNodesMode === true; }, false);
     const canvas = legacyCanvasSignals();
     const stored = readStoredRendererSettings();
     const enabledStored = stored.filter(function (item) { return item.enabled; });
@@ -220,7 +221,7 @@ export function detect(opts) {
     let mode = MODE_UNKNOWN;
     let confidence = "none";
 
-    if (vueNodeCount > 0) {
+    if (vueNodeCount > 0 || lgVueMode) {
         mode = MODE_VUE_NODES;
         confidence = "high";
     } else if (enabledStored.length > 0) {

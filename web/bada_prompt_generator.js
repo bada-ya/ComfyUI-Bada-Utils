@@ -164,7 +164,7 @@ const HEADER_WIDTH = 380;
 // (≈250px with both picker groups) so the very first paint cannot overlap the native
 // widget rows underneath; if calibration were ever to fail, the failure mode is a harmless
 // gap rather than a hidden row.
-const HEADER_HEIGHT = 262;
+const HEADER_HEIGHT = 220;
 const NODE_WIDTH_INSET = 20;
 
 function el(tag, cls, text) {
@@ -853,6 +853,10 @@ function setupNode(node) {
     let domHeight = HEADER_HEIGHT;
     let domWidth = HEADER_WIDTH;
     domWidget.computeSize = () => [domWidth, domHeight];
+    domWidget.computeLayoutSize = undefined;
+    if (node.id != null && typeof domWidget.setNodeId === "function") {
+        domWidget.setNodeId(node.id);
+    }
 
     // [Node 2.0 프레임 가드] bada_async_gemini.js와 동일한 패턴 — 프론트엔드의
     // "요소 실측폭 -> widget.width -> .dom-widget 호스트폭" 자기참조 되먹임은
@@ -875,15 +879,7 @@ function setupNode(node) {
     // its original sizing method.
     const syncVueGridSizing = () => {
         if (!domWidget) return;
-        const vueMode = isVueNodes();
-        if (vueMode) {
-            if (!Object.prototype.hasOwnProperty.call(domWidget, "__bpgOriginalComputeLayoutSize")) {
-                domWidget.__bpgOriginalComputeLayoutSize = domWidget.computeLayoutSize;
-            }
-            domWidget.computeLayoutSize = undefined;
-        } else if (Object.prototype.hasOwnProperty.call(domWidget, "__bpgOriginalComputeLayoutSize")) {
-            domWidget.computeLayoutSize = domWidget.__bpgOriginalComputeLayoutSize;
-        }
+        domWidget.computeLayoutSize = undefined;
         if (node.id != null && node.graph && typeof domWidget.setNodeId === "function") {
             domWidget.setNodeId(node.id);
         }
@@ -930,38 +926,16 @@ function setupNode(node) {
         const contentH = Math.ceil(header.root.getBoundingClientRect().height / scale);
         const wrapH = Math.round(wrap.getBoundingClientRect().height / scale);
         if (contentH < 8) return;
-        if (wrapH < 8) {
-            // Vue 오버레이는 wrapper 높이가 0으로 보고되는 경우가 있다. 그때도
-            // 초기 추정치(262px)를 붙들고 있으면 헤더 아래에 그대로 큰 빈칸이 남는다.
-            // Vue에서는 카드 실측 + 작은 안전 여백으로 줄이거나 늘리고, 1.X는 기존처럼
-            // wrapper 측정이 잠시 끊긴 동안에는 grow-only로 겹침을 방지한다.
-            const measured = contentH + 16;
-            const shouldUpdate = isVueNodes()
-                ? Math.abs(measured - domHeight) > 1
-                : measured - domHeight > 1;
-            if (shouldUpdate) {
-                domHeight = measured;
-                calibrations += 1;
-                const need = node.computeSize ? node.computeSize() : [HEADER_WIDTH + 26, 520];
-                if (node.size[0] + 1 < need[0] || node.size[1] + 1 < need[1]) {
-                    node.setSize([Math.max(node.size[0], need[0]), Math.max(node.size[1], need[1])]);
-                }
-                node.setDirtyCanvas?.(true, true);
+        const measured = contentH + 16;
+        if (Math.abs(measured - domHeight) > 1) {
+            domHeight = measured;
+            calibrations += 1;
+            const need = node.computeSize ? node.computeSize() : [HEADER_WIDTH + 26, 520];
+            if (node.size[0] + 1 < need[0] || node.size[1] + 1 < need[1]) {
+                node.setSize([Math.max(node.size[0], need[0]), Math.max(node.size[1], need[1])]);
             }
-            return;
+            node.setDirtyCanvas?.(true, true);
         }
-        // Vue Nodes 2.0's overlay host can include unrelated reserved space in its
-        // measured box. Counting that as wrapper slack creates a large blank gap.
-        const slack = isVueNodes() ? 16 : Math.max(0, domHeight - wrapH);
-        const next = contentH + slack;
-        if (Math.abs(next - domHeight) <= 1) return;
-        domHeight = next;
-        calibrations += 1;
-        const need = node.computeSize ? node.computeSize() : [HEADER_WIDTH + 26, 520];
-        if (node.size[0] + 1 < need[0] || node.size[1] + 1 < need[1]) {
-            node.setSize([Math.max(node.size[0], need[0]), Math.max(node.size[1], need[1])]);
-        }
-        node.setDirtyCanvas?.(true, true);
     };
 
     const scheduleCalibration = (delay = 0) => {
@@ -1196,6 +1170,7 @@ function setupNode(node) {
         calibrations = 0;
         remountPending = false;
         syncHeaderWidth();
+        syncVueGridSizing();
         scheduleCalibration(60);
         scheduleCalibration(500);
         return r;

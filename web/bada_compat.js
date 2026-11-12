@@ -133,6 +133,10 @@ export function mode() {
 }
 
 export function isVueNodes() {
+    if (typeof window !== "undefined") {
+        if (window.LiteGraph && window.LiteGraph.vueNodesMode === true) return true;
+        if (typeof document !== "undefined" && document.querySelector && document.querySelector(".lg-node[data-node-id]")) return true;
+    }
     const bm = window.BadaMode;
     const vue = bm ? bm.MODE_VUE_NODES : "vueNodes";
     return mode() === vue;
