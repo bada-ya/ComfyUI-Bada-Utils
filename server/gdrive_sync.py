@@ -3105,24 +3105,26 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
     - 3-Way Snapshot(.gdrive_snapshot.json) 동시 갱신으로 좀비 부활 원천 차단
     - 실패 시 False 반환 -> 호출측에서 _perform_sync_blocking()으로 안전 폴백
     """
-    raw_path = details.get("path")
-    if raw_path and _is_out_of_sync_scope(normalize_sync_rel_path(raw_path)):
-        # 휴지통으로의 이동/영구 삭제는 동기화 대상이 아니다. 원격에 손을 대지 않고 성공
-        # 처리해 전체 스캔 폴백을 막는다 (Full sync 도 같은 규칙으로 스킵하므로 일관된다).
-        logger.info(f"[GDrive Pinpoint] Out-of-scope path - no remote change: {raw_path}")
-        return True
-
     if not _SYNC_GUARD.acquire(blocking=False):
         logger.info("[GDrive Pinpoint] Sync already in progress, skipping.")
         return False
 
-    service, msg = get_drive_service()
-    if not service:
-        _SYNC_GUARD.release()
-        return False
-
+    # out-of-scope 판정도 notify 안에서 처리한다. 예전에는 가드 획득 전에 조용히 return 해서
+    # syncing=true 로 기다리는 클라이언트(구름 아이콘)에게 false 이벤트가 가지 않았고,
+    # 휴지통 이동/삭제 이벤트가 한 번 들어오면 30초 세이프티 타임아웃까지 락이 남았다.
     _notify_sync_state(True)
     try:
+        raw_path = details.get("path")
+        if raw_path and _is_out_of_sync_scope(normalize_sync_rel_path(raw_path)):
+            # 휴지통으로의 이동/영구 삭제는 동기화 대상이 아니다. 원격에 손을 대지 않고 성공
+            # 처리해 전체 스캔 폴백을 막는다 (Full sync 도 같은 규칙으로 스킵하므로 일관된다).
+            logger.info(f"[GDrive Pinpoint] Out-of-scope path - no remote change: {raw_path}")
+            return True
+
+        service, msg = get_drive_service()
+        if not service:
+            return False
+
         action = details.get("action")
         root_id = _get_or_create_remote_folder(service, FOLDER_NAME)
         subfolder_ids = _get_subfolder_ids(service, root_id)
@@ -3151,8 +3153,11 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
                         rel_path = rel_path + ".json"
 
             if not os.path.exists(full_path):
-                logger.info(f"[GDrive Pinpoint Save] Local file missing ({full_path}) -> delegating to full sync fallback")
-                return False
+                # 임시/미저장 워크플로("Unsaved Workflow.json")나 이미 사라진 경로를 가리키는
+                # 이벤트다. 올릴 대상이 없는데 전체 스캔 폴백까지 돌리면 열기/닫기만으로
+                # 347개 스냅샷 재계산이 반복된다 → 원격 변경 없음으로 조용히 종료.
+                logger.info(f"[GDrive Pinpoint Save] Local file missing ({full_path}) -> nothing to upload, skipped")
+                return True
 
             if os.path.isdir(full_path):
                 logger.info(f"[GDrive Pinpoint Save] Target is a folder ({full_path}) -> delegating to full sync fallback")
@@ -3162,6 +3167,22 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
                 "size": os.path.getsize(full_path),
                 "mtime": os.path.getmtime(full_path)
             }
+
+            # 중복 업로드 차단: 직전 동기화 이후 파일이 실제로 바뀌지 않았으면(mtime·size 동일)
+            # Drive 업로드를 생략한다. 워크플로를 열고 닫기만 해도 들어오는 '가짜 저장'
+            # 트리거가 그대로 업로드되어 원격 수정시각/버전이 계속 갱신되는 것을 막는다.
+            base_snapshot = get_base_snapshot() or {}
+            prev_meta = base_snapshot.get(rel_path)
+            if isinstance(prev_meta, dict):
+                try:
+                    unchanged = (int(prev_meta.get("size")) == int(local_meta["size"])
+                                 and abs(float(prev_meta.get("mtime")) - float(local_meta["mtime"])) < 0.001)
+                except (TypeError, ValueError):
+                    unchanged = False
+                if unchanged:
+                    logger.info(f"[GDrive Pinpoint Save] Unchanged - skipping upload: {rel_path}")
+                    return True
+
             # 네임스페이스별 폴더 ID — config 4종 / Workflows 중첩 / Custom 중첩(파일 대상은 Custom 루트).
             target_folder_id = _resolve_target_folder_id(
                 service, root_id, subfolder_ids, rel_path)
@@ -3185,7 +3206,7 @@ def _perform_pinpoint_sync_blocking(details: dict) -> bool:
             logger.info(f"[GDrive Pinpoint Save] Uploaded: {rel_path} (ID: {existing_id or 'new'})")
 
             # 3-Way Snapshot 갱신 (좀비 방지)
-            snapshot = get_base_snapshot() or {}
+            snapshot = base_snapshot
             snapshot[rel_path] = {
                 "size": local_meta["size"],
                 "mtime": os.path.getmtime(full_path)

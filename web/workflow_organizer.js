@@ -1546,7 +1546,30 @@ class WorkflowsPlusManager {
         };
         retryUntilSatisfied(setupPiniaSubscription, 3000);
 
-        // 6. Hook window.fetch for all workflow / userdata save requests
+        // 6. Hook window.fetch for workflow file writes only.
+        //
+        // ComfyUI 의 워크플로 파일 저장은 `/api/userdata/<url-encoded path>` POST 로만 일어난다.
+        // 예전에는 URL 에 "userdata"/"workflow"/"graph" 문자열이 포함되기만 하면 저장으로 간주했다.
+        // 그 탓에 Lora Manager 같은 다른 확장이 워크플로를 열고 닫을 때마다 보내는 상태 보고
+        // (`POST /api/lm/workflows/comfyui-state`)나 설정 파일 저장까지 '저장'으로 오인했고,
+        // 경로 추출이 실패하면 현재 열려 있는 워크플로우 파일을 그대로 업로드했다.
+        // ⇒ 실제 워크플로 파일(`workflows/**.json`) userdata 쓰기만 동기화 대상으로 인정한다.
+        const parseUserDataWorkflowPath = (rawUrl) => {
+            try {
+                const decoded = decodeURIComponent(String(rawUrl || ""));
+                const marker = "/api/userdata/";
+                const at = decoded.toLowerCase().indexOf(marker);
+                if (at < 0) return "";
+                const rest = decoded.slice(at + marker.length);
+                const rel = rest.split(/[?#]/)[0].replace(/^\/+/, "");
+                // 설정(comfy.settings.json)·템플릿·즐겨찾기(workflows/.index.json)는 워크플로 파일이 아니다.
+                if (!/^workflows\//i.test(rel)) return "";
+                return rel;
+            } catch (_) {
+                return "";
+            }
+        };
+
         const origFetch = window.fetch;
         window.fetch = async function(...args) {
             const res = await origFetch.apply(this, args);
@@ -1556,53 +1579,45 @@ class WorkflowsPlusManager {
 
                 // Cloud Sync 및 Bada 자체 API(이동, 삭제, 이름변경 등)는 직접 전용 핀포인트를 호출하므로 가짜 save 트리거 방지를 위해 제외
                 if (!url.includes("/api/bada/") && !url.includes("/api/qol/")) {
-                    if (url.includes("userdata") || url.includes("workflow") || url.includes("graph")) {
-                        if (method === "POST" || method === "PUT" || method === "DELETE") {
+                    const isUserDataWrite = /\/api\/userdata\//i.test(url) &&
+                        (method === "POST" || method === "PUT" || method === "DELETE");
+                    if (isUserDataWrite) {
+                        setTimeout(() => {
+                            self.loadTree();
+                            self.detectActiveWorkflowFromUI();
+                        }, 250);
+                        // Backstop for a slow backend write only. The 250ms pass above has
+                        // usually already fetched the change, and fetching it twice rebuilds
+                        // the tree twice.
+                        setTimeout(() => self.loadTreeIfStale(), 1200);
+
+                        // A file may arrive from Drive after the save dialog listed files.
+                        // Explain the conflict and refresh the tree without overwriting anything.
+                        if (res?.status === 409 && method === "POST" && /\/userdata\//i.test(url)) {
+                            self.showToast(BadaI18n.t("wf_save_conflict_refreshed"), true);
+                        }
+
+                        // 실제 워크플로 파일 쓰기만 Pinpoint 동기화로 넘긴다.
+                        const relPath = res && res.ok ? parseUserDataWorkflowPath(url) : "";
+                        if (relPath) {
                             setTimeout(() => {
-                                self.loadTree();
-                                self.detectActiveWorkflowFromUI();
-                            }, 250);
-                            // Backstop for a slow backend write only. The 250ms pass above has
-                            // usually already fetched the change, and fetching it twice rebuilds
-                            // the tree twice.
-                            setTimeout(() => self.loadTreeIfStale(), 1200);
-
-                            // A file may arrive from Drive after the save dialog listed files.
-                            // Explain the conflict and refresh the tree without overwriting anything.
-                            if (res?.status === 409 && method === "POST" && /\/userdata\//i.test(url)) {
-                                self.showToast(BadaI18n.t("wf_save_conflict_refreshed"), true);
-                            }
-
-                            // 파일 저장 및 변경 시 실시간 동기화 트리거
-                            if (res && res.ok) {
-                                setTimeout(() => {
-                                    // 1. url 에서 실제 저장된 파일 경로 추출 시도 (예: /userdata/workflows/sub/name.json)
-                                    let savedPath = "";
-                                    try {
-                                        const decoded = decodeURIComponent(url);
-                                        const m = decoded.match(/userdata\/(?:workflows\/)?([^\?#]+)/i);
-                                        if (m && m[1]) {
-                                            savedPath = m[1].replace(/^\/+/, "");
-                                        }
-                                    } catch (_) {}
-
-                                    // 2. url 추출 실패 시 현재 활성 워크플로우 경로 사용
-                                    if (!savedPath) {
-                                        savedPath = self.activeWorkflowPath;
-                                    }
-
-                                    // 3. 만약 파일명이 .json 이 없고 clean name 만 있다면 resolve 시도
-                                    if (savedPath && !savedPath.toLowerCase().endsWith(".json")) {
-                                        const resolved = self.resolveActiveWorkflowPath(savedPath);
-                                        if (resolved && resolved.toLowerCase().endsWith(".json")) {
-                                            savedPath = resolved;
-                                        }
-                                    }
-
-                                    const details = savedPath ? { action: "save", path: savedPath } : null;
-                                    self.triggerRealtimeCloudSync("fetch_" + method.toLowerCase(), details);
-                                }, 500);
-                            }
+                                if (/\/move\//i.test(url)) {
+                                    // 네이티브 사이드바의 이동/이름변경은 원본+대상 두 경로가 얽혀
+                                    // 단일 핀포인트로 안전하게 처리할 수 없다 → 전체 스마트 동기화에 위임.
+                                    self.triggerRealtimeCloudSync("fetch_move", null);
+                                    return;
+                                }
+                                if (/\.index\.json$/i.test(relPath)) return;
+                                if (!/\.json$/i.test(relPath)) {
+                                    // 폴더 단위 DELETE 등은 전체 스마트 동기화로만 정확히 반영된다.
+                                    if (method === "DELETE") self.triggerRealtimeCloudSync("fetch_delete", null);
+                                    return;
+                                }
+                                self.triggerRealtimeCloudSync("fetch_" + method.toLowerCase(), {
+                                    action: method === "DELETE" ? "delete" : "save",
+                                    path: relPath
+                                });
+                            }, 500);
                         }
                     }
                 }
@@ -1619,18 +1634,9 @@ class WorkflowsPlusManager {
                 }, 400);
                 // Same backstop as the fetch hook: only re-query if that pass missed it.
                 setTimeout(() => self.loadTreeIfStale(), 1200);
-                // 실시간 동기화: 단축키 저장 시 트리거 (Pinpoint 활성화)
-                setTimeout(() => {
-                    let active = self.activeWorkflowPath;
-                    if (active && !active.toLowerCase().endsWith(".json")) {
-                        const resolved = self.resolveActiveWorkflowPath(active);
-                        if (resolved && resolved.toLowerCase().endsWith(".json")) {
-                            active = resolved;
-                        }
-                    }
-                    const details = active ? { action: "save", path: active } : null;
-                    self.triggerRealtimeCloudSync("ctrl_s", details);
-                }, 600);
+                // 실시간 동기화는 위 fetch 훅이 실제 저장 요청을 보고 판단한다.
+                // 단축키만으로 트리거하면 저장이 실제로 일어나지 않은 경우(포커스가 캔버스 밖,
+                // 편집 없음 등)에도 현재 워크플로 파일을 그대로 업로드하게 된다.
             }
         }, true);
     }
