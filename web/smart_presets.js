@@ -99,6 +99,7 @@ async function savePresetsToServer(payload) {
         const res = await postPresetsSave(url, payload);
         if (res.ok) {
             saveFaultNotified = false; // 복구됨 — 다음 실패는 다시 알려야 한다
+            requestPresetsCloudSync();
             return;
         }
         why = res.error;
@@ -113,6 +114,41 @@ async function savePresetsToServer(payload) {
         "warning",
         5200
     );
+}
+
+/**
+ * 프리셋 저장은 `POST /api/bada/presets/save` 라서 실시간 동기화 fetch 훅
+ * (workflow_organizer 의 `/api/bada/` 제외 규칙)에 걸리지 않는다. 그래서 저장 직후
+ * 명시적으로 동기화를 한 번 요청한다 — 이게 없으면 프리셋은 다음 재시작의
+ * 시작 자동 동기화 때까지 Drive 에 올라가지 않는다.
+ */
+function requestPresetsCloudSync() {
+    try {
+        const org = window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__;
+        if (org && typeof org.triggerRealtimeCloudSync === "function") {
+            org.triggerRealtimeCloudSync("presets_save");
+        }
+    } catch (e) {
+        console.debug("[Bada] ignored:", e);
+    }
+}
+
+/**
+ * 다른 PC 가 올린 프리셋이 동기화로 내려왔을 때 목록을 다시 읽는다.
+ * (부팅 시 자동 동기화가 브라우저 로드보다 늦게 끝나면 그 세션은 옛 목록을 계속 보여줬다)
+ */
+let presetsSyncListenerInstalled = false;
+function installPresetsSyncListener() {
+    if (presetsSyncListenerInstalled) return;
+    const api = (app && app.api) || (window.app && window.app.api);
+    if (!api || typeof api.addEventListener !== "function") return;
+    presetsSyncListenerInstalled = true;
+    api.addEventListener("bada.cloud.sync", (event) => {
+        const detail = (event && event.detail) || {};
+        if (detail.syncing) return;
+        if (!(Number(detail.downloaded) > 0)) return;
+        loadPresetsFromStorage();
+    });
 }
 
 export function savePresetsToStorage() {
@@ -740,6 +776,7 @@ app.registerExtension({
 
         loadStylesheet();
         loadPresetsFromStorage();
+        installPresetsSyncListener();
         createTooltipDOM();
 
         // Attach top-level window listeners for guaranteed hover & click handling

@@ -20,6 +20,181 @@ function __badaWatchBodyRemount(fn) { __badaBodyWatchers.add(fn); __badaEnsureBo
 
 
 // =============================================================================
+// 💾 외모 / 나만의 프리셋 — 서버(프리셋란) 저장 + GDrive 동기화
+// -----------------------------------------------------------------------------
+// 이 두 목록은 원래 브라우저 localStorage 에만 있어서 PC 간 공유가 불가능했다.
+// 이제 presets_data.json 의 예약 섹션(_vg_char_presets / _vg_custom_presets)에
+// 저장하고, 기존 개인 데이터 병합 경로(프리셋란 동기화)를 그대로 탄다.
+//   - localStorage : 즉시 반영 (오프라인·서버 미기동에서도 동작)
+//   - 서버 저장    : 700ms 디바운스 후 POST (타이핑 한 글자마다 디스크 쓰기 방지)
+//   - 서버 로드    : 부팅 후 1회 + 동기화로 파일이 내려온 뒤 재조회
+// =============================================================================
+const VG_PRESET_STORAGE = {
+    char: "comfyui_vg_char_presets",
+    custom: "comfyui_vg_custom_presets",
+};
+const __badaVgServer = { loaded: false, char: null, custom: null, charExists: false, customExists: false };
+const __badaVgSaveTimers = {};
+const __badaVgRefreshHooks = new Set();
+const __badaVgListGetters = {};   // kind -> 현재 배열 getter (탭 종료 시 즉시 전송용)
+const __badaVgPendingKinds = new Set();
+let __badaVgLoadPromise = null;
+let __badaVgSyncListenerInstalled = false;
+let __badaVgUnloadHookInstalled = false;
+
+function __badaVgPresetKey(item) {
+    if (!item || typeof item !== "object") return "";
+    return String(item.label || item.label_en || item.id || "").trim();
+}
+
+/** 서버 목록을 기준으로 하고, 로컬에만 있는 항목은 뒤에 덧붙인다(유실 방지). */
+function __badaVgMergeLists(localList, serverList) {
+    const local = Array.isArray(localList) ? localList.filter((it) => it && typeof it === "object") : [];
+    if (!Array.isArray(serverList) || serverList.length === 0) return local;
+    const out = [];
+    const seen = new Set();
+    for (const it of serverList) {
+        if (!it || typeof it !== "object") continue;
+        const k = __badaVgPresetKey(it);
+        if (k && seen.has(k)) continue;
+        if (k) seen.add(k);
+        out.push(it);
+    }
+    for (const it of local) {
+        const k = __badaVgPresetKey(it);
+        if (k && seen.has(k)) continue;
+        if (k) seen.add(k);
+        out.push(it);
+    }
+    return out;
+}
+
+/** 저장 직후 클라우드 동기화를 한 번 돌린다(프리셋 저장은 fetch 훅 대상이 아니다). */
+function __badaVgRequestCloudSync() {
+    try {
+        const org = window.__BADA_WORKFLOW_ORGANIZER_INSTANCE__;
+        if (org && typeof org.triggerRealtimeCloudSync === "function") {
+            org.triggerRealtimeCloudSync("vg_presets_save");
+        }
+    } catch (e) { console.debug("[Bada] ignored:", e); }
+}
+
+/**
+ * localStorage 즉시 저장 + 서버 저장(디바운스).
+ * @param {"char"|"custom"} kind
+ * @param {Function|Array} getList 현재 배열을 돌려주는 함수(재할당에도 안전)
+ */
+function __badaVgPersistPresets(kind, getList) {
+    const storageKey = VG_PRESET_STORAGE[kind];
+    if (!storageKey) return;
+    const read = () => {
+        try {
+            const list = typeof getList === "function" ? getList() : getList;
+            return Array.isArray(list) ? list : [];
+        } catch (e) { return []; }
+    };
+    try { localStorage.setItem(storageKey, JSON.stringify(read())); } catch (e) { console.debug("[Bada] ignored:", e); }
+
+    __badaVgListGetters[kind] = read;
+    __badaVgPendingKinds.add(kind);
+    clearTimeout(__badaVgSaveTimers[kind]);
+    __badaVgSaveTimers[kind] = setTimeout(() => {
+        const items = read();
+        __badaVgPendingKinds.delete(kind);
+        fetch("/api/bada/vg_presets/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind, items }),
+        })
+            .then((r) => (r && r.ok ? r.json() : null))
+            .then((res) => {
+                if (!res || !res.success) return;
+                __badaVgServer[kind] = items;
+                if (kind === "char") __badaVgServer.charExists = true;
+                else __badaVgServer.customExists = true;
+                __badaVgRequestCloudSync();
+            })
+            .catch((e) => console.debug("[Bada] vg preset save failed:", e));
+    }, 700);
+}
+
+/**
+ * 디바운스 대기 중인 저장을 탭 종료 시 즉시 전송한다.
+ * (프리셋을 추가하고 0.7초 안에 창을 닫으면 서버에 반영되지 않던 구멍)
+ */
+function __badaVgInstallUnloadHook() {
+    if (__badaVgUnloadHookInstalled || typeof window === "undefined") return;
+    __badaVgUnloadHookInstalled = true;
+    const flush = () => {
+        for (const kind of Array.from(__badaVgPendingKinds)) {
+            const read = __badaVgListGetters[kind];
+            if (!read) continue;
+            const payload = JSON.stringify({ kind, items: read() });
+            try {
+                if (navigator.sendBeacon) {
+                    navigator.sendBeacon(
+                        "/api/bada/vg_presets/save",
+                        new Blob([payload], { type: "application/json" })
+                    );
+                } else {
+                    fetch("/api/bada/vg_presets/save", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: payload,
+                        keepalive: true,
+                    });
+                }
+            } catch (e) { console.debug("[Bada] ignored:", e); }
+            __badaVgPendingKinds.delete(kind);
+        }
+    };
+    window.addEventListener("pagehide", flush);
+}
+
+/** 서버에서 두 목록을 읽는다. force=true 면 캐시를 무시하고 다시 조회. */
+function __badaVgLoadFromServer(force = false) {
+    if (__badaVgLoadPromise && !force) return __badaVgLoadPromise;
+    const p = fetch("/api/bada/vg_presets/load")
+        .then((r) => (r && r.ok ? r.json() : null))
+        .then((res) => {
+            if (!res || !res.success) return null;
+            __badaVgServer.char = Array.isArray(res.char) ? res.char : null;
+            __badaVgServer.custom = Array.isArray(res.custom) ? res.custom : null;
+            __badaVgServer.charExists = !!res.char_exists;
+            __badaVgServer.customExists = !!res.custom_exists;
+            __badaVgServer.loaded = true;
+            return __badaVgServer;
+        })
+        .catch((e) => {
+            console.debug("[Bada] vg preset load failed:", e);
+            return null;
+        });
+    __badaVgLoadPromise = p;
+    return p;
+}
+
+/** 동기화 완료(downloaded>0) 후 열려있는 노드 UI 들이 목록을 다시 읽도록 한다. */
+function __badaVgInstallSyncListener() {
+    if (__badaVgSyncListenerInstalled) return;
+    const api = (app && app.api) || (window.app && window.app.api);
+    if (!api || typeof api.addEventListener !== "function") return;
+    __badaVgSyncListenerInstalled = true;
+    api.addEventListener("bada.cloud.sync", (event) => {
+        const detail = (event && event.detail) || {};
+        if (detail.syncing) return;
+        if (!(Number(detail.downloaded) > 0)) return;
+        if (__badaVgRefreshHooks.size === 0) return;
+        __badaVgLoadFromServer(true).then((srv) => {
+            if (!srv) return;
+            for (const fn of Array.from(__badaVgRefreshHooks)) {
+                try { fn(srv); } catch (e) { console.debug("[Bada] ignored:", e); }
+            }
+        });
+    });
+}
+
+
+// =============================================================================
 // 🎨 5 Art Styles Presets
 // =============================================================================
 const ART_STYLES = [
@@ -1192,7 +1367,7 @@ app.registerExtension({
                 const label = prompt(BadaI18n.t("vg_new_char_preset_name"), defaultLabel);
                 if (label) {
                     charPresets.push({ label: label.trim(), label_en: label.trim(), ko, en: en || ko });
-                    try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                    __badaVgPersistPresets("char", () => charPresets);
                     renderCharPresetsDropdown();
                     btnQuickSave.innerHTML = `<span>${BadaI18n.t("vg_char_done")}</span>`;
                     setTimeout(() => { btnQuickSave.innerHTML = `<span>${BadaI18n.t("vg_quick_save")}</span>`; }, 1200);
@@ -1304,7 +1479,7 @@ app.registerExtension({
                             cp.label = inputTitle.value;
                             if (!cp.label_en) cp.label_en = inputTitle.value;
                         }
-                        try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                        __badaVgPersistPresets("char", () => charPresets);
                         renderCharPresetsDropdown();
                     });
 
@@ -1338,7 +1513,7 @@ app.registerExtension({
                     inputKo.placeholder = BadaI18n.t("vg_char_ko_placeholder_short");
                     inputKo.addEventListener("input", () => {
                         cp.ko = inputKo.value;
-                        try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                        __badaVgPersistPresets("char", () => charPresets);
                     });
 
                     const inputEn = document.createElement("textarea");
@@ -1349,7 +1524,7 @@ app.registerExtension({
                     inputEn.placeholder = BadaI18n.t("vg_char_en_placeholder_short");
                     inputEn.addEventListener("input", () => {
                         cp.en = inputEn.value;
-                        try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                        __badaVgPersistPresets("char", () => charPresets);
                     });
 
                     // Inline translate for this preset
@@ -1361,7 +1536,7 @@ app.registerExtension({
                             if (res) {
                                 inputEn.value = res;
                                 cp.en = res;
-                                try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                                __badaVgPersistPresets("char", () => charPresets);
                             }
                         }
                     });
@@ -1422,7 +1597,7 @@ app.registerExtension({
             }
 
             function saveAndRefreshPresets() {
-                try { localStorage.setItem("comfyui_vg_char_presets", JSON.stringify(charPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                __badaVgPersistPresets("char", () => charPresets);
                 renderCharPresetsDropdown();
                 renderCharManagerList();
             }
@@ -1737,7 +1912,7 @@ app.registerExtension({
                 const label = prompt(BadaI18n.t("vg_new_custom_preset_name"), defaultLabel);
                 if (label) {
                     customPresets.push({ id: "cp_" + Date.now(), label: label.trim(), label_en: label.trim(), ko, en: en || ko });
-                    try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                    __badaVgPersistPresets("custom", () => customPresets);
                     updateCustomSelect();
                     btnQuickSaveCustom.innerHTML = `<span>${BadaI18n.t("vg_char_done")}</span>`;
                     setTimeout(() => { btnQuickSaveCustom.innerHTML = `<span>${BadaI18n.t("vg_quick_save")}</span>`; }, 1200);
@@ -1852,7 +2027,7 @@ app.registerExtension({
                             cp.label = inputTitle.value;
                             if (!cp.label_en) cp.label_en = inputTitle.value;
                         }
-                        try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                        __badaVgPersistPresets("custom", () => customPresets);
                         updateCustomSelect();
                     });
 
@@ -1886,7 +2061,7 @@ app.registerExtension({
                     inputKo.placeholder = BadaI18n.t("vg_comp_pose_ko_placeholder");
                     inputKo.addEventListener("input", () => {
                         cp.ko = inputKo.value;
-                        try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                        __badaVgPersistPresets("custom", () => customPresets);
                     });
 
                     const inputEn = document.createElement("textarea");
@@ -1897,7 +2072,7 @@ app.registerExtension({
                     inputEn.placeholder = BadaI18n.t("vg_comp_pose_en_placeholder");
                     inputEn.addEventListener("input", () => {
                         cp.en = inputEn.value;
-                        try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                        __badaVgPersistPresets("custom", () => customPresets);
                     });
 
                     // Inline translate for this preset
@@ -1909,7 +2084,7 @@ app.registerExtension({
                             if (res) {
                                 inputEn.value = res;
                                 cp.en = res;
-                                try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                                __badaVgPersistPresets("custom", () => customPresets);
                             }
                         }
                     });
@@ -1969,7 +2144,7 @@ app.registerExtension({
             }
 
             function saveAndRefreshCustomPresets() {
-                try { localStorage.setItem("comfyui_vg_custom_presets", JSON.stringify(customPresets)); } catch (e) { console.debug("[Bada] ignored:", e); }
+                __badaVgPersistPresets("custom", () => customPresets);
                 updateCustomSelect();
                 renderCustomManagerList();
             }
@@ -1985,6 +2160,55 @@ app.registerExtension({
             });
 
             editorCard.appendChild(customManagerDrawer);
+
+            // 7-1b. 서버(프리셋란) 동기화 — 부팅 후 1회 조회 + 동기화 완료 시 재조회.
+            //   서버 섹션이 아직 없으면(첫 실행) 지금 목록을 올려 시드를 만든다.
+            const __badaVgSafeRerender = (drawer, renderFn) => {
+                if (!drawer || drawer.style.display === "none") return;
+                // 사용자가 그 안에서 입력 중이면 다시 그리지 않는다(입력 유실 방지).
+                if (drawer.contains(document.activeElement)) return;
+                renderFn();
+            };
+            const __badaVgApplyServerPresets = (srv) => {
+                if (!srv) return;
+                if (Array.isArray(srv.char)) {
+                    charPresets = __badaVgMergeLists(charPresets, srv.char);
+                    renderCharPresetsDropdown();
+                    __badaVgSafeRerender(charManagerDrawer, renderCharManagerList);
+                }
+                if (Array.isArray(srv.custom)) {
+                    customPresets = __badaVgMergeLists(customPresets, srv.custom);
+                    updateCustomSelect();
+                    __badaVgSafeRerender(customManagerDrawer, renderCustomManagerList);
+                }
+                if (!srv.charExists) {
+                    srv.charExists = true; // 다른 노드가 중복 시드하지 않도록 즉시 표시
+                    __badaVgPersistPresets("char", () => charPresets);
+                }
+                if (!srv.customExists) {
+                    srv.customExists = true;
+                    __badaVgPersistPresets("custom", () => customPresets);
+                }
+            };
+
+            // 같은 노드가 다시 그려질 때(remount) 이전 훅이 남지 않도록 교체한다.
+            if (node.__badaVgPresetSyncHook) {
+                __badaVgRefreshHooks.delete(node.__badaVgPresetSyncHook);
+            }
+            node.__badaVgPresetSyncHook = (srv) => __badaVgApplyServerPresets(srv);
+            __badaVgRefreshHooks.add(node.__badaVgPresetSyncHook);
+            if (!node.__badaVgOnRemovedWrapped) {
+                node.__badaVgOnRemovedWrapped = true;
+                const __prevOnRemoved = typeof node.onRemoved === "function" ? node.onRemoved : null;
+                node.onRemoved = function (...args) {
+                    if (node.__badaVgPresetSyncHook) __badaVgRefreshHooks.delete(node.__badaVgPresetSyncHook);
+                    return __prevOnRemoved ? __prevOnRemoved.apply(this, args) : undefined;
+                };
+            }
+
+            __badaVgInstallSyncListener();
+            __badaVgInstallUnloadHook();
+            __badaVgLoadFromServer().then((srv) => __badaVgApplyServerPresets(srv));
 
             // 7-2. Apply & Translate Action Button
             const btnApplyPrompt = document.createElement("button");

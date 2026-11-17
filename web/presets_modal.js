@@ -448,9 +448,13 @@ function createPresetCard(presetName, presetData, index, totalCount) {
 
     // 1. Instant Apply - Closes modal immediately + Toast notification
     card.querySelector('[data-action="apply"]').addEventListener("click", () => {
-        if (onApplyCallback && currentTargetNode) {
+        // closeModal() 이 currentTargetNode 를 null 로 만든다 — 콜백에 넘기기 전에 먼저 잡아둔다.
+        // (예전에는 closeModal() 뒤에 currentTargetNode 를 그대로 넘겨 항상 null 이 전달됐고,
+        //  applyNodeState(null, ...) 가 TypeError 로 죽어 값이 하나도 적용되지 않았다)
+        const targetNode = currentTargetNode;
+        if (onApplyCallback && targetNode) {
             closeModal();
-            onApplyCallback(currentTargetNode, presetName, presetData);
+            onApplyCallback(targetNode, presetName, presetData);
             showToast(BadaI18n.t("presets_modal_toast_applied", { name: presetName }), "success");
         }
     });

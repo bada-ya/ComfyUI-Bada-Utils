@@ -17,6 +17,18 @@ tombstone 사이드카는 앱 백엔드가 저장을 다시 직렬화할 때 예
 
 tombstone 보관 상한 = 항목수(cap 기본 500). 시간 기반 만료는 하지 않고,
 가장 최근 삭제된 cap 개만 유지한다.
+
+protected_keys (선택)
+  "지워졌다" 를 사용자 의도로 볼 수 없는 키 집합. 배포 기본 프리셋 이름이 대표적이다.
+  2026-10-26 기본/사용자 프리셋 분리(presets_default.json 도입) 직후, 사용자 파일에서
+  기본 프리셋 사본이 빠지자 병합기가 "사용자가 지웠다" 로 오판해 tombstone 을 만들었고,
+  그 tombstone 이 만료되지 않아 같은 이름을 다시 저장해도 매 병합마다 삭제됐다.
+  -> protected 키는 tombstone 을 만들지도, 유지하지도 않는다(기본값은 항상 배포본에서 복원된다).
+
+  또한 프리셋(kind="presets")에서는 이번 병합에서 "양쪽 모두에 없고 새로 생긴 것도 아닌"
+  tombstone 을 무의미하므로 버린다. 남겨두면 사용자가 같은 이름으로 다시 추가해도
+  영구히 삭제된다. 대화/즐겨찾기는 고유 ID 를 쓰고 오래 오프라인이던 PC 의 부활을
+  막는 것이 우선이라 기존 동작(만료 없음)을 유지한다.
 """
 
 from __future__ import annotations
@@ -79,6 +91,22 @@ def _presets_items(data):
         if isinstance(val, dict):
             for pn, pv in val.items():
                 yield nt + _SEP + pn, (nt, pn, pv)
+
+
+def _preset_timestamps(*datas):
+    """프리셋 키 -> 저장 시각(ms). 삭제 후 재추가 판정에 쓴다 (여러 쪽 중 최신값)."""
+    out = {}
+    for data in datas:
+        for k, (_nt, _pn, val) in _presets_items(data):
+            ts = 0.0
+            if isinstance(val, dict):
+                try:
+                    ts = float(val.get("timestamp") or 0)
+                except (TypeError, ValueError):
+                    ts = 0.0
+            if ts > out.get(k, 0.0):
+                out[k] = ts
+    return out
 
 
 def _engines_items(data):
@@ -242,20 +270,50 @@ def rebuild_merged(kind, local_data, remote_data, merged_keys, winner="local"):
 
 def merge_personal_data(kind, local_data, remote_data, base_keys,
                         local_tombstones_raw, remote_tombstones_raw,
-                        now_ms, winner="local", cap=TOMBSTONE_CAP):
+                        now_ms, winner="local", cap=TOMBSTONE_CAP,
+                        protected_keys=None):
     local_keys = extract_live_keys(kind, local_data)
     remote_keys = extract_live_keys(kind, remote_data)
+
+    protected = {k for k in (protected_keys or ()) if isinstance(k, str) and k}
 
     tmap = normalize_tombstones(local_tombstones_raw)
     for k, t in normalize_tombstones(remote_tombstones_raw).items():
         if k not in tmap or t > tmap[k]:
             tmap[k] = t
 
+    # 병합 전에 이미 존재하던 tombstone — 아래 무의미 tombstone 정리에서
+    # "이번에 새로 만든 삭제 의도" 는 건드리지 않기 위해 따로 기억한다.
+    inherited_tombs = set(tmap.keys())
+
     base = set(base_keys) if base_keys else set()
     newly_deleted = (base - local_keys) | (base - remote_keys)
     for k in newly_deleted:
+        if k in protected:
+            continue
         if k not in tmap:
             tmap[k] = float(now_ms)
+
+    # 보호 키(배포 기본 프리셋)는 삭제 전파 대상이 아니다 — 항상 배포본에서 복원된다.
+    for k in list(tmap.keys()):
+        if k in protected:
+            tmap.pop(k, None)
+
+    # 프리셋은 "이름" 이 곧 식별자라, 삭제한 이름을 나중에 다시 저장할 수 있어야 한다.
+    # 항목의 timestamp 가 tombstone 시각보다 최신이면 삭제가 아니라 재추가로 판정한다.
+    if kind == "presets":
+        for k, ts in _preset_timestamps(local_data, remote_data).items():
+            if ts and k in tmap and ts > tmap[k]:
+                tmap.pop(k, None)
+
+        # 무의미 tombstone 정리: 이번 병합 이전부터 있던 것이고, 로컬·원격 어디에도
+        # 항목이 남아있지 않다면 더 이상 전파할 삭제 의도가 없다. 남겨두면 같은 이름을
+        # 영구히 다시 저장할 수 없다. (새로 만든 tombstone 은 최소 1회는 전파돼야 하므로 제외)
+        # ※ 대화/즐겨찾기는 고유 ID 를 쓰고 오래 오프라인이던 PC 의 부활을 막는 것이
+        #    우선이라 기존 동작(만료 없음)을 유지한다 — 프리셋에만 적용한다.
+        for k in list(tmap.keys()):
+            if k in inherited_tombs and k not in local_keys and k not in remote_keys:
+                tmap.pop(k, None)
 
     tomb_keys = set(tmap.keys())
     merged_keys = (local_keys | remote_keys) - tomb_keys

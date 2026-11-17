@@ -25,6 +25,7 @@ from ..translation_runtime import (
     fetch_translation_with_failover,
     submit_translation,
 )
+from .vg_presets import SECTIONS as VG_PRESET_SECTIONS
 
 logger = logging.getLogger("ComfyUI-Bada-Utils")
 
@@ -33,6 +34,13 @@ PARENT_DIR = os.path.dirname(CURRENT_DIR)
 PRESETS_FILE = os.path.join(PARENT_DIR, "presets_data.json")
 PRESETS_DEFAULT_FILE = os.path.join(PARENT_DIR, "presets_default.json")
 FAVORITES_FILE = os.path.join(PARENT_DIR, "favorites_data.json")
+
+# ⚓ Bada Visual Regional Prompt 의 [외모 프리셋] / [나만의 프리셋].
+# 원래는 브라우저 localStorage 에만 있어서 PC 간 공유가 불가능했다.
+# presets_data.json 안에 예약 섹션으로 저장해 기존 프리셋 동기화 경로
+# (GDrive 개인 데이터 병합)를 그대로 탄다. 반드시 dict(이름→항목) 여야 한다 —
+# 병합기는 {노드타입: {프리셋명: 값}} 구조만 항목 단위로 다룬다.
+# 저장/변환/보존 로직은 server/vg_presets.py (순수 함수, dev_tests 로 검증).
 
 
 
@@ -1042,6 +1050,10 @@ def register_bada_api_routes():
                             user_data = json.load(f)
                             if isinstance(user_data, dict):
                                 for node_type, presets in user_data.items():
+                                    # 예약 섹션(_vg_*)은 노드 프리셋이 아니다.
+                                    # 전역 프리셋 목록/개요에 노드 타입처럼 노출되면 안 되므로 제외한다.
+                                    if node_type in VG_PRESET_SECTIONS:
+                                        continue
                                     if isinstance(presets, dict):
                                         if node_type not in merged or not isinstance(merged[node_type], dict):
                                             merged[node_type] = {}
@@ -1059,12 +1071,56 @@ def register_bada_api_routes():
             try:
                 body = await request.json()
                 if "presets" in body:
-                    # Crash-safe: the preset store is the user's whole library.
-                    from .atomic_json import write_json_atomic
+                    from .vg_presets import preserve_sections
 
-                    write_json_atomic(PRESETS_FILE, body["presets"])
+                    incoming = body["presets"]
+                    if not isinstance(incoming, dict):
+                        raise ValueError("presets must be an object")
+                    # 프론트엔드는 /presets/load 에서 예약 섹션(_vg_*)을 받지 않으므로
+                    # 그대로 덮어쓰면 외모/나만의 프리셋이 통째로 사라진다.
+                    # preserve_sections 가 기존 파일의 예약 섹션을 붙여 저장한다.
+                    preserve_sections(PRESETS_FILE, incoming)
                 return web.json_response({"success": True, "message": "Presets saved successfully"})
             except Exception as e:
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        # --- A-1b. Visual Regional Prompt 프리셋 (외모 / 나만의) ---
+        # 저장 위치는 presets_data.json 의 예약 섹션. 프론트는 배열을 쓰고 파일은
+        # {이름: 항목} dict 로 저장한다(병합기가 dict 만 항목 단위로 다룰 수 있다).
+        # 변환/보존 로직은 server/vg_presets.py 에 분리 (순수 함수 — dev_tests 로 검증).
+        async def load_vg_presets_handler(request):
+            try:
+                from .vg_presets import read_sections
+
+                snap = read_sections(PRESETS_FILE)
+                return web.json_response({
+                    "success": True,
+                    "exists": snap["char_exists"] or snap["custom_exists"],
+                    "char_exists": snap["char_exists"],
+                    "custom_exists": snap["custom_exists"],
+                    "char": snap["char"],
+                    "custom": snap["custom"],
+                })
+            except Exception as e:
+                logger.warning(f"[Bada-Utils] vg_presets load failed: {e}")
+                return web.json_response({"success": False, "error": str(e)}, status=500)
+
+        async def save_vg_presets_handler(request):
+            try:
+                from .vg_presets import write_kind
+
+                body = await request.json()
+                kind = body.get("kind")
+                if kind not in ("char", "custom"):
+                    return web.json_response({"success": False, "error": "kind must be 'char' or 'custom'"}, status=400)
+                items = body.get("items")
+                if not isinstance(items, list):
+                    return web.json_response({"success": False, "error": "items must be a list"}, status=400)
+
+                count = write_kind(PRESETS_FILE, kind, items)
+                return web.json_response({"success": True, "count": count})
+            except Exception as e:
+                logger.warning(f"[Bada-Utils] vg_presets save failed: {e}")
                 return web.json_response({"success": False, "error": str(e)}, status=500)
 
         # Register Presets endpoints (modern + legacy)
@@ -1072,6 +1128,8 @@ def register_bada_api_routes():
         routes.post("/api/bada/presets/save")(save_presets_handler)
         routes.get("/universal_presets/load")(load_presets_handler)
         routes.post("/universal_presets/save")(save_presets_handler)
+        routes.get("/api/bada/vg_presets/load")(load_vg_presets_handler)
+        routes.post("/api/bada/vg_presets/save")(save_vg_presets_handler)
 
         # --- A-2. Format-Preserving Translation API ---
         async def translate_handler(request):

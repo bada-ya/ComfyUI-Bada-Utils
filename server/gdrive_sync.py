@@ -141,6 +141,11 @@ GDRIVE_SETTINGS_PATH = os.path.join(PARENT_DIR, '.gdrive_settings.json')
 # ComfyUI 루트 기준 상대경로(rel_path) 를 저장하므로 각 PC 가 자신의 ComfyUI 위치로 해석한다.
 CUSTOM_TARGETS_FILE = os.path.join(PARENT_DIR, 'custom_targets.json')
 
+# 배포 기본 프리셋(presets_default.json). 사용자 파일(presets_data.json)과 분리돼 있고,
+# 여기 들어있는 이름은 "삭제 전파(tombstone)" 대상에서 제외한다 — 아래
+# _get_default_preset_keys() 주석 참고.
+PRESETS_DEFAULT_FILE = os.path.join(PARENT_DIR, 'presets_default.json')
+
 # ── BASIC OAuth 클라이언트 설정 — 코드 내장 (Method A) ────────────────────────
 # node.zip 에 credentials.json 파일을 포함하지 않는다. 런타임에 base64 문자열을
 # 디코드해 dict 로 직접 전달(InstalledAppFlow.from_client_config)하므로 사용자
@@ -1919,6 +1924,46 @@ def _get_bmerge():
     return _bmerge
 
 
+# 기본 배포 프리셋 키 캐시 — (mtime, keys). presets_default.json 은 배포물이라
+# 세션 중 거의 바뀌지 않으므로 mtime 이 같으면 재파싱하지 않는다.
+_default_preset_keys_cache = {"mtime": None, "keys": frozenset()}
+
+
+def _get_default_preset_keys():
+    """presets_default.json 의 프리셋 키 집합 — bada_sync_merge 의 2단 키 형식.
+
+    키 = f"{노드타입}\\u0000{프리셋명}". 이 이름들은 병합 시 tombstone 대상에서 제외된다.
+    배경: 2026-10-26 기본/사용자 프리셋 분리 이후, 사용자 파일에서 기본 프리셋 사본이
+    빠지자 병합기가 "사용자가 지웠다" 로 오판해 tombstone 을 만들었고, tombstone 에는
+    만료가 없어 같은 이름을 다시 저장해도 매 동기화마다 삭제됐다. 기본 프리셋은
+    presets_default.json 에서 항상 복원되므로 삭제 전파 자체가 의미 없다.
+    """
+    try:
+        mtime = os.path.getmtime(PRESETS_DEFAULT_FILE)
+    except OSError:
+        return frozenset()
+    if _default_preset_keys_cache["mtime"] == mtime:
+        return _default_preset_keys_cache["keys"]
+
+    keys = set()
+    try:
+        with open(PRESETS_DEFAULT_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        if isinstance(raw, dict):
+            for node_type, presets in raw.items():
+                if not isinstance(presets, dict):
+                    continue
+                for preset_name in presets.keys():
+                    keys.add(f"{node_type}\u0000{preset_name}")
+    except Exception as e:
+        logger.warning(f"[GDrive] Failed to read presets_default.json (protected keys skipped): {e}")
+        return frozenset()
+
+    _default_preset_keys_cache["mtime"] = mtime
+    _default_preset_keys_cache["keys"] = frozenset(keys)
+    return _default_preset_keys_cache["keys"]
+
+
 def _load_merge_state():
     from .atomic_json import read_json_fallback
     st = read_json_fallback(MERGE_STATE_FILE, {}, log_prefix="[GDrive]")
@@ -2025,7 +2070,8 @@ def _merge_one_personal_data(service, root_id, folder_id, spec, now_ms, state, r
     res = bmerge.merge_personal_data(
         kind,
         local_data if local_exists else None,
-        remote_data, base_keys, local_tombs, remote_tombs, now_ms, winner)
+        remote_data, base_keys, local_tombs, remote_tombs, now_ms, winner,
+        protected_keys=(_get_default_preset_keys() if kind == "presets" else None))
     merged = res["data"]
     merged_tombs = res["tombstones"]
     merged_keys = res["live_keys"]
