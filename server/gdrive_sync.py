@@ -142,8 +142,8 @@ GDRIVE_SETTINGS_PATH = os.path.join(PARENT_DIR, '.gdrive_settings.json')
 CUSTOM_TARGETS_FILE = os.path.join(PARENT_DIR, 'custom_targets.json')
 
 # 배포 기본 프리셋(presets_default.json). 사용자 파일(presets_data.json)과 분리돼 있고,
-# 여기 들어있는 이름은 "삭제 전파(tombstone)" 대상에서 제외한다 — 아래
-# _get_default_preset_keys() 주석 참고.
+# 오래된 사용자 파일 기준으로 생기는 암묵적 tombstone 에서 보호한다. 사용자가 관리자에서
+# 직접 삭제한 경우에는 API 가 sidecar 에 기록한 명시적 tombstone 을 허용한다.
 PRESETS_DEFAULT_FILE = os.path.join(PARENT_DIR, 'presets_default.json')
 
 # ── BASIC OAuth 클라이언트 설정 — 코드 내장 (Method A) ────────────────────────
@@ -1932,11 +1932,12 @@ _default_preset_keys_cache = {"mtime": None, "keys": frozenset()}
 def _get_default_preset_keys():
     """presets_default.json 의 프리셋 키 집합 — bada_sync_merge 의 2단 키 형식.
 
-    키 = f"{노드타입}\\u0000{프리셋명}". 이 이름들은 병합 시 tombstone 대상에서 제외된다.
+    키 = f"{노드타입}\\u0000{프리셋명}". 이 이름들은 암묵적 tombstone 에서 보호된다.
     배경: 2026-10-26 기본/사용자 프리셋 분리 이후, 사용자 파일에서 기본 프리셋 사본이
     빠지자 병합기가 "사용자가 지웠다" 로 오판해 tombstone 을 만들었고, tombstone 에는
-    만료가 없어 같은 이름을 다시 저장해도 매 동기화마다 삭제됐다. 기본 프리셋은
-    presets_default.json 에서 항상 복원되므로 삭제 전파 자체가 의미 없다.
+    만료가 없어 같은 이름을 다시 저장해도 매 동기화마다 삭제됐다. 따라서 이전 base 에서
+    파생된 암묵적 기본 프리셋 tombstone 은 막되, 관리자에서 사용자가 직접 삭제한 기본
+    프리셋은 sidecar 의 명시적 tombstone 으로 다른 PC 에 전파한다.
     """
     try:
         mtime = os.path.getmtime(PRESETS_DEFAULT_FILE)

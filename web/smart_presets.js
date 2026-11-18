@@ -77,6 +77,11 @@ export function loadPresetsFromStorage() {
 // 안 했다). 그래서 여기서는 실패를 알리는 것이 기본값이고, 프리셋을 연달아 저장할 때 생기는
 // 중복은 성공할 때까지 1회로 합친다.
 let saveFaultNotified = false;
+let presetSaveTimer = null;
+let pendingPresetSave = null;
+let presetSaveChain = Promise.resolve();
+const pendingDefaultPresetDeletes = new Map();
+const pendingDefaultPresetRestores = new Map();
 
 // 구버전 ComfyUI 는 /api/bada 경로가 없어 404 가 나므로, 실패 원인이 무엇이든 별칭 URL 로
 // 한 번 더 시도한다(두 경로는 서버에서 같은 핸들러라 재시도는 값싼 보험이다).
@@ -93,7 +98,7 @@ async function postPresetsSave(url, payload) {
     }
 }
 
-async function savePresetsToServer(payload) {
+async function savePresetsToServerNow(payload) {
     let why = "";
     for (const url of ["/api/bada/presets/save", "/universal_presets/save"]) {
         const res = await postPresetsSave(url, payload);
@@ -114,6 +119,48 @@ async function savePresetsToServer(payload) {
         "warning",
         5200
     );
+}
+
+// Manager actions can fire several saves in a short burst. Keep only the latest
+// full snapshot and send all explicit default deletions together in one POST.
+// This prevents an older snapshot from clearing a newer tombstone and avoids
+// starting a full Drive sync for every row deleted in the same editing session.
+function queuePresetsServerSave(payload) {
+    let body;
+    try { body = JSON.parse(payload); } catch { return; }
+    pendingPresetSave = body;
+
+    const deleted = body.deleted_default;
+    if (deleted && deleted.node_type && deleted.preset_name) {
+        const key = `${deleted.node_type}\u0000${deleted.preset_name}`;
+        pendingDefaultPresetDeletes.set(key, deleted);
+        pendingDefaultPresetRestores.delete(key);
+    }
+
+    const restored = [body.restored_default, ...(Array.isArray(body.restored_defaults) ? body.restored_defaults : [])];
+    for (const item of restored) {
+        if (!item || !item.node_type || !item.preset_name) continue;
+        const key = `${item.node_type}\u0000${item.preset_name}`;
+        pendingDefaultPresetRestores.set(key, item);
+        pendingDefaultPresetDeletes.delete(key);
+    }
+
+    clearTimeout(presetSaveTimer);
+    presetSaveTimer = setTimeout(() => {
+        const outgoing = pendingPresetSave;
+        if (!outgoing) return;
+        pendingPresetSave = null;
+        delete outgoing.deleted_default;
+        delete outgoing.restored_default;
+        outgoing.deleted_defaults = Array.from(pendingDefaultPresetDeletes.values());
+        outgoing.restored_defaults = Array.from(pendingDefaultPresetRestores.values());
+        pendingDefaultPresetDeletes.clear();
+        pendingDefaultPresetRestores.clear();
+        const serialized = JSON.stringify(outgoing);
+        presetSaveChain = presetSaveChain
+            .catch(() => {})
+            .then(() => savePresetsToServerNow(serialized));
+    }, 500);
 }
 
 /**
@@ -151,14 +198,18 @@ function installPresetsSyncListener() {
     });
 }
 
-export function savePresetsToStorage() {
+export function savePresetsToStorage(change = null) {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(presetsStore));
     } catch (e) {
         console.warn("[Smart Presets] Failed to save to localStorage:", e);
     }
     // 서버 저장 결과를 기다리지 않는다 — 캔버스 조작은 즉시 반영되어야 한다 (기존 동작).
-    savePresetsToServer(JSON.stringify({ presets: presetsStore }));
+    const payload = { presets: presetsStore };
+    if (change?.deleted_default) payload.deleted_default = change.deleted_default;
+    if (change?.restored_default) payload.restored_default = change.restored_default;
+    if (Array.isArray(change?.restored_defaults)) payload.restored_defaults = change.restored_defaults;
+    queuePresetsServerSave(JSON.stringify(payload));
 }
 
 export function getNodeType(node) {
@@ -796,21 +847,21 @@ app.registerExtension({
                 const nodeType = getNodeType(node);
                 if (!presetsStore[nodeType]) presetsStore[nodeType] = {};
                 presetsStore[nodeType][presetName] = presetData;
-                savePresetsToStorage();
+                savePresetsToStorage({ restored_default: { node_type: nodeType, preset_name: presetName } });
                 app.graph?.setDirtyCanvas(true, true);
             },
             onSave: (node, presetName) => {
                 const nodeType = getNodeType(node);
                 if (!presetsStore[nodeType]) presetsStore[nodeType] = {};
                 presetsStore[nodeType][presetName] = extractNodeState(node);
-                savePresetsToStorage();
+                savePresetsToStorage({ restored_default: { node_type: nodeType, preset_name: presetName } });
                 app.graph?.setDirtyCanvas(true, true);
             },
             onDelete: (node, presetName) => {
                 const nodeType = getNodeType(node);
                 if (presetsStore[nodeType] && presetsStore[nodeType][presetName]) {
                     delete presetsStore[nodeType][presetName];
-                    savePresetsToStorage();
+                    savePresetsToStorage({ deleted_default: { node_type: nodeType, preset_name: presetName } });
                     app.graph?.setDirtyCanvas(true, true);
                 }
             },
@@ -841,7 +892,14 @@ app.registerExtension({
             onImport: (importedData) => {
                 if (importedData && typeof importedData === "object") {
                     presetsStore = { ...presetsStore, ...importedData };
-                    savePresetsToStorage();
+                    const restoredDefaults = [];
+                    for (const [nodeType, nodePresets] of Object.entries(importedData)) {
+                        if (!nodePresets || typeof nodePresets !== "object" || Array.isArray(nodePresets)) continue;
+                        for (const presetName of Object.keys(nodePresets)) {
+                            restoredDefaults.push({ node_type: nodeType, preset_name: presetName });
+                        }
+                    }
+                    savePresetsToStorage({ restored_defaults: restoredDefaults });
                     app.graph?.setDirtyCanvas(true, true);
                     showToast(BadaI18n.t("toast_global_import_success"), "success");
                 }

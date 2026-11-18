@@ -282,6 +282,11 @@ def merge_personal_data(kind, local_data, remote_data, base_keys,
         if k not in tmap or t > tmap[k]:
             tmap[k] = t
 
+    # A tombstone already present in a sidecar is an explicit user deletion.
+    # Keep it even for deployment defaults; only implicit stale-base deletions
+    # of defaults are protected below.
+    explicit_tombs = set(tmap.keys())
+
     # 병합 전에 이미 존재하던 tombstone — 아래 무의미 tombstone 정리에서
     # "이번에 새로 만든 삭제 의도" 는 건드리지 않기 위해 따로 기억한다.
     inherited_tombs = set(tmap.keys())
@@ -294,25 +299,29 @@ def merge_personal_data(kind, local_data, remote_data, base_keys,
         if k not in tmap:
             tmap[k] = float(now_ms)
 
-    # 보호 키(배포 기본 프리셋)는 삭제 전파 대상이 아니다 — 항상 배포본에서 복원된다.
+    # 보호 키(배포 기본 프리셋)는 암묵적 삭제 전파 대상이 아니다.
+    # API 가 기록한 명시적 삭제 tombstone 은 다른 PC 에서도 적용되어야 한다.
     for k in list(tmap.keys()):
-        if k in protected:
+        if k in protected and k not in explicit_tombs:
             tmap.pop(k, None)
 
     # 프리셋은 "이름" 이 곧 식별자라, 삭제한 이름을 나중에 다시 저장할 수 있어야 한다.
     # 항목의 timestamp 가 tombstone 시각보다 최신이면 삭제가 아니라 재추가로 판정한다.
     if kind == "presets":
         for k, ts in _preset_timestamps(local_data, remote_data).items():
-            if ts and k in tmap and ts > tmap[k]:
+            if ts and k in tmap and ts > tmap[k] and k not in protected:
                 tmap.pop(k, None)
 
         # 무의미 tombstone 정리: 이번 병합 이전부터 있던 것이고, 로컬·원격 어디에도
         # 항목이 남아있지 않다면 더 이상 전파할 삭제 의도가 없다. 남겨두면 같은 이름을
         # 영구히 다시 저장할 수 없다. (새로 만든 tombstone 은 최소 1회는 전파돼야 하므로 제외)
+        # 배포 기본 프리셋은 별도 파일에서 API가 다시 노출하므로, 양쪽 사용자 파일에서
+        # 빠져 있어도 명시적 삭제 tombstone 을 유지해야 한다.
         # ※ 대화/즐겨찾기는 고유 ID 를 쓰고 오래 오프라인이던 PC 의 부활을 막는 것이
         #    우선이라 기존 동작(만료 없음)을 유지한다 — 프리셋에만 적용한다.
         for k in list(tmap.keys()):
-            if k in inherited_tombs and k not in local_keys and k not in remote_keys:
+            if (k in inherited_tombs and k not in local_keys and k not in remote_keys
+                    and k not in protected):
                 tmap.pop(k, None)
 
     tomb_keys = set(tmap.keys())

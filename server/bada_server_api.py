@@ -1063,6 +1063,25 @@ def register_bada_api_routes():
                     except Exception as e:
                         logger.warning(f"[Bada-Utils] Failed to load presets_data.json: {e}")
 
+                # Explicitly deleted deployment defaults are recorded in the same
+                # tombstone sidecar that GDrive syncs. Filter them here too, otherwise
+                # the next API load silently puts a deleted default back in the UI.
+                try:
+                    from .bada_sync_merge import normalize_tombstones
+
+                    with open(PRESETS_FILE + ".bada_del", "r", encoding="utf-8") as f:
+                        deleted_keys = normalize_tombstones(json.load(f))
+                    for node_type, presets in list(merged.items()):
+                        if not isinstance(presets, dict):
+                            continue
+                        for preset_name in list(presets.keys()):
+                            if f"{node_type}\u0000{preset_name}" in deleted_keys:
+                                presets.pop(preset_name, None)
+                except FileNotFoundError:
+                    pass
+                except Exception as e:
+                    logger.warning(f"[Bada-Utils] Failed to read preset tombstones: {e}")
+
                 return web.json_response({"success": True, "presets": merged, "hub_presets": {}})
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=500)
@@ -1080,6 +1099,87 @@ def register_bada_api_routes():
                     # 그대로 덮어쓰면 외모/나만의 프리셋이 통째로 사라진다.
                     # preserve_sections 가 기존 파일의 예약 섹션을 붙여 저장한다.
                     preserve_sections(PRESETS_FILE, incoming)
+
+                    # A delete action includes its exact key. Deployment defaults are
+                    # otherwise re-added by load_presets_handler, so persist explicit
+                    # default deletions in the existing cross-PC tombstone sidecar.
+                    from .bada_sync_merge import normalize_tombstones
+                    from .atomic_json import write_json_atomic
+
+                    sidecar = PRESETS_FILE + ".bada_del"
+                    try:
+                        with open(sidecar, "r", encoding="utf-8") as f:
+                            tombstones = normalize_tombstones(json.load(f))
+                    except (FileNotFoundError, ValueError, OSError):
+                        tombstones = {}
+
+                    default_data = {}
+                    if os.path.exists(PRESETS_DEFAULT_FILE):
+                        try:
+                            with open(PRESETS_DEFAULT_FILE, "r", encoding="utf-8") as f:
+                                default_data = json.load(f)
+                        except Exception:
+                            default_data = {}
+                    defaults = {
+                        f"{node_type}\u0000{preset_name}"
+                        for node_type, node_presets in default_data.items()
+                        if isinstance(node_presets, dict)
+                        for preset_name in node_presets
+                    } if isinstance(default_data, dict) else set()
+
+                    # Only an explicit save/import action restores a deleted default.
+                    # A stale full-list snapshot must never clear deletion records.
+                    restored_defaults = body.get("restored_defaults")
+                    if not isinstance(restored_defaults, list):
+                        restored_defaults = []
+                    legacy_restored_default = body.get("restored_default")
+                    if isinstance(legacy_restored_default, dict):
+                        restored_defaults.append(legacy_restored_default)
+                    restored_keys = set()
+                    for restored_default in restored_defaults:
+                        if not isinstance(restored_default, dict):
+                            continue
+                        node_type = restored_default.get("node_type")
+                        preset_name = restored_default.get("preset_name")
+                        key = f"{node_type}\u0000{preset_name}"
+                        if isinstance(node_type, str) and isinstance(preset_name, str) and key in defaults:
+                            tombstones.pop(key, None)
+                            restored_keys.add(key)
+
+                    # Backward-compatible deletion detection: a complete manager save
+                    # omits defaults the user removed. Record those omissions even if
+                    # an older browser bundle did not send per-item delete metadata.
+                    # Presence alone never clears a tombstone; restoration must be explicit.
+                    if isinstance(incoming, dict):
+                        deleted_at = time.time() * 1000.0
+                        for node_type, default_presets in default_data.items():
+                            visible_presets = incoming.get(node_type)
+                            if not isinstance(default_presets, dict) or not isinstance(visible_presets, dict):
+                                continue
+                            for preset_name in default_presets:
+                                key = f"{node_type}\u0000{preset_name}"
+                                if preset_name not in visible_presets and key not in restored_keys:
+                                    tombstones.setdefault(key, deleted_at)
+
+                    deleted_defaults = body.get("deleted_defaults")
+                    if not isinstance(deleted_defaults, list):
+                        deleted_defaults = []
+                    legacy_deleted_default = body.get("deleted_default")
+                    if isinstance(legacy_deleted_default, dict):
+                        deleted_defaults.append(legacy_deleted_default)
+                    for deleted_default in deleted_defaults:
+                        if not isinstance(deleted_default, dict):
+                            continue
+                        node_type = deleted_default.get("node_type")
+                        preset_name = deleted_default.get("preset_name")
+                        key = f"{node_type}\u0000{preset_name}"
+                        if isinstance(node_type, str) and isinstance(preset_name, str) and key in defaults:
+                            tombstones[key] = time.time() * 1000.0
+
+                    write_json_atomic(sidecar, {
+                        "version": 1,
+                        "tombstones": [{"k": key, "t": value} for key, value in sorted(tombstones.items())],
+                    })
                 return web.json_response({"success": True, "message": "Presets saved successfully"})
             except Exception as e:
                 return web.json_response({"success": False, "error": str(e)}, status=500)
